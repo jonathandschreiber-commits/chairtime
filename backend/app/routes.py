@@ -152,3 +152,9 @@ def cancel_appointment(
     db.refresh(appointment)
 
     return appointment
+
+@router.delete("/services")
+def delete_all_services(db: Session = Depends(get_db)):
+    db.query(Service).delete()
+    db.commit()
+    return {"message": "All services deleted"}
