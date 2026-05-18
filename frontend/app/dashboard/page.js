@@ -6,7 +6,7 @@ export default function Dashboard() {
   const [appointments, setAppointments] = useState([]);
 
   function loadAppointments() {
-    fetch("http://127.0.0.1:8000/api/appointments")
+    fetch("https://chairtime-production-94da.up.railway.app/api/appointments")
       .then((res) => res.json())
       .then((data) => setAppointments(data || []));
   }
@@ -17,7 +17,7 @@ export default function Dashboard() {
 
   async function cancelAppointment(id) {
     const response = await fetch(
-      `http://127.0.0.1:8000/api/appointments/${id}/cancel`,
+      `https://chairtime-production-94da.up.railway.app/api/appointments/${id}/cancel`,
       { method: "PATCH" }
     );
 

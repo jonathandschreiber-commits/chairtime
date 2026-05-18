@@ -18,7 +18,7 @@ export default function Home() {
     setSelectedSlot("");
 
     fetch(
-      `http://127.0.0.1:8000/api/availability?barber_id=${barberId}&service_id=${serviceId}&target_date=${dateToLoad}`
+      `https://chairtime-production-94da.up.railway.app/api/availability?barber_id=${barberId}&service_id=${serviceId}&target_date=${dateToLoad}`
     )
       .then((res) => res.json())
       .then((data) => setSlots(data.slots || []));
@@ -42,7 +42,7 @@ export default function Home() {
       return;
     }
 
-    const response = await fetch("http://127.0.0.1:8000/api/appointments", {
+    const response = await fetch("https://chairtime-production-94da.up.railway.app/api/appointments", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
