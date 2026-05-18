@@ -5,16 +5,29 @@ import { useEffect, useState } from "react";
 const API_BASE = "https://chairtime-production-94da.up.railway.app";
 
 export default function Home() {
-  const [slots, setSlots] = useState([]);
+  const [barbers, setBarbers] = useState([]);
   const [services, setServices] = useState([]);
+  const [slots, setSlots] = useState([]);
+
+  const [selectedBarber, setSelectedBarber] = useState("");
   const [selectedService, setSelectedService] = useState("");
   const [selectedDate, setSelectedDate] = useState("2026-05-15");
   const [selectedSlot, setSelectedSlot] = useState("");
+
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [message, setMessage] = useState("");
 
-  const barberId = "c36fbd7b-c3a7-46ce-aa01-6d3952de4b5d";
+  async function loadBarbers() {
+    const response = await fetch(`${API_BASE}/api/barbers`);
+    const data = await response.json();
+
+    setBarbers(data);
+
+    if (data.length > 0) {
+      setSelectedBarber(data[0].id);
+    }
+  }
 
   async function loadServices() {
     const response = await fetch(`${API_BASE}/api/services`);
@@ -27,8 +40,12 @@ export default function Home() {
     }
   }
 
-  async function loadSlots(dateToLoad = selectedDate, serviceId = selectedService) {
-    if (!serviceId) return;
+  async function loadSlots(
+    dateToLoad = selectedDate,
+    barberId = selectedBarber,
+    serviceId = selectedService
+  ) {
+    if (!barberId || !serviceId) return;
 
     setMessage("");
     setSelectedSlot("");
@@ -42,25 +59,32 @@ export default function Home() {
   }
 
   useEffect(() => {
+    loadBarbers();
     loadServices();
   }, []);
 
   useEffect(() => {
-    if (selectedService) {
-      loadSlots(selectedDate, selectedService);
+    if (selectedBarber && selectedService) {
+      loadSlots(selectedDate, selectedBarber, selectedService);
     }
-  }, [selectedService]);
+  }, [selectedBarber, selectedService]);
 
   function handleDateChange(e) {
     const newDate = e.target.value;
     setSelectedDate(newDate);
-    loadSlots(newDate, selectedService);
+    loadSlots(newDate, selectedBarber, selectedService);
   }
 
   async function bookAppointment() {
     setMessage("");
 
-    if (!selectedSlot || !customerName || !customerPhone || !selectedService) {
+    if (
+      !selectedBarber ||
+      !selectedService ||
+      !selectedSlot ||
+      !customerName ||
+      !customerPhone
+    ) {
       setMessage("Please complete all fields.");
       return;
     }
@@ -71,7 +95,7 @@ export default function Home() {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        barber_id: barberId,
+        barber_id: selectedBarber,
         service_id: selectedService,
         customer_name: customerName,
         customer_phone: customerPhone,
@@ -84,10 +108,10 @@ export default function Home() {
       setSelectedSlot("");
       setCustomerName("");
       setCustomerPhone("");
-      loadSlots(selectedDate, selectedService);
+      loadSlots(selectedDate, selectedBarber, selectedService);
     } else if (response.status === 409) {
       setMessage("That time was just booked.");
-      loadSlots(selectedDate, selectedService);
+      loadSlots(selectedDate, selectedBarber, selectedService);
     } else {
       setMessage("Booking failed.");
     }
@@ -99,6 +123,25 @@ export default function Home() {
         <h1 className="text-4xl font-bold mb-2">ChairTime</h1>
 
         <p className="text-gray-600 mb-8">Book your appointment</p>
+
+        <label className="block font-semibold mb-2">Choose a barber</label>
+
+        <div className="grid grid-cols-1 gap-3 mb-6">
+          {barbers.map((barber) => (
+            <button
+              key={barber.id}
+              onClick={() => setSelectedBarber(barber.id)}
+              className={`p-4 border rounded-xl text-left ${
+                selectedBarber === barber.id
+                  ? "bg-black text-white"
+                  : "bg-white"
+              }`}
+            >
+              <div className="font-semibold">{barber.name}</div>
+              <div className="text-sm">{barber.shop_name}</div>
+            </button>
+          ))}
+        </div>
 
         <label className="block font-semibold mb-2">Choose a service</label>
 
