@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 
 export default function Home() {
   const [slots, setSlots] = useState([]);
+  const [services, setServices] = useState([]);
+  const [selectedService, setSelectedService] = useState("");
   const [selectedDate, setSelectedDate] = useState("2026-05-15");
   const [selectedSlot, setSelectedSlot] = useState("");
   const [customerName, setCustomerName] = useState("");
@@ -11,62 +13,96 @@ export default function Home() {
   const [message, setMessage] = useState("");
 
   const barberId = "c36fbd7b-c3a7-46ce-aa01-6d3952de4b5d";
-  const serviceId = "59be4262-cd6d-4440-afcf-107e327b1a69";
 
-  function loadSlots(dateToLoad = selectedDate) {
+  async function loadServices() {
+    const response = await fetch(
+      "https://chairtime-production-94da.up.railway.app/api/services"
+    );
+
+    const data = await response.json();
+
+    setServices(data);
+
+    if (data.length > 0) {
+      setSelectedService(data[0].id);
+    }
+  }
+
+  async function loadSlots(
+    dateToLoad = selectedDate,
+    serviceId = selectedService
+  ) {
+    if (!serviceId) return;
+
     setMessage("");
     setSelectedSlot("");
 
-    fetch(
+    const response = await fetch(
       `https://chairtime-production-94da.up.railway.app/api/availability?barber_id=${barberId}&service_id=${serviceId}&target_date=${dateToLoad}`
-    )
-      .then((res) => res.json())
-      .then((data) => setSlots(data.slots || []));
+    );
+
+    const data = await response.json();
+
+    setSlots(data.slots || []);
   }
 
   useEffect(() => {
-    loadSlots(selectedDate);
+    loadServices();
   }, []);
+
+  useEffect(() => {
+    if (selectedService) {
+      loadSlots(selectedDate, selectedService);
+    }
+  }, [selectedService]);
 
   function handleDateChange(e) {
     const newDate = e.target.value;
     setSelectedDate(newDate);
-    loadSlots(newDate);
+    loadSlots(newDate, selectedService);
   }
 
   async function bookAppointment() {
     setMessage("");
 
-    if (!selectedSlot || !customerName || !customerPhone) {
-      setMessage("Please choose a time and enter your name and phone number.");
+    if (
+      !selectedSlot ||
+      !customerName ||
+      !customerPhone ||
+      !selectedService
+    ) {
+      setMessage("Please complete all fields.");
       return;
     }
 
-    const response = await fetch("https://chairtime-production-94da.up.railway.app/api/appointments", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        barber_id: barberId,
-        service_id: serviceId,
-        customer_name: customerName,
-        customer_phone: customerPhone,
-        start_datetime: selectedSlot,
-      }),
-    });
+    const response = await fetch(
+      "https://chairtime-production-94da.up.railway.app/api/appointments",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          barber_id: barberId,
+          service_id: selectedService,
+          customer_name: customerName,
+          customer_phone: customerPhone,
+          start_datetime: selectedSlot,
+        }),
+      }
+    );
 
     if (response.ok) {
       setMessage("Appointment booked successfully!");
       setSelectedSlot("");
       setCustomerName("");
       setCustomerPhone("");
-      loadSlots(selectedDate);
+      loadSlots(selectedDate, selectedService);
     } else if (response.status === 409) {
-      setMessage("That time was just booked. Please choose another time.");
-      loadSlots(selectedDate);
+      setMessage("That time was just booked.");
+      loadSlots(selectedDate, selectedService);
     } else {
-      setMessage("Booking failed. Please try again.");
+      setMessage("Booking failed.");
     }
   }
 
@@ -75,7 +111,25 @@ export default function Home() {
       <div className="max-w-2xl mx-auto bg-white rounded-2xl shadow p-8">
         <h1 className="text-4xl font-bold mb-2">ChairTime</h1>
 
-        <p className="text-gray-600 mb-8">Book your appointment</p>
+        <p className="text-gray-600 mb-8">
+          Book your appointment
+        </p>
+
+        <label className="block font-semibold mb-2">
+          Choose a service
+        </label>
+
+        <select
+          value={selectedService}
+          onChange={(e) => setSelectedService(e.target.value)}
+          className="w-full border rounded-xl p-3 mb-6"
+        >
+          {services.map((service) => (
+            <option key={service.id} value={service.id}>
+              {service.name} — ${service.price}
+            </option>
+          ))}
+        </select>
 
         <label className="block font-semibold mb-2">
           Choose a date
@@ -91,7 +145,7 @@ export default function Home() {
         <div className="grid grid-cols-2 gap-3 mb-8">
           {slots.length === 0 && (
             <p className="text-gray-500 col-span-2">
-              No available times for this date.
+              No available times.
             </p>
           )}
 
@@ -134,7 +188,11 @@ export default function Home() {
           </button>
         </div>
 
-        {message && <p className="mt-6 font-medium">{message}</p>}
+        {message && (
+          <p className="mt-6 font-medium">
+            {message}
+          </p>
+        )}
       </div>
     </main>
   );
