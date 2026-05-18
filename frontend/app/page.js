@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 
+const API_BASE = "https://chairtime-production-94da.up.railway.app";
+
 export default function Home() {
   const [slots, setSlots] = useState([]);
   const [services, setServices] = useState([]);
@@ -15,10 +17,7 @@ export default function Home() {
   const barberId = "c36fbd7b-c3a7-46ce-aa01-6d3952de4b5d";
 
   async function loadServices() {
-    const response = await fetch(
-      "https://chairtime-production-94da.up.railway.app/api/services"
-    );
-
+    const response = await fetch(`${API_BASE}/api/services`);
     const data = await response.json();
 
     setServices(data);
@@ -28,21 +27,17 @@ export default function Home() {
     }
   }
 
-  async function loadSlots(
-    dateToLoad = selectedDate,
-    serviceId = selectedService
-  ) {
+  async function loadSlots(dateToLoad = selectedDate, serviceId = selectedService) {
     if (!serviceId) return;
 
     setMessage("");
     setSelectedSlot("");
 
     const response = await fetch(
-      `https://chairtime-production-94da.up.railway.app/api/availability?barber_id=${barberId}&service_id=${serviceId}&target_date=${dateToLoad}`
+      `${API_BASE}/api/availability?barber_id=${barberId}&service_id=${serviceId}&target_date=${dateToLoad}`
     );
 
     const data = await response.json();
-
     setSlots(data.slots || []);
   }
 
@@ -65,32 +60,24 @@ export default function Home() {
   async function bookAppointment() {
     setMessage("");
 
-    if (
-      !selectedSlot ||
-      !customerName ||
-      !customerPhone ||
-      !selectedService
-    ) {
+    if (!selectedSlot || !customerName || !customerPhone || !selectedService) {
       setMessage("Please complete all fields.");
       return;
     }
 
-    const response = await fetch(
-      "https://chairtime-production-94da.up.railway.app/api/appointments",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          barber_id: barberId,
-          service_id: selectedService,
-          customer_name: customerName,
-          customer_phone: customerPhone,
-          start_datetime: selectedSlot,
-        }),
-      }
-    );
+    const response = await fetch(`${API_BASE}/api/appointments`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        barber_id: barberId,
+        service_id: selectedService,
+        customer_name: customerName,
+        customer_phone: customerPhone,
+        start_datetime: selectedSlot,
+      }),
+    });
 
     if (response.ok) {
       setMessage("Appointment booked successfully!");
@@ -107,33 +94,34 @@ export default function Home() {
   }
 
   return (
-    <main className="min-h-screen bg-gray-100 p-10">
-      <div className="max-w-2xl mx-auto bg-white rounded-2xl shadow p-8">
+    <main className="min-h-screen bg-gray-100 p-4 sm:p-10">
+      <div className="max-w-2xl mx-auto bg-white rounded-2xl shadow p-6 sm:p-8">
         <h1 className="text-4xl font-bold mb-2">ChairTime</h1>
 
-        <p className="text-gray-600 mb-8">
-          Book your appointment
-        </p>
+        <p className="text-gray-600 mb-8">Book your appointment</p>
 
-        <label className="block font-semibold mb-2">
-          Choose a service
-        </label>
+        <label className="block font-semibold mb-2">Choose a service</label>
 
-        <select
-          value={selectedService}
-          onChange={(e) => setSelectedService(e.target.value)}
-          className="w-full border rounded-xl p-3 mb-6"
-        >
+        <div className="grid grid-cols-1 gap-3 mb-6">
           {services.map((service) => (
-            <option key={service.id} value={service.id}>
-              {service.name} — ${service.price}
-            </option>
+            <button
+              key={service.id}
+              onClick={() => setSelectedService(service.id)}
+              className={`p-4 border rounded-xl text-left ${
+                selectedService === service.id
+                  ? "bg-black text-white"
+                  : "bg-white"
+              }`}
+            >
+              <div className="font-semibold">{service.name}</div>
+              <div className="text-sm">
+                ${service.price} · {service.duration_minutes} minutes
+              </div>
+            </button>
           ))}
-        </select>
+        </div>
 
-        <label className="block font-semibold mb-2">
-          Choose a date
-        </label>
+        <label className="block font-semibold mb-2">Choose a date</label>
 
         <input
           type="date"
@@ -144,9 +132,7 @@ export default function Home() {
 
         <div className="grid grid-cols-2 gap-3 mb-8">
           {slots.length === 0 && (
-            <p className="text-gray-500 col-span-2">
-              No available times.
-            </p>
+            <p className="text-gray-500 col-span-2">No available times.</p>
           )}
 
           {slots.map((slot) => (
@@ -188,11 +174,7 @@ export default function Home() {
           </button>
         </div>
 
-        {message && (
-          <p className="mt-6 font-medium">
-            {message}
-          </p>
-        )}
+        {message && <p className="mt-6 font-medium">{message}</p>}
       </div>
     </main>
   );
