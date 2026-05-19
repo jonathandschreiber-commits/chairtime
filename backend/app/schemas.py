@@ -29,3 +29,14 @@ class AppointmentCreate(BaseModel):
     customer_name: str
     customer_phone: str
     start_datetime: datetime
+
+class ShopCreate(BaseModel):
+    name: str
+    business_type: str
+    phone: str | None = None
+    timezone: str = "America/New_York"
+
+    accepts_cards: int = 0
+    requires_deposit: int = 0
+    deposit_amount: int | None = None
+    no_show_fee: int | None = None

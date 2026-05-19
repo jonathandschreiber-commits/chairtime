@@ -4,12 +4,13 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Barber, Service, AvailabilityRule, Appointment
+from app.models import Barber, Service, AvailabilityRule, Appointment, Shop
 from app.schemas import (
     BarberCreate,
     ServiceCreate,
     AvailabilityCreate,
     AppointmentCreate,
+    ShopCreate,
 )
 from app.scheduling import has_overlap, generate_available_slots
 
@@ -158,3 +159,18 @@ def delete_all_services(db: Session = Depends(get_db)):
     db.query(Service).delete()
     db.commit()
     return {"message": "All services deleted"}
+
+@router.post("/shops")
+def create_shop(payload: ShopCreate, db: Session = Depends(get_db)):
+    shop = Shop(**payload.model_dump())
+
+    db.add(shop)
+    db.commit()
+    db.refresh(shop)
+
+    return shop
+
+
+@router.get("/shops")
+def list_shops(db: Session = Depends(get_db)):
+    return db.query(Shop).all()

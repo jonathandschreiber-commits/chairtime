@@ -44,3 +44,17 @@ class Appointment(Base):
     start_datetime = Column(DateTime, nullable=False)
     end_datetime = Column(DateTime, nullable=False)
     status = Column(String, default="confirmed")
+
+class Shop(Base):
+    __tablename__ = "shops"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    name = Column(String, nullable=False)
+    business_type = Column(String, nullable=False, default="barbershop")
+    phone = Column(String, nullable=True)
+    timezone = Column(String, nullable=False, default="America/New_York")
+
+    accepts_cards = Column(Integer, default=0)
+    requires_deposit = Column(Integer, default=0)
+    deposit_amount = Column(Integer, nullable=True)
+    no_show_fee = Column(Integer, nullable=True)
