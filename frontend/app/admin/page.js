@@ -76,15 +76,13 @@ export default function AdminPage() {
       return;
     }
 
-    const mainBarberId = "c36fbd7b-c3a7-46ce-aa01-6d3952de4b5d";
-
-    await fetch(`${API_BASE}/api/services`, {
+        await fetch(`${API_BASE}/api/services`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        barber_id: mainBarberId,
+        barber_id: barbers[0]?.id,
         name: serviceName,
         duration_minutes: Number(serviceDuration),
         price: Number(servicePrice),
