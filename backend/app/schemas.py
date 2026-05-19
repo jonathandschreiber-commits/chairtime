@@ -40,3 +40,9 @@ class ShopCreate(BaseModel):
     requires_deposit: int = 0
     deposit_amount: int | None = None
     no_show_fee: int | None = None
+
+class BlockedTimeCreate(BaseModel):
+    barber_id: str
+    start_datetime: datetime
+    end_datetime: datetime
+    reason: str | None = None

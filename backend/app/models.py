@@ -58,3 +58,12 @@ class Shop(Base):
     requires_deposit = Column(Integer, default=0)
     deposit_amount = Column(Integer, nullable=True)
     no_show_fee = Column(Integer, nullable=True)
+
+class BlockedTime(Base):
+    __tablename__ = "blocked_times"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    barber_id = Column(String, ForeignKey("barbers.id"), nullable=False)
+    start_datetime = Column(DateTime, nullable=False)
+    end_datetime = Column(DateTime, nullable=False)
+    reason = Column(String, nullable=True)

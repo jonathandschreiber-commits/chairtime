@@ -2,21 +2,27 @@ from datetime import datetime, timedelta
 
 from sqlalchemy.orm import Session
 
-from app.models import Appointment, AvailabilityRule, Service
+from app.models import Appointment, AvailabilityRule, Service, BlockedTime, BlockedTime
 
 
 SLOT_INCREMENT_MINUTES = 15
 
 
 def has_overlap(db: Session, barber_id: str, requested_start: datetime, requested_end: datetime) -> bool:
-    conflict = db.query(Appointment).filter(
+    appointment_conflict = db.query(Appointment).filter(
         Appointment.barber_id == barber_id,
         Appointment.status == "confirmed",
         Appointment.start_datetime < requested_end,
         Appointment.end_datetime > requested_start,
     ).first()
 
-    return conflict is not None
+    blocked_conflict = db.query(BlockedTime).filter(
+        BlockedTime.barber_id == barber_id,
+        BlockedTime.start_datetime < requested_end,
+        BlockedTime.end_datetime > requested_start,
+    ).first()
+
+    return appointment_conflict is not None or blocked_conflict is not None
 
 
 def generate_available_slots(db: Session, barber_id: str, service_id: str, target_date):

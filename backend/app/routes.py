@@ -4,13 +4,14 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Barber, Service, AvailabilityRule, Appointment, Shop
+from app.models import Barber, Service, AvailabilityRule, Appointment, Shop, BlockedTime
 from app.schemas import (
     BarberCreate,
     ServiceCreate,
     AvailabilityCreate,
     AppointmentCreate,
     ShopCreate,
+    BlockedTimeCreate ,
 )
 from app.scheduling import has_overlap, generate_available_slots
 
@@ -174,3 +175,21 @@ def create_shop(payload: ShopCreate, db: Session = Depends(get_db)):
 @router.get("/shops")
 def list_shops(db: Session = Depends(get_db)):
     return db.query(Shop).all()
+
+@router.post("/blocked-times")
+def create_blocked_time(
+    payload: BlockedTimeCreate,
+    db: Session = Depends(get_db),
+):
+    blocked_time = BlockedTime(**payload.model_dump())
+
+    db.add(blocked_time)
+    db.commit()
+    db.refresh(blocked_time)
+
+    return blocked_time
+
+
+@router.get("/blocked-times")
+def list_blocked_times(db: Session = Depends(get_db)):
+    return db.query(BlockedTime).all()
