@@ -9,6 +9,12 @@ export default function AdminPage() {
   const [barbers, setBarbers] = useState([]);
   const [services, setServices] = useState([]);
 
+  const [barberName, setBarberName] = useState("");
+  const [serviceName, setServiceName] = useState("");
+  const [serviceDuration, setServiceDuration] = useState("");
+  const [servicePrice, setServicePrice] = useState("");
+  const [message, setMessage] = useState("");
+
   async function loadData() {
     const [shopsRes, barbersRes, servicesRes] = await Promise.all([
       fetch(`${API_BASE}/api/shops`),
@@ -25,6 +31,58 @@ export default function AdminPage() {
     loadData();
   }, []);
 
+  async function addBarber() {
+    if (!barberName) {
+      setMessage("Please enter a barber name.");
+      return;
+    }
+
+    await fetch(`${API_BASE}/api/barbers`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        name: barberName,
+        shop_name: "ChairTime Barbershop",
+        phone: "",
+        timezone: "America/New_York",
+      }),
+    });
+
+    setBarberName("");
+    setMessage("Barber added.");
+    loadData();
+  }
+
+  async function addService() {
+    if (!serviceName || !serviceDuration || !servicePrice) {
+      setMessage("Please complete all service fields.");
+      return;
+    }
+
+    const mainBarberId = "c36fbd7b-c3a7-46ce-aa01-6d3952de4b5d";
+
+    await fetch(`${API_BASE}/api/services`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        barber_id: mainBarberId,
+        name: serviceName,
+        duration_minutes: Number(serviceDuration),
+        price: Number(servicePrice),
+      }),
+    });
+
+    setServiceName("");
+    setServiceDuration("");
+    setServicePrice("");
+    setMessage("Service added.");
+    loadData();
+  }
+
   return (
     <main className="min-h-screen bg-gray-100 p-4 sm:p-10">
       <div className="max-w-5xl mx-auto space-y-6">
@@ -33,6 +91,8 @@ export default function AdminPage() {
           <p className="text-gray-600">
             Manage shop settings, staff, services, and pricing.
           </p>
+
+          {message && <p className="mt-4 font-medium">{message}</p>}
         </div>
 
         <section className="bg-white rounded-2xl shadow p-6">
@@ -52,6 +112,26 @@ export default function AdminPage() {
         </section>
 
         <section className="bg-white rounded-2xl shadow p-6">
+          <h2 className="text-2xl font-bold mb-4">Add Barber / Staff</h2>
+
+          <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
+            <input
+              className="border rounded-xl p-3"
+              placeholder="Barber name"
+              value={barberName}
+              onChange={(e) => setBarberName(e.target.value)}
+            />
+
+            <button
+              onClick={addBarber}
+              className="bg-black text-white rounded-xl px-6 py-3 font-semibold"
+            >
+              Add Barber
+            </button>
+          </div>
+        </section>
+
+        <section className="bg-white rounded-2xl shadow p-6">
           <h2 className="text-2xl font-bold mb-4">Barbers / Staff</h2>
 
           <div className="grid gap-3">
@@ -61,6 +141,40 @@ export default function AdminPage() {
                 <p className="text-gray-600">{barber.shop_name}</p>
               </div>
             ))}
+          </div>
+        </section>
+
+        <section className="bg-white rounded-2xl shadow p-6">
+          <h2 className="text-2xl font-bold mb-4">Add Service</h2>
+
+          <div className="grid gap-3 sm:grid-cols-4">
+            <input
+              className="border rounded-xl p-3"
+              placeholder="Service name"
+              value={serviceName}
+              onChange={(e) => setServiceName(e.target.value)}
+            />
+
+            <input
+              className="border rounded-xl p-3"
+              placeholder="Duration"
+              value={serviceDuration}
+              onChange={(e) => setServiceDuration(e.target.value)}
+            />
+
+            <input
+              className="border rounded-xl p-3"
+              placeholder="Price"
+              value={servicePrice}
+              onChange={(e) => setServicePrice(e.target.value)}
+            />
+
+            <button
+              onClick={addService}
+              className="bg-black text-white rounded-xl px-6 py-3 font-semibold"
+            >
+              Add Service
+            </button>
           </div>
         </section>
 
