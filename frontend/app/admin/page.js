@@ -10,6 +10,15 @@ export default function AdminPage() {
   const [services, setServices] = useState([]);
   const [blockedTimes, setBlockedTimes] = useState([]);
 
+  const [editingBarberId, setEditingBarberId] = useState(null);
+  const [editingServiceId, setEditingServiceId] = useState(null);
+
+  const [editedBarberName, setEditedBarberName] = useState("");
+
+  const [editedServiceName, setEditedServiceName] = useState("");
+  const [editedServiceDuration, setEditedServiceDuration] = useState("");
+  const [editedServicePrice, setEditedServicePrice] = useState("");
+
   const [barberName, setBarberName] = useState("");
   const [serviceName, setServiceName] = useState("");
   const [serviceDuration, setServiceDuration] = useState("");
@@ -74,6 +83,22 @@ export default function AdminPage() {
     loadData();
   }
 
+  async function updateBarber(id) {
+    await fetch(`${API_BASE}/api/barbers/${id}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        name: editedBarberName,
+      }),
+    });
+
+    setEditingBarberId(null);
+    setMessage("Barber updated.");
+    loadData();
+  }
+
   async function addService() {
     await fetch(`${API_BASE}/api/services`, {
       method: "POST",
@@ -101,6 +126,24 @@ export default function AdminPage() {
     });
 
     setMessage("Service deleted.");
+    loadData();
+  }
+
+  async function updateService(id) {
+    await fetch(`${API_BASE}/api/services/${id}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        name: editedServiceName,
+        duration_minutes: Number(editedServiceDuration),
+        price: Number(editedServicePrice),
+      }),
+    });
+
+    setEditingServiceId(null);
+    setMessage("Service updated.");
     loadData();
   }
 
@@ -148,18 +191,6 @@ export default function AdminPage() {
         </div>
 
         <section className="bg-white rounded-2xl shadow p-6">
-          <h2 className="text-2xl font-bold mb-4">Shop Settings</h2>
-
-          {shops.map((shop) => (
-            <div key={shop.id} className="border rounded-xl p-4">
-              <p className="font-semibold">{shop.name}</p>
-              <p>Type: {shop.business_type}</p>
-              <p>Phone: {shop.phone}</p>
-            </div>
-          ))}
-        </section>
-
-        <section className="bg-white rounded-2xl shadow p-6">
           <h2 className="text-2xl font-bold mb-4">Add Barber / Staff</h2>
 
           <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
@@ -188,17 +219,55 @@ export default function AdminPage() {
                 key={barber.id}
                 className="border rounded-xl p-4 flex justify-between items-center"
               >
-                <div>
-                  <p className="font-semibold">{barber.name}</p>
-                  <p className="text-gray-600">{barber.shop_name}</p>
-                </div>
+                {editingBarberId === barber.id ? (
+                  <div className="flex gap-2 w-full">
+                    <input
+                      className="border rounded-xl p-2 flex-1"
+                      value={editedBarberName}
+                      onChange={(e) => setEditedBarberName(e.target.value)}
+                    />
 
-                <button
-                  onClick={() => deleteBarber(barber.id)}
-                  className="bg-red-500 text-white px-4 py-2 rounded-xl"
-                >
-                  Delete
-                </button>
+                    <button
+                      onClick={() => updateBarber(barber.id)}
+                      className="bg-green-600 text-white px-4 py-2 rounded-xl"
+                    >
+                      Save
+                    </button>
+
+                    <button
+                      onClick={() => setEditingBarberId(null)}
+                      className="bg-gray-400 text-white px-4 py-2 rounded-xl"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <div>
+                      <p className="font-semibold">{barber.name}</p>
+                      <p className="text-gray-600">{barber.shop_name}</p>
+                    </div>
+
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => {
+                          setEditingBarberId(barber.id);
+                          setEditedBarberName(barber.name);
+                        }}
+                        className="bg-blue-500 text-white px-4 py-2 rounded-xl"
+                      >
+                        Edit
+                      </button>
+
+                      <button
+                        onClick={() => deleteBarber(barber.id)}
+                        className="bg-red-500 text-white px-4 py-2 rounded-xl"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
             ))}
           </div>
@@ -247,24 +316,80 @@ export default function AdminPage() {
                 key={service.id}
                 className="border rounded-xl p-4 flex justify-between items-center"
               >
-                <div>
-                  <p className="font-semibold">{service.name}</p>
+                {editingServiceId === service.id ? (
+                  <div className="flex gap-2 w-full">
+                    <input
+                      className="border rounded-xl p-2 flex-1"
+                      value={editedServiceName}
+                      onChange={(e) => setEditedServiceName(e.target.value)}
+                    />
 
-                  <p className="text-gray-600">
-                    {service.duration_minutes} minutes
-                  </p>
-                </div>
+                    <input
+                      className="border rounded-xl p-2 w-24"
+                      value={editedServiceDuration}
+                      onChange={(e) =>
+                        setEditedServiceDuration(e.target.value)
+                      }
+                    />
 
-                <div className="flex gap-3 items-center">
-                  <p className="font-bold">${service.price}</p>
+                    <input
+                      className="border rounded-xl p-2 w-24"
+                      value={editedServicePrice}
+                      onChange={(e) =>
+                        setEditedServicePrice(e.target.value)
+                      }
+                    />
 
-                  <button
-                    onClick={() => deleteService(service.id)}
-                    className="bg-red-500 text-white px-4 py-2 rounded-xl"
-                  >
-                    Delete
-                  </button>
-                </div>
+                    <button
+                      onClick={() => updateService(service.id)}
+                      className="bg-green-600 text-white px-4 py-2 rounded-xl"
+                    >
+                      Save
+                    </button>
+
+                    <button
+                      onClick={() => setEditingServiceId(null)}
+                      className="bg-gray-400 text-white px-4 py-2 rounded-xl"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <div>
+                      <p className="font-semibold">{service.name}</p>
+
+                      <p className="text-gray-600">
+                        {service.duration_minutes} minutes
+                      </p>
+                    </div>
+
+                    <div className="flex gap-2 items-center">
+                      <p className="font-bold">${service.price}</p>
+
+                      <button
+                        onClick={() => {
+                          setEditingServiceId(service.id);
+                          setEditedServiceName(service.name);
+                          setEditedServiceDuration(
+                            service.duration_minutes
+                          );
+                          setEditedServicePrice(service.price);
+                        }}
+                        className="bg-blue-500 text-white px-4 py-2 rounded-xl"
+                      >
+                        Edit
+                      </button>
+
+                      <button
+                        onClick={() => deleteService(service.id)}
+                        className="bg-red-500 text-white px-4 py-2 rounded-xl"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
             ))}
           </div>
