@@ -12,6 +12,8 @@ from app.schemas import (
     AppointmentCreate,
     ShopCreate,
     BlockedTimeCreate ,
+    BarberUpdate,
+    ServiceUpdate,
 )
 from app.scheduling import has_overlap, generate_available_slots
 
@@ -236,3 +238,46 @@ def delete_blocked_time(
     db.commit()
 
     return {"message": "Blocked time deleted"}
+
+@router.patch("/barbers/{barber_id}")
+def update_barber(
+    barber_id: str,
+    payload: BarberUpdate,
+    db: Session = Depends(get_db),
+):
+    barber = db.query(Barber).filter(Barber.id == barber_id).first()
+
+    if not barber:
+        raise HTTPException(status_code=404, detail="Barber not found")
+
+    updates = payload.model_dump(exclude_unset=True)
+
+    for key, value in updates.items():
+        setattr(barber, key, value)
+
+    db.commit()
+    db.refresh(barber)
+
+    return barber
+
+
+@router.patch("/services/{service_id}")
+def update_service(
+    service_id: str,
+    payload: ServiceUpdate,
+    db: Session = Depends(get_db),
+):
+    service = db.query(Service).filter(Service.id == service_id).first()
+
+    if not service:
+        raise HTTPException(status_code=404, detail="Service not found")
+
+    updates = payload.model_dump(exclude_unset=True)
+
+    for key, value in updates.items():
+        setattr(service, key, value)
+
+    db.commit()
+    db.refresh(service)
+
+    return service

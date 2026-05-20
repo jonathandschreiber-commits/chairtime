@@ -46,3 +46,12 @@ class BlockedTimeCreate(BaseModel):
     start_datetime: datetime
     end_datetime: datetime
     reason: str | None = None
+
+class BarberUpdate(BaseModel):
+    name: str | None = None
+
+
+class ServiceUpdate(BaseModel):
+    name: str | None = None
+    duration_minutes: int | None = None
+    price: int | None = None
