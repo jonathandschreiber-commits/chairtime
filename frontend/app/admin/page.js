@@ -183,7 +183,7 @@ export default function AdminPage() {
         <div className="bg-white rounded-2xl shadow p-6 sm:p-8">
           <h1 className="text-4xl font-bold mb-2">ChairTime Admin</h1>
 
-          <p className="text-gray-600">
+          <p className="text-gray-900">
             Manage shop settings, staff, services, pricing, and blocked time.
           </p>
 
@@ -245,7 +245,7 @@ export default function AdminPage() {
                   <>
                     <div>
                       <p className="font-semibold">{barber.name}</p>
-                      <p className="text-gray-600">{barber.shop_name}</p>
+                      <p className="text-gray-900">{barber.shop_name}</p>
                     </div>
 
                     <div className="flex gap-2">
@@ -359,7 +359,7 @@ export default function AdminPage() {
                     <div>
                       <p className="font-semibold">{service.name}</p>
 
-                      <p className="text-gray-600">
+                      <p className="text-gray-900">
                         {service.duration_minutes} minutes
                       </p>
                     </div>
@@ -458,7 +458,7 @@ export default function AdminPage() {
                 <div>
                   <p className="font-semibold">{block.reason}</p>
 
-                  <p className="text-gray-600">
+                  <p className="text-gray-900">
                     {new Date(block.start_datetime).toLocaleString()} →{" "}
                     {new Date(block.end_datetime).toLocaleString()}
                   </p>
