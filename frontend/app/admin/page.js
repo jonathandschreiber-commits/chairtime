@@ -190,7 +190,7 @@ export default function AdminPage() {
           {message && <p className="mt-4 font-medium">{message}</p>}
         </div>
 
-        <section className="bg-white rounded-2xl shadow p-6">
+        <section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-gray-200">
           <h2 className="text-2xl font-bold mb-4">Add Barber / Staff</h2>
 
           <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
@@ -210,7 +210,7 @@ export default function AdminPage() {
           </div>
         </section>
 
-        <section className="bg-white rounded-2xl shadow p-6">
+        <section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-gray-200">
           <h2 className="text-2xl font-bold mb-4">Barbers / Staff</h2>
 
           <div className="grid gap-3">
@@ -273,7 +273,7 @@ export default function AdminPage() {
           </div>
         </section>
 
-        <section className="bg-white rounded-2xl shadow p-6">
+        <section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-gray-200">
           <h2 className="text-2xl font-bold mb-4">Add Service</h2>
 
           <div className="grid gap-3 sm:grid-cols-4">
@@ -307,7 +307,7 @@ export default function AdminPage() {
           </div>
         </section>
 
-        <section className="bg-white rounded-2xl shadow p-6">
+        <section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-gray-200">
           <h2 className="text-2xl font-bold mb-4">Services</h2>
 
           <div className="grid gap-3">
@@ -395,7 +395,7 @@ export default function AdminPage() {
           </div>
         </section>
 
-        <section className="bg-white rounded-2xl shadow p-6">
+        <section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-gray-200">
           <h2 className="text-2xl font-bold mb-4">Quick Block Time</h2>
 
           <div className="grid gap-3">
@@ -446,7 +446,7 @@ export default function AdminPage() {
           </div>
         </section>
 
-        <section className="bg-white rounded-2xl shadow p-6">
+        <section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-gray-200">
           <h2 className="text-2xl font-bold mb-4">Blocked Times</h2>
 
           <div className="grid gap-3">
