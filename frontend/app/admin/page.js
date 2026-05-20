@@ -47,11 +47,6 @@ export default function AdminPage() {
   }, []);
 
   async function addBarber() {
-    if (!barberName) {
-      setMessage("Please enter a barber name.");
-      return;
-    }
-
     await fetch(`${API_BASE}/api/barbers`, {
       method: "POST",
       headers: {
@@ -70,13 +65,17 @@ export default function AdminPage() {
     loadData();
   }
 
-  async function addService() {
-    if (!serviceName || !serviceDuration || !servicePrice) {
-      setMessage("Please complete all service fields.");
-      return;
-    }
+  async function deleteBarber(id) {
+    await fetch(`${API_BASE}/api/barbers/${id}`, {
+      method: "DELETE",
+    });
 
-        await fetch(`${API_BASE}/api/services`, {
+    setMessage("Barber deleted.");
+    loadData();
+  }
+
+  async function addService() {
+    await fetch(`${API_BASE}/api/services`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -96,12 +95,16 @@ export default function AdminPage() {
     loadData();
   }
 
-  async function blockTime() {
-    if (!blockBarberId || !blockStart || !blockEnd) {
-      setMessage("Please choose barber, start time, and end time.");
-      return;
-    }
+  async function deleteService(id) {
+    await fetch(`${API_BASE}/api/services/${id}`, {
+      method: "DELETE",
+    });
 
+    setMessage("Service deleted.");
+    loadData();
+  }
+
+  async function blockTime() {
     await fetch(`${API_BASE}/api/blocked-times`, {
       method: "POST",
       headers: {
@@ -119,6 +122,15 @@ export default function AdminPage() {
     setBlockEnd("");
     setBlockReason("Lunch");
     setMessage("Time blocked.");
+    loadData();
+  }
+
+  async function deleteBlockedTime(id) {
+    await fetch(`${API_BASE}/api/blocked-times/${id}`, {
+      method: "DELETE",
+    });
+
+    setMessage("Blocked time removed.");
     loadData();
   }
 
@@ -143,10 +155,6 @@ export default function AdminPage() {
               <p className="font-semibold">{shop.name}</p>
               <p>Type: {shop.business_type}</p>
               <p>Phone: {shop.phone}</p>
-              <p>Accepts Cards: {shop.accepts_cards ? "Yes" : "No"}</p>
-              <p>Requires Deposit: {shop.requires_deposit ? "Yes" : "No"}</p>
-              <p>Deposit Amount: ${shop.deposit_amount || 0}</p>
-              <p>No-Show Fee: ${shop.no_show_fee || 0}</p>
             </div>
           ))}
         </section>
@@ -176,9 +184,21 @@ export default function AdminPage() {
 
           <div className="grid gap-3">
             {barbers.map((barber) => (
-              <div key={barber.id} className="border rounded-xl p-4">
-                <p className="font-semibold">{barber.name}</p>
-                <p className="text-gray-600">{barber.shop_name}</p>
+              <div
+                key={barber.id}
+                className="border rounded-xl p-4 flex justify-between items-center"
+              >
+                <div>
+                  <p className="font-semibold">{barber.name}</p>
+                  <p className="text-gray-600">{barber.shop_name}</p>
+                </div>
+
+                <button
+                  onClick={() => deleteBarber(barber.id)}
+                  className="bg-red-500 text-white px-4 py-2 rounded-xl"
+                >
+                  Delete
+                </button>
               </div>
             ))}
           </div>
@@ -225,7 +245,7 @@ export default function AdminPage() {
             {services.map((service) => (
               <div
                 key={service.id}
-                className="border rounded-xl p-4 flex justify-between"
+                className="border rounded-xl p-4 flex justify-between items-center"
               >
                 <div>
                   <p className="font-semibold">{service.name}</p>
@@ -235,7 +255,16 @@ export default function AdminPage() {
                   </p>
                 </div>
 
-                <p className="font-bold">${service.price}</p>
+                <div className="flex gap-3 items-center">
+                  <p className="font-bold">${service.price}</p>
+
+                  <button
+                    onClick={() => deleteService(service.id)}
+                    className="bg-red-500 text-white px-4 py-2 rounded-xl"
+                  >
+                    Delete
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -297,13 +326,25 @@ export default function AdminPage() {
 
           <div className="grid gap-3">
             {blockedTimes.map((block) => (
-              <div key={block.id} className="border rounded-xl p-4">
-                <p className="font-semibold">{block.reason}</p>
+              <div
+                key={block.id}
+                className="border rounded-xl p-4 flex justify-between items-center"
+              >
+                <div>
+                  <p className="font-semibold">{block.reason}</p>
 
-                <p className="text-gray-600">
-                  {new Date(block.start_datetime).toLocaleString()} →{" "}
-                  {new Date(block.end_datetime).toLocaleString()}
-                </p>
+                  <p className="text-gray-600">
+                    {new Date(block.start_datetime).toLocaleString()} →{" "}
+                    {new Date(block.end_datetime).toLocaleString()}
+                  </p>
+                </div>
+
+                <button
+                  onClick={() => deleteBlockedTime(block.id)}
+                  className="bg-red-500 text-white px-4 py-2 rounded-xl"
+                >
+                  Delete
+                </button>
               </div>
             ))}
           </div>
