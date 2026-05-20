@@ -24,3 +24,33 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+body {
+  color: #111827;
+  -webkit-text-size-adjust: 100%;
+}
+
+h1,
+h2,
+h3,
+label,
+p,
+span,
+div,
+input,
+select,
+button {
+  color: inherit;
+}
+
+input,
+select,
+textarea {
+  color: #111827;
+  background-color: #ffffff;
+}
+
+::placeholder {
+  color: #374151;
+  opacity: 1;
+}
