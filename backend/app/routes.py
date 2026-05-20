@@ -281,3 +281,22 @@ def update_service(
     db.refresh(service)
 
     return service
+
+@router.get("/availability-rules")
+def list_availability_rules(db: Session = Depends(get_db)):
+    return db.query(AvailabilityRule).all()
+
+
+@router.delete("/availability-rules/{rule_id}")
+def delete_availability_rule(rule_id: str, db: Session = Depends(get_db)):
+    rule = db.query(AvailabilityRule).filter(
+        AvailabilityRule.id == rule_id
+    ).first()
+
+    if not rule:
+        raise HTTPException(status_code=404, detail="Availability rule not found")
+
+    db.delete(rule)
+    db.commit()
+
+    return {"message": "Availability rule deleted"}
