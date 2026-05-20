@@ -54,3 +54,14 @@ textarea {
   color: #374151;
   opacity: 1;
 }
+
+button {
+  color: #ffffff;
+}
+
+button input,
+button span,
+button div,
+button p {
+  color: #ffffff;
+}
