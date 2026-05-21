@@ -10,6 +10,13 @@ export default function AdminPage() {
   const [services, setServices] = useState([]);
   const [blockedTimes, setBlockedTimes] = useState([]);
 
+const [availabilityRules, setAvailabilityRules] = useState([]);
+
+const [availabilityBarberId, setAvailabilityBarberId] = useState("");
+const [availabilityDay, setAvailabilityDay] = useState("Monday");
+const [availabilityStart, setAvailabilityStart] = useState("09:00");
+const [availabilityEnd, setAvailabilityEnd] = useState("17:00");
+
   const [editingBarberId, setEditingBarberId] = useState(null);
   const [editingServiceId, setEditingServiceId] = useState(null);
 
@@ -32,11 +39,18 @@ export default function AdminPage() {
   const [message, setMessage] = useState("");
 
   async function loadData() {
-    const [shopsRes, barbersRes, servicesRes, blockedRes] = await Promise.all([
+    const [
+  shopsRes,
+  barbersRes,
+  servicesRes,
+  blockedRes,
+  availabilityRes,
+] = await Promise.all([
       fetch(`${API_BASE}/api/shops`),
       fetch(`${API_BASE}/api/barbers`),
       fetch(`${API_BASE}/api/services`),
       fetch(`${API_BASE}/api/blocked-times`),
+      fetch(`${API_BASE}/api/availability-rules`),
     ]);
 
     const barbersData = await barbersRes.json();
@@ -45,6 +59,7 @@ export default function AdminPage() {
     setBarbers(barbersData);
     setServices(await servicesRes.json());
     setBlockedTimes(await blockedRes.json());
+    setAvailabilityRules(await availabilityRes.json());
 
     if (barbersData.length > 0 && !blockBarberId) {
       setBlockBarberId(barbersData[0].id);
@@ -169,6 +184,42 @@ export default function AdminPage() {
   }
 
   async function deleteBlockedTime(id) {
+async function addAvailabilityRule() {
+  const weekdayMap = {
+    Sunday: 0,
+    Monday: 1,
+    Tuesday: 2,
+    Wednesday: 3,
+    Thursday: 4,
+    Friday: 5,
+    Saturday: 6,
+  };
+
+  await fetch(`${API_BASE}/api/availability-rules`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      barber_id: availabilityBarberId,
+      weekday: weekdayMap[availabilityDay],
+      start_time: `${availabilityStart}:00`,
+      end_time: `${availabilityEnd}:00`,
+    }),
+  });
+
+  setMessage("Availability rule added.");
+  loadData();
+}
+
+async function deleteAvailabilityRule(id) {
+  await fetch(`${API_BASE}/api/availability-rules/${id}`, {
+    method: "DELETE",
+  });
+
+  setMessage("Availability rule deleted.");
+  loadData();
+}
     await fetch(`${API_BASE}/api/blocked-times/${id}`, {
       method: "DELETE",
     });
@@ -395,7 +446,88 @@ export default function AdminPage() {
           </div>
         </section>
 
-        <section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-gray-200">
+
+<section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-gray-200">
+  <h2 className="text-3xl font-bold mb-6">Weekly Availability</h2>
+
+  <div className="grid gap-3">
+    <select
+      className="border rounded-xl p-3"
+      value={availabilityBarberId}
+      onChange={(e) => setAvailabilityBarberId(e.target.value)}
+    >
+      {barbers.map((barber) => (
+        <option key={barber.id} value={barber.id}>
+          {barber.name}
+        </option>
+      ))}
+    </select>
+
+    <select
+      className="border rounded-xl p-3"
+      value={availabilityDay}
+      onChange={(e) => setAvailabilityDay(e.target.value)}
+    >
+      <option>Monday</option>
+      <option>Tuesday</option>
+      <option>Wednesday</option>
+      <option>Thursday</option>
+      <option>Friday</option>
+      <option>Saturday</option>
+      <option>Sunday</option>
+    </select>
+
+    <input
+      type="time"
+      className="border rounded-xl p-3"
+      value={availabilityStart}
+      onChange={(e) => setAvailabilityStart(e.target.value)}
+    />
+
+    <input
+      type="time"
+      className="border rounded-xl p-3"
+      value={availabilityEnd}
+      onChange={(e) => setAvailabilityEnd(e.target.value)}
+    />
+
+    <button
+      onClick={addAvailabilityRule}
+      className="bg-black text-white rounded-xl px-6 py-3 font-semibold"
+    >
+      Add Weekly Availability
+    </button>
+  </div>
+
+  <div className="grid gap-3 mt-6">
+    {availabilityRules.map((rule) => (
+      <div
+        key={rule.id}
+        className="border rounded-xl p-4 flex justify-between items-center"
+      >
+        <div>
+          <p className="font-semibold">
+            {barbers.find((barber) => barber.id === rule.barber_id)?.name ||
+              "Barber"}
+          </p>
+          <p>
+            Day {rule.weekday}: {rule.start_time} - {rule.end_time}
+          </p>
+        </div>
+
+        <button
+          onClick={() => deleteAvailabilityRule(rule.id)}
+          className="bg-red-400 hover:bg-red-500 text-white px-4 py-2 rounded-xl"
+        >
+          Delete
+        </button>
+      </div>
+    ))}
+  </div>
+</section>        
+
+
+<section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-gray-200">
           <h2 className="text-2xl font-bold mb-4">Quick Block Time</h2>
 
           <div className="grid gap-3">
