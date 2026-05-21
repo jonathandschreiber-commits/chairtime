@@ -2,13 +2,15 @@ from datetime import datetime, timedelta
 
 from sqlalchemy.orm import Session
 
-from app.models import Appointment, AvailabilityRule, Service, BlockedTime, BlockedTime
+from app.models import Appointment, AvailabilityRule, BlockedTime, Service
 
 
-SLOT_INCREMENT_MINUTES = 15
-
-
-def has_overlap(db: Session, barber_id: str, requested_start: datetime, requested_end: datetime) -> bool:
+def has_overlap(
+    db: Session,
+    barber_id: str,
+    requested_start: datetime,
+    requested_end: datetime,
+) -> bool:
     appointment_conflict = db.query(Appointment).filter(
         Appointment.barber_id == barber_id,
         Appointment.status == "confirmed",
@@ -25,38 +27,47 @@ def has_overlap(db: Session, barber_id: str, requested_start: datetime, requeste
     return appointment_conflict is not None or blocked_conflict is not None
 
 
-def generate_available_slots(db: Session, barber_id: str, service_id: str, target_date):
-    weekday = target_date.weekday()
-
-    rule = db.query(AvailabilityRule).filter(
-        AvailabilityRule.barber_id == barber_id,
-        AvailabilityRule.weekday == weekday,
-    ).first()
-
-    if not rule:
-        return []
-
-    service = db.query(Service).filter(
-        Service.id == service_id
-    ).first()
+def get_available_slots(
+    db: Session,
+    barber_id: str,
+    service_id: str,
+    target_date,
+):
+    service = db.query(Service).filter(Service.id == service_id).first()
 
     if not service:
         return []
 
-    service_duration = timedelta(minutes=service.duration_minutes)
+    weekday = target_date.weekday()
 
-    workday_start = datetime.combine(target_date, rule.start_time)
-    workday_end = datetime.combine(target_date, rule.end_time)
+    rules = db.query(AvailabilityRule).filter(
+        AvailabilityRule.barber_id == barber_id,
+        AvailabilityRule.weekday == weekday,
+    ).all()
 
     slots = []
-    current = workday_start
 
-    while current + service_duration <= workday_end:
-        requested_end = current + service_duration
+    for rule in rules:
+        start_time = rule.start_time
+        end_time = rule.end_time
 
-        if not has_overlap(db, barber_id, current, requested_end):
-            slots.append(current)
+        if isinstance(start_time, str):
+            start_time = datetime.strptime(start_time, "%H:%M:%S").time()
 
-        current += timedelta(minutes=SLOT_INCREMENT_MINUTES)
+        if isinstance(end_time, str):
+            end_time = datetime.strptime(end_time, "%H:%M:%S").time()
+
+        current_start = datetime.combine(target_date, start_time)
+        day_end = datetime.combine(target_date, end_time)
+
+        while current_start + timedelta(minutes=service.duration_minutes) <= day_end:
+            current_end = current_start + timedelta(
+                minutes=service.duration_minutes
+            )
+
+            if not has_overlap(db, barber_id, current_start, current_end):
+                slots.append(current_start.isoformat())
+
+            current_start = current_start + timedelta(minutes=15)
 
     return slots
