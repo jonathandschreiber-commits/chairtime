@@ -27,7 +27,7 @@ def has_overlap(
     return appointment_conflict is not None or blocked_conflict is not None
 
 
-def get_available_slots(
+def generate_available_slots(
     db: Session,
     barber_id: str,
     service_id: str,
