@@ -183,7 +183,15 @@ const [availabilityEnd, setAvailabilityEnd] = useState("17:00");
     loadData();
   }
 
-  async function deleteBlockedTime(id) {
+async function deleteBlockedTime(id) {
+  await fetch(`${API_BASE}/api/blocked-times/${id}`, {
+    method: "DELETE",
+  });
+
+  setMessage("Blocked time removed.");
+  loadData();
+}
+
 async function addAvailabilityRule() {
   const weekdayMap = {
     Sunday: 0,
@@ -220,9 +228,7 @@ async function deleteAvailabilityRule(id) {
   setMessage("Availability rule deleted.");
   loadData();
 }
-    await fetch(`${API_BASE}/api/blocked-times/${id}`, {
-      method: "DELETE",
-    });
+
 
     setMessage("Blocked time removed.");
     loadData();
