@@ -5,13 +5,13 @@ import { useEffect, useState } from "react";
 const API_BASE = "https://chairtime-production-94da.up.railway.app";
 
 export default function AdminPage() {
-  const [shops, setShops] = useState([]);
   const [barbers, setBarbers] = useState([]);
   const [services, setServices] = useState([]);
   const [blockedTimes, setBlockedTimes] = useState([]);
   const [availabilityRules, setAvailabilityRules] = useState([]);
 
   const [barberName, setBarberName] = useState("");
+
   const [serviceName, setServiceName] = useState("");
   const [serviceDuration, setServiceDuration] = useState("");
   const [servicePrice, setServicePrice] = useState("");
@@ -20,6 +20,7 @@ export default function AdminPage() {
   const [editingServiceId, setEditingServiceId] = useState(null);
 
   const [editedBarberName, setEditedBarberName] = useState("");
+
   const [editedServiceName, setEditedServiceName] = useState("");
   const [editedServiceDuration, setEditedServiceDuration] = useState("");
   const [editedServicePrice, setEditedServicePrice] = useState("");
@@ -30,33 +31,40 @@ export default function AdminPage() {
   const [availabilityEnd, setAvailabilityEnd] = useState("17:00");
 
   const [blockBarberId, setBlockBarberId] = useState("");
+  const [blockReason, setBlockReason] = useState("Lunch");
   const [blockStart, setBlockStart] = useState("");
   const [blockEnd, setBlockEnd] = useState("");
-  const [blockReason, setBlockReason] = useState("Lunch");
 
   const [message, setMessage] = useState("");
 
   async function loadData() {
-    const [shopsRes, barbersRes, servicesRes, blockedRes, availabilityRes] =
-      await Promise.all([
-        fetch(`${API_BASE}/api/shops`),
-        fetch(`${API_BASE}/api/barbers`),
-        fetch(`${API_BASE}/api/services`),
-        fetch(`${API_BASE}/api/blocked-times`),
-        fetch(`${API_BASE}/api/availability-rules`),
-      ]);
+    const [
+      barbersRes,
+      servicesRes,
+      blockedRes,
+      availabilityRes,
+    ] = await Promise.all([
+      fetch(`${API_BASE}/api/barbers`),
+      fetch(`${API_BASE}/api/services`),
+      fetch(`${API_BASE}/api/blocked-times`),
+      fetch(`${API_BASE}/api/availability-rules`),
+    ]);
 
     const barbersData = await barbersRes.json();
 
-    setShops(await shopsRes.json());
     setBarbers(barbersData);
     setServices(await servicesRes.json());
     setBlockedTimes(await blockedRes.json());
     setAvailabilityRules(await availabilityRes.json());
 
     if (barbersData.length > 0) {
-      if (!blockBarberId) setBlockBarberId(barbersData[0].id);
-      if (!availabilityBarberId) setAvailabilityBarberId(barbersData[0].id);
+      if (!blockBarberId) {
+        setBlockBarberId(barbersData[0].id);
+      }
+
+      if (!availabilityBarberId) {
+        setAvailabilityBarberId(barbersData[0].id);
+      }
     }
   }
 
@@ -65,11 +73,11 @@ export default function AdminPage() {
   }, []);
 
   async function addBarber() {
-    if (!barberName) return;
-
     await fetch(`${API_BASE}/api/barbers`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify({
         name: barberName,
         shop_name: "ChairTime Barbershop",
@@ -86,8 +94,12 @@ export default function AdminPage() {
   async function updateBarber(id) {
     await fetch(`${API_BASE}/api/barbers/${id}`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: editedBarberName }),
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        name: editedBarberName,
+      }),
     });
 
     setEditingBarberId(null);
@@ -105,11 +117,11 @@ export default function AdminPage() {
   }
 
   async function addService() {
-    if (!serviceName) return;
-
     await fetch(`${API_BASE}/api/services`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify({
         barber_id: barbers[0]?.id,
         name: serviceName,
@@ -121,6 +133,7 @@ export default function AdminPage() {
     setServiceName("");
     setServiceDuration("");
     setServicePrice("");
+
     setMessage("Service added.");
     loadData();
   }
@@ -128,7 +141,9 @@ export default function AdminPage() {
   async function updateService(id) {
     await fetch(`${API_BASE}/api/services/${id}`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify({
         name: editedServiceName,
         duration_minutes: Number(editedServiceDuration),
@@ -163,7 +178,9 @@ export default function AdminPage() {
 
     await fetch(`${API_BASE}/api/availability-rules`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify({
         barber_id: availabilityBarberId,
         weekday: weekdayMap[availabilityDay],
@@ -188,18 +205,20 @@ export default function AdminPage() {
   async function blockTime() {
     await fetch(`${API_BASE}/api/blocked-times`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify({
         barber_id: blockBarberId,
+        reason: blockReason,
         start_datetime: blockStart,
         end_datetime: blockEnd,
-        reason: blockReason,
       }),
     });
 
+    setBlockReason("Lunch");
     setBlockStart("");
     setBlockEnd("");
-    setBlockReason("Lunch");
 
     setMessage("Time blocked.");
     loadData();
@@ -293,9 +312,9 @@ export default function AdminPage() {
                   </div>
                 ) : (
                   <>
-                    <div>
-                      <p className="font-semibold">{barber.name}</p>
-                    </div>
+                    <p className="font-semibold">
+                      {barber.name}
+                    </p>
 
                     <div className="flex gap-2">
                       <button
@@ -412,7 +431,9 @@ export default function AdminPage() {
                 ) : (
                   <>
                     <div>
-                      <p className="font-semibold">{service.name}</p>
+                      <p className="font-semibold">
+                        {service.name}
+                      </p>
 
                       <p className="text-gray-900">
                         {service.duration_minutes} minutes
@@ -420,7 +441,9 @@ export default function AdminPage() {
                     </div>
 
                     <div className="flex gap-2 items-center">
-                      <p className="font-bold">${service.price}</p>
+                      <p className="font-bold">
+                        ${service.price}
+                      </p>
 
                       <button
                         onClick={() => {
@@ -454,12 +477,180 @@ export default function AdminPage() {
           <h2 className="text-3xl font-bold mb-6">
             Weekly Availability
           </h2>
+
+          <div className="grid gap-3">
+            <select
+              className="border rounded-xl p-3"
+              value={availabilityBarberId}
+              onChange={(e) =>
+                setAvailabilityBarberId(e.target.value)
+              }
+            >
+              {barbers.map((barber) => (
+                <option key={barber.id} value={barber.id}>
+                  {barber.name}
+                </option>
+              ))}
+            </select>
+
+            <select
+              className="border rounded-xl p-3"
+              value={availabilityDay}
+              onChange={(e) =>
+                setAvailabilityDay(e.target.value)
+              }
+            >
+              <option>Monday</option>
+              <option>Tuesday</option>
+              <option>Wednesday</option>
+              <option>Thursday</option>
+              <option>Friday</option>
+              <option>Saturday</option>
+              <option>Sunday</option>
+            </select>
+
+            <input
+              type="time"
+              className="border rounded-xl p-3"
+              value={availabilityStart}
+              onChange={(e) =>
+                setAvailabilityStart(e.target.value)
+              }
+            />
+
+            <input
+              type="time"
+              className="border rounded-xl p-3"
+              value={availabilityEnd}
+              onChange={(e) =>
+                setAvailabilityEnd(e.target.value)
+              }
+            />
+
+            <button
+              onClick={addAvailabilityRule}
+              className="bg-black text-white rounded-xl px-6 py-3 font-semibold"
+            >
+              Add Weekly Availability
+            </button>
+          </div>
+
+          <div className="grid gap-3 mt-6">
+            {availabilityRules.map((rule) => (
+              <div
+                key={rule.id}
+                className="border rounded-xl p-4 flex justify-between items-center"
+              >
+                <div>
+                  <p className="font-semibold">
+                    {barbers.find(
+                      (barber) => barber.id === rule.barber_id
+                    )?.name || "Barber"}
+                  </p>
+
+                  <p className="text-gray-900">
+                    Day {rule.weekday}: {rule.start_time} - {rule.end_time}
+                  </p>
+                </div>
+
+                <button
+                  onClick={() =>
+                    deleteAvailabilityRule(rule.id)
+                  }
+                  className="bg-red-400 hover:bg-red-500 text-white px-4 py-2 rounded-xl"
+                >
+                  Delete
+                </button>
+              </div>
+            ))}
+          </div>
         </section>
 
         <section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-gray-200">
           <h2 className="text-3xl font-bold mb-6">
             Quick Block Time
           </h2>
+
+          <div className="grid gap-3">
+            <select
+              className="border rounded-xl p-3"
+              value={blockBarberId}
+              onChange={(e) => setBlockBarberId(e.target.value)}
+            >
+              {barbers.map((barber) => (
+                <option key={barber.id} value={barber.id}>
+                  {barber.name}
+                </option>
+              ))}
+            </select>
+
+            <select
+              className="border rounded-xl p-3"
+              value={blockReason}
+              onChange={(e) => setBlockReason(e.target.value)}
+            >
+              <option>Lunch</option>
+              <option>Break</option>
+              <option>Vacation</option>
+              <option>Personal</option>
+              <option>Closed</option>
+            </select>
+
+            <input
+              type="datetime-local"
+              className="border rounded-xl p-3"
+              value={blockStart}
+              onChange={(e) => setBlockStart(e.target.value)}
+            />
+
+            <input
+              type="datetime-local"
+              className="border rounded-xl p-3"
+              value={blockEnd}
+              onChange={(e) => setBlockEnd(e.target.value)}
+            />
+
+            <button
+              onClick={blockTime}
+              className="bg-black text-white rounded-xl px-6 py-3 font-semibold"
+            >
+              Block Time
+            </button>
+          </div>
+
+          <div className="grid gap-3 mt-6">
+            {blockedTimes.map((block) => (
+              <div
+                key={block.id}
+                className="border rounded-xl p-4 flex justify-between items-center"
+              >
+                <div>
+                  <p className="font-semibold">
+                    {block.reason}
+                  </p>
+
+                  <p className="text-gray-900">
+                    {new Date(
+                      block.start_datetime
+                    ).toLocaleString()}{" "}
+                    →{" "}
+                    {new Date(
+                      block.end_datetime
+                    ).toLocaleString()}
+                  </p>
+                </div>
+
+                <button
+                  onClick={() =>
+                    deleteBlockedTime(block.id)
+                  }
+                  className="bg-red-400 hover:bg-red-500 text-white px-4 py-2 rounded-xl"
+                >
+                  Delete
+                </button>
+              </div>
+            ))}
+          </div>
         </section>
 
       </div>
