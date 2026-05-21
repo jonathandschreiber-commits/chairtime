@@ -454,7 +454,8 @@ async function deleteAvailabilityRule(id) {
 
 
 <section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-gray-200">
-  <h2 className="text-3xl font-bold mb-6">Weekly Availability</h2>
+<section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-gray-200">
+<h2 className="text-3xl font-bold mb-6">Weekly Availability</h2>
 
   <div className="grid gap-3">
     <select
