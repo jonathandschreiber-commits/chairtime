@@ -5,19 +5,11 @@ import { useEffect, useMemo, useState } from "react";
 const API_BASE = "https://chairtime-production-94da.up.railway.app";
 
 const HOURS = [
-  "08:00",
-  "09:00",
-  "10:00",
-  "11:00",
-  "12:00",
-  "13:00",
-  "14:00",
-  "15:00",
-  "16:00",
-  "17:00",
-  "18:00",
-  "19:00",
+  "08:00", "09:00", "10:00", "11:00", "12:00", "13:00",
+  "14:00", "15:00", "16:00", "17:00", "18:00", "19:00",
 ];
+
+const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
 export default function CalendarPage() {
   const today = new Date().toISOString().slice(0, 10);
@@ -28,7 +20,8 @@ export default function CalendarPage() {
   const [blockedTimes, setBlockedTimes] = useState([]);
 
   const [selectedDate, setSelectedDate] = useState(today);
-  const [selectedBarberId, setSelectedBarberId] = useState("all");
+  const [selectedBarberId, setSelectedBarberId] = useState("");
+  const [viewMode, setViewMode] = useState("day");
 
   async function loadData() {
     const [appointmentsRes, barbersRes, servicesRes, blockedRes] =
@@ -39,10 +32,16 @@ export default function CalendarPage() {
         fetch(`${API_BASE}/api/blocked-times`),
       ]);
 
+    const barbersData = await barbersRes.json();
+
     setAppointments(await appointmentsRes.json());
-    setBarbers(await barbersRes.json());
+    setBarbers(barbersData);
     setServices(await servicesRes.json());
     setBlockedTimes(await blockedRes.json());
+
+    if (barbersData.length > 0 && !selectedBarberId) {
+      setSelectedBarberId(barbersData[0].id);
+    }
   }
 
   useEffect(() => {
@@ -57,12 +56,8 @@ export default function CalendarPage() {
     return services.find((service) => service.id === id)?.name || "Service";
   }
 
-  function sameDay(value) {
-    return new Date(value).toISOString().slice(0, 10) === selectedDate;
-  }
-
-  function timeHour(value) {
-    return new Date(value).getHours();
+  function sameDay(value, date) {
+    return new Date(value).toISOString().slice(0, 10) === date;
   }
 
   function formatTime(value) {
@@ -72,61 +67,79 @@ export default function CalendarPage() {
     });
   }
 
-  const visibleBarbers = useMemo(() => {
-    if (selectedBarberId === "all") {
-      return barbers;
-    }
+  function getWeekDates(dateString) {
+    const date = new Date(`${dateString}T12:00:00`);
+    const day = date.getDay();
+    const sunday = new Date(date);
+    sunday.setDate(date.getDate() - day);
 
-    return barbers.filter((barber) => barber.id === selectedBarberId);
-  }, [barbers, selectedBarberId]);
+    return Array.from({ length: 7 }, (_, index) => {
+      const d = new Date(sunday);
+      d.setDate(sunday.getDate() + index);
+      return d.toISOString().slice(0, 10);
+    });
+  }
 
-  const filteredAppointments = useMemo(() => {
+  const selectedBarber = barbers.find((barber) => barber.id === selectedBarberId);
+
+  const dayAppointments = useMemo(() => {
     return appointments
-      .filter((appointment) => sameDay(appointment.start_datetime))
-      .filter(
-        (appointment) =>
-          selectedBarberId === "all" ||
-          appointment.barber_id === selectedBarberId
-      )
-      .sort(
-        (a, b) =>
-          new Date(a.start_datetime).getTime() -
-          new Date(b.start_datetime).getTime()
-      );
-  }, [appointments, selectedDate, selectedBarberId]);
+      .filter((appointment) => appointment.barber_id === selectedBarberId)
+      .filter((appointment) => sameDay(appointment.start_datetime, selectedDate))
+      .sort((a, b) => new Date(a.start_datetime) - new Date(b.start_datetime));
+  }, [appointments, selectedBarberId, selectedDate]);
 
-  const filteredBlockedTimes = useMemo(() => {
+  const dayBlockedTimes = useMemo(() => {
     return blockedTimes
-      .filter((block) => sameDay(block.start_datetime))
-      .filter(
-        (block) =>
-          selectedBarberId === "all" || block.barber_id === selectedBarberId
-      )
-      .sort(
-        (a, b) =>
-          new Date(a.start_datetime).getTime() -
-          new Date(b.start_datetime).getTime()
-      );
-  }, [blockedTimes, selectedDate, selectedBarberId]);
+      .filter((block) => block.barber_id === selectedBarberId)
+      .filter((block) => sameDay(block.start_datetime, selectedDate))
+      .sort((a, b) => new Date(a.start_datetime) - new Date(b.start_datetime));
+  }, [blockedTimes, selectedBarberId, selectedDate]);
 
-  function appointmentItems(barberId, hourText) {
+  const weekDates = getWeekDates(selectedDate);
+
+  function appointmentItemsForHour(hourText) {
     const hour = Number(hourText.split(":")[0]);
 
-    return filteredAppointments.filter(
-      (appointment) =>
-        appointment.barber_id === barberId &&
-        timeHour(appointment.start_datetime) === hour
+    return dayAppointments.filter(
+      (appointment) => new Date(appointment.start_datetime).getHours() === hour
     );
   }
 
-  function blockedItems(barberId, hourText) {
+  function blockedItemsForHour(hourText) {
     const hour = Number(hourText.split(":")[0]);
 
-    return filteredBlockedTimes.filter(
-      (block) =>
-        block.barber_id === barberId &&
-        timeHour(block.start_datetime) === hour
+    return dayBlockedTimes.filter(
+      (block) => new Date(block.start_datetime).getHours() === hour
     );
+  }
+
+  function weekItemsForDate(date) {
+    const appts = appointments
+      .filter((appointment) => appointment.barber_id === selectedBarberId)
+      .filter((appointment) => sameDay(appointment.start_datetime, date))
+      .map((appointment) => ({
+        type: "appointment",
+        id: appointment.id,
+        time: appointment.start_datetime,
+        title: appointment.customer_name,
+        detail: serviceName(appointment.service_id),
+        phone: appointment.customer_phone,
+      }));
+
+    const blocks = blockedTimes
+      .filter((block) => block.barber_id === selectedBarberId)
+      .filter((block) => sameDay(block.start_datetime, date))
+      .map((block) => ({
+        type: "blocked",
+        id: block.id,
+        time: block.start_datetime,
+        endTime: block.end_datetime,
+        title: block.reason,
+        detail: "Blocked Time",
+      }));
+
+    return [...appts, ...blocks].sort((a, b) => new Date(a.time) - new Date(b.time));
   }
 
   return (
@@ -138,14 +151,26 @@ export default function CalendarPage() {
           </h1>
 
           <p className="text-gray-900">
-            Daily schedule view by barber, appointment, and blocked time.
+            View daily and weekly schedules by barber.
           </p>
         </div>
 
         <section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-gray-200">
           <h2 className="text-3xl font-bold mb-6">Filters</h2>
 
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-4 sm:grid-cols-3">
+            <div>
+              <label className="block font-semibold mb-2">View</label>
+              <select
+                className="w-full border rounded-xl p-3"
+                value={viewMode}
+                onChange={(e) => setViewMode(e.target.value)}
+              >
+                <option value="day">Day</option>
+                <option value="week">Week</option>
+              </select>
+            </div>
+
             <div>
               <label className="block font-semibold mb-2">Date</label>
               <input
@@ -163,8 +188,6 @@ export default function CalendarPage() {
                 value={selectedBarberId}
                 onChange={(e) => setSelectedBarberId(e.target.value)}
               >
-                <option value="all">All Staff</option>
-
                 {barbers.map((barber) => (
                   <option key={barber.id} value={barber.id}>
                     {barber.name}
@@ -175,100 +198,111 @@ export default function CalendarPage() {
           </div>
         </section>
 
-        <section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-gray-200 overflow-x-auto">
-          <h2 className="text-3xl font-bold mb-6">
-            Day View for {selectedDate}
-          </h2>
+        {viewMode === "day" && (
+          <section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-gray-200">
+            <h2 className="text-3xl font-bold mb-6">
+              Day View — {selectedBarber?.name || "Barber"} — {selectedDate}
+            </h2>
 
-          <div className="min-w-[900px]">
-            <div
-              className="grid border-b font-bold"
-              style={{
-                gridTemplateColumns: `100px repeat(${visibleBarbers.length}, minmax(160px, 1fr))`,
-              }}
-            >
-              <div className="p-3">Time</div>
+            <div className="grid gap-3">
+              {HOURS.map((hour) => {
+                const appointmentsForHour = appointmentItemsForHour(hour);
+                const blockedForHour = blockedItemsForHour(hour);
 
-              {visibleBarbers.map((barber) => (
-                <div key={barber.id} className="p-3 border-l">
-                  {barber.name}
-                </div>
-              ))}
-            </div>
+                return (
+                  <div key={hour} className="border rounded-xl p-4">
+                    <p className="font-bold mb-3">{hour}</p>
 
-            {HOURS.map((hour) => (
-              <div
-                key={hour}
-                className="grid border-b min-h-[90px]"
-                style={{
-                  gridTemplateColumns: `100px repeat(${visibleBarbers.length}, minmax(160px, 1fr))`,
-                }}
-              >
-                <div className="p-3 font-semibold bg-gray-50">
-                  {hour}
-                </div>
+                    {appointmentsForHour.length === 0 && blockedForHour.length === 0 && (
+                      <p className="text-gray-900">Open</p>
+                    )}
 
-                {visibleBarbers.map((barber) => {
-                  const appointmentsForCell = appointmentItems(
-                    barber.id,
-                    hour
-                  );
-                  const blockedForCell = blockedItems(barber.id, hour);
-
-                  return (
-                    <div key={barber.id} className="p-2 border-l space-y-2">
-                      {appointmentsForCell.map((appointment) => (
+                    <div className="grid gap-2">
+                      {appointmentsForHour.map((appointment) => (
                         <div
                           key={appointment.id}
                           className="rounded-xl p-3 bg-blue-100 border border-blue-300"
                         >
                           <p className="font-bold">
-                            {formatTime(appointment.start_datetime)} ·{" "}
-                            {appointment.customer_name}
+                            {formatTime(appointment.start_datetime)} · {appointment.customer_name}
                           </p>
-
-                          <p className="text-sm text-gray-900">
+                          <p className="text-gray-900">
                             {serviceName(appointment.service_id)}
                           </p>
-
-                          <p className="text-sm text-gray-900">
+                          <p className="text-gray-900">
                             {appointment.customer_phone}
                           </p>
                         </div>
                       ))}
 
-                      {blockedForCell.map((block) => (
+                      {blockedForHour.map((block) => (
                         <div
                           key={block.id}
                           className="rounded-xl p-3 bg-gray-200 border border-gray-400"
                         >
                           <p className="font-bold">
-                            {formatTime(block.start_datetime)} –{" "}
-                            {formatTime(block.end_datetime)}
+                            {formatTime(block.start_datetime)} – {formatTime(block.end_datetime)}
                           </p>
-
-                          <p className="text-sm text-gray-900">
-                            Blocked: {block.reason}
-                          </p>
+                          <p className="text-gray-900">Blocked: {block.reason}</p>
                         </div>
                       ))}
                     </div>
-                  );
-                })}
-              </div>
-            ))}
-          </div>
-        </section>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        )}
 
-        <section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-gray-200">
-          <h2 className="text-3xl font-bold mb-6">Summary</h2>
+        {viewMode === "week" && (
+          <section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-gray-200">
+            <h2 className="text-3xl font-bold mb-6">
+              Week View — {selectedBarber?.name || "Barber"}
+            </h2>
 
-          <p className="text-gray-900">
-            {filteredAppointments.length} appointments and{" "}
-            {filteredBlockedTimes.length} blocked times for the selected
-            filters.
-          </p>
-        </section>
+            <div className="grid gap-4">
+              {weekDates.map((date, index) => {
+                const items = weekItemsForDate(date);
+
+                return (
+                  <div key={date} className="border rounded-xl p-4">
+                    <h3 className="text-xl font-bold mb-3">
+                      {DAYS[index]} — {date}
+                    </h3>
+
+                    {items.length === 0 && (
+                      <p className="text-gray-900">No appointments or blocked time.</p>
+                    )}
+
+                    <div className="grid gap-2">
+                      {items.map((item) => (
+                        <div
+                          key={`${item.type}-${item.id}`}
+                          className={`rounded-xl p-3 border ${
+                            item.type === "appointment"
+                              ? "bg-blue-100 border-blue-300"
+                              : "bg-gray-200 border-gray-400"
+                          }`}
+                        >
+                          <p className="font-bold">
+                            {formatTime(item.time)}
+                            {item.endTime ? ` – ${formatTime(item.endTime)}` : ""} · {item.title}
+                          </p>
+
+                          <p className="text-gray-900">{item.detail}</p>
+
+                          {item.phone && (
+                            <p className="text-gray-900">{item.phone}</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        )}
       </div>
     </main>
   );
