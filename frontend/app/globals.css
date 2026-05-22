@@ -4,9 +4,14 @@
 
 html,
 body {
+  background-color: #f3f4f6;
   color: #111827;
-  background: #f3f4f6;
-  -webkit-text-size-adjust: 100%;
+  font-family: Arial, Helvetica, sans-serif;
+  min-height: 100%;
+}
+
+button {
+  cursor: pointer;
 }
 
 input,
@@ -17,6 +22,6 @@ textarea {
 }
 
 ::placeholder {
-  color: #374151;
+  color: #6b7280;
   opacity: 1;
 }
