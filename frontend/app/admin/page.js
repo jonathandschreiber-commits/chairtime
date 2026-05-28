@@ -4,6 +4,16 @@ import { useEffect, useState } from "react";
 
 const API_BASE = "https://chairtime-production-94da.up.railway.app";
 
+const WEEKDAY_NAMES = {
+  0: "Sunday",
+  1: "Monday",
+  2: "Tuesday",
+  3: "Wednesday",
+  4: "Thursday",
+  5: "Friday",
+  6: "Saturday",
+};
+
 export default function AdminPage() {
   const [barbers, setBarbers] = useState([]);
   const [services, setServices] = useState([]);
@@ -20,7 +30,6 @@ export default function AdminPage() {
   const [editingServiceId, setEditingServiceId] = useState(null);
 
   const [editedBarberName, setEditedBarberName] = useState("");
-
   const [editedServiceName, setEditedServiceName] = useState("");
   const [editedServiceDuration, setEditedServiceDuration] = useState("");
   const [editedServicePrice, setEditedServicePrice] = useState("");
@@ -38,17 +47,13 @@ export default function AdminPage() {
   const [message, setMessage] = useState("");
 
   async function loadData() {
-    const [
-      barbersRes,
-      servicesRes,
-      blockedRes,
-      availabilityRes,
-    ] = await Promise.all([
-      fetch(`${API_BASE}/api/barbers`),
-      fetch(`${API_BASE}/api/services`),
-      fetch(`${API_BASE}/api/blocked-times`),
-      fetch(`${API_BASE}/api/availability-rules`),
-    ]);
+    const [barbersRes, servicesRes, blockedRes, availabilityRes] =
+      await Promise.all([
+        fetch(`${API_BASE}/api/barbers`),
+        fetch(`${API_BASE}/api/services`),
+        fetch(`${API_BASE}/api/blocked-times`),
+        fetch(`${API_BASE}/api/availability-rules`),
+      ]);
 
     const barbersData = await barbersRes.json();
 
@@ -58,13 +63,8 @@ export default function AdminPage() {
     setAvailabilityRules(await availabilityRes.json());
 
     if (barbersData.length > 0) {
-      if (!blockBarberId) {
-        setBlockBarberId(barbersData[0].id);
-      }
-
-      if (!availabilityBarberId) {
-        setAvailabilityBarberId(barbersData[0].id);
-      }
+      if (!blockBarberId) setBlockBarberId(barbersData[0].id);
+      if (!availabilityBarberId) setAvailabilityBarberId(barbersData[0].id);
     }
   }
 
@@ -72,12 +72,21 @@ export default function AdminPage() {
     loadData();
   }, []);
 
+  function barberName(id) {
+    return barbers.find((barber) => barber.id === id)?.name || "Barber";
+  }
+
+  function formatTime(value) {
+    if (!value) return "";
+    return value.toString().slice(0, 5);
+  }
+
   async function addBarber() {
+    if (!barberName) return;
+
     await fetch(`${API_BASE}/api/barbers`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         name: barberName,
         shop_name: "ChairTime Barbershop",
@@ -94,12 +103,8 @@ export default function AdminPage() {
   async function updateBarber(id) {
     await fetch(`${API_BASE}/api/barbers/${id}`, {
       method: "PATCH",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        name: editedBarberName,
-      }),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: editedBarberName }),
     });
 
     setEditingBarberId(null);
@@ -117,11 +122,11 @@ export default function AdminPage() {
   }
 
   async function addService() {
+    if (!serviceName || !serviceDuration || !servicePrice) return;
+
     await fetch(`${API_BASE}/api/services`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         barber_id: barbers[0]?.id,
         name: serviceName,
@@ -133,7 +138,6 @@ export default function AdminPage() {
     setServiceName("");
     setServiceDuration("");
     setServicePrice("");
-
     setMessage("Service added.");
     loadData();
   }
@@ -141,9 +145,7 @@ export default function AdminPage() {
   async function updateService(id) {
     await fetch(`${API_BASE}/api/services/${id}`, {
       method: "PATCH",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         name: editedServiceName,
         duration_minutes: Number(editedServiceDuration),
@@ -178,9 +180,7 @@ export default function AdminPage() {
 
     await fetch(`${API_BASE}/api/availability-rules`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         barber_id: availabilityBarberId,
         weekday: weekdayMap[availabilityDay],
@@ -189,7 +189,7 @@ export default function AdminPage() {
       }),
     });
 
-    setMessage("Availability rule added.");
+    setMessage("Weekly availability added.");
     loadData();
   }
 
@@ -198,16 +198,16 @@ export default function AdminPage() {
       method: "DELETE",
     });
 
-    setMessage("Availability rule deleted.");
+    setMessage("Weekly availability deleted.");
     loadData();
   }
 
   async function blockTime() {
+    if (!blockBarberId || !blockStart || !blockEnd) return;
+
     await fetch(`${API_BASE}/api/blocked-times`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         barber_id: blockBarberId,
         reason: blockReason,
@@ -219,7 +219,6 @@ export default function AdminPage() {
     setBlockReason("Lunch");
     setBlockStart("");
     setBlockEnd("");
-
     setMessage("Time blocked.");
     loadData();
   }
@@ -236,27 +235,22 @@ export default function AdminPage() {
   return (
     <main className="min-h-screen bg-gray-100 p-4 sm:p-10">
       <div className="max-w-6xl mx-auto space-y-8">
-
         <div className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-gray-200">
           <h1 className="text-5xl font-extrabold tracking-tight mb-3">
             ChairTime Admin
           </h1>
 
           <p className="text-gray-900">
-            Manage staff, services, schedules, and blocked time.
+            Manage staff, services, weekly schedules, and blocked time.
           </p>
 
           {message && (
-            <p className="mt-4 font-semibold text-green-700">
-              {message}
-            </p>
+            <p className="mt-4 font-semibold text-green-700">{message}</p>
           )}
         </div>
 
         <section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-gray-200">
-          <h2 className="text-3xl font-bold mb-6">
-            Add Barber / Staff
-          </h2>
+          <h2 className="text-3xl font-bold mb-6">Add Barber / Staff</h2>
 
           <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
             <input
@@ -276,9 +270,7 @@ export default function AdminPage() {
         </section>
 
         <section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-gray-200">
-          <h2 className="text-3xl font-bold mb-6">
-            Barbers / Staff
-          </h2>
+          <h2 className="text-3xl font-bold mb-6">Barbers / Staff</h2>
 
           <div className="grid gap-3">
             {barbers.map((barber) => (
@@ -291,9 +283,7 @@ export default function AdminPage() {
                     <input
                       className="border rounded-xl p-2 flex-1"
                       value={editedBarberName}
-                      onChange={(e) =>
-                        setEditedBarberName(e.target.value)
-                      }
+                      onChange={(e) => setEditedBarberName(e.target.value)}
                     />
 
                     <button
@@ -312,9 +302,7 @@ export default function AdminPage() {
                   </div>
                 ) : (
                   <>
-                    <p className="font-semibold">
-                      {barber.name}
-                    </p>
+                    <p className="font-semibold">{barber.name}</p>
 
                     <div className="flex gap-2">
                       <button
@@ -342,9 +330,7 @@ export default function AdminPage() {
         </section>
 
         <section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-gray-200">
-          <h2 className="text-3xl font-bold mb-6">
-            Add Service
-          </h2>
+          <h2 className="text-3xl font-bold mb-6">Add Service</h2>
 
           <div className="grid gap-3 sm:grid-cols-4">
             <input
@@ -378,9 +364,7 @@ export default function AdminPage() {
         </section>
 
         <section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-gray-200">
-          <h2 className="text-3xl font-bold mb-6">
-            Services
-          </h2>
+          <h2 className="text-3xl font-bold mb-6">Services</h2>
 
           <div className="grid gap-3">
             {services.map((service) => (
@@ -393,9 +377,7 @@ export default function AdminPage() {
                     <input
                       className="border rounded-xl p-2 flex-1"
                       value={editedServiceName}
-                      onChange={(e) =>
-                        setEditedServiceName(e.target.value)
-                      }
+                      onChange={(e) => setEditedServiceName(e.target.value)}
                     />
 
                     <input
@@ -409,9 +391,7 @@ export default function AdminPage() {
                     <input
                       className="border rounded-xl p-2 w-24"
                       value={editedServicePrice}
-                      onChange={(e) =>
-                        setEditedServicePrice(e.target.value)
-                      }
+                      onChange={(e) => setEditedServicePrice(e.target.value)}
                     />
 
                     <button
@@ -431,9 +411,7 @@ export default function AdminPage() {
                 ) : (
                   <>
                     <div>
-                      <p className="font-semibold">
-                        {service.name}
-                      </p>
+                      <p className="font-semibold">{service.name}</p>
 
                       <p className="text-gray-900">
                         {service.duration_minutes} minutes
@@ -441,17 +419,13 @@ export default function AdminPage() {
                     </div>
 
                     <div className="flex gap-2 items-center">
-                      <p className="font-bold">
-                        ${service.price}
-                      </p>
+                      <p className="font-bold">${service.price}</p>
 
                       <button
                         onClick={() => {
                           setEditingServiceId(service.id);
                           setEditedServiceName(service.name);
-                          setEditedServiceDuration(
-                            service.duration_minutes
-                          );
+                          setEditedServiceDuration(service.duration_minutes);
                           setEditedServicePrice(service.price);
                         }}
                         className="bg-blue-400 hover:bg-blue-500 text-white px-4 py-2 rounded-xl"
@@ -474,17 +448,13 @@ export default function AdminPage() {
         </section>
 
         <section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-gray-200">
-          <h2 className="text-3xl font-bold mb-6">
-            Weekly Availability
-          </h2>
+          <h2 className="text-3xl font-bold mb-6">Weekly Availability</h2>
 
           <div className="grid gap-3">
             <select
               className="border rounded-xl p-3"
               value={availabilityBarberId}
-              onChange={(e) =>
-                setAvailabilityBarberId(e.target.value)
-              }
+              onChange={(e) => setAvailabilityBarberId(e.target.value)}
             >
               {barbers.map((barber) => (
                 <option key={barber.id} value={barber.id}>
@@ -496,9 +466,7 @@ export default function AdminPage() {
             <select
               className="border rounded-xl p-3"
               value={availabilityDay}
-              onChange={(e) =>
-                setAvailabilityDay(e.target.value)
-              }
+              onChange={(e) => setAvailabilityDay(e.target.value)}
             >
               <option>Monday</option>
               <option>Tuesday</option>
@@ -513,18 +481,14 @@ export default function AdminPage() {
               type="time"
               className="border rounded-xl p-3"
               value={availabilityStart}
-              onChange={(e) =>
-                setAvailabilityStart(e.target.value)
-              }
+              onChange={(e) => setAvailabilityStart(e.target.value)}
             />
 
             <input
               type="time"
               className="border rounded-xl p-3"
               value={availabilityEnd}
-              onChange={(e) =>
-                setAvailabilityEnd(e.target.value)
-              }
+              onChange={(e) => setAvailabilityEnd(e.target.value)}
             />
 
             <button
@@ -542,21 +506,16 @@ export default function AdminPage() {
                 className="border rounded-xl p-4 flex justify-between items-center"
               >
                 <div>
-                  <p className="font-semibold">
-                    {barbers.find(
-                      (barber) => barber.id === rule.barber_id
-                    )?.name || "Barber"}
-                  </p>
+                  <p className="font-semibold">{barberName(rule.barber_id)}</p>
 
                   <p className="text-gray-900">
-                    Day {rule.weekday}: {rule.start_time} - {rule.end_time}
+                    {WEEKDAY_NAMES[rule.weekday]}: {formatTime(rule.start_time)} –{" "}
+                    {formatTime(rule.end_time)}
                   </p>
                 </div>
 
                 <button
-                  onClick={() =>
-                    deleteAvailabilityRule(rule.id)
-                  }
+                  onClick={() => deleteAvailabilityRule(rule.id)}
                   className="bg-red-400 hover:bg-red-500 text-white px-4 py-2 rounded-xl"
                 >
                   Delete
@@ -567,9 +526,7 @@ export default function AdminPage() {
         </section>
 
         <section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-gray-200">
-          <h2 className="text-3xl font-bold mb-6">
-            Quick Block Time
-          </h2>
+          <h2 className="text-3xl font-bold mb-6">Quick Block Time</h2>
 
           <div className="grid gap-3">
             <select
@@ -626,24 +583,17 @@ export default function AdminPage() {
               >
                 <div>
                   <p className="font-semibold">
-                    {block.reason}
+                    {barberName(block.barber_id)} · {block.reason}
                   </p>
 
                   <p className="text-gray-900">
-                    {new Date(
-                      block.start_datetime
-                    ).toLocaleString()}{" "}
-                    →{" "}
-                    {new Date(
-                      block.end_datetime
-                    ).toLocaleString()}
+                    {new Date(block.start_datetime).toLocaleString()} →{" "}
+                    {new Date(block.end_datetime).toLocaleString()}
                   </p>
                 </div>
 
                 <button
-                  onClick={() =>
-                    deleteBlockedTime(block.id)
-                  }
+                  onClick={() => deleteBlockedTime(block.id)}
                   className="bg-red-400 hover:bg-red-500 text-white px-4 py-2 rounded-xl"
                 >
                   Delete
@@ -652,7 +602,6 @@ export default function AdminPage() {
             ))}
           </div>
         </section>
-
       </div>
     </main>
   );
