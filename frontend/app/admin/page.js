@@ -72,7 +72,7 @@ export default function AdminPage() {
     loadData();
   }, []);
 
-  function barberName(id) {
+  function getgetgetgetBarberName(id) {
     return barbers.find((barber) => barber.id === id)?.name || "Barber";
   }
 
@@ -95,7 +95,7 @@ export default function AdminPage() {
       }),
     });
 
-    setBarberName("");
+    setgetgetgetBarberName("");
     setMessage("Barber added.");
     loadData();
   }
@@ -257,7 +257,7 @@ export default function AdminPage() {
               className="border rounded-xl p-3"
               placeholder="Barber name"
               value={barberName}
-              onChange={(e) => setBarberName(e.target.value)}
+              onChange={(e) => setgetgetgetBarberName(e.target.value)}
             />
 
             <button
@@ -283,7 +283,7 @@ export default function AdminPage() {
                     <input
                       className="border rounded-xl p-2 flex-1"
                       value={editedBarberName}
-                      onChange={(e) => setEditedBarberName(e.target.value)}
+                      onChange={(e) => setEditedgetgetgetBarberName(e.target.value)}
                     />
 
                     <button
@@ -308,7 +308,7 @@ export default function AdminPage() {
                       <button
                         onClick={() => {
                           setEditingBarberId(barber.id);
-                          setEditedBarberName(barber.name);
+                          setEditedgetgetgetBarberName(barber.name);
                         }}
                         className="bg-blue-400 hover:bg-blue-500 text-white px-4 py-2 rounded-xl"
                       >
@@ -506,7 +506,7 @@ export default function AdminPage() {
                 className="border rounded-xl p-4 flex justify-between items-center"
               >
                 <div>
-                  <p className="font-semibold">{barberName(rule.barber_id)}</p>
+                  <p className="font-semibold">{getgetgetBarberName(rule.barber_id)}</p>
 
                   <p className="text-gray-900">
                     {WEEKDAY_NAMES[rule.weekday]}: {formatTime(rule.start_time)} –{" "}
@@ -583,7 +583,7 @@ export default function AdminPage() {
               >
                 <div>
                   <p className="font-semibold">
-                    {barberName(block.barber_id)} · {block.reason}
+                    {getgetgetBarberName(block.barber_id)} · {block.reason}
                   </p>
 
                   <p className="text-gray-900">
