@@ -22,6 +22,7 @@ export default function CalendarPage() {
   const [selectedDate, setSelectedDate] = useState(today);
   const [selectedBarberId, setSelectedBarberId] = useState("");
   const [viewMode, setViewMode] = useState("day");
+  const [message, setMessage] = useState("");
 
   async function loadData() {
     const [appointmentsRes, barbersRes, servicesRes, blockedRes] =
@@ -47,10 +48,6 @@ export default function CalendarPage() {
   useEffect(() => {
     loadData();
   }, []);
-
-  function barberName(id) {
-    return barbers.find((barber) => barber.id === id)?.name || "Barber";
-  }
 
   function serviceName(id) {
     return services.find((service) => service.id === id)?.name || "Service";
@@ -78,6 +75,22 @@ export default function CalendarPage() {
       d.setDate(sunday.getDate() + index);
       return d.toISOString().slice(0, 10);
     });
+  }
+
+  async function updateAppointmentStatus(appointmentId, status) {
+    const response = await fetch(
+      `${API_BASE}/api/appointments/${appointmentId}/status?status=${status}`,
+      {
+        method: "PATCH",
+      }
+    );
+
+    if (response.ok) {
+      setMessage(`Appointment marked ${status}.`);
+      loadData();
+    } else {
+      setMessage("Could not update appointment status.");
+    }
   }
 
   const selectedBarber = barbers.find((barber) => barber.id === selectedBarberId);
@@ -120,11 +133,13 @@ export default function CalendarPage() {
       .filter((appointment) => sameDay(appointment.start_datetime, date))
       .map((appointment) => ({
         type: "appointment",
+        data: appointment,
         id: appointment.id,
         time: appointment.start_datetime,
         title: appointment.customer_name,
         detail: serviceName(appointment.service_id),
         phone: appointment.customer_phone,
+        status: appointment.status,
       }));
 
     const blocks = blockedTimes
@@ -142,6 +157,40 @@ export default function CalendarPage() {
     return [...appts, ...blocks].sort((a, b) => new Date(a.time) - new Date(b.time));
   }
 
+  function statusButtons(appointment) {
+    return (
+      <div className="flex flex-wrap gap-2 mt-3">
+        <button
+          onClick={() => updateAppointmentStatus(appointment.id, "confirmed")}
+          className="bg-blue-400 hover:bg-blue-500 text-white px-3 py-2 rounded-xl text-sm"
+        >
+          Confirm
+        </button>
+
+        <button
+          onClick={() => updateAppointmentStatus(appointment.id, "completed")}
+          className="bg-green-600 text-white px-3 py-2 rounded-xl text-sm"
+        >
+          Complete
+        </button>
+
+        <button
+          onClick={() => updateAppointmentStatus(appointment.id, "no_show")}
+          className="bg-yellow-500 text-white px-3 py-2 rounded-xl text-sm"
+        >
+          No-show
+        </button>
+
+        <button
+          onClick={() => updateAppointmentStatus(appointment.id, "canceled")}
+          className="bg-red-400 hover:bg-red-500 text-white px-3 py-2 rounded-xl text-sm"
+        >
+          Cancel
+        </button>
+      </div>
+    );
+  }
+
   return (
     <main className="min-h-screen bg-gray-100 p-4 sm:p-10">
       <div className="max-w-7xl mx-auto space-y-8">
@@ -151,8 +200,14 @@ export default function CalendarPage() {
           </h1>
 
           <p className="text-gray-900">
-            View daily and weekly schedules by barber.
+            View and manage appointments by barber.
           </p>
+
+          {message && (
+            <p className="mt-4 font-semibold text-green-700">
+              {message}
+            </p>
+          )}
         </div>
 
         <section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-gray-200">
@@ -226,12 +281,20 @@ export default function CalendarPage() {
                           <p className="font-bold">
                             {formatTime(appointment.start_datetime)} · {appointment.customer_name}
                           </p>
+
                           <p className="text-gray-900">
                             {serviceName(appointment.service_id)}
                           </p>
+
                           <p className="text-gray-900">
                             {appointment.customer_phone}
                           </p>
+
+                          <p className="text-gray-900">
+                            Status: {appointment.status}
+                          </p>
+
+                          {statusButtons(appointment)}
                         </div>
                       ))}
 
@@ -294,6 +357,14 @@ export default function CalendarPage() {
                           {item.phone && (
                             <p className="text-gray-900">{item.phone}</p>
                           )}
+
+                          {item.status && (
+                            <p className="text-gray-900">
+                              Status: {item.status}
+                            </p>
+                          )}
+
+                          {item.type === "appointment" && statusButtons(item.data)}
                         </div>
                       ))}
                     </div>
