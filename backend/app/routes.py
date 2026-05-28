@@ -300,3 +300,34 @@ def delete_availability_rule(rule_id: str, db: Session = Depends(get_db)):
     db.commit()
 
     return {"message": "Availability rule deleted"}
+
+@router.patch("/appointments/{appointment_id}/status")
+def update_appointment_status(
+    appointment_id: str,
+    status: str,
+    db: Session = Depends(get_db),
+):
+    allowed_statuses = ["confirmed", "completed", "no_show", "canceled"]
+
+    if status not in allowed_statuses:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid appointment status",
+        )
+
+    appointment = db.query(Appointment).filter(
+        Appointment.id == appointment_id
+    ).first()
+
+    if not appointment:
+        raise HTTPException(
+            status_code=404,
+            detail="Appointment not found",
+        )
+
+    appointment.status = status
+
+    db.commit()
+    db.refresh(appointment)
+
+    return appointment
