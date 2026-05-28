@@ -5,13 +5,15 @@ import { useEffect, useState } from "react";
 const API_BASE = "https://chairtime-production-94da.up.railway.app";
 
 export default function Home() {
+  const today = new Date().toISOString().slice(0, 10);
+
   const [barbers, setBarbers] = useState([]);
   const [services, setServices] = useState([]);
   const [slots, setSlots] = useState([]);
 
   const [selectedBarberId, setSelectedBarberId] = useState("");
   const [selectedServiceId, setSelectedServiceId] = useState("");
-  const [selectedDate, setSelectedDate] = useState("2026-05-20");
+  const [selectedDate, setSelectedDate] = useState(today);
   const [selectedSlot, setSelectedSlot] = useState("");
 
   const [customerName, setCustomerName] = useState("");
@@ -65,14 +67,33 @@ export default function Home() {
   }, [selectedBarberId, selectedServiceId, selectedDate]);
 
   async function bookAppointment() {
-    if (
-      !selectedBarberId ||
-      !selectedServiceId ||
-      !selectedSlot ||
-      !customerName ||
-      !customerPhone
-    ) {
-      setMessage("Please complete all fields.");
+    if (!selectedBarberId) {
+      setMessage("Please choose a barber.");
+      return;
+    }
+
+    if (!selectedServiceId) {
+      setMessage("Please choose a service.");
+      return;
+    }
+
+    if (!selectedDate) {
+      setMessage("Please choose a date.");
+      return;
+    }
+
+    if (!selectedSlot) {
+      setMessage("Please choose a time.");
+      return;
+    }
+
+    if (!customerName) {
+      setMessage("Please enter your name.");
+      return;
+    }
+
+    if (!customerPhone) {
+      setMessage("Please enter your phone number.");
       return;
     }
 
@@ -118,14 +139,10 @@ export default function Home() {
           ChairTime
         </h1>
 
-        <p className="text-gray-900 mb-8">
-          Book your appointment
-        </p>
+        <p className="text-gray-900 mb-8">Book your appointment</p>
 
         <section className="mb-8">
-          <h2 className="text-2xl font-bold mb-4">
-            Choose a barber
-          </h2>
+          <h2 className="text-2xl font-bold mb-4">Choose a barber</h2>
 
           <div className="grid gap-3">
             {barbers.map((barber) => (
@@ -146,9 +163,7 @@ export default function Home() {
         </section>
 
         <section className="mb-8">
-          <h2 className="text-2xl font-bold mb-4">
-            Choose a service
-          </h2>
+          <h2 className="text-2xl font-bold mb-4">Choose a service</h2>
 
           <div className="grid gap-3">
             {services.map((service) => (
@@ -172,9 +187,7 @@ export default function Home() {
         </section>
 
         <section className="mb-8">
-          <h2 className="text-2xl font-bold mb-4">
-            Choose a date
-          </h2>
+          <h2 className="text-2xl font-bold mb-4">Choose a date</h2>
 
           <input
             type="date"
@@ -185,9 +198,7 @@ export default function Home() {
         </section>
 
         <section className="mb-8">
-          <h2 className="text-2xl font-bold mb-4">
-            Choose a time
-          </h2>
+          <h2 className="text-2xl font-bold mb-4">Choose a time</h2>
 
           <div className="grid grid-cols-2 gap-3">
             {slots.length === 0 && (
@@ -238,9 +249,7 @@ export default function Home() {
         </section>
 
         {message && (
-          <p className="mt-6 font-semibold text-gray-900">
-            {message}
-          </p>
+          <p className="mt-6 font-semibold text-gray-900">{message}</p>
         )}
       </div>
     </main>
