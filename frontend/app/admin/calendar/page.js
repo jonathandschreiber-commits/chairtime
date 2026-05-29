@@ -24,7 +24,7 @@ export default function CalendarPage() {
   const [viewMode, setViewMode] = useState("day");
   const [message, setMessage] = useState("");
 
-  const [movingAppointment, setMovingAppointment] = useState(null);
+  const [movingAppointmentId, setMovingAppointmentId] = useState("");
   const [moveDate, setMoveDate] = useState(today);
   const [moveTime, setMoveTime] = useState("09:00");
 
@@ -81,6 +81,31 @@ export default function CalendarPage() {
     });
   }
 
+  function startMove(appointment) {
+    setMovingAppointmentId(appointment.id);
+    setMoveDate(new Date(appointment.start_datetime).toISOString().slice(0, 10));
+    setMoveTime(new Date(appointment.start_datetime).toTimeString().slice(0, 5));
+    setMessage("");
+  }
+
+  async function saveMove(appointment) {
+    const newStart = `${moveDate}T${moveTime}:00`;
+
+    const response = await fetch(
+      `${API_BASE}/api/appointments/${appointment.id}/reschedule?new_start_datetime=${encodeURIComponent(newStart)}`,
+      { method: "PATCH" }
+    );
+
+    if (response.ok) {
+      setMessage("Appointment moved.");
+      setMovingAppointmentId("");
+      setSelectedDate(moveDate);
+      loadData();
+    } else {
+      setMessage("Could not move appointment.");
+    }
+  }
+
   async function updateAppointmentStatus(appointmentId, status) {
     const response = await fetch(
       `${API_BASE}/api/appointments/${appointmentId}/status?status=${status}`,
@@ -92,40 +117,6 @@ export default function CalendarPage() {
       loadData();
     } else {
       setMessage("Could not update appointment status.");
-    }
-  }
-
-  function startMove(appointment) {
-    setMovingAppointment(appointment);
-    setMoveDate(new Date(appointment.start_datetime).toISOString().slice(0, 10));
-
-    const currentTime = new Date(appointment.start_datetime)
-      .toTimeString()
-      .slice(0, 5);
-
-    setMoveTime(currentTime);
-  }
-
-  async function saveMove() {
-    if (!movingAppointment || !moveDate || !moveTime) {
-      setMessage("Please choose a new date and time.");
-      return;
-    }
-
-    const newStart = `${moveDate}T${moveTime}:00`;
-
-    const response = await fetch(
-      `${API_BASE}/api/appointments/${movingAppointment.id}/reschedule?new_start_datetime=${encodeURIComponent(newStart)}`,
-      { method: "PATCH" }
-    );
-
-    if (response.ok) {
-      setMessage("Appointment moved.");
-      setMovingAppointment(null);
-      setSelectedDate(moveDate);
-      loadData();
-    } else {
-      setMessage("Could not move appointment.");
     }
   }
 
@@ -193,43 +184,96 @@ export default function CalendarPage() {
     return [...appts, ...blocks].sort((a, b) => new Date(a.time) - new Date(b.time));
   }
 
-  function statusButtons(appointment) {
+  function appointmentCard(appointment) {
+    const isMoving = movingAppointmentId === appointment.id;
+
     return (
-      <div className="flex flex-wrap gap-2 mt-3">
-        <button
-          onClick={() => startMove(appointment)}
-          className="bg-purple-500 text-white px-3 py-2 rounded-xl text-sm"
-        >
-          Move
-        </button>
+      <div
+        key={appointment.id}
+        className="rounded-xl p-3 bg-blue-100 border border-blue-300"
+      >
+        <p className="font-bold">
+          {formatTime(appointment.start_datetime)} · {appointment.customer_name}
+        </p>
 
-        <button
-          onClick={() => updateAppointmentStatus(appointment.id, "confirmed")}
-          className="bg-blue-400 hover:bg-blue-500 text-white px-3 py-2 rounded-xl text-sm"
-        >
-          Confirm
-        </button>
+        <p className="text-gray-900">{serviceName(appointment.service_id)}</p>
+        <p className="text-gray-900">{appointment.customer_phone}</p>
+        <p className="text-gray-900">Status: {appointment.status}</p>
 
-        <button
-          onClick={() => updateAppointmentStatus(appointment.id, "completed")}
-          className="bg-green-600 text-white px-3 py-2 rounded-xl text-sm"
-        >
-          Complete
-        </button>
+        {!isMoving && (
+          <div className="flex flex-wrap gap-2 mt-3">
+            <button
+              onClick={() => startMove(appointment)}
+              className="bg-purple-500 text-white px-3 py-2 rounded-xl text-sm"
+            >
+              Move
+            </button>
 
-        <button
-          onClick={() => updateAppointmentStatus(appointment.id, "no_show")}
-          className="bg-yellow-500 text-white px-3 py-2 rounded-xl text-sm"
-        >
-          No-show
-        </button>
+            <button
+              onClick={() => updateAppointmentStatus(appointment.id, "confirmed")}
+              className="bg-blue-400 hover:bg-blue-500 text-white px-3 py-2 rounded-xl text-sm"
+            >
+              Confirm
+            </button>
 
-        <button
-          onClick={() => updateAppointmentStatus(appointment.id, "canceled")}
-          className="bg-red-400 hover:bg-red-500 text-white px-3 py-2 rounded-xl text-sm"
-        >
-          Cancel
-        </button>
+            <button
+              onClick={() => updateAppointmentStatus(appointment.id, "completed")}
+              className="bg-green-600 text-white px-3 py-2 rounded-xl text-sm"
+            >
+              Complete
+            </button>
+
+            <button
+              onClick={() => updateAppointmentStatus(appointment.id, "no_show")}
+              className="bg-yellow-500 text-white px-3 py-2 rounded-xl text-sm"
+            >
+              No-show
+            </button>
+
+            <button
+              onClick={() => updateAppointmentStatus(appointment.id, "canceled")}
+              className="bg-red-400 hover:bg-red-500 text-white px-3 py-2 rounded-xl text-sm"
+            >
+              Cancel
+            </button>
+          </div>
+        )}
+
+        {isMoving && (
+          <div className="mt-4 bg-white rounded-xl border p-4">
+            <p className="font-bold mb-3">Move this appointment</p>
+
+            <div className="grid gap-3 sm:grid-cols-3">
+              <input
+                type="date"
+                className="border rounded-xl p-3"
+                value={moveDate}
+                onChange={(e) => setMoveDate(e.target.value)}
+              />
+
+              <input
+                type="time"
+                className="border rounded-xl p-3"
+                value={moveTime}
+                onChange={(e) => setMoveTime(e.target.value)}
+              />
+
+              <button
+                onClick={() => saveMove(appointment)}
+                className="bg-black text-white rounded-xl px-4 py-3 font-semibold"
+              >
+                Save Move
+              </button>
+            </div>
+
+            <button
+              onClick={() => setMovingAppointmentId("")}
+              className="mt-3 bg-gray-400 text-white px-4 py-2 rounded-xl"
+            >
+              Cancel Move
+            </button>
+          </div>
+        )}
       </div>
     );
   }
@@ -250,47 +294,6 @@ export default function CalendarPage() {
             <p className="mt-4 font-semibold text-green-700">{message}</p>
           )}
         </div>
-
-        {movingAppointment && (
-          <section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-gray-200">
-            <h2 className="text-3xl font-bold mb-6">Move Appointment</h2>
-
-            <p className="font-semibold mb-4">
-              {movingAppointment.customer_name} ·{" "}
-              {serviceName(movingAppointment.service_id)}
-            </p>
-
-            <div className="grid gap-3 sm:grid-cols-3">
-              <input
-                type="date"
-                className="border rounded-xl p-3"
-                value={moveDate}
-                onChange={(e) => setMoveDate(e.target.value)}
-              />
-
-              <input
-                type="time"
-                className="border rounded-xl p-3"
-                value={moveTime}
-                onChange={(e) => setMoveTime(e.target.value)}
-              />
-
-              <button
-                onClick={saveMove}
-                className="bg-black text-white rounded-xl px-6 py-3 font-semibold"
-              >
-                Save New Time
-              </button>
-            </div>
-
-            <button
-              onClick={() => setMovingAppointment(null)}
-              className="mt-4 bg-gray-400 text-white px-4 py-2 rounded-xl"
-            >
-              Cancel Move
-            </button>
-          </section>
-        )}
 
         <section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-gray-200">
           <h2 className="text-3xl font-bold mb-6">Filters</h2>
@@ -355,31 +358,9 @@ export default function CalendarPage() {
                     )}
 
                     <div className="grid gap-2">
-                      {appointmentsForHour.map((appointment) => (
-                        <div
-                          key={appointment.id}
-                          className="rounded-xl p-3 bg-blue-100 border border-blue-300"
-                        >
-                          <p className="font-bold">
-                            {formatTime(appointment.start_datetime)} ·{" "}
-                            {appointment.customer_name}
-                          </p>
-
-                          <p className="text-gray-900">
-                            {serviceName(appointment.service_id)}
-                          </p>
-
-                          <p className="text-gray-900">
-                            {appointment.customer_phone}
-                          </p>
-
-                          <p className="text-gray-900">
-                            Status: {appointment.status}
-                          </p>
-
-                          {statusButtons(appointment)}
-                        </div>
-                      ))}
+                      {appointmentsForHour.map((appointment) =>
+                        appointmentCard(appointment)
+                      )}
 
                       {blockedForHour.map((block) => (
                         <div
@@ -387,8 +368,7 @@ export default function CalendarPage() {
                           className="rounded-xl p-3 bg-gray-200 border border-gray-400"
                         >
                           <p className="font-bold">
-                            {formatTime(block.start_datetime)} –{" "}
-                            {formatTime(block.end_datetime)}
+                            {formatTime(block.start_datetime)} – {formatTime(block.end_datetime)}
                           </p>
                           <p className="text-gray-900">Blocked: {block.reason}</p>
                         </div>
@@ -418,40 +398,25 @@ export default function CalendarPage() {
                     </h3>
 
                     {items.length === 0 && (
-                      <p className="text-gray-900">
-                        No appointments or blocked time.
-                      </p>
+                      <p className="text-gray-900">No appointments or blocked time.</p>
                     )}
 
                     <div className="grid gap-2">
-                      {items.map((item) => (
-                        <div
-                          key={`${item.type}-${item.id}`}
-                          className={`rounded-xl p-3 border ${
-                            item.type === "appointment"
-                              ? "bg-blue-100 border-blue-300"
-                              : "bg-gray-200 border-gray-400"
-                          }`}
-                        >
-                          <p className="font-bold">
-                            {formatTime(item.time)}
-                            {item.endTime ? ` – ${formatTime(item.endTime)}` : ""} ·{" "}
-                            {item.title}
-                          </p>
-
-                          <p className="text-gray-900">{item.detail}</p>
-
-                          {item.phone && (
-                            <p className="text-gray-900">{item.phone}</p>
-                          )}
-
-                          {item.status && (
-                            <p className="text-gray-900">Status: {item.status}</p>
-                          )}
-
-                          {item.type === "appointment" && statusButtons(item.data)}
-                        </div>
-                      ))}
+                      {items.map((item) =>
+                        item.type === "appointment" ? (
+                          appointmentCard(item.data)
+                        ) : (
+                          <div
+                            key={`${item.type}-${item.id}`}
+                            className="rounded-xl p-3 border bg-gray-200 border-gray-400"
+                          >
+                            <p className="font-bold">
+                              {formatTime(item.time)} – {formatTime(item.endTime)} · {item.title}
+                            </p>
+                            <p className="text-gray-900">{item.detail}</p>
+                          </div>
+                        )
+                      )}
                     </div>
                   </div>
                 );
