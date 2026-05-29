@@ -24,6 +24,10 @@ export default function CalendarPage() {
   const [viewMode, setViewMode] = useState("day");
   const [message, setMessage] = useState("");
 
+  const [movingAppointment, setMovingAppointment] = useState(null);
+  const [moveDate, setMoveDate] = useState(today);
+  const [moveTime, setMoveTime] = useState("09:00");
+
   async function loadData() {
     const [appointmentsRes, barbersRes, servicesRes, blockedRes] =
       await Promise.all([
@@ -80,9 +84,7 @@ export default function CalendarPage() {
   async function updateAppointmentStatus(appointmentId, status) {
     const response = await fetch(
       `${API_BASE}/api/appointments/${appointmentId}/status?status=${status}`,
-      {
-        method: "PATCH",
-      }
+      { method: "PATCH" }
     );
 
     if (response.ok) {
@@ -90,6 +92,40 @@ export default function CalendarPage() {
       loadData();
     } else {
       setMessage("Could not update appointment status.");
+    }
+  }
+
+  function startMove(appointment) {
+    setMovingAppointment(appointment);
+    setMoveDate(new Date(appointment.start_datetime).toISOString().slice(0, 10));
+
+    const currentTime = new Date(appointment.start_datetime)
+      .toTimeString()
+      .slice(0, 5);
+
+    setMoveTime(currentTime);
+  }
+
+  async function saveMove() {
+    if (!movingAppointment || !moveDate || !moveTime) {
+      setMessage("Please choose a new date and time.");
+      return;
+    }
+
+    const newStart = `${moveDate}T${moveTime}:00`;
+
+    const response = await fetch(
+      `${API_BASE}/api/appointments/${movingAppointment.id}/reschedule?new_start_datetime=${encodeURIComponent(newStart)}`,
+      { method: "PATCH" }
+    );
+
+    if (response.ok) {
+      setMessage("Appointment moved.");
+      setMovingAppointment(null);
+      setSelectedDate(moveDate);
+      loadData();
+    } else {
+      setMessage("Could not move appointment.");
     }
   }
 
@@ -161,6 +197,13 @@ export default function CalendarPage() {
     return (
       <div className="flex flex-wrap gap-2 mt-3">
         <button
+          onClick={() => startMove(appointment)}
+          className="bg-purple-500 text-white px-3 py-2 rounded-xl text-sm"
+        >
+          Move
+        </button>
+
+        <button
           onClick={() => updateAppointmentStatus(appointment.id, "confirmed")}
           className="bg-blue-400 hover:bg-blue-500 text-white px-3 py-2 rounded-xl text-sm"
         >
@@ -200,15 +243,54 @@ export default function CalendarPage() {
           </h1>
 
           <p className="text-gray-900">
-            View and manage appointments by barber.
+            View, move, and manage appointments by barber.
           </p>
 
           {message && (
-            <p className="mt-4 font-semibold text-green-700">
-              {message}
-            </p>
+            <p className="mt-4 font-semibold text-green-700">{message}</p>
           )}
         </div>
+
+        {movingAppointment && (
+          <section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-gray-200">
+            <h2 className="text-3xl font-bold mb-6">Move Appointment</h2>
+
+            <p className="font-semibold mb-4">
+              {movingAppointment.customer_name} ·{" "}
+              {serviceName(movingAppointment.service_id)}
+            </p>
+
+            <div className="grid gap-3 sm:grid-cols-3">
+              <input
+                type="date"
+                className="border rounded-xl p-3"
+                value={moveDate}
+                onChange={(e) => setMoveDate(e.target.value)}
+              />
+
+              <input
+                type="time"
+                className="border rounded-xl p-3"
+                value={moveTime}
+                onChange={(e) => setMoveTime(e.target.value)}
+              />
+
+              <button
+                onClick={saveMove}
+                className="bg-black text-white rounded-xl px-6 py-3 font-semibold"
+              >
+                Save New Time
+              </button>
+            </div>
+
+            <button
+              onClick={() => setMovingAppointment(null)}
+              className="mt-4 bg-gray-400 text-white px-4 py-2 rounded-xl"
+            >
+              Cancel Move
+            </button>
+          </section>
+        )}
 
         <section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-gray-200">
           <h2 className="text-3xl font-bold mb-6">Filters</h2>
@@ -279,7 +361,8 @@ export default function CalendarPage() {
                           className="rounded-xl p-3 bg-blue-100 border border-blue-300"
                         >
                           <p className="font-bold">
-                            {formatTime(appointment.start_datetime)} · {appointment.customer_name}
+                            {formatTime(appointment.start_datetime)} ·{" "}
+                            {appointment.customer_name}
                           </p>
 
                           <p className="text-gray-900">
@@ -304,7 +387,8 @@ export default function CalendarPage() {
                           className="rounded-xl p-3 bg-gray-200 border border-gray-400"
                         >
                           <p className="font-bold">
-                            {formatTime(block.start_datetime)} – {formatTime(block.end_datetime)}
+                            {formatTime(block.start_datetime)} –{" "}
+                            {formatTime(block.end_datetime)}
                           </p>
                           <p className="text-gray-900">Blocked: {block.reason}</p>
                         </div>
@@ -334,7 +418,9 @@ export default function CalendarPage() {
                     </h3>
 
                     {items.length === 0 && (
-                      <p className="text-gray-900">No appointments or blocked time.</p>
+                      <p className="text-gray-900">
+                        No appointments or blocked time.
+                      </p>
                     )}
 
                     <div className="grid gap-2">
@@ -349,7 +435,8 @@ export default function CalendarPage() {
                         >
                           <p className="font-bold">
                             {formatTime(item.time)}
-                            {item.endTime ? ` – ${formatTime(item.endTime)}` : ""} · {item.title}
+                            {item.endTime ? ` – ${formatTime(item.endTime)}` : ""} ·{" "}
+                            {item.title}
                           </p>
 
                           <p className="text-gray-900">{item.detail}</p>
@@ -359,9 +446,7 @@ export default function CalendarPage() {
                           )}
 
                           {item.status && (
-                            <p className="text-gray-900">
-                              Status: {item.status}
-                            </p>
+                            <p className="text-gray-900">Status: {item.status}</p>
                           )}
 
                           {item.type === "appointment" && statusButtons(item.data)}
