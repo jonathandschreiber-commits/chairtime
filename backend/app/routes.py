@@ -1,4 +1,4 @@
-from datetime import timedelta, date
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -348,10 +348,47 @@ def reschedule_appointment(
             detail="Appointment not found",
         )
 
-    appointment.start_datetime = datetime.fromisoformat(
-        new_start_datetime
-    )
+    service = db.query(Service).filter(
+        Service.id == appointment.service_id
+    ).first()
 
+    if not service:
+        raise HTTPException(
+            status_code=404,
+            detail="Service not found",
+        )
+
+    new_start = datetime.fromisoformat(new_start_datetime)
+    new_end = new_start + timedelta(minutes=service.duration_minutes)
+
+    conflict = db.query(Appointment).filter(
+        Appointment.barber_id == appointment.barber_id,
+        Appointment.id != appointment.id,
+        Appointment.status != "canceled",
+        Appointment.start_datetime < new_end,
+        Appointment.end_datetime > new_start,
+    ).first()
+
+    if conflict:
+        raise HTTPException(
+            status_code=409,
+            detail="That time is already booked",
+        )
+
+    blocked_conflict = db.query(BlockedTime).filter(
+        BlockedTime.barber_id == appointment.barber_id,
+        BlockedTime.start_datetime < new_end,
+        BlockedTime.end_datetime > new_start,
+    ).first()
+
+    if blocked_conflict:
+        raise HTTPException(
+            status_code=409,
+            detail="That time is blocked",
+        )
+
+    appointment.start_datetime = new_start
+    appointment.end_datetime = new_end
     appointment.status = "confirmed"
 
     db.commit()
