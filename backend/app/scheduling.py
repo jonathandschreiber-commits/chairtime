@@ -13,7 +13,7 @@ def has_overlap(
 ) -> bool:
     appointment_conflict = db.query(Appointment).filter(
         Appointment.barber_id == barber_id,
-        Appointment.status == "confirmed",
+        Appointment.status != "canceled",
         Appointment.start_datetime < requested_end,
         Appointment.end_datetime > requested_start,
     ).first()
@@ -25,6 +25,13 @@ def has_overlap(
     ).first()
 
     return appointment_conflict is not None or blocked_conflict is not None
+
+
+def normalize_time(value):
+    if isinstance(value, str):
+        return datetime.strptime(value, "%H:%M:%S").time()
+
+    return value
 
 
 def generate_available_slots(
@@ -39,23 +46,16 @@ def generate_available_slots(
         return []
 
     weekday = target_date.weekday()
+    slots = []
 
     rules = db.query(AvailabilityRule).filter(
         AvailabilityRule.barber_id == barber_id,
         AvailabilityRule.weekday == weekday,
     ).all()
 
-    slots = []
-
     for rule in rules:
-        start_time = rule.start_time
-        end_time = rule.end_time
-
-        if isinstance(start_time, str):
-            start_time = datetime.strptime(start_time, "%H:%M:%S").time()
-
-        if isinstance(end_time, str):
-            end_time = datetime.strptime(end_time, "%H:%M:%S").time()
+        start_time = normalize_time(rule.start_time)
+        end_time = normalize_time(rule.end_time)
 
         current_start = datetime.combine(target_date, start_time)
         day_end = datetime.combine(target_date, end_time)
