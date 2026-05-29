@@ -331,3 +331,30 @@ def update_appointment_status(
     db.refresh(appointment)
 
     return appointment
+
+@router.patch("/appointments/{appointment_id}/reschedule")
+def reschedule_appointment(
+    appointment_id: str,
+    new_start_datetime: str,
+    db: Session = Depends(get_db),
+):
+    appointment = db.query(Appointment).filter(
+        Appointment.id == appointment_id
+    ).first()
+
+    if not appointment:
+        raise HTTPException(
+            status_code=404,
+            detail="Appointment not found",
+        )
+
+    appointment.start_datetime = datetime.fromisoformat(
+        new_start_datetime
+    )
+
+    appointment.status = "confirmed"
+
+    db.commit()
+    db.refresh(appointment)
+
+    return appointment
