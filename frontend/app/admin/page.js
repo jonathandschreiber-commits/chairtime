@@ -4,7 +4,17 @@ import { useEffect, useState } from "react";
 
 const API_BASE = "https://chairtime-production-94da.up.railway.app";
 
-const weekdayMap = {
+const WEEKDAY_NAMES = {
+  0: "Monday",
+  1: "Tuesday",
+  2: "Wednesday",
+  3: "Thursday",
+  4: "Friday",
+  5: "Saturday",
+  6: "Sunday",
+};
+
+const WEEKDAY_MAP = {
   Monday: 0,
   Tuesday: 1,
   Wednesday: 2,
@@ -56,7 +66,7 @@ export default function AdminPage() {
 
     const barbersData = await barbersRes.json();
 
-    setBarbers(barbersData);
+    setBarbers(Array.isArray(barbersData) ? barbersData : []);
     setServices(await servicesRes.json());
     setBlockedTimes(await blockedRes.json());
     setAvailabilityRules(await availabilityRes.json());
@@ -161,22 +171,12 @@ export default function AdminPage() {
   }
 
   async function addAvailabilityRule() {
-    const weekdayMap = {
-      Sunday: 0,
-      Monday: 1,
-      Tuesday: 2,
-      Wednesday: 3,
-      Thursday: 4,
-      Friday: 5,
-      Saturday: 6,
-    };
-
     await fetch(`${API_BASE}/api/availability-rules`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         barber_id: availabilityBarberId,
-        weekday: weekdayMap[availabilityDay],
+        weekday: WEEKDAY_MAP[availabilityDay],
         start_time: `${availabilityStart}:00`,
         end_time: `${availabilityEnd}:00`,
       }),
@@ -257,17 +257,9 @@ export default function AdminPage() {
               <div key={barber.id} className="border rounded-xl p-4 flex justify-between items-center">
                 {editingBarberId === barber.id ? (
                   <div className="flex gap-2 w-full">
-                    <input
-                      className="border rounded-xl p-2 flex-1"
-                      value={editedBarberName}
-                      onChange={(e) => setEditedBarberName(e.target.value)}
-                    />
-                    <button onClick={() => updateBarber(barber.id)} className="bg-green-600 text-white px-4 py-2 rounded-xl">
-                      Save
-                    </button>
-                    <button onClick={() => setEditingBarberId(null)} className="bg-gray-400 text-white px-4 py-2 rounded-xl">
-                      Cancel
-                    </button>
+                    <input className="border rounded-xl p-2 flex-1" value={editedBarberName} onChange={(e) => setEditedBarberName(e.target.value)} />
+                    <button onClick={() => updateBarber(barber.id)} className="bg-green-600 text-white px-4 py-2 rounded-xl">Save</button>
+                    <button onClick={() => setEditingBarberId(null)} className="bg-gray-400 text-white px-4 py-2 rounded-xl">Cancel</button>
                   </div>
                 ) : (
                   <>
@@ -299,9 +291,7 @@ export default function AdminPage() {
             <input className="border rounded-xl p-3" placeholder="Service name" value={serviceName} onChange={(e) => setServiceName(e.target.value)} />
             <input className="border rounded-xl p-3" placeholder="Duration" value={serviceDuration} onChange={(e) => setServiceDuration(e.target.value)} />
             <input className="border rounded-xl p-3" placeholder="Price" value={servicePrice} onChange={(e) => setServicePrice(e.target.value)} />
-            <button onClick={addService} className="bg-black text-white rounded-xl px-6 py-3 font-semibold">
-              Add Service
-            </button>
+            <button onClick={addService} className="bg-black text-white rounded-xl px-6 py-3 font-semibold">Add Service</button>
           </div>
         </section>
 
@@ -315,12 +305,8 @@ export default function AdminPage() {
                     <input className="border rounded-xl p-2 flex-1" value={editedServiceName} onChange={(e) => setEditedServiceName(e.target.value)} />
                     <input className="border rounded-xl p-2 w-24" value={editedServiceDuration} onChange={(e) => setEditedServiceDuration(e.target.value)} />
                     <input className="border rounded-xl p-2 w-24" value={editedServicePrice} onChange={(e) => setEditedServicePrice(e.target.value)} />
-                    <button onClick={() => updateService(service.id)} className="bg-green-600 text-white px-4 py-2 rounded-xl">
-                      Save
-                    </button>
-                    <button onClick={() => setEditingServiceId(null)} className="bg-gray-400 text-white px-4 py-2 rounded-xl">
-                      Cancel
-                    </button>
+                    <button onClick={() => updateService(service.id)} className="bg-green-600 text-white px-4 py-2 rounded-xl">Save</button>
+                    <button onClick={() => setEditingServiceId(null)} className="bg-gray-400 text-white px-4 py-2 rounded-xl">Cancel</button>
                   </div>
                 ) : (
                   <>
@@ -341,9 +327,7 @@ export default function AdminPage() {
                       >
                         Edit
                       </button>
-                      <button onClick={() => deleteService(service.id)} className="bg-red-400 hover:bg-red-500 text-white px-4 py-2 rounded-xl">
-                        Delete
-                      </button>
+                      <button onClick={() => deleteService(service.id)} className="bg-red-400 hover:bg-red-500 text-white px-4 py-2 rounded-xl">Delete</button>
                     </div>
                   </>
                 )}
@@ -360,11 +344,20 @@ export default function AdminPage() {
                 <option key={barber.id} value={barber.id}>{barber.name}</option>
               ))}
             </select>
+
             <select className="border rounded-xl p-3" value={availabilityDay} onChange={(e) => setAvailabilityDay(e.target.value)}>
-              <option>Monday</option><option>Tuesday</option><option>Wednesday</option><option>Thursday</option><option>Friday</option><option>Saturday</option><option>Sunday</option>
+              <option>Monday</option>
+              <option>Tuesday</option>
+              <option>Wednesday</option>
+              <option>Thursday</option>
+              <option>Friday</option>
+              <option>Saturday</option>
+              <option>Sunday</option>
             </select>
+
             <input type="time" className="border rounded-xl p-3" value={availabilityStart} onChange={(e) => setAvailabilityStart(e.target.value)} />
             <input type="time" className="border rounded-xl p-3" value={availabilityEnd} onChange={(e) => setAvailabilityEnd(e.target.value)} />
+
             <button onClick={addAvailabilityRule} className="bg-black text-white rounded-xl px-6 py-3 font-semibold">
               Add Weekly Availability
             </button>
@@ -376,7 +369,7 @@ export default function AdminPage() {
                 <div>
                   <p className="font-semibold">{getBarberName(rule.barber_id)}</p>
                   <p className="text-gray-900">
-                    {WEEKDAY_NAMES[rule.weekday]}: {formatTime(rule.start_time)} – {formatTime(rule.end_time)}
+                    {WEEKDAY_NAMES[rule.weekday] || "Unknown day"}: {formatTime(rule.start_time)} – {formatTime(rule.end_time)}
                   </p>
                 </div>
                 <button onClick={() => deleteAvailabilityRule(rule.id)} className="bg-red-400 hover:bg-red-500 text-white px-4 py-2 rounded-xl">
@@ -395,11 +388,18 @@ export default function AdminPage() {
                 <option key={barber.id} value={barber.id}>{barber.name}</option>
               ))}
             </select>
+
             <select className="border rounded-xl p-3" value={blockReason} onChange={(e) => setBlockReason(e.target.value)}>
-              <option>Lunch</option><option>Break</option><option>Vacation</option><option>Personal</option><option>Closed</option>
+              <option>Lunch</option>
+              <option>Break</option>
+              <option>Vacation</option>
+              <option>Personal</option>
+              <option>Closed</option>
             </select>
+
             <input type="datetime-local" className="border rounded-xl p-3" value={blockStart} onChange={(e) => setBlockStart(e.target.value)} />
             <input type="datetime-local" className="border rounded-xl p-3" value={blockEnd} onChange={(e) => setBlockEnd(e.target.value)} />
+
             <button onClick={blockTime} className="bg-black text-white rounded-xl px-6 py-3 font-semibold">
               Block Time
             </button>
