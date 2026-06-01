@@ -46,12 +46,13 @@ def generate_available_slots(
         return []
 
     weekday = target_date.weekday()
-    slots = []
 
     rules = db.query(AvailabilityRule).filter(
         AvailabilityRule.barber_id == barber_id,
         AvailabilityRule.weekday == weekday,
     ).all()
+
+    slots = []
 
     for rule in rules:
         start_time = normalize_time(rule.start_time)
