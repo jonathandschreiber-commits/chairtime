@@ -6,6 +6,15 @@ from app.routes import router
 
 Base.metadata.create_all(bind=engine)
 
+with engine.connect() as connection:
+    try:
+        connection.exec_driver_sql(
+            "ALTER TABLE appointments ADD COLUMN notes VARCHAR"
+        )
+        connection.commit()
+    except Exception:
+        connection.rollback()
+
 app = FastAPI(title="ChairTime API")
 
 app.add_middleware(

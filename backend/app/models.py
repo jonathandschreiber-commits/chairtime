@@ -1,69 +1,65 @@
 import uuid
-from sqlalchemy import Column, String, Integer, DateTime, Time, ForeignKey
+
+from sqlalchemy import Column, DateTime, Float, Integer, String, Time
+from sqlalchemy.sql import func
+
 from app.database import Base
+
+
+def generate_uuid():
+    return str(uuid.uuid4())
 
 
 class Barber(Base):
     __tablename__ = "barbers"
 
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    id = Column(String, primary_key=True, default=generate_uuid)
     name = Column(String, nullable=False)
     shop_name = Column(String, nullable=False)
     phone = Column(String, nullable=True)
-    timezone = Column(String, nullable=False)
+    timezone = Column(String, nullable=False, default="America/New_York")
 
 
 class Service(Base):
     __tablename__ = "services"
 
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    barber_id = Column(String, ForeignKey("barbers.id"), nullable=False)
+    id = Column(String, primary_key=True, default=generate_uuid)
+    barber_id = Column(String, nullable=True)
     name = Column(String, nullable=False)
     duration_minutes = Column(Integer, nullable=False)
-    price = Column(Integer, nullable=True)
+    price = Column(Float, nullable=False)
 
 
 class AvailabilityRule(Base):
     __tablename__ = "availability_rules"
 
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    barber_id = Column(String, ForeignKey("barbers.id"), nullable=False)
+    id = Column(String, primary_key=True, default=generate_uuid)
+    barber_id = Column(String, nullable=False)
     weekday = Column(Integer, nullable=False)
     start_time = Column(Time, nullable=False)
     end_time = Column(Time, nullable=False)
 
 
-class Appointment(Base):
-    __tablename__ = "appointments"
-
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    barber_id = Column(String, ForeignKey("barbers.id"), nullable=False)
-    service_id = Column(String, ForeignKey("services.id"), nullable=False)
-    customer_name = Column(String, nullable=False)
-    customer_phone = Column(String, nullable=False)
-    start_datetime = Column(DateTime, nullable=False)
-    end_datetime = Column(DateTime, nullable=False)
-    status = Column(String, default="confirmed")
-
-class Shop(Base):
-    __tablename__ = "shops"
-
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    name = Column(String, nullable=False)
-    business_type = Column(String, nullable=False, default="barbershop")
-    phone = Column(String, nullable=True)
-    timezone = Column(String, nullable=False, default="America/New_York")
-
-    accepts_cards = Column(Integer, default=0)
-    requires_deposit = Column(Integer, default=0)
-    deposit_amount = Column(Integer, nullable=True)
-    no_show_fee = Column(Integer, nullable=True)
-
 class BlockedTime(Base):
     __tablename__ = "blocked_times"
 
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    barber_id = Column(String, ForeignKey("barbers.id"), nullable=False)
+    id = Column(String, primary_key=True, default=generate_uuid)
+    barber_id = Column(String, nullable=False)
+    reason = Column(String, nullable=False)
     start_datetime = Column(DateTime, nullable=False)
     end_datetime = Column(DateTime, nullable=False)
-    reason = Column(String, nullable=True)
+
+
+class Appointment(Base):
+    __tablename__ = "appointments"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    barber_id = Column(String, nullable=False)
+    service_id = Column(String, nullable=False)
+    customer_name = Column(String, nullable=False)
+    customer_phone = Column(String, nullable=False)
+    notes = Column(String, nullable=True)
+    start_datetime = Column(DateTime, nullable=False)
+    end_datetime = Column(DateTime, nullable=False)
+    status = Column(String, nullable=False, default="confirmed")
+    created_at = Column(DateTime, server_default=func.now())
