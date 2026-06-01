@@ -4,6 +4,12 @@ from typing import Optional
 from pydantic import BaseModel
 
 
+class ShopCreate(BaseModel):
+    name: str
+    phone: Optional[str] = None
+    timezone: str = "America/New_York"
+
+
 class BarberCreate(BaseModel):
     name: str
     shop_name: str
@@ -11,15 +17,11 @@ class BarberCreate(BaseModel):
     timezone: str = "America/New_York"
 
 
-class BarberResponse(BaseModel):
-    id: str
-    name: str
-    shop_name: str
+class BarberUpdate(BaseModel):
+    name: Optional[str] = None
+    shop_name: Optional[str] = None
     phone: Optional[str] = None
-    timezone: str
-
-    class Config:
-        from_attributes = True
+    timezone: Optional[str] = None
 
 
 class ServiceCreate(BaseModel):
@@ -29,15 +31,18 @@ class ServiceCreate(BaseModel):
     price: float
 
 
-class ServiceResponse(BaseModel):
-    id: str
+class ServiceUpdate(BaseModel):
     barber_id: Optional[str] = None
-    name: str
-    duration_minutes: int
-    price: float
+    name: Optional[str] = None
+    duration_minutes: Optional[int] = None
+    price: Optional[float] = None
 
-    class Config:
-        from_attributes = True
+
+class AvailabilityCreate(BaseModel):
+    barber_id: str
+    weekday: int
+    start_time: time
+    end_time: time
 
 
 class AvailabilityRuleCreate(BaseModel):
@@ -47,33 +52,11 @@ class AvailabilityRuleCreate(BaseModel):
     end_time: time
 
 
-class AvailabilityRuleResponse(BaseModel):
-    id: str
-    barber_id: str
-    weekday: int
-    start_time: time
-    end_time: time
-
-    class Config:
-        from_attributes = True
-
-
 class BlockedTimeCreate(BaseModel):
     barber_id: str
     reason: str
     start_datetime: datetime
     end_datetime: datetime
-
-
-class BlockedTimeResponse(BaseModel):
-    id: str
-    barber_id: str
-    reason: str
-    start_datetime: datetime
-    end_datetime: datetime
-
-    class Config:
-        from_attributes = True
 
 
 class AppointmentCreate(BaseModel):
@@ -85,16 +68,9 @@ class AppointmentCreate(BaseModel):
     start_datetime: datetime
 
 
-class AppointmentResponse(BaseModel):
-    id: str
-    barber_id: str
-    service_id: str
-    customer_name: str
-    customer_phone: str
+class AppointmentUpdate(BaseModel):
+    customer_name: Optional[str] = None
+    customer_phone: Optional[str] = None
     notes: Optional[str] = None
-    start_datetime: datetime
-    end_datetime: datetime
-    status: str
-
-    class Config:
-        from_attributes = True
+    status: Optional[str] = None
+    start_datetime: Optional[datetime] = None
