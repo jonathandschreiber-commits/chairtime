@@ -9,6 +9,14 @@ from app.database import Base
 def generate_uuid():
     return str(uuid.uuid4())
 
+class Shop(Base):
+    __tablename__ = "shops"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    name = Column(String, nullable=False)
+    phone = Column(String, nullable=True)
+    timezone = Column(String, nullable=False, default="America/New_York")
+
 
 class Barber(Base):
     __tablename__ = "barbers"
