@@ -1,24 +1,40 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Script from "next/script";
 
 const API_BASE = "https://chairtime-production-94da.up.railway.app";
 
-export default function Home() {
+export default function HomePage() {
   const today = new Date().toISOString().slice(0, 10);
 
   const [barbers, setBarbers] = useState([]);
   const [services, setServices] = useState([]);
-  const [slots, setSlots] = useState([]);
+  const [availableSlots, setAvailableSlots] = useState([]);
 
   const [selectedBarberId, setSelectedBarberId] = useState("");
   const [selectedServiceId, setSelectedServiceId] = useState("");
   const [selectedDate, setSelectedDate] = useState(today);
-  const [selectedSlot, setSelectedSlot] = useState("");
+  const [selectedTime, setSelectedTime] = useState("");
 
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
+
   const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    loadInitialData();
+  }, []);
+
+  useEffect(() => {
+    if (
+      selectedBarberId &&
+      selectedServiceId &&
+      selectedDate
+    ) {
+      loadAvailability();
+    }
+  }, [selectedBarberId, selectedServiceId, selectedDate]);
 
   async function loadInitialData() {
     const [barbersRes, servicesRes] = await Promise.all([
@@ -41,59 +57,32 @@ export default function Home() {
     }
   }
 
-  async function loadSlots(barberId, serviceId, dateValue) {
-    if (!barberId || !serviceId || !dateValue) return;
-
-    setSelectedSlot("");
-    setMessage("");
-
+  async function loadAvailability() {
     const response = await fetch(
-      `${API_BASE}/api/availability?barber_id=${barberId}&service_id=${serviceId}&target_date=${dateValue}`
+      `${API_BASE}/api/availability?barber_id=${selectedBarberId}&service_id=${selectedServiceId}&target_date=${selectedDate}`
     );
 
     const data = await response.json();
 
-    setSlots(data.slots || []);
+    setAvailableSlots(data.slots || []);
   }
 
-  useEffect(() => {
-    loadInitialData();
-  }, []);
+  function formatTime(value) {
+    return new Date(value).toLocaleTimeString([], {
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  }
 
-  useEffect(() => {
-    if (selectedBarberId && selectedServiceId && selectedDate) {
-      loadSlots(selectedBarberId, selectedServiceId, selectedDate);
-    }
-  }, [selectedBarberId, selectedServiceId, selectedDate]);
-
-  async function bookAppointment() {
-    if (!selectedBarberId) {
-      setMessage("Please choose a barber.");
-      return;
-    }
-
-    if (!selectedServiceId) {
-      setMessage("Please choose a service.");
-      return;
-    }
-
-    if (!selectedDate) {
-      setMessage("Please choose a date.");
-      return;
-    }
-
-    if (!selectedSlot) {
-      setMessage("Please choose a time.");
-      return;
-    }
-
-    if (!customerName) {
-      setMessage("Please enter your name.");
-      return;
-    }
-
-    if (!customerPhone) {
-      setMessage("Please enter your phone number.");
+  async function createAppointment() {
+    if (
+      !selectedBarberId ||
+      !selectedServiceId ||
+      !selectedTime ||
+      !customerName ||
+      !customerPhone
+    ) {
+      setMessage("Please complete all fields.");
       return;
     }
 
@@ -105,153 +94,165 @@ export default function Home() {
       body: JSON.stringify({
         barber_id: selectedBarberId,
         service_id: selectedServiceId,
+        start_datetime: selectedTime,
         customer_name: customerName,
         customer_phone: customerPhone,
-        start_datetime: selectedSlot,
       }),
     });
 
     if (response.ok) {
       setMessage("Appointment booked successfully.");
+
+      setSelectedTime("");
       setCustomerName("");
       setCustomerPhone("");
-      setSelectedSlot("");
-      loadSlots(selectedBarberId, selectedServiceId, selectedDate);
-    } else if (response.status === 409) {
-      setMessage("That time was just booked. Please choose another time.");
-      loadSlots(selectedBarberId, selectedServiceId, selectedDate);
+
+      loadAvailability();
     } else {
-      setMessage("Booking failed. Please try again.");
+      setMessage("Could not create appointment.");
     }
   }
 
-  function formatTime(slot) {
-    return new Date(slot).toLocaleTimeString([], {
-      hour: "numeric",
-      minute: "2-digit",
-    });
-  }
-
   return (
-    <main className="min-h-screen bg-gray-100 p-4 sm:p-10">
-      <div className="max-w-3xl mx-auto bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-gray-200">
-        <h1 className="text-5xl font-extrabold tracking-tight mb-3">
-          ChairTime
-        </h1>
+    <>
+      <Script
+        src="https://widgets.leadconnectorhq.com/loader.js"
+        data-resources-url="https://widgets.leadconnectorhq.com/chat-widget/loader.js"
+        data-widget-id="6a1da28d5bbf369793465aa2"
+        data-source="WEB_USER"
+        strategy="afterInteractive"
+      />
 
-        <p className="text-gray-900 mb-8">Book your appointment</p>
+      <main className="min-h-screen bg-gray-100 p-4 sm:p-10">
+        <div className="max-w-3xl mx-auto bg-white rounded-3xl shadow-lg p-6 sm:p-10 border border-gray-200">
 
-        <section className="mb-8">
-          <h2 className="text-2xl font-bold mb-4">Choose a barber</h2>
+          <h1 className="text-5xl font-extrabold tracking-tight mb-3">
+            ChairTime
+          </h1>
 
-          <div className="grid gap-3">
-            {barbers.map((barber) => (
-              <button
-                key={barber.id}
-                type="button"
-                onClick={() => setSelectedBarberId(barber.id)}
-                className={`border rounded-xl p-4 text-left font-semibold ${
-                  selectedBarberId === barber.id
-                    ? "bg-black text-white"
-                    : "bg-white text-gray-900"
-                }`}
+          <p className="text-gray-900 mb-8">
+            Book your next appointment.
+          </p>
+
+          {message && (
+            <div className="mb-6 p-4 rounded-xl bg-green-100 text-green-800 font-semibold">
+              {message}
+            </div>
+          )}
+
+          <div className="grid gap-6">
+
+            <div>
+              <label className="block font-semibold mb-2">
+                Barber
+              </label>
+
+              <select
+                className="w-full border rounded-xl p-3"
+                value={selectedBarberId}
+                onChange={(e) => setSelectedBarberId(e.target.value)}
               >
-                {barber.name}
-              </button>
-            ))}
-          </div>
-        </section>
+                {barbers.map((barber) => (
+                  <option key={barber.id} value={barber.id}>
+                    {barber.name}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-        <section className="mb-8">
-          <h2 className="text-2xl font-bold mb-4">Choose a service</h2>
+            <div>
+              <label className="block font-semibold mb-2">
+                Service
+              </label>
 
-          <div className="grid gap-3">
-            {services.map((service) => (
-              <button
-                key={service.id}
-                type="button"
-                onClick={() => setSelectedServiceId(service.id)}
-                className={`border rounded-xl p-4 text-left ${
-                  selectedServiceId === service.id
-                    ? "bg-black text-white"
-                    : "bg-white text-gray-900"
-                }`}
+              <select
+                className="w-full border rounded-xl p-3"
+                value={selectedServiceId}
+                onChange={(e) => setSelectedServiceId(e.target.value)}
               >
-                <div className="font-semibold">{service.name}</div>
-                <div className="text-sm">
-                  ${service.price} · {service.duration_minutes} minutes
-                </div>
-              </button>
-            ))}
+                {services.map((service) => (
+                  <option key={service.id} value={service.id}>
+                    {service.name} — ${service.price}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block font-semibold mb-2">
+                Date
+              </label>
+
+              <input
+                type="date"
+                className="w-full border rounded-xl p-3"
+                value={selectedDate}
+                onChange={(e) => setSelectedDate(e.target.value)}
+              />
+            </div>
+
+            <div>
+              <label className="block font-semibold mb-2">
+                Available Times
+              </label>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {availableSlots.map((slot) => (
+                  <button
+                    key={slot}
+                    onClick={() => setSelectedTime(slot)}
+                    className={`border rounded-xl p-3 font-semibold ${
+                      selectedTime === slot
+                        ? "bg-black text-white"
+                        : "bg-white"
+                    }`}
+                  >
+                    {formatTime(slot)}
+                  </button>
+                ))}
+              </div>
+
+              {availableSlots.length === 0 && (
+                <p className="text-gray-900 mt-3">
+                  No available times for this barber, service, and date.
+                </p>
+              )}
+            </div>
+
+            <div>
+              <label className="block font-semibold mb-2">
+                Your Name
+              </label>
+
+              <input
+                className="w-full border rounded-xl p-3"
+                value={customerName}
+                onChange={(e) => setCustomerName(e.target.value)}
+              />
+            </div>
+
+            <div>
+              <label className="block font-semibold mb-2">
+                Phone Number
+              </label>
+
+              <input
+                className="w-full border rounded-xl p-3"
+                value={customerPhone}
+                onChange={(e) => setCustomerPhone(e.target.value)}
+              />
+            </div>
+
+            <button
+              onClick={createAppointment}
+              className="bg-black text-white rounded-xl px-6 py-4 font-bold text-lg"
+            >
+              Book Appointment
+            </button>
+
           </div>
-        </section>
-
-        <section className="mb-8">
-          <h2 className="text-2xl font-bold mb-4">Choose a date</h2>
-
-          <input
-            type="date"
-            className="w-full border rounded-xl p-3"
-            value={selectedDate}
-            onChange={(e) => setSelectedDate(e.target.value)}
-          />
-        </section>
-
-        <section className="mb-8">
-          <h2 className="text-2xl font-bold mb-4">Choose a time</h2>
-
-          <div className="grid grid-cols-2 gap-3">
-            {slots.length === 0 && (
-              <p className="text-gray-900 col-span-2">
-                No available times for this barber, service, and date.
-              </p>
-            )}
-
-            {slots.map((slot) => (
-              <button
-                key={slot}
-                type="button"
-                onClick={() => setSelectedSlot(slot)}
-                className={`border rounded-xl p-4 text-left font-semibold ${
-                  selectedSlot === slot
-                    ? "bg-black text-white"
-                    : "bg-white text-gray-900"
-                }`}
-              >
-                {formatTime(slot)}
-              </button>
-            ))}
-          </div>
-        </section>
-
-        <section className="space-y-4">
-          <input
-            className="w-full border rounded-xl p-3"
-            placeholder="Your name"
-            value={customerName}
-            onChange={(e) => setCustomerName(e.target.value)}
-          />
-
-          <input
-            className="w-full border rounded-xl p-3"
-            placeholder="Phone number"
-            value={customerPhone}
-            onChange={(e) => setCustomerPhone(e.target.value)}
-          />
-
-          <button
-            type="button"
-            onClick={bookAppointment}
-            className="w-full bg-black text-white rounded-xl p-4 font-semibold"
-          >
-            Book Appointment
-          </button>
-        </section>
-
-        {message && (
-          <p className="mt-6 font-semibold text-gray-900">{message}</p>
-        )}
-      </div>
-    </main>
+        </div>
+      </main>
+    </>
   );
 }
