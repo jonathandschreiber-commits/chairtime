@@ -28,6 +28,9 @@ export default function AgendaPage() {
   const [selectedBarberId, setSelectedBarberId] = useState("");
   const [message, setMessage] = useState("");
 
+  const [editingNotesId, setEditingNotesId] = useState("");
+  const [editingNotesValue, setEditingNotesValue] = useState("");
+
   async function loadData() {
     const [appointmentsRes, barbersRes, servicesRes] = await Promise.all([
       fetch(`${API_BASE}/api/appointments`),
@@ -70,7 +73,9 @@ export default function AgendaPage() {
   async function updateStatus(appointmentId, status) {
     const response = await fetch(
       `${API_BASE}/api/appointments/${appointmentId}/status?status=${status}`,
-      { method: "PATCH" }
+      {
+        method: "PATCH",
+      }
     );
 
     if (response.ok) {
@@ -78,6 +83,30 @@ export default function AgendaPage() {
       loadData();
     } else {
       setMessage("Could not update appointment.");
+    }
+  }
+
+  function startEditingNotes(appointment) {
+    setEditingNotesId(appointment.id);
+    setEditingNotesValue(appointment.notes || "");
+  }
+
+  async function saveNotes(appointmentId) {
+    const response = await fetch(
+      `${API_BASE}/api/appointments/${appointmentId}/notes?notes=${encodeURIComponent(
+        editingNotesValue
+      )}`,
+      {
+        method: "PATCH",
+      }
+    );
+
+    if (response.ok) {
+      setMessage("Notes updated.");
+      setEditingNotesId("");
+      loadData();
+    } else {
+      setMessage("Could not update notes.");
     }
   }
 
@@ -95,7 +124,8 @@ export default function AgendaPage() {
       )
       .filter(
         (appointment) =>
-          appointment.notes && appointment.notes.trim() !== ""
+          appointment.notes &&
+          appointment.notes.trim() !== ""
       )
       .sort(
         (a, b) =>
@@ -164,7 +194,9 @@ export default function AgendaPage() {
               <select
                 className="w-full border rounded-xl p-4 text-lg"
                 value={selectedBarberId}
-                onChange={(e) => setSelectedBarberId(e.target.value)}
+                onChange={(e) =>
+                  setSelectedBarberId(e.target.value)
+                }
               >
                 <option value="">All barbers</option>
 
@@ -205,6 +237,9 @@ export default function AgendaPage() {
 
             const oldNotes =
               previousNotes(appointment);
+
+            const isEditing =
+              editingNotesId === appointment.id;
 
             return (
               <div
@@ -257,15 +292,69 @@ export default function AgendaPage() {
                   </div>
                 </div>
 
-                {appointment.notes && (
+                {!isEditing && (
+                  <div className="mt-4">
+                    <div className="bg-white border rounded-2xl p-4">
+                      <div className="flex justify-between items-center mb-2">
+                        <p className="font-bold">
+                          Today’s Notes
+                        </p>
+
+                        <button
+                          onClick={() =>
+                            startEditingNotes(
+                              appointment
+                            )
+                          }
+                          className="text-sm font-bold underline"
+                        >
+                          Edit Notes
+                        </button>
+                      </div>
+
+                      <p className="text-gray-900">
+                        {appointment.notes ||
+                          "No notes yet."}
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {isEditing && (
                   <div className="mt-4 bg-white border rounded-2xl p-4">
-                    <p className="font-bold">
-                      Today’s Notes
+                    <p className="font-bold mb-3">
+                      Edit Notes
                     </p>
 
-                    <p className="text-gray-900">
-                      {appointment.notes}
-                    </p>
+                    <textarea
+                      className="w-full border rounded-xl p-4 min-h-32"
+                      value={editingNotesValue}
+                      onChange={(e) =>
+                        setEditingNotesValue(
+                          e.target.value
+                        )
+                      }
+                    />
+
+                    <div className="grid grid-cols-2 gap-3 mt-4">
+                      <button
+                        onClick={() =>
+                          saveNotes(appointment.id)
+                        }
+                        className="bg-black text-white rounded-xl p-4 font-bold"
+                      >
+                        Save Notes
+                      </button>
+
+                      <button
+                        onClick={() =>
+                          setEditingNotesId("")
+                        }
+                        className="bg-gray-300 rounded-xl p-4 font-bold"
+                      >
+                        Cancel
+                      </button>
+                    </div>
                   </div>
                 )}
 
@@ -276,22 +365,26 @@ export default function AgendaPage() {
                     </p>
 
                     <div className="space-y-3">
-                      {oldNotes.map((oldAppointment) => (
-                        <div
-                          key={oldAppointment.id}
-                          className="border rounded-xl p-3 bg-gray-50"
-                        >
-                          <p className="font-bold text-sm">
-                            {new Date(
-                              oldAppointment.start_datetime
-                            ).toLocaleDateString()}
-                          </p>
+                      {oldNotes.map(
+                        (oldAppointment) => (
+                          <div
+                            key={oldAppointment.id}
+                            className="border rounded-xl p-3 bg-gray-50"
+                          >
+                            <p className="font-bold text-sm">
+                              {new Date(
+                                oldAppointment.start_datetime
+                              ).toLocaleDateString()}
+                            </p>
 
-                          <p className="text-gray-900 mt-1">
-                            {oldAppointment.notes}
-                          </p>
-                        </div>
-                      ))}
+                            <p className="text-gray-900 mt-1">
+                              {
+                                oldAppointment.notes
+                              }
+                            </p>
+                          </div>
+                        )
+                      )}
                     </div>
                   </div>
                 )}
