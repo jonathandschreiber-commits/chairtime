@@ -15,6 +15,14 @@ with engine.connect() as connection:
     except Exception:
         connection.rollback()
 
+    try:
+        connection.exec_driver_sql(
+            "ALTER TABLE appointments ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+        )
+        connection.commit()
+    except Exception:
+        connection.rollback()
+
 app = FastAPI(title="ChairTime API")
 
 app.add_middleware(
