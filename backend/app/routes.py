@@ -122,13 +122,14 @@ def create_appointment(
         )
 
     appointment = Appointment(
-        barber_id=payload.barber_id,
-        service_id=payload.service_id,
-        customer_name=payload.customer_name,
-        customer_phone=payload.customer_phone,
-        start_datetime=payload.start_datetime,
-        end_datetime=end_datetime,
-    )
+    barber_id=payload.barber_id,
+    service_id=payload.service_id,
+    customer_name=payload.customer_name,
+    customer_phone=payload.customer_phone,
+    notes=payload.notes,
+    start_datetime=payload.start_datetime,
+    end_datetime=end_datetime,
+)
 
     db.add(appointment)
     db.commit()
