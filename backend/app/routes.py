@@ -402,3 +402,15 @@ def reschedule_appointment(
     db.refresh(appointment)
 
     return appointment
+
+@router.patch("/appointments/{appointment_id}/status")
+def update_appointment_status(...):
+    ...
+
+@router.patch("/appointments/{appointment_id}/reschedule")
+def reschedule_appointment(...):
+    ...
+
+@router.patch("/appointments/{appointment_id}/notes")
+def update_appointment_notes(...):
+    ...
