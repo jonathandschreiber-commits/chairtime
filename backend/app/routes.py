@@ -73,15 +73,21 @@ def get_availability(
     target_date: date,
     db: Session = Depends(get_db),
 ):
-    slots = generate_available_slots(
-        db,
-        barber_id,
-        service_id,
-        target_date,
-    )
+    try:
+        slots = generate_available_slots(
+            db,
+            barber_id,
+            service_id,
+            target_date,
+        )
 
-    return {"slots": slots}
+        return {"slots": slots}
 
+    except Exception as error:
+        raise HTTPException(
+            status_code=400,
+            detail=str(error),
+        )
 
 @router.post("/appointments")
 def create_appointment(
