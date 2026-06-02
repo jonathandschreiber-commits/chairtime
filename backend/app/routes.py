@@ -403,14 +403,25 @@ def reschedule_appointment(
 
     return appointment
 
-@router.patch("/appointments/{appointment_id}/status")
-def update_appointment_status(...):
-    ...
-
-@router.patch("/appointments/{appointment_id}/reschedule")
-def reschedule_appointment(...):
-    ...
-
 @router.patch("/appointments/{appointment_id}/notes")
-def update_appointment_notes(...):
-    ...
+def update_appointment_notes(
+    appointment_id: str,
+    notes: str,
+    db: Session = Depends(get_db),
+):
+    appointment = db.query(Appointment).filter(
+        Appointment.id == appointment_id
+    ).first()
+
+    if not appointment:
+        raise HTTPException(
+            status_code=404,
+            detail="Appointment not found",
+        )
+
+    appointment.notes = notes
+
+    db.commit()
+    db.refresh(appointment)
+
+    return appointment
