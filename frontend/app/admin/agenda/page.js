@@ -81,13 +81,45 @@ export default function AgendaPage() {
     }
   }
 
+  function previousNotes(currentAppointment) {
+    const phone = cleanPhone(currentAppointment.customer_phone);
+
+    return appointments
+      .filter(
+        (appointment) =>
+          cleanPhone(appointment.customer_phone) === phone
+      )
+      .filter(
+        (appointment) =>
+          appointment.id !== currentAppointment.id
+      )
+      .filter(
+        (appointment) =>
+          appointment.notes && appointment.notes.trim() !== ""
+      )
+      .sort(
+        (a, b) =>
+          new Date(b.start_datetime) -
+          new Date(a.start_datetime)
+      )
+      .slice(0, 3);
+  }
+
   const agendaAppointments = useMemo(() => {
     return appointments
-      .filter((appointment) => sameDay(appointment.start_datetime, selectedDate))
       .filter((appointment) =>
-        selectedBarberId ? appointment.barber_id === selectedBarberId : true
+        sameDay(appointment.start_datetime, selectedDate)
       )
-      .sort((a, b) => new Date(a.start_datetime) - new Date(b.start_datetime));
+      .filter((appointment) =>
+        selectedBarberId
+          ? appointment.barber_id === selectedBarberId
+          : true
+      )
+      .sort(
+        (a, b) =>
+          new Date(a.start_datetime) -
+          new Date(b.start_datetime)
+      );
   }, [appointments, selectedDate, selectedBarberId]);
 
   return (
@@ -103,14 +135,18 @@ export default function AgendaPage() {
           </p>
 
           {message && (
-            <p className="mt-4 font-bold text-green-700">{message}</p>
+            <p className="mt-4 font-bold text-green-700">
+              {message}
+            </p>
           )}
         </section>
 
         <section className="bg-white rounded-3xl shadow-lg p-6 border border-gray-200">
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
-              <label className="block font-bold mb-2">Date</label>
+              <label className="block font-bold mb-2">
+                Date
+              </label>
 
               <input
                 type="date"
@@ -121,7 +157,9 @@ export default function AgendaPage() {
             </div>
 
             <div>
-              <label className="block font-bold mb-2">Barber</label>
+              <label className="block font-bold mb-2">
+                Barber
+              </label>
 
               <select
                 className="w-full border rounded-xl p-4 text-lg"
@@ -131,7 +169,10 @@ export default function AgendaPage() {
                 <option value="">All barbers</option>
 
                 {barbers.map((barber) => (
-                  <option key={barber.id} value={barber.id}>
+                  <option
+                    key={barber.id}
+                    value={barber.id}
+                  >
                     {barber.name}
                   </option>
                 ))}
@@ -143,18 +184,27 @@ export default function AgendaPage() {
         <section className="space-y-4">
           {agendaAppointments.length === 0 && (
             <div className="bg-white rounded-3xl shadow-lg p-6 border border-gray-200">
-              <p className="text-2xl font-bold">No appointments.</p>
+              <p className="text-2xl font-bold">
+                No appointments.
+              </p>
             </div>
           )}
 
           {agendaAppointments.map((appointment) => {
             const statusStyle =
-              STATUS_STYLES[appointment.status] || STATUS_STYLES.confirmed;
+              STATUS_STYLES[appointment.status] ||
+              STATUS_STYLES.confirmed;
 
             const statusLabel =
-              STATUS_LABELS[appointment.status] || "Confirmed";
+              STATUS_LABELS[appointment.status] ||
+              "Confirmed";
 
-            const phone = cleanPhone(appointment.customer_phone);
+            const phone = cleanPhone(
+              appointment.customer_phone
+            );
+
+            const oldNotes =
+              previousNotes(appointment);
 
             return (
               <div
@@ -164,7 +214,9 @@ export default function AgendaPage() {
                 <div className="flex justify-between gap-4">
                   <div>
                     <p className="text-4xl font-extrabold">
-                      {formatTime(appointment.start_datetime)}
+                      {formatTime(
+                        appointment.start_datetime
+                      )}
                     </p>
 
                     <p className="text-2xl font-bold mt-2">
@@ -172,8 +224,13 @@ export default function AgendaPage() {
                     </p>
 
                     <p className="text-lg text-gray-900">
-                      {serviceName(appointment.service_id)} ·{" "}
-                      {barberName(appointment.barber_id)}
+                      {serviceName(
+                        appointment.service_id
+                      )}{" "}
+                      ·{" "}
+                      {barberName(
+                        appointment.barber_id
+                      )}
                     </p>
 
                     <div className="grid grid-cols-2 gap-3 mt-4">
@@ -202,35 +259,87 @@ export default function AgendaPage() {
 
                 {appointment.notes && (
                   <div className="mt-4 bg-white border rounded-2xl p-4">
-                    <p className="font-bold">Notes</p>
-                    <p className="text-gray-900">{appointment.notes}</p>
+                    <p className="font-bold">
+                      Today’s Notes
+                    </p>
+
+                    <p className="text-gray-900">
+                      {appointment.notes}
+                    </p>
+                  </div>
+                )}
+
+                {oldNotes.length > 0 && (
+                  <div className="mt-4 bg-white border rounded-2xl p-4">
+                    <p className="font-bold mb-3">
+                      Previous Notes
+                    </p>
+
+                    <div className="space-y-3">
+                      {oldNotes.map((oldAppointment) => (
+                        <div
+                          key={oldAppointment.id}
+                          className="border rounded-xl p-3 bg-gray-50"
+                        >
+                          <p className="font-bold text-sm">
+                            {new Date(
+                              oldAppointment.start_datetime
+                            ).toLocaleDateString()}
+                          </p>
+
+                          <p className="text-gray-900 mt-1">
+                            {oldAppointment.notes}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
 
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-5">
                   <button
-                    onClick={() => updateStatus(appointment.id, "confirmed")}
+                    onClick={() =>
+                      updateStatus(
+                        appointment.id,
+                        "confirmed"
+                      )
+                    }
                     className="bg-blue-500 text-white rounded-xl p-4 font-bold"
                   >
                     Confirm
                   </button>
 
                   <button
-                    onClick={() => updateStatus(appointment.id, "completed")}
+                    onClick={() =>
+                      updateStatus(
+                        appointment.id,
+                        "completed"
+                      )
+                    }
                     className="bg-green-600 text-white rounded-xl p-4 font-bold"
                   >
                     Done
                   </button>
 
                   <button
-                    onClick={() => updateStatus(appointment.id, "no_show")}
+                    onClick={() =>
+                      updateStatus(
+                        appointment.id,
+                        "no_show"
+                      )
+                    }
                     className="bg-yellow-500 text-white rounded-xl p-4 font-bold"
                   >
                     No-show
                   </button>
 
                   <button
-                    onClick={() => updateStatus(appointment.id, "canceled")}
+                    onClick={() =>
+                      updateStatus(
+                        appointment.id,
+                        "canceled"
+                      )
+                    }
                     className="bg-red-500 text-white rounded-xl p-4 font-bold"
                   >
                     Cancel
