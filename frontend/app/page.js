@@ -19,6 +19,7 @@ export default function HomePage() {
 
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
+  const [notes, setNotes] = useState("");
 
   const [message, setMessage] = useState("");
 
@@ -27,11 +28,7 @@ export default function HomePage() {
   }, []);
 
   useEffect(() => {
-    if (
-      selectedBarberId &&
-      selectedServiceId &&
-      selectedDate
-    ) {
+    if (selectedBarberId && selectedServiceId && selectedDate) {
       loadAvailability();
     }
   }, [selectedBarberId, selectedServiceId, selectedDate]);
@@ -58,6 +55,8 @@ export default function HomePage() {
   }
 
   async function loadAvailability() {
+    setSelectedTime("");
+
     const response = await fetch(
       `${API_BASE}/api/availability?barber_id=${selectedBarberId}&service_id=${selectedServiceId}&target_date=${selectedDate}`
     );
@@ -82,7 +81,7 @@ export default function HomePage() {
       !customerName ||
       !customerPhone
     ) {
-      setMessage("Please complete all fields.");
+      setMessage("Please complete all required fields.");
       return;
     }
 
@@ -97,6 +96,7 @@ export default function HomePage() {
         start_datetime: selectedTime,
         customer_name: customerName,
         customer_phone: customerPhone,
+        notes: notes || null,
       }),
     });
 
@@ -106,6 +106,7 @@ export default function HomePage() {
       setSelectedTime("");
       setCustomerName("");
       setCustomerPhone("");
+      setNotes("");
 
       loadAvailability();
     } else {
@@ -125,14 +126,11 @@ export default function HomePage() {
 
       <main className="min-h-screen bg-gray-100 p-4 sm:p-10">
         <div className="max-w-3xl mx-auto bg-white rounded-3xl shadow-lg p-6 sm:p-10 border border-gray-200">
-
           <h1 className="text-5xl font-extrabold tracking-tight mb-3">
             ChairTime
           </h1>
 
-          <p className="text-gray-900 mb-8">
-            Book your next appointment.
-          </p>
+          <p className="text-gray-900 mb-8">Book your next appointment.</p>
 
           {message && (
             <div className="mb-6 p-4 rounded-xl bg-green-100 text-green-800 font-semibold">
@@ -141,11 +139,8 @@ export default function HomePage() {
           )}
 
           <div className="grid gap-6">
-
             <div>
-              <label className="block font-semibold mb-2">
-                Barber
-              </label>
+              <label className="block font-semibold mb-2">Barber</label>
 
               <select
                 className="w-full border rounded-xl p-3"
@@ -161,9 +156,7 @@ export default function HomePage() {
             </div>
 
             <div>
-              <label className="block font-semibold mb-2">
-                Service
-              </label>
+              <label className="block font-semibold mb-2">Service</label>
 
               <select
                 className="w-full border rounded-xl p-3"
@@ -179,9 +172,7 @@ export default function HomePage() {
             </div>
 
             <div>
-              <label className="block font-semibold mb-2">
-                Date
-              </label>
+              <label className="block font-semibold mb-2">Date</label>
 
               <input
                 type="date"
@@ -192,9 +183,7 @@ export default function HomePage() {
             </div>
 
             <div>
-              <label className="block font-semibold mb-2">
-                Available Times
-              </label>
+              <label className="block font-semibold mb-2">Available Times</label>
 
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 {availableSlots.map((slot) => (
@@ -202,9 +191,7 @@ export default function HomePage() {
                     key={slot}
                     onClick={() => setSelectedTime(slot)}
                     className={`border rounded-xl p-3 font-semibold ${
-                      selectedTime === slot
-                        ? "bg-black text-white"
-                        : "bg-white"
+                      selectedTime === slot ? "bg-black text-white" : "bg-white"
                     }`}
                   >
                     {formatTime(slot)}
@@ -220,9 +207,7 @@ export default function HomePage() {
             </div>
 
             <div>
-              <label className="block font-semibold mb-2">
-                Your Name
-              </label>
+              <label className="block font-semibold mb-2">Your Name</label>
 
               <input
                 className="w-full border rounded-xl p-3"
@@ -232,14 +217,25 @@ export default function HomePage() {
             </div>
 
             <div>
-              <label className="block font-semibold mb-2">
-                Phone Number
-              </label>
+              <label className="block font-semibold mb-2">Phone Number</label>
 
               <input
                 className="w-full border rounded-xl p-3"
                 value={customerPhone}
                 onChange={(e) => setCustomerPhone(e.target.value)}
+              />
+            </div>
+
+            <div>
+              <label className="block font-semibold mb-2">
+                Notes <span className="font-normal text-gray-600">(optional)</span>
+              </label>
+
+              <textarea
+                className="w-full border rounded-xl p-3 min-h-24"
+                placeholder="Example: skin fade, gel removal, prefers quiet chair"
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
               />
             </div>
 
@@ -249,7 +245,6 @@ export default function HomePage() {
             >
               Book Appointment
             </button>
-
           </div>
         </div>
       </main>
