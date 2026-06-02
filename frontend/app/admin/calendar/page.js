@@ -206,9 +206,14 @@ export default function CalendarPage() {
               {formatTime(appointment.start_datetime)} · {appointment.customer_name}
             </p>
 
-            <p className="text-gray-900">{serviceName(appointment.service_id)}</p>
-            <p className="text-gray-900">{appointment.customer_phone}</p>
-          </div>
+           <p className="text-gray-900">{serviceName(appointment.service_id)}</p>
+<p className="text-gray-900">{appointment.customer_phone}</p>
+
+{appointment.notes && (
+  <p className="mt-2 rounded-xl bg-white border p-3 text-gray-900">
+    <span className="font-bold">Notes:</span> {appointment.notes}
+  </p>
+)}
 
           <span className="font-bold text-sm bg-white border rounded-full px-3 py-1">
             {statusLabel}
