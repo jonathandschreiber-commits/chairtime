@@ -55,6 +55,10 @@ export default function AgendaPage() {
     });
   }
 
+  function cleanPhone(phone) {
+    return String(phone || "").replace(/\D/g, "");
+  }
+
   function barberName(id) {
     return barbers.find((barber) => barber.id === id)?.name || "Barber";
   }
@@ -99,9 +103,7 @@ export default function AgendaPage() {
           </p>
 
           {message && (
-            <p className="mt-4 font-bold text-green-700">
-              {message}
-            </p>
+            <p className="mt-4 font-bold text-green-700">{message}</p>
           )}
         </section>
 
@@ -109,6 +111,7 @@ export default function AgendaPage() {
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
               <label className="block font-bold mb-2">Date</label>
+
               <input
                 type="date"
                 className="w-full border rounded-xl p-4 text-lg"
@@ -119,12 +122,14 @@ export default function AgendaPage() {
 
             <div>
               <label className="block font-bold mb-2">Barber</label>
+
               <select
                 className="w-full border rounded-xl p-4 text-lg"
                 value={selectedBarberId}
                 onChange={(e) => setSelectedBarberId(e.target.value)}
               >
                 <option value="">All barbers</option>
+
                 {barbers.map((barber) => (
                   <option key={barber.id} value={barber.id}>
                     {barber.name}
@@ -149,6 +154,8 @@ export default function AgendaPage() {
             const statusLabel =
               STATUS_LABELS[appointment.status] || "Confirmed";
 
+            const phone = cleanPhone(appointment.customer_phone);
+
             return (
               <div
                 key={appointment.id}
@@ -169,12 +176,21 @@ export default function AgendaPage() {
                       {barberName(appointment.barber_id)}
                     </p>
 
-                    <a
-                      className="inline-block mt-3 text-lg font-bold underline"
-                      href={`tel:${appointment.customer_phone}`}
-                    >
-                      Call {appointment.customer_phone}
-                    </a>
+                    <div className="grid grid-cols-2 gap-3 mt-4">
+                      <a
+                        className="bg-black text-white rounded-xl p-4 text-center font-bold"
+                        href={`tel:${phone}`}
+                      >
+                        Call
+                      </a>
+
+                      <a
+                        className="bg-gray-800 text-white rounded-xl p-4 text-center font-bold"
+                        href={`sms:${phone}`}
+                      >
+                        Text
+                      </a>
+                    </div>
                   </div>
 
                   <div>
