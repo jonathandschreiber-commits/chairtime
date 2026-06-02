@@ -206,14 +206,16 @@ export default function CalendarPage() {
               {formatTime(appointment.start_datetime)} · {appointment.customer_name}
             </p>
 
-           <p className="text-gray-900">{serviceName(appointment.service_id)}</p>
-<p className="text-gray-900">{appointment.customer_phone}</p>
+            <p className="text-gray-900">{serviceName(appointment.service_id)}</p>
+            <p className="text-gray-900">{appointment.customer_phone}</p>
 
-{appointment.notes && (
-  <p className="mt-2 rounded-xl bg-white border p-3 text-gray-900">
-    <span className="font-bold">Notes:</span> {appointment.notes}
-  </p>
-)}
+            {appointment.notes && (
+              <div className="mt-3 rounded-xl bg-white border p-3 text-gray-900">
+                <p className="font-bold">Notes</p>
+                <p>{appointment.notes}</p>
+              </div>
+            )}
+          </div>
 
           <span className="font-bold text-sm bg-white border rounded-full px-3 py-1">
             {statusLabel}
@@ -302,7 +304,9 @@ export default function CalendarPage() {
               <label className="block font-semibold mb-2">Barber</label>
               <select className="w-full border rounded-xl p-3" value={selectedBarberId} onChange={(e) => setSelectedBarberId(e.target.value)}>
                 {barbers.map((barber) => (
-                  <option key={barber.id} value={barber.id}>{barber.name}</option>
+                  <option key={barber.id} value={barber.id}>
+                    {barber.name}
+                  </option>
                 ))}
               </select>
             </div>
