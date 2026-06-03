@@ -7,7 +7,15 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Barber, Service, AvailabilityRule, Appointment, Shop, BlockedTime
+from app.models import (
+    Barber,
+    Service,
+    AvailabilityRule,
+    Appointment,
+    Shop,
+    BlockedTime,
+)
+
 from app.schemas import (
     BarberCreate,
     ServiceCreate,
@@ -18,6 +26,7 @@ from app.schemas import (
     BarberUpdate,
     ServiceUpdate,
 )
+
 from app.scheduling import has_overlap, generate_available_slots
 
 router = APIRouter()
@@ -28,6 +37,7 @@ def send_highlevel_sms(phone: str, message: str):
     location_id = os.getenv("HIGHLEVEL_LOCATION_ID")
 
     if not api_token or not location_id or not phone:
+        print("Missing HighLevel configuration")
         return
 
     contact_payload = {
@@ -48,15 +58,21 @@ def send_highlevel_sms(phone: str, message: str):
 
     try:
         with request.urlopen(contact_req, timeout=10) as response:
-            contact_data = json.loads(response.read().decode("utf-8"))
+            contact_data = json.loads(
+                response.read().decode("utf-8")
+            )
 
-except Exception as error:
-    print("HighLevel SMS error:", error)
-    return
+    except Exception as error:
+        print("HighLevel contact error:", error)
+        return
 
-    contact_id = contact_data.get("contact", {}).get("id") or contact_data.get("id")
+    contact_id = (
+        contact_data.get("contact", {}).get("id")
+        or contact_data.get("id")
+    )
 
     if not contact_id:
+        print("No HighLevel contact ID returned")
         return
 
     message_payload = {
@@ -79,17 +95,19 @@ except Exception as error:
     try:
         request.urlopen(message_req, timeout=10)
 
-except Exception as error:
-    print("HighLevel SMS error:", error)
-    return
+    except Exception as error:
+        print("HighLevel message error:", error)
+        return
 
 
 @router.post("/barbers")
 def create_barber(payload: BarberCreate, db: Session = Depends(get_db)):
     barber = Barber(**payload.model_dump())
+
     db.add(barber)
     db.commit()
     db.refresh(barber)
+
     return barber
 
 
@@ -101,9 +119,11 @@ def list_barbers(db: Session = Depends(get_db)):
 @router.post("/services")
 def create_service(payload: ServiceCreate, db: Session = Depends(get_db)):
     service = Service(**payload.model_dump())
+
     db.add(service)
     db.commit()
     db.refresh(service)
+
     return service
 
 
@@ -118,9 +138,11 @@ def create_availability_rule(
     db: Session = Depends(get_db),
 ):
     rule = AvailabilityRule(**payload.model_dump())
+
     db.add(rule)
     db.commit()
     db.refresh(rule)
+
     return rule
 
 
@@ -132,10 +154,20 @@ def get_availability(
     db: Session = Depends(get_db),
 ):
     try:
-        slots = generate_available_slots(db, barber_id, service_id, target_date)
+        slots = generate_available_slots(
+            db,
+            barber_id,
+            service_id,
+            target_date,
+        )
+
         return {"slots": slots}
+
     except Exception as error:
-        raise HTTPException(status_code=400, detail=str(error))
+        raise HTTPException(
+            status_code=400,
+            detail=str(error),
+        )
 
 
 @router.post("/appointments")
@@ -143,10 +175,15 @@ def create_appointment(
     payload: AppointmentCreate,
     db: Session = Depends(get_db),
 ):
-    service = db.query(Service).filter(Service.id == payload.service_id).first()
+    service = db.query(Service).filter(
+        Service.id == payload.service_id
+    ).first()
 
     if not service:
-        raise HTTPException(status_code=404, detail="Service not found")
+        raise HTTPException(
+            status_code=404,
+            detail="Service not found",
+        )
 
     end_datetime = payload.start_datetime + timedelta(
         minutes=service.duration_minutes
@@ -160,7 +197,10 @@ def create_appointment(
     )
 
     if overlap:
-        raise HTTPException(status_code=409, detail="Time slot already booked")
+        raise HTTPException(
+            status_code=409,
+            detail="Time slot already booked",
+        )
 
     appointment = Appointment(
         barber_id=payload.barber_id,
@@ -176,15 +216,22 @@ def create_appointment(
     db.commit()
     db.refresh(appointment)
 
-    barber = db.query(Barber).filter(Barber.id == appointment.barber_id).first()
+    barber = db.query(Barber).filter(
+        Barber.id == appointment.barber_id
+    ).first()
 
     confirmation_message = (
-        f"You're booked with {barber.name if barber else 'your barber'} "
-        f"on {appointment.start_datetime.strftime('%A, %B %-d at %-I:%M %p')}. "
-        "Reply STOP to unsubscribe."
+        f"You're booked with "
+        f"{barber.name if barber else 'your barber'} "
+        f"on "
+        f"{appointment.start_datetime.strftime('%A, %B %d at %I:%M %p')}. "
+        f"Reply STOP to unsubscribe."
     )
 
-    send_highlevel_sms(appointment.customer_phone, confirmation_message)
+    send_highlevel_sms(
+        appointment.customer_phone,
+        confirmation_message,
+    )
 
     return appointment
 
@@ -204,7 +251,10 @@ def cancel_appointment(
     ).first()
 
     if not appointment:
-        raise HTTPException(status_code=404, detail="Appointment not found")
+        raise HTTPException(
+            status_code=404,
+            detail="Appointment not found",
+        )
 
     appointment.status = "canceled"
 
@@ -218,15 +268,18 @@ def cancel_appointment(
 def delete_all_services(db: Session = Depends(get_db)):
     db.query(Service).delete()
     db.commit()
+
     return {"message": "All services deleted"}
 
 
 @router.post("/shops")
 def create_shop(payload: ShopCreate, db: Session = Depends(get_db)):
     shop = Shop(**payload.model_dump())
+
     db.add(shop)
     db.commit()
     db.refresh(shop)
+
     return shop
 
 
@@ -241,9 +294,11 @@ def create_blocked_time(
     db: Session = Depends(get_db),
 ):
     blocked_time = BlockedTime(**payload.model_dump())
+
     db.add(blocked_time)
     db.commit()
     db.refresh(blocked_time)
+
     return blocked_time
 
 
@@ -254,10 +309,15 @@ def list_blocked_times(db: Session = Depends(get_db)):
 
 @router.delete("/barbers/{barber_id}")
 def delete_barber(barber_id: str, db: Session = Depends(get_db)):
-    barber = db.query(Barber).filter(Barber.id == barber_id).first()
+    barber = db.query(Barber).filter(
+        Barber.id == barber_id
+    ).first()
 
     if not barber:
-        raise HTTPException(status_code=404, detail="Barber not found")
+        raise HTTPException(
+            status_code=404,
+            detail="Barber not found",
+        )
 
     db.delete(barber)
     db.commit()
@@ -267,10 +327,15 @@ def delete_barber(barber_id: str, db: Session = Depends(get_db)):
 
 @router.delete("/services/{service_id}")
 def delete_service(service_id: str, db: Session = Depends(get_db)):
-    service = db.query(Service).filter(Service.id == service_id).first()
+    service = db.query(Service).filter(
+        Service.id == service_id
+    ).first()
 
     if not service:
-        raise HTTPException(status_code=404, detail="Service not found")
+        raise HTTPException(
+            status_code=404,
+            detail="Service not found",
+        )
 
     db.delete(service)
     db.commit()
@@ -288,7 +353,10 @@ def delete_blocked_time(
     ).first()
 
     if not blocked_time:
-        raise HTTPException(status_code=404, detail="Blocked time not found")
+        raise HTTPException(
+            status_code=404,
+            detail="Blocked time not found",
+        )
 
     db.delete(blocked_time)
     db.commit()
@@ -302,10 +370,15 @@ def update_barber(
     payload: BarberUpdate,
     db: Session = Depends(get_db),
 ):
-    barber = db.query(Barber).filter(Barber.id == barber_id).first()
+    barber = db.query(Barber).filter(
+        Barber.id == barber_id
+    ).first()
 
     if not barber:
-        raise HTTPException(status_code=404, detail="Barber not found")
+        raise HTTPException(
+            status_code=404,
+            detail="Barber not found",
+        )
 
     updates = payload.model_dump(exclude_unset=True)
 
@@ -324,10 +397,15 @@ def update_service(
     payload: ServiceUpdate,
     db: Session = Depends(get_db),
 ):
-    service = db.query(Service).filter(Service.id == service_id).first()
+    service = db.query(Service).filter(
+        Service.id == service_id
+    ).first()
 
     if not service:
-        raise HTTPException(status_code=404, detail="Service not found")
+        raise HTTPException(
+            status_code=404,
+            detail="Service not found",
+        )
 
     updates = payload.model_dump(exclude_unset=True)
 
@@ -346,11 +424,19 @@ def list_availability_rules(db: Session = Depends(get_db)):
 
 
 @router.delete("/availability-rules/{rule_id}")
-def delete_availability_rule(rule_id: str, db: Session = Depends(get_db)):
-    rule = db.query(AvailabilityRule).filter(AvailabilityRule.id == rule_id).first()
+def delete_availability_rule(
+    rule_id: str,
+    db: Session = Depends(get_db),
+):
+    rule = db.query(AvailabilityRule).filter(
+        AvailabilityRule.id == rule_id
+    ).first()
 
     if not rule:
-        raise HTTPException(status_code=404, detail="Availability rule not found")
+        raise HTTPException(
+            status_code=404,
+            detail="Availability rule not found",
+        )
 
     db.delete(rule)
     db.commit()
@@ -364,17 +450,28 @@ def update_appointment_status(
     status: str,
     db: Session = Depends(get_db),
 ):
-    allowed_statuses = ["confirmed", "completed", "no_show", "canceled"]
+    allowed_statuses = [
+        "confirmed",
+        "completed",
+        "no_show",
+        "canceled",
+    ]
 
     if status not in allowed_statuses:
-        raise HTTPException(status_code=400, detail="Invalid appointment status")
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid appointment status",
+        )
 
     appointment = db.query(Appointment).filter(
         Appointment.id == appointment_id
     ).first()
 
     if not appointment:
-        raise HTTPException(status_code=404, detail="Appointment not found")
+        raise HTTPException(
+            status_code=404,
+            detail="Appointment not found",
+        )
 
     appointment.status = status
 
@@ -395,15 +492,28 @@ def reschedule_appointment(
     ).first()
 
     if not appointment:
-        raise HTTPException(status_code=404, detail="Appointment not found")
+        raise HTTPException(
+            status_code=404,
+            detail="Appointment not found",
+        )
 
-    service = db.query(Service).filter(Service.id == appointment.service_id).first()
+    service = db.query(Service).filter(
+        Service.id == appointment.service_id
+    ).first()
 
     if not service:
-        raise HTTPException(status_code=404, detail="Service not found")
+        raise HTTPException(
+            status_code=404,
+            detail="Service not found",
+        )
 
-    new_start = datetime.fromisoformat(new_start_datetime)
-    new_end = new_start + timedelta(minutes=service.duration_minutes)
+    new_start = datetime.fromisoformat(
+        new_start_datetime
+    )
+
+    new_end = new_start + timedelta(
+        minutes=service.duration_minutes
+    )
 
     conflict = db.query(Appointment).filter(
         Appointment.barber_id == appointment.barber_id,
@@ -414,7 +524,10 @@ def reschedule_appointment(
     ).first()
 
     if conflict:
-        raise HTTPException(status_code=409, detail="That time is already booked")
+        raise HTTPException(
+            status_code=409,
+            detail="That time is already booked",
+        )
 
     blocked_conflict = db.query(BlockedTime).filter(
         BlockedTime.barber_id == appointment.barber_id,
@@ -423,7 +536,10 @@ def reschedule_appointment(
     ).first()
 
     if blocked_conflict:
-        raise HTTPException(status_code=409, detail="That time is blocked")
+        raise HTTPException(
+            status_code=409,
+            detail="That time is blocked",
+        )
 
     appointment.start_datetime = new_start
     appointment.end_datetime = new_end
@@ -446,7 +562,10 @@ def update_appointment_notes(
     ).first()
 
     if not appointment:
-        raise HTTPException(status_code=404, detail="Appointment not found")
+        raise HTTPException(
+            status_code=404,
+            detail="Appointment not found",
+        )
 
     appointment.notes = notes
 
