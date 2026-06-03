@@ -49,7 +49,7 @@ def send_highlevel_sms(phone: str, message: str):
     }
 
     contact_req = request.Request(
-        "https://services.leadconnectorhq.com/contacts/upsert",
+        "https://services.leadconnectorhq.com/contacts/",
         data=json.dumps(contact_payload).encode("utf-8"),
         headers={
             "Authorization": f"Bearer {api_token}",
