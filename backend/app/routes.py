@@ -49,7 +49,8 @@ def send_highlevel_sms(phone: str, message: str):
     try:
         with request.urlopen(contact_req, timeout=10) as response:
             contact_data = json.loads(response.read().decode("utf-8"))
-    except Exception as error:
+
+except Exception as error:
     print("HighLevel SMS error:", error)
     return
 
