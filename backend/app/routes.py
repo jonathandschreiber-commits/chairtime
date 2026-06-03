@@ -49,8 +49,9 @@ def send_highlevel_sms(phone: str, message: str):
     try:
         with request.urlopen(contact_req, timeout=10) as response:
             contact_data = json.loads(response.read().decode("utf-8"))
-    except Exception:
-        return
+    except Exception as error:
+    print("HighLevel SMS error:", error)
+    return
 
     contact_id = contact_data.get("contact", {}).get("id") or contact_data.get("id")
 
@@ -76,8 +77,10 @@ def send_highlevel_sms(phone: str, message: str):
 
     try:
         request.urlopen(message_req, timeout=10)
-    except Exception:
-        return
+
+except Exception as error:
+    print("HighLevel SMS error:", error)
+    return
 
 
 @router.post("/barbers")
