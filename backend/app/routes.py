@@ -37,8 +37,11 @@ def send_highlevel_sms(phone: str, message: str):
     location_id = os.getenv("HIGHLEVEL_LOCATION_ID")
 
     if not api_token or not location_id or not phone:
-        print("Missing HighLevel configuration")
-        return
+        return {
+            "success": False,
+            "step": "config",
+            "error": "Missing HIGHLEVEL_API_TOKEN, HIGHLEVEL_LOCATION_ID, or phone",
+        }
 
     contact_payload = {
         "locationId": location_id,
@@ -58,13 +61,13 @@ def send_highlevel_sms(phone: str, message: str):
 
     try:
         with request.urlopen(contact_req, timeout=10) as response:
-            contact_data = json.loads(
-                response.read().decode("utf-8")
-            )
-
+            contact_data = json.loads(response.read().decode("utf-8"))
     except Exception as error:
-        print("HighLevel contact error:", error)
-        return
+        return {
+            "success": False,
+            "step": "contact",
+            "error": str(error),
+        }
 
     contact_id = (
         contact_data.get("contact", {}).get("id")
@@ -72,8 +75,12 @@ def send_highlevel_sms(phone: str, message: str):
     )
 
     if not contact_id:
-        print("No HighLevel contact ID returned")
-        return
+        return {
+            "success": False,
+            "step": "contact_id",
+            "error": "No contact ID returned",
+            "response": contact_data,
+        }
 
     message_payload = {
         "type": "SMS",
@@ -93,11 +100,23 @@ def send_highlevel_sms(phone: str, message: str):
     )
 
     try:
-        request.urlopen(message_req, timeout=10)
+        with request.urlopen(message_req, timeout=10) as response:
+            message_data = response.read().decode("utf-8")
+
+        return {
+            "success": True,
+            "step": "message",
+            "contact_id": contact_id,
+            "response": message_data,
+        }
 
     except Exception as error:
-        print("HighLevel message error:", error)
-        return
+        return {
+            "success": False,
+            "step": "message",
+            "contact_id": contact_id,
+            "error": str(error),
+        }
 
 
 @router.post("/barbers")
@@ -576,12 +595,9 @@ def update_appointment_notes(
 
 @router.get("/test-highlevel-sms")
 def test_highlevel_sms(phone: str):
-    send_highlevel_sms(
+    result = send_highlevel_sms(
         phone,
         "ChairTime test message. Reply STOP to unsubscribe.",
     )
 
-    return {
-        "message": "HighLevel SMS test attempted",
-        "phone": phone,
-    }
+    return result
