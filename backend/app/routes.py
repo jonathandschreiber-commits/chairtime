@@ -601,3 +601,27 @@ def test_highlevel_sms(phone: str):
     )
 
     return result
+
+@router.get("/test-highlevel-location")
+def test_highlevel_location():
+    api_token = os.getenv("HIGHLEVEL_API_TOKEN")
+
+    location_req = request.Request(
+        "https://services.leadconnectorhq.com/locations/",
+        headers={
+            "Authorization": api_token,
+            "Content-Type": "application/json",
+            "Version": "2021-07-28",
+        },
+        method="GET",
+    )
+
+    try:
+        with request.urlopen(location_req, timeout=10) as response:
+            return json.loads(response.read().decode("utf-8"))
+
+    except Exception as error:
+        return {
+            "success": False,
+            "error": str(error),
+        }
