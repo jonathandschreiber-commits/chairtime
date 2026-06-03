@@ -573,3 +573,15 @@ def update_appointment_notes(
     db.refresh(appointment)
 
     return appointment
+
+@router.get("/test-highlevel-sms")
+def test_highlevel_sms(phone: str):
+    send_highlevel_sms(
+        phone,
+        "ChairTime test message. Reply STOP to unsubscribe.",
+    )
+
+    return {
+        "message": "HighLevel SMS test attempted",
+        "phone": phone,
+    }
