@@ -29,6 +29,7 @@ def highlevel_headers(api_token: str, location_id: str):
         "Content-Type": "application/json",
         "Version": "2021-07-28",
         "locationId": location_id,
+        "LocationId": location_id,
     }
 
 
