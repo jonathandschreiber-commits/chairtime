@@ -52,7 +52,7 @@ def send_highlevel_sms(phone: str, message: str):
         "https://services.leadconnectorhq.com/contacts/",
         data=json.dumps(contact_payload).encode("utf-8"),
         headers={
-            "Authorization": api_token,
+            "Authorization": f"Bearer {api_token}",
             "Content-Type": "application/json",
             "Version": "2021-07-28",
         },
@@ -92,7 +92,7 @@ def send_highlevel_sms(phone: str, message: str):
         "https://services.leadconnectorhq.com/conversations/messages",
         data=json.dumps(message_payload).encode("utf-8"),
         headers={
-            "Authorization": api_token,
+            "Authorization": f"Bearer {api_token}",
             "Content-Type": "application/json",
             "Version": "2021-07-28",
         },
