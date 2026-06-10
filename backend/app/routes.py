@@ -27,7 +27,7 @@ def highlevel_headers(api_token: str, location_id: str):
     return {
         "Authorization": f"Bearer {api_token}",
         "Content-Type": "application/json",
-        "Version": "2021-07-28",
+        "Version": "2023-02-21",
         "locationId": location_id,
         "LocationId": location_id,
     }
