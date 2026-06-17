@@ -28,6 +28,7 @@ def highlevel_headers(api_token: str, location_id: str):
         "Content-Type": "application/json",
         "Accept": "application/json",
         "Version": "v3",
+        "User-Agent": "ChairTimeBackend/1.0",
     }
 
 def send_highlevel_sms(phone: str, message: str):
