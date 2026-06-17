@@ -500,7 +500,7 @@ def send_reminders_get(db: Session = Depends(get_db)):
 
 @router.post("/send-reminders")
 def send_reminders(db: Session = Depends(get_db)):
-    now = datetime.utcnow()
+    now = datetime.now(ZoneInfo("America/New_York")).replace(tzinfo=None)
 
     window_start = now + timedelta(hours=3, minutes=55)
     window_end = now + timedelta(hours=4, minutes=5)
