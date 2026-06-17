@@ -22,6 +22,13 @@ from app.scheduling import has_overlap, generate_available_slots
 
 router = APIRouter()
 
+def highlevel_headers(api_token: str, location_id: str):
+    return {
+        "Authorization": f"Bearer {api_token}",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "Version": "v3",
+    }
 
 def send_highlevel_sms(phone: str, message: str):
     api_token = os.getenv("HIGHLEVEL_API_TOKEN")
