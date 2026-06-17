@@ -3,7 +3,7 @@ import os
 from datetime import datetime, timedelta, date
 from urllib import request, error
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -485,6 +485,14 @@ def update_appointment_notes(
     db.commit()
     db.refresh(appointment)
     return appointment
+
+@router.head("/send-reminders")
+def send_reminders_head():
+    return Response(status_code=200)
+
+@router.head("/send-reminders")
+def send_reminders_head():
+    return Response(status_code=200)
 
 @router.get("/send-reminders")
 def send_reminders_get(db: Session = Depends(get_db)):
