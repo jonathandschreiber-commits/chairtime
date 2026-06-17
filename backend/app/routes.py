@@ -486,6 +486,9 @@ def update_appointment_notes(
     db.refresh(appointment)
     return appointment
 
+@router.get("/send-reminders")
+def send_reminders_get(db: Session = Depends(get_db)):
+    return send_reminders(db)
 
 @router.post("/send-reminders")
 def send_reminders(db: Session = Depends(get_db)):
