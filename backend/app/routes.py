@@ -27,9 +27,8 @@ def highlevel_headers(api_token: str, location_id: str):
     return {
         "Authorization": f"Bearer {api_token}",
         "Content-Type": "application/json",
-        "Version": "2023-02-21",
-        "locationId": location_id,
-        "LocationId": location_id,
+        "Accept": "application/json",
+        "Version": "v3",
     }
 
 
@@ -45,9 +44,15 @@ def send_highlevel_sms(phone: str, message: str):
         }
 
     contact_payload = {
-        "locationId": location_id,
-        "phone": phone,
-    }
+    "firstName": "ChairTime",
+    "lastName": "Customer",
+    "name": "ChairTime Customer",
+    "email": f"{phone}@chairtimehq.com",
+    "locationId": location_id,
+    "phone": f"+1{phone}" if len(phone) == 10 else phone,
+    "source": "ChairTime",
+    "country": "US",
+}
 
     contact_req = request.Request(
         "https://services.leadconnectorhq.com/contacts/",
