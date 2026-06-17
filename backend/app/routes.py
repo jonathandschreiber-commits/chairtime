@@ -1,7 +1,7 @@
 import json
 import os
 from datetime import datetime, timedelta, date
-from urllib import request
+from urllib import request, error
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -23,15 +23,6 @@ from app.scheduling import has_overlap, generate_available_slots
 router = APIRouter()
 
 
-def highlevel_headers(api_token: str, location_id: str):
-    return {
-        "Authorization": f"Bearer {api_token}",
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-        "Version": "v3",
-    }
-
-
 def send_highlevel_sms(phone: str, message: str):
     api_token = os.getenv("HIGHLEVEL_API_TOKEN")
     location_id = os.getenv("HIGHLEVEL_LOCATION_ID")
@@ -43,16 +34,24 @@ def send_highlevel_sms(phone: str, message: str):
             "error": "Missing HIGHLEVEL_API_TOKEN, HIGHLEVEL_LOCATION_ID, or phone",
         }
 
+    clean_phone = "".join(character for character in str(phone) if character.isdigit())
+
+    formatted_phone = (
+        f"+1{clean_phone}"
+        if len(clean_phone) == 10
+        else str(phone)
+    )
+
     contact_payload = {
-    "firstName": "ChairTime",
-    "lastName": "Customer",
-    "name": "ChairTime Customer",
-    "email": f"{phone}@chairtimehq.com",
-    "locationId": location_id,
-    "phone": f"+1{phone}" if len(phone) == 10 else phone,
-    "source": "ChairTime",
-    "country": "US",
-}
+        "firstName": "ChairTime",
+        "lastName": "Customer",
+        "name": "ChairTime Customer",
+        "email": f"{clean_phone}@chairtimehq.com",
+        "locationId": location_id,
+        "phone": formatted_phone,
+        "source": "ChairTime",
+        "country": "US",
+    }
 
     contact_req = request.Request(
         "https://services.leadconnectorhq.com/contacts/",
@@ -64,11 +63,20 @@ def send_highlevel_sms(phone: str, message: str):
     try:
         with request.urlopen(contact_req, timeout=10) as response:
             contact_data = json.loads(response.read().decode("utf-8"))
-    except Exception as error:
+
+    except error.HTTPError as http_error:
         return {
             "success": False,
             "step": "contact",
-            "error": str(error),
+            "status": http_error.code,
+            "error": http_error.read().decode("utf-8"),
+        }
+
+    except Exception as general_error:
+        return {
+            "success": False,
+            "step": "contact",
+            "error": str(general_error),
         }
 
     contact_id = (
@@ -108,14 +116,22 @@ def send_highlevel_sms(phone: str, message: str):
             "response": message_data,
         }
 
-    except Exception as error:
+    except error.HTTPError as http_error:
         return {
             "success": False,
             "step": "message",
             "contact_id": contact_id,
-            "error": str(error),
+            "status": http_error.code,
+            "error": http_error.read().decode("utf-8"),
         }
 
+    except Exception as general_error:
+        return {
+            "success": False,
+            "step": "message",
+            "contact_id": contact_id,
+            "error": str(general_error),
+        }
 
 @router.post("/barbers")
 def create_barber(payload: BarberCreate, db: Session = Depends(get_db)):
