@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import Column, DateTime, Float, Integer, String, Time
+from sqlalchemy import Boolean, Column, DateTime, Float, Integer, String, Time
 from sqlalchemy.sql import func
 
 from app.database import Base
@@ -8,6 +8,7 @@ from app.database import Base
 
 def generate_uuid():
     return str(uuid.uuid4())
+
 
 class Shop(Base):
     __tablename__ = "shops"
@@ -70,4 +71,6 @@ class Appointment(Base):
     start_datetime = Column(DateTime, nullable=False)
     end_datetime = Column(DateTime, nullable=False)
     status = Column(String, nullable=False, default="confirmed")
+    reminder_sent = Column(Boolean, nullable=False, default=False)
+    reminder_sent_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, server_default=func.now())

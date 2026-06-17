@@ -482,6 +482,51 @@ def update_appointment_notes(
     db.refresh(appointment)
     return appointment
 
+@router.post("/send-reminders")
+def send_reminders(db: Session = Depends(get_db)):
+    now = datetime.utcnow()
+
+    window_start = now + timedelta(hours=3)
+    window_end = now + timedelta(hours=4)
+
+    appointments = db.query(Appointment).filter(
+        Appointment.status == "confirmed",
+        Appointment.reminder_sent == False,
+        Appointment.start_datetime >= window_start,
+        Appointment.start_datetime <= window_end,
+    ).all()
+
+    reminders_sent = 0
+
+    for appointment in appointments:
+        barber = db.query(Barber).filter(
+            Barber.id == appointment.barber_id
+        ).first()
+
+        reminder_message = (
+            f"Reminder: You have an appointment with "
+            f"{barber.name if barber else 'your barber'} "
+            f"today at "
+            f"{appointment.start_datetime.strftime('%I:%M %p')}. "
+            "Reply STOP to unsubscribe."
+        )
+
+        result = send_highlevel_sms(
+            appointment.customer_phone,
+            reminder_message,
+        )
+
+        if result.get("success"):
+            appointment.reminder_sent = True
+            appointment.reminder_sent_at = datetime.utcnow()
+            reminders_sent += 1
+
+    db.commit()
+
+    return {
+        "success": True,
+        "reminders_sent": reminders_sent,
+    }
 
 @router.get("/test-highlevel-location")
 def test_highlevel_location():
