@@ -72,13 +72,28 @@ def send_highlevel_sms(phone: str, message: str):
         with request.urlopen(contact_req, timeout=10) as response:
             contact_data = json.loads(response.read().decode("utf-8"))
 
+        contact_id = (
+            contact_data.get("contact", {}).get("id")
+            or contact_data.get("id")
+        )
+
     except error.HTTPError as http_error:
-        return {
-            "success": False,
-            "step": "contact",
-            "status": http_error.code,
-            "error": http_error.read().decode("utf-8"),
-        }
+        error_body_text = http_error.read().decode("utf-8")
+
+        try:
+            error_body = json.loads(error_body_text)
+        except Exception:
+            error_body = {}
+
+        contact_id = error_body.get("meta", {}).get("contactId")
+
+        if not contact_id:
+            return {
+                "success": False,
+                "step": "contact",
+                "status": http_error.code,
+                "error": error_body_text,
+            }
 
     except Exception as general_error:
         return {
@@ -87,17 +102,11 @@ def send_highlevel_sms(phone: str, message: str):
             "error": str(general_error),
         }
 
-    contact_id = (
-        contact_data.get("contact", {}).get("id")
-        or contact_data.get("id")
-    )
-
     if not contact_id:
         return {
             "success": False,
             "step": "contact_id",
             "error": "No contact ID returned",
-            "response": contact_data,
         }
 
     message_payload = {
@@ -140,6 +149,7 @@ def send_highlevel_sms(phone: str, message: str):
             "contact_id": contact_id,
             "error": str(general_error),
         }
+
 
 @router.post("/barbers")
 def create_barber(payload: BarberCreate, db: Session = Depends(get_db)):
