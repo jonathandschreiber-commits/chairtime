@@ -22,6 +22,7 @@ from app.scheduling import has_overlap, generate_available_slots
 
 router = APIRouter()
 
+
 def highlevel_headers(api_token: str, location_id: str):
     return {
         "Authorization": f"Bearer {api_token}",
@@ -30,6 +31,7 @@ def highlevel_headers(api_token: str, location_id: str):
         "Version": "v3",
         "User-Agent": "ChairTimeBackend/1.0",
     }
+
 
 def send_highlevel_sms(phone: str, message: str):
     api_token = os.getenv("HIGHLEVEL_API_TOKEN")
@@ -460,6 +462,8 @@ def reschedule_appointment(
     appointment.start_datetime = new_start
     appointment.end_datetime = new_end
     appointment.status = "confirmed"
+    appointment.reminder_sent = False
+    appointment.reminder_sent_at = None
 
     db.commit()
     db.refresh(appointment)
@@ -482,12 +486,13 @@ def update_appointment_notes(
     db.refresh(appointment)
     return appointment
 
+
 @router.post("/send-reminders")
 def send_reminders(db: Session = Depends(get_db)):
     now = datetime.utcnow()
 
-    window_start = now + timedelta(hours=3)
-    window_end = now + timedelta(hours=4)
+    window_start = now + timedelta(hours=3, minutes=55)
+    window_end = now + timedelta(hours=4, minutes=5)
 
     appointments = db.query(Appointment).filter(
         Appointment.status == "confirmed",
@@ -527,6 +532,7 @@ def send_reminders(db: Session = Depends(get_db)):
         "success": True,
         "reminders_sent": reminders_sent,
     }
+
 
 @router.get("/test-highlevel-location")
 def test_highlevel_location():
