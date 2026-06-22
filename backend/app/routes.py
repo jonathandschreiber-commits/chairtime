@@ -503,8 +503,8 @@ def send_reminders_get(db: Session = Depends(get_db)):
 def send_reminders(db: Session = Depends(get_db)):
     now = datetime.now(ZoneInfo("America/New_York")).replace(tzinfo=None)
 
-    window_start = now + timedelta(hours=3, minutes=55)
-    window_end = now + timedelta(hours=4, minutes=5)
+    window_start = now + timedelta(hours=3)
+    window_end = now + timedelta(hours=4)
 
     appointments = db.query(Appointment).filter(
         Appointment.status == "confirmed",
