@@ -261,8 +261,11 @@ export default function AdminPage() {
           </h1>
 
           <p className="text-gray-900">
-            Manage barbers, services, schedules, and blocked time.
-          </p>
+  {String(block.start_datetime).includes("T00:00") &&
+   String(block.end_datetime).includes("T23:59")
+    ? "Full Day"
+    : new Date(block.start_datetime).toLocaleString()}
+</p>
 
           {message && (
             <p className="mt-4 font-semibold text-green-700">{message}</p>
