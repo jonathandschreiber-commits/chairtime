@@ -153,39 +153,68 @@ export default function AdminPage() {
   async function blockTime() {
     if (!blockBarberId || !blockStart || !blockEnd) return;
 
-    await fetch(`${API_BASE}/api/blocked-times`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        barber_id: blockBarberId,
-        reason: blockReason,
-        start_datetime: blockStart,
-        end_datetime: blockEnd,
-      }),
-    });
+    const barberIds =
+      blockBarberId === "ALL"
+        ? barbers.map((barber) => barber.id)
+        : [blockBarberId];
+
+    await Promise.all(
+      barberIds.map((barberId) =>
+        fetch(`${API_BASE}/api/blocked-times`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            barber_id: barberId,
+            reason: blockReason,
+            start_datetime: blockStart,
+            end_datetime: blockEnd,
+          }),
+        })
+      )
+    );
 
     setBlockReason("Lunch");
     setBlockStart("");
     setBlockEnd("");
-    setMessage("Time blocked.");
+
+    setMessage(
+      blockBarberId === "ALL"
+        ? "Time blocked for all staff."
+        : "Time blocked."
+    );
+
     loadData();
   }
 
   async function blockFullDay(reason) {
     if (!blockBarberId || !fullDayDate) return;
 
-    await fetch(`${API_BASE}/api/blocked-times`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        barber_id: blockBarberId,
-        reason,
-        start_datetime: `${fullDayDate}T00:00`,
-        end_datetime: `${fullDayDate}T23:59`,
-      }),
-    });
+    const barberIds =
+      blockBarberId === "ALL"
+        ? barbers.map((barber) => barber.id)
+        : [blockBarberId];
 
-    setMessage(`${reason} full day blocked.`);
+    await Promise.all(
+      barberIds.map((barberId) =>
+        fetch(`${API_BASE}/api/blocked-times`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            barber_id: barberId,
+            reason,
+            start_datetime: `${fullDayDate}T00:00`,
+            end_datetime: `${fullDayDate}T23:59`,
+          }),
+        })
+      )
+    );
+
+    setMessage(
+      blockBarberId === "ALL"
+        ? `${reason} full day blocked for all staff.`
+        : `${reason} full day blocked.`
+    );
+
     loadData();
   }
 
@@ -353,9 +382,13 @@ export default function AdminPage() {
                 className="border rounded-xl p-4 flex justify-between items-center"
               >
                 <div>
-                  <p className="font-semibold">{getBarberName(rule.barber_id)}</p>
+                  <p className="font-semibold">
+                    {getBarberName(rule.barber_id)}
+                  </p>
+
                   <p className="text-gray-900">
-                    {WEEKDAY_NAMES[rule.weekday]} · {formatTime(rule.start_time)} –{" "}
+                    {WEEKDAY_NAMES[rule.weekday]} ·{" "}
+                    {formatTime(rule.start_time)} –{" "}
                     {formatTime(rule.end_time)}
                   </p>
                 </div>
@@ -380,6 +413,8 @@ export default function AdminPage() {
               value={blockBarberId}
               onChange={(e) => setBlockBarberId(e.target.value)}
             >
+              <option value="ALL">All staff / whole shop</option>
+
               {barbers.map((barber) => (
                 <option key={barber.id} value={barber.id}>
                   {barber.name}
