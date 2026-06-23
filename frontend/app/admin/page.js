@@ -44,6 +44,9 @@ export default function AdminPage() {
   const [blockReason, setBlockReason] = useState("Lunch");
   const [blockStart, setBlockStart] = useState("");
   const [blockEnd, setBlockEnd] = useState("");
+  const [fullDayDate, setFullDayDate] = useState(
+    new Date().toISOString().slice(0, 10)
+  );
 
   const [message, setMessage] = useState("");
 
@@ -64,13 +67,8 @@ export default function AdminPage() {
     setAvailabilityRules(await availabilityRes.json());
 
     if (barbersData.length > 0) {
-      if (!availabilityBarberId) {
-        setAvailabilityBarberId(barbersData[0].id);
-      }
-
-      if (!blockBarberId) {
-        setBlockBarberId(barbersData[0].id);
-      }
+      if (!availabilityBarberId) setAvailabilityBarberId(barbersData[0].id);
+      if (!blockBarberId) setBlockBarberId(barbersData[0].id);
     }
   }
 
@@ -92,9 +90,7 @@ export default function AdminPage() {
 
     await fetch(`${API_BASE}/api/barbers`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         name: newBarberName,
         shop_name: "ChairTime Barbershop",
@@ -113,9 +109,7 @@ export default function AdminPage() {
 
     await fetch(`${API_BASE}/api/services`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         barber_id: barbers[0]?.id,
         name: serviceName,
@@ -127,7 +121,6 @@ export default function AdminPage() {
     setServiceName("");
     setServiceDuration("");
     setServicePrice("");
-
     setMessage("Service added.");
     loadData();
   }
@@ -135,9 +128,7 @@ export default function AdminPage() {
   async function addAvailabilityRule() {
     await fetch(`${API_BASE}/api/availability-rules`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         barber_id: availabilityBarberId,
         weekday: WEEKDAY_MAP[availabilityDay],
@@ -164,9 +155,7 @@ export default function AdminPage() {
 
     await fetch(`${API_BASE}/api/blocked-times`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         barber_id: blockBarberId,
         reason: blockReason,
@@ -178,8 +167,25 @@ export default function AdminPage() {
     setBlockReason("Lunch");
     setBlockStart("");
     setBlockEnd("");
-
     setMessage("Time blocked.");
+    loadData();
+  }
+
+  async function blockFullDay(reason) {
+    if (!blockBarberId || !fullDayDate) return;
+
+    await fetch(`${API_BASE}/api/blocked-times`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        barber_id: blockBarberId,
+        reason,
+        start_datetime: `${fullDayDate}T00:00`,
+        end_datetime: `${fullDayDate}T23:59`,
+      }),
+    });
+
+    setMessage(`${reason} full day blocked.`);
     loadData();
   }
 
@@ -199,10 +205,7 @@ export default function AdminPage() {
       );
 
       if (barberCompare !== 0) return barberCompare;
-
-      if (a.weekday !== b.weekday) {
-        return a.weekday - b.weekday;
-      }
+      if (a.weekday !== b.weekday) return a.weekday - b.weekday;
 
       return a.start_time.localeCompare(b.start_time);
     });
@@ -223,7 +226,6 @@ export default function AdminPage() {
   return (
     <main className="min-h-screen bg-gray-100 p-4 sm:p-10">
       <div className="max-w-6xl mx-auto space-y-8">
-
         <div className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-gray-200">
           <h1 className="text-5xl font-extrabold tracking-tight mb-3">
             ChairTime Admin
@@ -234,16 +236,12 @@ export default function AdminPage() {
           </p>
 
           {message && (
-            <p className="mt-4 font-semibold text-green-700">
-              {message}
-            </p>
+            <p className="mt-4 font-semibold text-green-700">{message}</p>
           )}
         </div>
 
         <section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-gray-200">
-          <h2 className="text-3xl font-bold mb-6">
-            Add Barber / Staff
-          </h2>
+          <h2 className="text-3xl font-bold mb-6">Add Barber / Staff</h2>
 
           <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
             <input
@@ -263,9 +261,7 @@ export default function AdminPage() {
         </section>
 
         <section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-gray-200">
-          <h2 className="text-3xl font-bold mb-6">
-            Add Service
-          </h2>
+          <h2 className="text-3xl font-bold mb-6">Add Service</h2>
 
           <div className="grid gap-3 sm:grid-cols-4">
             <input
@@ -299,9 +295,7 @@ export default function AdminPage() {
         </section>
 
         <section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-gray-200">
-          <h2 className="text-3xl font-bold mb-6">
-            Weekly Availability
-          </h2>
+          <h2 className="text-3xl font-bold mb-6">Weekly Availability</h2>
 
           <div className="grid gap-3">
             <select
@@ -359,13 +353,9 @@ export default function AdminPage() {
                 className="border rounded-xl p-4 flex justify-between items-center"
               >
                 <div>
-                  <p className="font-semibold">
-                    {getBarberName(rule.barber_id)}
-                  </p>
-
+                  <p className="font-semibold">{getBarberName(rule.barber_id)}</p>
                   <p className="text-gray-900">
-                    {WEEKDAY_NAMES[rule.weekday]} ·{" "}
-                    {formatTime(rule.start_time)} –{" "}
+                    {WEEKDAY_NAMES[rule.weekday]} · {formatTime(rule.start_time)} –{" "}
                     {formatTime(rule.end_time)}
                   </p>
                 </div>
@@ -382,9 +372,7 @@ export default function AdminPage() {
         </section>
 
         <section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-gray-200">
-          <h2 className="text-3xl font-bold mb-6">
-            Quick Block Time
-          </h2>
+          <h2 className="text-3xl font-bold mb-6">Quick Block Time</h2>
 
           <div className="grid gap-3">
             <select
@@ -433,6 +421,40 @@ export default function AdminPage() {
             </button>
           </div>
 
+          <div className="mt-6 border rounded-2xl p-4 bg-gray-50">
+            <h3 className="text-xl font-bold mb-3">Full-Day Quick Block</h3>
+
+            <input
+              type="date"
+              className="border rounded-xl p-3 w-full mb-3"
+              value={fullDayDate}
+              onChange={(e) => setFullDayDate(e.target.value)}
+            />
+
+            <div className="grid gap-3 sm:grid-cols-3">
+              <button
+                onClick={() => blockFullDay("Vacation")}
+                className="bg-purple-600 text-white rounded-xl px-6 py-3 font-semibold"
+              >
+                Vacation Full Day
+              </button>
+
+              <button
+                onClick={() => blockFullDay("Personal")}
+                className="bg-blue-600 text-white rounded-xl px-6 py-3 font-semibold"
+              >
+                Personal Full Day
+              </button>
+
+              <button
+                onClick={() => blockFullDay("Closed")}
+                className="bg-red-600 text-white rounded-xl px-6 py-3 font-semibold"
+              >
+                Closed Full Day
+              </button>
+            </div>
+          </div>
+
           <div className="grid gap-3 mt-6">
             {sortedBlockedTimes.map((block) => (
               <div
@@ -459,7 +481,6 @@ export default function AdminPage() {
             ))}
           </div>
         </section>
-
       </div>
     </main>
   );
