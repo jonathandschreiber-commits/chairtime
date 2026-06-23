@@ -348,11 +348,11 @@ export default function AdminPage() {
                   </p>
 
                   <p className="text-gray-900">
-                    {block.start_datetime?.endsWith("T00:00:00") &&
-                    block.end_datetime?.endsWith("T23:59:00")
-                      ? "Full Day"
-                      : new Date(block.start_datetime).toLocaleString()}
-                  </p>
+  {block.start_datetime?.endsWith("T00:00:00") &&
+   block.end_datetime?.endsWith("T23:59:00")
+    ? `${new Date(block.start_datetime).toLocaleDateString()} · Full Day`
+    : new Date(block.start_datetime).toLocaleString()}
+</p>
                 </div>
 
                 <button
