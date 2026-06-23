@@ -51,7 +51,6 @@ fetch(`${API_BASE}/api/blocked-times`),
 fetch(`${API_BASE}/api/availability-rules`),
 ]);
 
-```
 const barbersData = await barbersRes.json();
 
 setBarbers(barbersData);
@@ -62,7 +61,7 @@ if (barbersData.length > 0) {
   if (!availabilityBarberId) setAvailabilityBarberId(barbersData[0].id);
   if (!blockBarberId) setBlockBarberId(barbersData[0].id);
 }
-```
+
 
 }
 
@@ -98,10 +97,10 @@ end_time: `${availabilityEnd}:00`,
 }),
 });
 
-```
+
 setMessage("Weekly availability added.");
 loadData();
-```
+
 
 }
 
@@ -110,17 +109,17 @@ await fetch(`${API_BASE}/api/availability-rules/${id}`, {
 method: "DELETE",
 });
 
-```
+
 setMessage("Weekly availability deleted.");
 loadData();
-```
+
 
 }
 
 async function blockTime() {
 if (!blockBarberId || !blockStart || !blockEnd) return;
 
-```
+
 const barberIds =
   blockBarberId === "ALL"
     ? barbers.map((barber) => barber.id)
@@ -150,43 +149,40 @@ setMessage(
 setBlockStart("");
 setBlockEnd("");
 loadData();
-```
+
 
 }
 
 async function blockFullDay(reason) {
-if (!blockBarberId || !fullDayDate) return;
+  if (!blockBarberId || !fullDayDate) return;
 
-```
-const barberIds =
-  blockBarberId === "ALL"
-    ? barbers.map((barber) => barber.id)
-    : [blockBarberId];
+  const barberIds =
+    blockBarberId === "ALL"
+      ? barbers.map((barber) => barber.id)
+      : [blockBarberId];
 
-await Promise.all(
-  barberIds.map((barberId) =>
-    fetch(`${API_BASE}/api/blocked-times`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        barber_id: barberId,
-        reason,
-        start_datetime: `${fullDayDate}T00:00:00`,
-        end_datetime: `${fullDayDate}T23:59:00`,
-      }),
-    })
-  )
-);
+  await Promise.all(
+    barberIds.map((barberId) =>
+      fetch(`${API_BASE}/api/blocked-times`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          barber_id: barberId,
+          reason,
+          start_datetime: `${fullDayDate}T00:00:00`,
+          end_datetime: `${fullDayDate}T23:59:00`,
+        }),
+      })
+    )
+  );
 
-setMessage(
-  blockBarberId === "ALL"
-    ? `${reason} full day blocked for all staff.`
-    : `${reason} full day blocked.`
-);
+  setMessage(
+    blockBarberId === "ALL"
+      ? `${reason} full day blocked for all staff.`
+      : `${reason} full day blocked.`
+  );
 
-loadData();
-```
-
+  loadData();
 }
 
 async function deleteBlockedTime(id) {
@@ -194,10 +190,10 @@ await fetch(`${API_BASE}/api/blocked-times/${id}`, {
 method: "DELETE",
 });
 
-```
+
 setMessage("Blocked time removed.");
 loadData();
-```
+
 
 }
 
@@ -207,20 +203,20 @@ const barberCompare = getBarberName(a.barber_id).localeCompare(
 getBarberName(b.barber_id)
 );
 
-```
+
   if (barberCompare !== 0) return barberCompare;
   if (a.weekday !== b.weekday) return a.weekday - b.weekday;
 
   return a.start_time.localeCompare(b.start_time);
 });
-```
+
 
 }, [availabilityRules, barbers]);
 
 const upcomingBlockedTimes = useMemo(() => {
 const now = new Date();
 
-```
+
 return [...blockedTimes]
   .filter((block) => new Date(block.end_datetime) >= now)
   .sort((a, b) => {
@@ -232,13 +228,13 @@ return [...blockedTimes]
 
     return new Date(a.start_datetime) - new Date(b.start_datetime);
   });
-```
+
 
 }, [blockedTimes, barbers]);
 
 return ( <main className="min-h-screen bg-gray-100 p-4 sm:p-10"> <div className="max-w-6xl mx-auto space-y-8"> <div className="bg-white rounded-3xl shadow-lg p-6 border border-gray-200"> <h1 className="text-5xl font-extrabold mb-3">ChairTime Admin</h1> <p>Manage schedules and blocked time.</p>
 
-```
+
       {message && (
         <p className="mt-4 font-semibold text-green-700">{message}</p>
       )}
@@ -442,7 +438,7 @@ return ( <main className="min-h-screen bg-gray-100 p-4 sm:p-10"> <div className=
     </section>
   </div>
 </main>
-```
+
 
 );
 }
