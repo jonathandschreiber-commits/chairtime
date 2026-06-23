@@ -133,35 +133,7 @@ export default function AgendaPage() {
   }
 
   const agendaAppointments = useMemo(() => {
-
-  const todaySummary = useMemo(() => {
-  const completed = agendaAppointments.filter(
-    (a) => a.status === "completed"
-  ).length;
-
-  const canceled = agendaAppointments.filter(
-    (a) => a.status === "canceled" || a.status === "no_show"
-  ).length;
-
-  const revenue = agendaAppointments
-    .filter((a) => a.status === "completed")
-    .reduce((sum, appointment) => {
-      const service = services.find(
-        (service) => service.id === appointment.service_id
-      );
-
-      return sum + Number(service?.price || 0);
-    }, 0);
-
-  return {
-    total: agendaAppointments.length,
-    completed,
-    canceled,
-    revenue,
-  };
-}, [agendaAppointments, services]);
-
-  return appointments
+    return appointments
       .filter((appointment) =>
         sameDay(appointment.start_datetime, selectedDate)
       )
@@ -177,6 +149,35 @@ export default function AgendaPage() {
       );
   }, [appointments, selectedDate, selectedBarberId]);
 
+  const todaySummary = useMemo(() => {
+    const completed = agendaAppointments.filter(
+      (appointment) => appointment.status === "completed"
+    ).length;
+
+    const canceled = agendaAppointments.filter(
+      (appointment) =>
+        appointment.status === "canceled" ||
+        appointment.status === "no_show"
+    ).length;
+
+    const revenue = agendaAppointments
+      .filter((appointment) => appointment.status === "completed")
+      .reduce((sum, appointment) => {
+        const service = services.find(
+          (service) => service.id === appointment.service_id
+        );
+
+        return sum + Number(service?.price || 0);
+      }, 0);
+
+    return {
+      total: agendaAppointments.length,
+      completed,
+      canceled,
+      revenue,
+    };
+  }, [agendaAppointments, services]);
+
   return (
     <main className="min-h-screen bg-gray-100 p-4 sm:p-8">
       <div className="max-w-4xl mx-auto space-y-6">
@@ -189,27 +190,27 @@ export default function AgendaPage() {
             Today’s appointments. Simple and fast.
           </p>
 
-<div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-6">
-  <div className="bg-gray-100 rounded-2xl p-4">
-    <p className="text-sm font-bold">Appointments</p>
-    <p className="text-3xl font-extrabold">{todaySummary.total}</p>
-  </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-6">
+            <div className="bg-gray-100 rounded-2xl p-4">
+              <p className="text-sm font-bold">Appointments</p>
+              <p className="text-3xl font-extrabold">{todaySummary.total}</p>
+            </div>
 
-  <div className="bg-gray-100 rounded-2xl p-4">
-    <p className="text-sm font-bold">Completed</p>
-    <p className="text-3xl font-extrabold">{todaySummary.completed}</p>
-  </div>
+            <div className="bg-gray-100 rounded-2xl p-4">
+              <p className="text-sm font-bold">Completed</p>
+              <p className="text-3xl font-extrabold">{todaySummary.completed}</p>
+            </div>
 
-  <div className="bg-gray-100 rounded-2xl p-4">
-    <p className="text-sm font-bold">Canceled / No-show</p>
-    <p className="text-3xl font-extrabold">{todaySummary.canceled}</p>
-  </div>
+            <div className="bg-gray-100 rounded-2xl p-4">
+              <p className="text-sm font-bold">Canceled / No-show</p>
+              <p className="text-3xl font-extrabold">{todaySummary.canceled}</p>
+            </div>
 
-  <div className="bg-gray-100 rounded-2xl p-4">
-    <p className="text-sm font-bold">Revenue</p>
-    <p className="text-3xl font-extrabold">${todaySummary.revenue}</p>
-  </div>
-</div>
+            <div className="bg-gray-100 rounded-2xl p-4">
+              <p className="text-sm font-bold">Revenue</p>
+              <p className="text-3xl font-extrabold">${todaySummary.revenue}</p>
+            </div>
+          </div>
 
           {message && (
             <p className="mt-4 font-bold text-green-700">
@@ -241,13 +242,11 @@ export default function AgendaPage() {
               >
                 <option value="">All barbers</option>
 
-                <option value="ALL">All staff / whole shop</option>
-
-{barbers.map((barber) => (
-  <option key={barber.id} value={barber.id}>
-    {barber.name}
-  </option>
-))}
+                {barbers.map((barber) => (
+                  <option key={barber.id} value={barber.id}>
+                    {barber.name}
+                  </option>
+                ))}
               </select>
             </div>
           </div>
