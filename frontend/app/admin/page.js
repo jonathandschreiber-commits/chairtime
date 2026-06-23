@@ -261,8 +261,8 @@ export default function AdminPage() {
           </h1>
 
           <p className="text-gray-900">
-  {String(block.start_datetime).includes("T00:00") &&
-   String(block.end_datetime).includes("T23:59")
+  {String(block.start_datetime).includes("T00:00:00") &&
+   String(block.end_datetime).includes("T23:59:00")
     ? "Full Day"
     : new Date(block.start_datetime).toLocaleString()}
 </p>
