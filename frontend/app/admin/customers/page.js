@@ -30,6 +30,7 @@ setBarbers(await barbersRes.json());
 setServices(await servicesRes.json());
 
 
+
 }
 
 useEffect(() => {
@@ -55,6 +56,40 @@ day: "numeric",
 hour: "numeric",
 minute: "2-digit",
 });
+}
+
+function inactivityTag(lastVisit) {
+const now = new Date();
+const last = new Date(lastVisit);
+const diffDays = Math.floor(
+(now - last) / (1000 * 60 * 60 * 24)
+);
+
+
+if (diffDays >= 90) {
+  return {
+    label: "Inactive 90+ days",
+    style: "bg-red-600 text-white",
+  };
+}
+
+if (diffDays >= 60) {
+  return {
+    label: "Inactive 60+ days",
+    style: "bg-orange-500 text-white",
+  };
+}
+
+if (diffDays >= 30) {
+  return {
+    label: "Inactive 30+ days",
+    style: "bg-yellow-400 text-black",
+  };
+}
+
+return null;
+
+
 }
 
 async function createRebookAppointment(latest) {
@@ -185,9 +220,7 @@ Customers </h1>
       </p>
 
       {message && (
-        <p className="mt-4 font-bold text-green-700">
-          {message}
-        </p>
+        <p className="mt-4 font-bold text-green-700">{message}</p>
       )}
 
       <div className="mt-6">
@@ -201,17 +234,12 @@ Customers </h1>
     </section>
 
     <section className="space-y-5">
-      {groupedCustomers.length === 0 && (
-        <div className="bg-white rounded-3xl shadow-lg p-6 border border-gray-200">
-          <p className="text-2xl font-bold">No matching customers.</p>
-        </div>
-      )}
-
       {groupedCustomers.map((appointmentsGroup) => {
         const latest = appointmentsGroup[0];
         const stats = customerStats(appointmentsGroup);
         const customerKey = latest.customer_phone || latest.customer_name;
         const isRebooking = rebookingCustomerKey === customerKey;
+        const inactive = inactivityTag(stats.lastVisit);
 
         return (
           <div
@@ -220,9 +248,19 @@ Customers </h1>
           >
             <div className="flex flex-col sm:flex-row sm:justify-between gap-4">
               <div>
-                <p className="text-3xl font-extrabold">
-                  {latest.customer_name}
-                </p>
+                <div className="flex gap-3 items-center flex-wrap">
+                  <p className="text-3xl font-extrabold">
+                    {latest.customer_name}
+                  </p>
+
+                  {inactive && (
+                    <span
+                      className={"px-3 py-1 rounded-full text-sm font-bold " + inactive.style}
+                    >
+                      {inactive.label}
+                    </span>
+                  )}
+                </div>
 
                 <a
                   href={"tel:" + latest.customer_phone}
@@ -291,93 +329,6 @@ Customers </h1>
                   ${stats.lifetimeRevenue}
                 </p>
               </div>
-            </div>
-
-            {isRebooking && (
-              <div className="mt-6 border rounded-2xl p-4 bg-blue-50">
-                <p className="font-bold text-xl mb-3">
-                  Rebook {latest.customer_name}
-                </p>
-
-                <p className="text-gray-900 mb-3">
-                  Same barber and service: {barberName(latest.barber_id)} ·{" "}
-                  {serviceName(latest.service_id)}
-                </p>
-
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <input
-                    type="date"
-                    className="border rounded-xl p-4"
-                    value={rebookDate}
-                    onChange={(event) => setRebookDate(event.target.value)}
-                  />
-
-                  <input
-                    type="time"
-                    className="border rounded-xl p-4"
-                    value={rebookTime}
-                    onChange={(event) => setRebookTime(event.target.value)}
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-3 mt-4">
-                  <button
-                    onClick={() => createRebookAppointment(latest)}
-                    className="bg-black text-white rounded-xl p-4 font-bold"
-                  >
-                    Save Rebook
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      setRebookingCustomerKey("");
-                      setRebookDate(today);
-                      setRebookTime("");
-                    }}
-                    className="bg-gray-300 rounded-xl p-4 font-bold"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            )}
-
-            <div className="mt-6 space-y-3">
-              {appointmentsGroup
-                .sort(
-                  (a, b) =>
-                    new Date(b.start_datetime) -
-                    new Date(a.start_datetime)
-                )
-                .map((appointment) => (
-                  <div
-                    key={appointment.id}
-                    className="border rounded-2xl p-4 bg-gray-50"
-                  >
-                    <p className="font-bold text-lg">
-                      {formatDateTime(appointment.start_datetime)}
-                    </p>
-
-                    <p className="text-gray-900">
-                      {serviceName(appointment.service_id)} ·{" "}
-                      {barberName(appointment.barber_id)}
-                    </p>
-
-                    <p className="text-gray-900 capitalize">
-                      Status: {appointment.status}
-                    </p>
-
-                    {appointment.notes && (
-                      <div className="mt-3 bg-white border rounded-xl p-3">
-                        <p className="font-bold">Notes</p>
-
-                        <p className="text-gray-900">
-                          {appointment.notes}
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                ))}
             </div>
           </div>
         );
