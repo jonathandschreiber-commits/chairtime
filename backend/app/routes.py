@@ -594,7 +594,7 @@ appointments = db.query(Appointment).filter(
 Appointment.customer_phone == old_phone
 ).all()
 
-```
+
 if not appointments:
     raise HTTPException(status_code=404, detail="Customer not found")
 
