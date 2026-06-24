@@ -5,10 +5,17 @@ import { useEffect, useMemo, useState } from "react";
 const API_BASE = "https://chairtime-production-94da.up.railway.app";
 
 export default function CustomersPage() {
+const today = new Date().toISOString().slice(0, 10);
+
 const [appointments, setAppointments] = useState([]);
 const [barbers, setBarbers] = useState([]);
 const [services, setServices] = useState([]);
 const [search, setSearch] = useState("");
+const [message, setMessage] = useState("");
+
+const [rebookingCustomerKey, setRebookingCustomerKey] = useState("");
+const [rebookDate, setRebookDate] = useState(today);
+const [rebookTime, setRebookTime] = useState("");
 
 async function loadData() {
 const [appointmentsRes, barbersRes, servicesRes] = await Promise.all([
@@ -21,6 +28,7 @@ fetch(API_BASE + "/api/services"),
 setAppointments(await appointmentsRes.json());
 setBarbers(await barbersRes.json());
 setServices(await servicesRes.json());
+
 
 }
 
@@ -37,9 +45,7 @@ return services.find((service) => service.id === id)?.name || "Service";
 }
 
 function servicePrice(id) {
-return Number(
-services.find((service) => service.id === id)?.price || 0
-);
+return Number(services.find((service) => service.id === id)?.price || 0);
 }
 
 function formatDateTime(value) {
@@ -49,6 +55,44 @@ day: "numeric",
 hour: "numeric",
 minute: "2-digit",
 });
+}
+
+async function createRebookAppointment(latest) {
+if (!rebookDate || !rebookTime) {
+setMessage("Choose a date and time.");
+return;
+}
+
+
+const payload = {
+  barber_id: latest.barber_id,
+  service_id: latest.service_id,
+  customer_name: latest.customer_name,
+  customer_phone: latest.customer_phone,
+  start_datetime: rebookDate + "T" + rebookTime + ":00",
+  notes: "Rebooked from customer history.",
+};
+
+const response = await fetch(API_BASE + "/api/appointments", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify(payload),
+});
+
+if (response.ok) {
+  setMessage("Customer rebooked.");
+  setRebookingCustomerKey("");
+  setRebookDate(today);
+  setRebookTime("");
+  loadData();
+} else {
+  const error = await response.json();
+  setMessage(error.detail || "Could not rebook customer.");
+}
+
+
 }
 
 const filteredAppointments = useMemo(() => {
@@ -98,7 +142,6 @@ const sorted = [...appointmentsGroup].sort(
 
 
 const visits = sorted.length;
-
 const lastVisit = sorted[0]?.start_datetime;
 
 const barberCounts = {};
@@ -138,15 +181,21 @@ Customers </h1>
 
 
       <p className="text-gray-900">
-        Search customer history and notes.
+        Search customer history, notes, and rebook repeat clients.
       </p>
+
+      {message && (
+        <p className="mt-4 font-bold text-green-700">
+          {message}
+        </p>
+      )}
 
       <div className="mt-6">
         <input
           className="w-full border rounded-2xl p-5 text-xl"
           placeholder="Search name, phone, or notes"
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={(event) => setSearch(event.target.value)}
         />
       </div>
     </section>
@@ -154,19 +203,19 @@ Customers </h1>
     <section className="space-y-5">
       {groupedCustomers.length === 0 && (
         <div className="bg-white rounded-3xl shadow-lg p-6 border border-gray-200">
-          <p className="text-2xl font-bold">
-            No matching customers.
-          </p>
+          <p className="text-2xl font-bold">No matching customers.</p>
         </div>
       )}
 
       {groupedCustomers.map((appointmentsGroup) => {
         const latest = appointmentsGroup[0];
         const stats = customerStats(appointmentsGroup);
+        const customerKey = latest.customer_phone || latest.customer_name;
+        const isRebooking = rebookingCustomerKey === customerKey;
 
         return (
           <div
-            key={latest.id}
+            key={customerKey}
             className="bg-white rounded-3xl shadow-lg p-6 border border-gray-200"
           >
             <div className="flex flex-col sm:flex-row sm:justify-between gap-4">
@@ -183,7 +232,7 @@ Customers </h1>
                 </a>
               </div>
 
-              <div className="grid grid-cols-2 gap-3 sm:w-72">
+              <div className="grid grid-cols-3 gap-3 sm:w-96">
                 <a
                   href={"tel:" + latest.customer_phone}
                   className="bg-black text-white rounded-xl p-4 text-center font-bold"
@@ -197,6 +246,17 @@ Customers </h1>
                 >
                   Text
                 </a>
+
+                <button
+                  onClick={() => {
+                    setRebookingCustomerKey(customerKey);
+                    setRebookDate(today);
+                    setRebookTime("");
+                  }}
+                  className="bg-blue-700 text-white rounded-xl p-4 text-center font-bold"
+                >
+                  Rebook
+                </button>
               </div>
             </div>
 
@@ -232,6 +292,55 @@ Customers </h1>
                 </p>
               </div>
             </div>
+
+            {isRebooking && (
+              <div className="mt-6 border rounded-2xl p-4 bg-blue-50">
+                <p className="font-bold text-xl mb-3">
+                  Rebook {latest.customer_name}
+                </p>
+
+                <p className="text-gray-900 mb-3">
+                  Same barber and service: {barberName(latest.barber_id)} ·{" "}
+                  {serviceName(latest.service_id)}
+                </p>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <input
+                    type="date"
+                    className="border rounded-xl p-4"
+                    value={rebookDate}
+                    onChange={(event) => setRebookDate(event.target.value)}
+                  />
+
+                  <input
+                    type="time"
+                    className="border rounded-xl p-4"
+                    value={rebookTime}
+                    onChange={(event) => setRebookTime(event.target.value)}
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3 mt-4">
+                  <button
+                    onClick={() => createRebookAppointment(latest)}
+                    className="bg-black text-white rounded-xl p-4 font-bold"
+                  >
+                    Save Rebook
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setRebookingCustomerKey("");
+                      setRebookDate(today);
+                      setRebookTime("");
+                    }}
+                    className="bg-gray-300 rounded-xl p-4 font-bold"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
 
             <div className="mt-6 space-y-3">
               {appointmentsGroup
