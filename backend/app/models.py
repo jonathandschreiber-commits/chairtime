@@ -9,7 +9,7 @@ def generate_uuid():
     return str(uuid.uuid4())
 
 class Shop(Base):
-    tablename = "shops"
+    __ablename__ = "shops"
 
     id = Column(String, primary_key=True, default=generate_uuid)
     name = Column(String, nullable=False)
@@ -17,7 +17,7 @@ class Shop(Base):
     timezone = Column(String, nullable=False, default="America/New_York")
 
 class Barber(Base):
-    tablename = "barbers"
+    __tablename__ = "barbers"
 
     id = Column(String, primary_key=True, default=generate_uuid)
     name = Column(String, nullable=False)
@@ -26,7 +26,7 @@ class Barber(Base):
     timezone = Column(String, nullable=False, default="America/New_York")
 
 class Service(Base):
-    tablename = "services"
+    __tablename__ = "services"
 
     id = Column(String, primary_key=True, default=generate_uuid)
     barber_id = Column(String, nullable=True)
@@ -35,7 +35,7 @@ class Service(Base):
     price = Column(Float, nullable=False)
 
 class AvailabilityRule(Base):
-    tablename = "availability_rules"
+    __tablename__ = "availability_rules"
 
     id = Column(String, primary_key=True, default=generate_uuid)
     barber_id = Column(String, nullable=False)
@@ -44,7 +44,7 @@ class AvailabilityRule(Base):
     end_time = Column(Time, nullable=False)
 
 class BlockedTime(Base):
-    tablename = "blocked_times"
+    __tablename__ = "blocked_times"
 
     id = Column(String, primary_key=True, default=generate_uuid)
     barber_id = Column(String, nullable=False)
@@ -53,7 +53,7 @@ class BlockedTime(Base):
     end_datetime = Column(DateTime, nullable=False)
 
 class Appointment(Base):
-    tablename = "appointments"
+    __ablename__ = "appointments"
 
     id = Column(String, primary_key=True, default=generate_uuid)
     barber_id = Column(String, nullable=False)
