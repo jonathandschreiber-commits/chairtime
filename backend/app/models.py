@@ -9,7 +9,7 @@ def generate_uuid():
     return str(uuid.uuid4())
 
 class Shop(Base):
-    __ablename__ = "shops"
+    __tablename__ = "shops"
 
     id = Column(String, primary_key=True, default=generate_uuid)
     name = Column(String, nullable=False)
