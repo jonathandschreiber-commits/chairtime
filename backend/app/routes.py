@@ -225,14 +225,16 @@ def create_appointment(payload: AppointmentCreate, db: Session = Depends(get_db)
         raise HTTPException(status_code=409, detail="Time slot already booked")
 
     appointment = Appointment(
-        barber_id=payload.barber_id,
-        service_id=payload.service_id,
-        customer_name=payload.customer_name,
-        customer_phone=payload.customer_phone,
-        notes=payload.notes,
-        start_datetime=payload.start_datetime,
-        end_datetime=end_datetime,
-    )
+barber_id=payload.barber_id,
+service_id=payload.service_id,
+customer_name=payload.customer_name,
+customer_phone=payload.customer_phone,
+customer_tags=payload.customer_tags,
+notes=payload.notes,
+start_datetime=payload.start_datetime,
+end_datetime=end_datetime,
+)
+
 
     db.add(appointment)
     db.commit()
