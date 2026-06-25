@@ -53,7 +53,7 @@ class BlockedTime(Base):
     end_datetime = Column(DateTime, nullable=False)
 
 class Appointment(Base):
-    __ablename__ = "appointments"
+    __tablename__ = "appointments"
 
     id = Column(String, primary_key=True, default=generate_uuid)
     barber_id = Column(String, nullable=False)
