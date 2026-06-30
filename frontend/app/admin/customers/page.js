@@ -33,11 +33,11 @@ fetch(API_BASE + "/api/barbers"),
 fetch(API_BASE + "/api/services"),
 ]);
 
-```
+
 setAppointments(await appointmentsRes.json());
 setBarbers(await barbersRes.json());
 setServices(await servicesRes.json());
-```
+
 
 }
 
@@ -73,13 +73,13 @@ encodeURIComponent(editPhone),
 { method: "PATCH" }
 );
 
-```
+
 if (response.ok) {
   setMessage("Customer updated.");
   setEditingCustomerKey("");
   loadData();
 }
-```
+
 
 }
 
@@ -93,16 +93,16 @@ encodeURIComponent(tags.join(",")),
 { method: "PATCH" }
 );
 
-```
+
 loadData();
-```
+
 
 }
 
 function addCustomTag(customerPhone, activeTags) {
 const cleanTag = customTagText.trim();
 
-```
+
 if (!cleanTag) {
   setMessage("Enter a tag first.");
   return;
@@ -117,14 +117,14 @@ updateCustomerTags(customerPhone, [...activeTags, cleanTag]);
 setCustomTagText("");
 setAddingTagCustomerKey("");
 setMessage("Tag added.");
-```
+
 
 }
 
 const groupedCustomers = useMemo(() => {
 const groups = {};
 
-```
+
 appointments.forEach((appointment) => {
   const key = appointment.customer_phone;
   if (!groups[key]) groups[key] = [];
@@ -132,13 +132,13 @@ appointments.forEach((appointment) => {
 });
 
 return Object.values(groups);
-```
+
 
 }, [appointments]);
 
 return ( <main className="min-h-screen bg-gray-100 p-6"> <div className="max-w-5xl mx-auto space-y-6"> <h1 className="text-4xl font-bold">Customers</h1>
 
-```
+
     {message && <p className="font-bold text-green-700">{message}</p>}
 
     {groupedCustomers.map((appointmentsGroup) => {
