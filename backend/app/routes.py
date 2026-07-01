@@ -640,3 +640,30 @@ def update_customer_tags(
         "success": True,
         "updated": len(appointments),
     }
+
+
+@router.patch("/customers/notes")
+def update_customer_notes(
+    customer_phone: str,
+    customer_notes: str,
+    db: Session = Depends(get_db),
+):
+    appointments = db.query(Appointment).filter(
+        Appointment.customer_phone == customer_phone
+    ).all()
+
+    if not appointments:
+        raise HTTPException(
+            status_code=404,
+            detail="Customer not found",
+        )
+
+    for appointment in appointments:
+        appointment.customer_notes = customer_notes
+
+    db.commit()
+
+    return {
+        "success": True,
+        "updated": len(appointments),
+    }

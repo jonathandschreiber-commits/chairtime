@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import Boolean, Column, DateTime, Float, Integer, String, Time
+from sqlalchemy import Boolean, Column, DateTime, Float, Integer, String, Text, Time
 from sqlalchemy.sql import func
 
 from app.database import Base
@@ -61,6 +61,7 @@ class Appointment(Base):
     customer_name = Column(String, nullable=False)
     customer_phone = Column(String, nullable=False)
     customer_tags = Column(String, nullable=True)
+    customer_notes = Column(Text, nullable=True)
     notes = Column(String, nullable=True)
     start_datetime = Column(DateTime, nullable=False)
     end_datetime = Column(DateTime, nullable=False)
