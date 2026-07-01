@@ -181,16 +181,32 @@ export default function CustomersPage() {
                   </div>
                 </div>
 
-                <button
-                  onClick={() => {
-                    setEditingCustomerKey(customerKey);
-                    setEditName(latest.customer_name);
-                    setEditPhone(latest.customer_phone);
-                  }}
-                  className="bg-green-600 text-white px-4 py-2 rounded-xl"
-                >
-                  Edit
-                </button>
+                <div className="flex gap-2">
+                  <a
+                    href={"tel:" + latest.customer_phone}
+                    className="bg-black text-white px-4 py-2 rounded-xl"
+                  >
+                    Call
+                  </a>
+
+                  <a
+                    href={"sms:" + latest.customer_phone}
+                    className="bg-blue-700 text-white px-4 py-2 rounded-xl"
+                  >
+                    Text
+                  </a>
+
+                  <button
+                    onClick={() => {
+                      setEditingCustomerKey(customerKey);
+                      setEditName(latest.customer_name);
+                      setEditPhone(latest.customer_phone);
+                    }}
+                    className="bg-green-600 text-white px-4 py-2 rounded-xl"
+                  >
+                    Edit
+                  </button>
+                </div>
               </div>
 
               <div className="mt-4 flex gap-2 flex-wrap">
