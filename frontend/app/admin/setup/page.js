@@ -1,227 +1,221 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 const API_BASE = "https://chairtime-production-94da.up.railway.app";
 
-const WEEKDAY_NAMES = {
-  0: "Monday",
-  1: "Tuesday",
-  2: "Wednesday",
-  3: "Thursday",
-  4: "Friday",
-  5: "Saturday",
-  6: "Sunday",
-};
-
-const WEEKDAY_MAP = {
-  Monday: 0,
-  Tuesday: 1,
-  Wednesday: 2,
-  Thursday: 3,
-  Friday: 4,
-  Saturday: 5,
-  Sunday: 6,
-};
+const DAYS = [
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+  "Sunday",
+];
 
 export default function SetupPage() {
   const [barbers, setBarbers] = useState([]);
-  const [blockedTimes, setBlockedTimes] = useState([]);
-  const [availabilityRules, setAvailabilityRules] = useState([]);
+  const [message, setMessage] = useState("");
 
-  const [availabilityBarberId, setAvailabilityBarberId] = useState("");
-  const [availabilityDay, setAvailabilityDay] = useState("Monday");
-  const [availabilityStart, setAvailabilityStart] = useState("09:00");
-  const [availabilityEnd, setAvailabilityEnd] = useState("17:00");
+  const [barberId, setBarberId] = useState("");
+  const [weekday, setWeekday] = useState("Monday");
+  const [startTime, setStartTime] = useState("09:00");
+  const [endTime, setEndTime] = useState("17:00");
 
-  const [blockBarberId, setBlockBarberId] = useState("");
   const [blockReason, setBlockReason] = useState("Lunch");
   const [blockStart, setBlockStart] = useState("");
   const [blockEnd, setBlockEnd] = useState("");
-  const [fullDayDate, setFullDayDate] = useState(
-    new Date().toISOString().slice(0, 10)
-  );
+  const [fullDayDate, setFullDayDate] = useState("");
 
-  const [message, setMessage] = useState("");
+  async function loadBarbers() {
+    const response = await fetch(API_BASE + "/api/barbers");
+    const data = await response.json();
 
-  async function loadData() {
-    const [barbersRes, blockedRes, availabilityRes] = await Promise.all([
-      fetch(`${API_BASE}/api/barbers`),
-      fetch(`${API_BASE}/api/blocked-times`),
-      fetch(`${API_BASE}/api/availability-rules`),
-    ]);
+    setBarbers(data);
 
-    const barbersData = await barbersRes.json();
-
-    setBarbers(barbersData);
-    setBlockedTimes(await blockedRes.json());
-    setAvailabilityRules(await availabilityRes.json());
-
-    if (barbersData.length > 0) {
-      if (!availabilityBarberId) setAvailabilityBarberId(barbersData[0].id);
-      if (!blockBarberId) setBlockBarberId(barbersData[0].id);
+    if (data.length > 0 && !barberId) {
+      setBarberId(data[0].id);
     }
   }
 
   useEffect(() => {
-    loadData();
+    loadBarbers();
   }, []);
 
-  function getBarberName(id) {
-    return barbers.find((barber) => barber.id === id)?.name || "Barber";
-  }
+  async function saveAvailability() {
+    const dayIndex = DAYS.indexOf(weekday);
 
-  function formatTime(value) {
-    if (!value) return "";
-    return value.toString().slice(0, 5);
-  }
-
-  function isFullDay(block) {
-    return (
-      block.start_datetime?.endsWith("T00:00:00") &&
-      block.end_datetime?.endsWith("T23:59:00")
-    );
-  }
-
-  async function addAvailabilityRule() {
-    await fetch(`${API_BASE}/api/availability-rules`, {
+    const response = await fetch(API_BASE + "/api/availability-rules", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify({
-        barber_id: availabilityBarberId,
-        weekday: WEEKDAY_MAP[availabilityDay],
-        start_time: `${availabilityStart}:00`,
-        end_time: `${availabilityEnd}:00`,
+        barber_id: barberId,
+        weekday: dayIndex,
+        start_time: startTime + ":00",
+        end_time: endTime + ":00",
       }),
     });
 
-    setMessage("Weekly availability added.");
-    loadData();
-  }
-
-  async function deleteAvailabilityRule(id) {
-    await fetch(`${API_BASE}/api/availability-rules/${id}`, {
-      method: "DELETE",
-    });
-
-    setMessage("Weekly availability deleted.");
-    loadData();
+    if (response.ok) {
+      setMessage("Availability saved.");
+    }
   }
 
   async function blockTime() {
-    if (!blockBarberId || !blockStart || !blockEnd) return;
+    const response = await fetch(API_BASE + "/api/blocked-times", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        barber_id: barberId,
+        reason: blockReason,
+        start_datetime: blockStart,
+        end_datetime: blockEnd,
+      }),
+    });
 
-    const barberIds =
-      blockBarberId === "ALL"
-        ? barbers.map((barber) => barber.id)
-        : [blockBarberId];
-
-    await Promise.all(
-      barberIds.map((barberId) =>
-        fetch(`${API_BASE}/api/blocked-times`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            barber_id: barberId,
-            reason: blockReason,
-            start_datetime: blockStart,
-            end_datetime: blockEnd,
-          }),
-        })
-      )
-    );
-
-    setMessage(
-      blockBarberId === "ALL"
-        ? "Time blocked for all staff."
-        : "Time blocked."
-    );
-
-    setBlockStart("");
-    setBlockEnd("");
-    loadData();
+    if (response.ok) {
+      setMessage("Time blocked.");
+    }
   }
 
   async function blockFullDay(reason) {
-    if (!blockBarberId || !fullDayDate) return;
-
-    const barberIds =
-      blockBarberId === "ALL"
-        ? barbers.map((barber) => barber.id)
-        : [blockBarberId];
-
-    await Promise.all(
-      barberIds.map((barberId) =>
-        fetch(`${API_BASE}/api/blocked-times`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            barber_id: barberId,
-            reason,
-            start_datetime: `${fullDayDate}T00:00:00`,
-            end_datetime: `${fullDayDate}T23:59:00`,
-          }),
-        })
-      )
-    );
-
-    setMessage(
-      blockBarberId === "ALL"
-        ? `${reason} full day blocked for all staff.`
-        : `${reason} full day blocked.`
-    );
-
-    loadData();
-  }
-
-  async function deleteBlockedTime(id) {
-    await fetch(`${API_BASE}/api/blocked-times/${id}`, {
-      method: "DELETE",
+    const response = await fetch(API_BASE + "/api/blocked-times", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        barber_id: barberId,
+        reason,
+        start_datetime: fullDayDate + "T00:00:00",
+        end_datetime: fullDayDate + "T23:59:00",
+      }),
     });
 
-    setMessage("Blocked time removed.");
-    loadData();
+    if (response.ok) {
+      setMessage(reason + " saved.");
+    }
   }
-
-  const sortedAvailabilityRules = useMemo(() => {
-    return [...availabilityRules].sort((a, b) => {
-      const barberCompare = getBarberName(a.barber_id).localeCompare(
-        getBarberName(b.barber_id)
-      );
-
-      if (barberCompare !== 0) return barberCompare;
-      if (a.weekday !== b.weekday) return a.weekday - b.weekday;
-
-      return a.start_time.localeCompare(b.start_time);
-    });
-  }, [availabilityRules, barbers]);
-
-  const upcomingBlockedTimes = useMemo(() => {
-    const now = new Date();
-
-    return [...blockedTimes]
-      .filter((block) => new Date(block.end_datetime) >= now)
-      .sort((a, b) => {
-        const barberCompare = getBarberName(a.barber_id).localeCompare(
-          getBarberName(b.barber_id)
-        );
-
-        if (barberCompare !== 0) return barberCompare;
-
-        return new Date(a.start_datetime) - new Date(b.start_datetime);
-      });
-  }, [blockedTimes, barbers]);
 
   return (
-    <main className="min-h-screen bg-gray-100 p-4 sm:p-10">
-      <div className="max-w-6xl mx-auto space-y-8">
-        <div className="bg-white rounded-3xl shadow-lg p-6 border border-gray-200">
-          <h1 className="text-5xl font-extrabold mb-3">Shop Setup</h1>
-          <p>Manage schedules and blocked time.</p>
+    <main className="min-h-screen bg-gray-100 p-6">
+      <div className="max-w-4xl mx-auto space-y-6">
+        <h1 className="text-4xl font-bold">Shop Setup</h1>
 
-          {message && (
-            <p className="mt-4 font-semibold text-green-700">{message}</p>
-          )}
+        {message && (
+          <div className="bg-green-100 p-3 rounded-xl font-bold">
+            {message}
+          </div>
+        )}
+
+        <div className="bg-white p-6 rounded-2xl shadow space-y-4">
+          <h2 className="text-2xl font-bold">Weekly Availability</h2>
+
+          <select
+            value={barberId}
+            onChange={(e) => setBarberId(e.target.value)}
+            className="border p-3 rounded w-full"
+          >
+            {barbers.map((barber) => (
+              <option key={barber.id} value={barber.id}>
+                {barber.name}
+              </option>
+            ))}
+          </select>
+
+          <select
+            value={weekday}
+            onChange={(e) => setWeekday(e.target.value)}
+            className="border p-3 rounded w-full"
+          >
+            {DAYS.map((day) => (
+              <option key={day}>{day}</option>
+            ))}
+          </select>
+
+          <input
+            type="time"
+            value={startTime}
+            onChange={(e) => setStartTime(e.target.value)}
+            className="border p-3 rounded w-full"
+          />
+
+          <input
+            type="time"
+            value={endTime}
+            onChange={(e) => setEndTime(e.target.value)}
+            className="border p-3 rounded w-full"
+          />
+
+          <button
+            onClick={saveAvailability}
+            className="bg-black text-white px-4 py-3 rounded-xl"
+          >
+            Save Availability
+          </button>
+        </div>
+
+        <div className="bg-white p-6 rounded-2xl shadow space-y-4">
+          <h2 className="text-2xl font-bold">Quick Block Time</h2>
+
+          <input
+            value={blockReason}
+            onChange={(e) => setBlockReason(e.target.value)}
+            className="border p-3 rounded w-full"
+          />
+
+          <input
+            type="datetime-local"
+            value={blockStart}
+            onChange={(e) => setBlockStart(e.target.value)}
+            className="border p-3 rounded w-full"
+          />
+
+          <input
+            type="datetime-local"
+            value={blockEnd}
+            onChange={(e) => setBlockEnd(e.target.value)}
+            className="border p-3 rounded w-full"
+          />
+
+          <button
+            onClick={blockTime}
+            className="bg-black text-white px-4 py-3 rounded-xl"
+          >
+            Block Time
+          </button>
+        </div>
+
+        <div className="bg-white p-6 rounded-2xl shadow space-y-4">
+          <h2 className="text-2xl font-bold">Full Day Block</h2>
+
+          <input
+            type="date"
+            value={fullDayDate}
+            onChange={(e) => setFullDayDate(e.target.value)}
+            className="border p-3 rounded w-full"
+          />
+
+          <div className="flex gap-3">
+            <button
+              onClick={() => blockFullDay("Vacation")}
+              className="bg-black text-white px-4 py-3 rounded-xl"
+            >
+              Vacation
+            </button>
+
+            <button
+              onClick={() => blockFullDay("Closed")}
+              className="bg-red-600 text-white px-4 py-3 rounded-xl"
+            >
+              Closed
+            </button>
+          </div>
         </div>
       </div>
     </main>
