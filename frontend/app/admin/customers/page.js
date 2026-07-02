@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 
 const API_BASE = "https://chairtime-production-94da.up.railway.app";
 
@@ -13,7 +14,10 @@ const QUICK_TAGS = [
   "Family",
 ];
 
-export default function CustomersPage() {
+function CustomersPageContent() {
+  const searchParams = useSearchParams();
+  const selectedPhone = searchParams.get("phone") || "";
+
   const [appointments, setAppointments] = useState([]);
   const [barbers, setBarbers] = useState([]);
   const [services, setServices] = useState([]);
@@ -114,20 +118,12 @@ export default function CustomersPage() {
   function addCustomTag(customerPhone, activeTags) {
     const cleanTag = customTagText.trim();
 
-    if (!cleanTag) {
-      setMessage("Enter a tag first.");
-      return;
-    }
-
-    if (activeTags.includes(cleanTag)) {
-      setMessage("That tag already exists.");
-      return;
-    }
+    if (!cleanTag) return;
+    if (activeTags.includes(cleanTag)) return;
 
     updateCustomerTags(customerPhone, [...activeTags, cleanTag]);
     setCustomTagText("");
     setAddingTagCustomerKey("");
-    setMessage("Tag added.");
   }
 
   const groupedCustomers = useMemo(() => {
@@ -139,8 +135,18 @@ export default function CustomersPage() {
       groups[key].push(appointment);
     });
 
-    return Object.values(groups);
-  }, [appointments]);
+    let result = Object.values(groups);
+
+    if (selectedPhone) {
+      result = result.sort((a, b) => {
+        if (a[0].customer_phone === selectedPhone) return -1;
+        if (b[0].customer_phone === selectedPhone) return 1;
+        return 0;
+      });
+    }
+
+    return result;
+  }, [appointments, selectedPhone]);
 
   return (
     <main className="min-h-screen bg-gray-100 p-6">
@@ -151,15 +157,18 @@ export default function CustomersPage() {
 
         {groupedCustomers.map((appointmentsGroup) => {
           const latest = appointmentsGroup[0];
-          const activeTags = tagList(latest.customer_tags);
           const customerKey = latest.customer_phone;
-          const isAddingTag = addingTagCustomerKey === customerKey;
-          const isEditingNotes = editingNotesCustomerKey === customerKey;
+          const activeTags = tagList(latest.customer_tags);
+          const isHighlighted = selectedPhone === customerKey;
 
           return (
             <div
               key={customerKey}
-              className="bg-white rounded-2xl p-6 shadow border"
+              className={
+                isHighlighted
+                  ? "bg-yellow-50 rounded-2xl p-6 shadow border-4 border-yellow-400"
+                  : "bg-white rounded-2xl p-6 shadow border"
+              }
             >
               <div className="flex justify-between items-center">
                 <div>
@@ -209,150 +218,10 @@ export default function CustomersPage() {
                 </div>
               </div>
 
-              <div className="mt-4 flex gap-2 flex-wrap">
-                {QUICK_TAGS.map((tag) => {
-                  const active = activeTags.includes(tag);
-
-                  return (
-                    <button
-                      key={tag}
-                      onClick={() => {
-                        const nextTags = active
-                          ? activeTags.filter((t) => t !== tag)
-                          : [...activeTags, tag];
-
-                        updateCustomerTags(latest.customer_phone, nextTags);
-                      }}
-                      className={
-                        active
-                          ? "bg-purple-700 text-white px-3 py-2 rounded-full"
-                          : "bg-gray-200 px-3 py-2 rounded-full"
-                      }
-                    >
-                      {tag}
-                    </button>
-                  );
-                })}
-
-                <button
-                  onClick={() => {
-                    setAddingTagCustomerKey(customerKey);
-                    setCustomTagText("");
-                  }}
-                  className="bg-black text-white px-3 py-2 rounded-full"
-                >
-                  Add Tag
-                </button>
-              </div>
-
-              {isAddingTag && (
-                <div className="mt-4 bg-purple-50 p-4 rounded-xl">
-                  <input
-                    className="border p-3 rounded w-full mb-2"
-                    placeholder="Type custom tag"
-                    value={customTagText}
-                    onChange={(e) => setCustomTagText(e.target.value)}
-                  />
-
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() =>
-                        addCustomTag(latest.customer_phone, activeTags)
-                      }
-                      className="bg-black text-white px-4 py-2 rounded-xl"
-                    >
-                      Save Tag
-                    </button>
-
-                    <button
-                      onClick={() => {
-                        setAddingTagCustomerKey("");
-                        setCustomTagText("");
-                      }}
-                      className="bg-gray-300 px-4 py-2 rounded-xl"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              )}
-
               <div className="mt-4 bg-yellow-50 p-4 rounded-xl">
-                <div className="flex justify-between items-center mb-2">
-                  <p className="font-bold">Customer Notes</p>
-
-                  <button
-                    onClick={() => {
-                      setEditingNotesCustomerKey(customerKey);
-                      setCustomerNotesText(latest.customer_notes || "");
-                    }}
-                    className="bg-yellow-600 text-white px-3 py-2 rounded-xl"
-                  >
-                    Edit Notes
-                  </button>
-                </div>
-
-                {latest.customer_notes ? (
-                  <p className="whitespace-pre-wrap">{latest.customer_notes}</p>
-                ) : (
-                  <p className="text-gray-600">No permanent customer notes.</p>
-                )}
+                <p className="font-bold mb-2">Customer Notes</p>
+                <p>{latest.customer_notes || "No permanent customer notes."}</p>
               </div>
-
-              {isEditingNotes && (
-                <div className="mt-4 bg-yellow-50 p-4 rounded-xl">
-                  <textarea
-                    className="border p-3 rounded w-full mb-2 min-h-32"
-                    placeholder="Permanent customer notes"
-                    value={customerNotesText}
-                    onChange={(e) => setCustomerNotesText(e.target.value)}
-                  />
-
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() =>
-                        updateCustomerNotes(latest.customer_phone)
-                      }
-                      className="bg-black text-white px-4 py-2 rounded-xl"
-                    >
-                      Save Notes
-                    </button>
-
-                    <button
-                      onClick={() => {
-                        setEditingNotesCustomerKey("");
-                        setCustomerNotesText("");
-                      }}
-                      className="bg-gray-300 px-4 py-2 rounded-xl"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {editingCustomerKey === customerKey && (
-                <div className="mt-4 bg-green-50 p-4 rounded-xl">
-                  <input
-                    className="border p-3 rounded w-full mb-2"
-                    value={editName}
-                    onChange={(e) => setEditName(e.target.value)}
-                  />
-
-                  <input
-                    className="border p-3 rounded w-full mb-2"
-                    value={editPhone}
-                    onChange={(e) => setEditPhone(e.target.value)}
-                  />
-
-                  <button
-                    onClick={() => updateCustomer(latest.customer_phone)}
-                    className="bg-black text-white px-4 py-2 rounded-xl"
-                  >
-                    Save Customer
-                  </button>
-                </div>
-              )}
 
               <div className="mt-4 space-y-2">
                 {appointmentsGroup.map((appointment) => (
@@ -378,5 +247,13 @@ export default function CustomersPage() {
         })}
       </div>
     </main>
+  );
+}
+
+export default function CustomersPage() {
+  return (
+    <Suspense fallback={<main className="p-6">Loading customers...</main>}>
+      <CustomersPageContent />
+    </Suspense>
   );
 }
