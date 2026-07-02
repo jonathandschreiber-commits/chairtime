@@ -1,5 +1,5 @@
 export default async function ShopAdminPage({ params }) {
-  const shop = params.shop;
+  const { shop } = await params;
 
   return (
     <main className="min-h-screen bg-gray-100 p-6">
