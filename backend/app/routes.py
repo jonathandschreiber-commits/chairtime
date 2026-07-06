@@ -153,7 +153,6 @@ def send_highlevel_sms(phone: str, message: str):
             "error": str(general_error),
         }
 
-
 @router.post("/barbers")
 def create_barber(payload: BarberCreate, db: Session = Depends(get_db)):
     barber = Barber(**payload.model_dump())
@@ -164,8 +163,16 @@ def create_barber(payload: BarberCreate, db: Session = Depends(get_db)):
 
 
 @router.get("/barbers")
-def list_barbers(db: Session = Depends(get_db)):
-    return db.query(Barber).all()
+def list_barbers(
+    shop_slug: str | None = None,
+    db: Session = Depends(get_db),
+):
+    query = db.query(Barber)
+
+    if shop_slug:
+        query = query.filter(Barber.shop_slug == shop_slug)
+
+    return query.all()
 
 
 @router.post("/services")
@@ -178,8 +185,17 @@ def create_service(payload: ServiceCreate, db: Session = Depends(get_db)):
 
 
 @router.get("/services")
-def list_services(db: Session = Depends(get_db)):
-    return db.query(Service).all()
+def list_services(
+    shop_slug: str | None = None,
+    db: Session = Depends(get_db),
+):
+    query = db.query(Service)
+
+    if shop_slug:
+        query = query.filter(Service.shop_slug == shop_slug)
+
+    return query.all()
+
 
 
 @router.post("/availability-rules")

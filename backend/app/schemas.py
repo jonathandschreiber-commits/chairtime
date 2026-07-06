@@ -5,12 +5,14 @@ from pydantic import BaseModel
 
 
 class ShopCreate(BaseModel):
+    slug: Optional[str] = None
     name: str
     phone: Optional[str] = None
     timezone: str = "America/New_York"
 
 
 class BarberCreate(BaseModel):
+    shop_slug: Optional[str] = None
     name: str
     shop_name: str
     phone: Optional[str] = None
@@ -18,6 +20,7 @@ class BarberCreate(BaseModel):
 
 
 class BarberUpdate(BaseModel):
+    shop_slug: Optional[str] = None
     name: Optional[str] = None
     shop_name: Optional[str] = None
     phone: Optional[str] = None
@@ -25,6 +28,7 @@ class BarberUpdate(BaseModel):
 
 
 class ServiceCreate(BaseModel):
+    shop_slug: Optional[str] = None
     barber_id: Optional[str] = None
     name: str
     duration_minutes: int
@@ -32,6 +36,7 @@ class ServiceCreate(BaseModel):
 
 
 class ServiceUpdate(BaseModel):
+    shop_slug: Optional[str] = None
     barber_id: Optional[str] = None
     name: Optional[str] = None
     duration_minutes: Optional[int] = None
@@ -39,6 +44,7 @@ class ServiceUpdate(BaseModel):
 
 
 class AvailabilityCreate(BaseModel):
+    shop_slug: Optional[str] = None
     barber_id: str
     weekday: int
     start_time: time
@@ -46,6 +52,7 @@ class AvailabilityCreate(BaseModel):
 
 
 class AvailabilityRuleCreate(BaseModel):
+    shop_slug: Optional[str] = None
     barber_id: str
     weekday: int
     start_time: time
@@ -53,6 +60,7 @@ class AvailabilityRuleCreate(BaseModel):
 
 
 class BlockedTimeCreate(BaseModel):
+    shop_slug: Optional[str] = None
     barber_id: str
     reason: str
     start_datetime: datetime
@@ -60,6 +68,7 @@ class BlockedTimeCreate(BaseModel):
 
 
 class AppointmentCreate(BaseModel):
+    shop_slug: Optional[str] = None
     barber_id: str
     service_id: str
     customer_name: str
@@ -71,6 +80,7 @@ class AppointmentCreate(BaseModel):
 
 
 class AppointmentUpdate(BaseModel):
+    shop_slug: Optional[str] = None
     customer_name: Optional[str] = None
     customer_phone: Optional[str] = None
     customer_tags: Optional[str] = None
