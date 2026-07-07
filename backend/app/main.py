@@ -7,6 +7,7 @@ from app.routes.availability import router as availability_router
 from app.routes.barbers import router as barbers_router
 from app.routes.blocked_times import router as blocked_times_router
 from app.routes.customers import router as customers_router
+from app.routes.migration import router as migration_router
 from app.routes.reminders import router as reminders_router
 from app.routes.services import router as services_router
 from app.routes.shops import router as shops_router
@@ -31,6 +32,7 @@ app.include_router(blocked_times_router, prefix="/api")
 app.include_router(appointments_router, prefix="/api")
 app.include_router(customers_router, prefix="/api")
 app.include_router(reminders_router, prefix="/api")
+app.include_router(migration_router, prefix="/api")
 
 
 @app.get("/")
