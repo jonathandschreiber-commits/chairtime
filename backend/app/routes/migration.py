@@ -22,6 +22,10 @@ def migrate_shop(
             phone=None,
             timezone="America/New_York",
         )
+
+        if hasattr(shop, "business_type"):
+            shop.business_type = "barber"
+
         db.add(shop)
 
     barbers_updated = (
