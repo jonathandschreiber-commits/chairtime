@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 
 const API_BASE = "https://chairtime-production-94da.up.railway.app";
 
@@ -15,6 +15,9 @@ const QUICK_TAGS = [
 ];
 
 function CustomersPageContent() {
+  const params = useParams();
+  const shopSlug = params.shop;
+
   const searchParams = useSearchParams();
   const selectedPhone = searchParams.get("phone") || "";
 
@@ -34,10 +37,12 @@ function CustomersPageContent() {
   const [customerNotesText, setCustomerNotesText] = useState("");
 
   async function loadData() {
+    const query = "?shop_slug=" + encodeURIComponent(shopSlug);
+
     const [appointmentsRes, barbersRes, servicesRes] = await Promise.all([
-      fetch(API_BASE + "/api/appointments"),
-      fetch(API_BASE + "/api/barbers"),
-      fetch(API_BASE + "/api/services"),
+      fetch(API_BASE + "/api/appointments" + query),
+      fetch(API_BASE + "/api/barbers" + query),
+      fetch(API_BASE + "/api/services" + query),
     ]);
 
     setAppointments(await appointmentsRes.json());
@@ -46,8 +51,10 @@ function CustomersPageContent() {
   }
 
   useEffect(() => {
-    loadData();
-  }, []);
+    if (shopSlug) {
+      loadData();
+    }
+  }, [shopSlug]);
 
   function barberName(id) {
     return barbers.find((b) => b.id === id)?.name || "Barber";
@@ -73,7 +80,9 @@ function CustomersPageContent() {
         "&new_name=" +
         encodeURIComponent(editName) +
         "&new_phone=" +
-        encodeURIComponent(editPhone),
+        encodeURIComponent(editPhone) +
+        "&shop_slug=" +
+        encodeURIComponent(shopSlug),
       { method: "PATCH" }
     );
 
@@ -90,7 +99,9 @@ function CustomersPageContent() {
         "/api/customers/tags?customer_phone=" +
         encodeURIComponent(customerPhone) +
         "&customer_tags=" +
-        encodeURIComponent(tags.join(",")),
+        encodeURIComponent(tags.join(",")) +
+        "&shop_slug=" +
+        encodeURIComponent(shopSlug),
       { method: "PATCH" }
     );
 
@@ -103,7 +114,9 @@ function CustomersPageContent() {
         "/api/customers/notes?customer_phone=" +
         encodeURIComponent(customerPhone) +
         "&customer_notes=" +
-        encodeURIComponent(customerNotesText),
+        encodeURIComponent(customerNotesText) +
+        "&shop_slug=" +
+        encodeURIComponent(shopSlug),
       { method: "PATCH" }
     );
 
@@ -151,7 +164,7 @@ function CustomersPageContent() {
   return (
     <main className="min-h-screen bg-gray-100 p-6">
       <div className="max-w-5xl mx-auto space-y-6">
-        <h1 className="text-4xl font-bold">Customers</h1>
+        <h1 className="text-4xl font-bold">{shopSlug} Customers</h1>
 
         {message && <p className="font-bold text-green-700">{message}</p>}
 
