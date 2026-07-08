@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useParams } from "next/navigation";
 
 const API_BASE = "https://chairtime-production-94da.up.railway.app";
 
@@ -26,6 +27,9 @@ const STATUS_LABELS = {
 };
 
 export default function CalendarPage() {
+  const params = useParams();
+  const shopSlug = params.shop;
+
   const today = new Date().toISOString().slice(0, 10);
 
   const [appointments, setAppointments] = useState([]);
@@ -43,12 +47,14 @@ export default function CalendarPage() {
   const [moveTime, setMoveTime] = useState("09:00");
 
   async function loadData() {
+    const query = "?shop_slug=" + encodeURIComponent(shopSlug);
+
     const [appointmentsRes, barbersRes, servicesRes, blockedRes] =
       await Promise.all([
-        fetch(`${API_BASE}/api/appointments`),
-        fetch(`${API_BASE}/api/barbers`),
-        fetch(`${API_BASE}/api/services`),
-        fetch(`${API_BASE}/api/blocked-times`),
+        fetch(`${API_BASE}/api/appointments${query}`),
+        fetch(`${API_BASE}/api/barbers${query}`),
+        fetch(`${API_BASE}/api/services${query}`),
+        fetch(`${API_BASE}/api/blocked-times${query}`),
       ]);
 
     const barbersData = await barbersRes.json();
@@ -64,8 +70,10 @@ export default function CalendarPage() {
   }
 
   useEffect(() => {
-    loadData();
-  }, []);
+    if (shopSlug) {
+      loadData();
+    }
+  }, [shopSlug]);
 
   function serviceName(id) {
     return services.find((service) => service.id === id)?.name || "Service";
@@ -224,23 +232,38 @@ export default function CalendarPage() {
 
         {!isMoving && (
           <div className="flex flex-wrap gap-2 mt-4">
-            <button onClick={() => startMove(appointment)} className="bg-purple-500 text-white px-3 py-2 rounded-xl text-sm">
+            <button
+              onClick={() => startMove(appointment)}
+              className="bg-purple-500 text-white px-3 py-2 rounded-xl text-sm"
+            >
               Move
             </button>
 
-            <button onClick={() => updateAppointmentStatus(appointment.id, "confirmed")} className="bg-blue-400 hover:bg-blue-500 text-white px-3 py-2 rounded-xl text-sm">
+            <button
+              onClick={() => updateAppointmentStatus(appointment.id, "confirmed")}
+              className="bg-blue-400 hover:bg-blue-500 text-white px-3 py-2 rounded-xl text-sm"
+            >
               Confirm
             </button>
 
-            <button onClick={() => updateAppointmentStatus(appointment.id, "completed")} className="bg-green-600 text-white px-3 py-2 rounded-xl text-sm">
+            <button
+              onClick={() => updateAppointmentStatus(appointment.id, "completed")}
+              className="bg-green-600 text-white px-3 py-2 rounded-xl text-sm"
+            >
               Complete
             </button>
 
-            <button onClick={() => updateAppointmentStatus(appointment.id, "no_show")} className="bg-yellow-500 text-white px-3 py-2 rounded-xl text-sm">
+            <button
+              onClick={() => updateAppointmentStatus(appointment.id, "no_show")}
+              className="bg-yellow-500 text-white px-3 py-2 rounded-xl text-sm"
+            >
               No-show
             </button>
 
-            <button onClick={() => updateAppointmentStatus(appointment.id, "canceled")} className="bg-red-400 hover:bg-red-500 text-white px-3 py-2 rounded-xl text-sm">
+            <button
+              onClick={() => updateAppointmentStatus(appointment.id, "canceled")}
+              className="bg-red-400 hover:bg-red-500 text-white px-3 py-2 rounded-xl text-sm"
+            >
               Cancel
             </button>
           </div>
@@ -251,15 +274,32 @@ export default function CalendarPage() {
             <p className="font-bold mb-3">Move this appointment</p>
 
             <div className="grid gap-3 sm:grid-cols-3">
-              <input type="date" className="border rounded-xl p-3" value={moveDate} onChange={(e) => setMoveDate(e.target.value)} />
-              <input type="time" className="border rounded-xl p-3" value={moveTime} onChange={(e) => setMoveTime(e.target.value)} />
+              <input
+                type="date"
+                className="border rounded-xl p-3"
+                value={moveDate}
+                onChange={(event) => setMoveDate(event.target.value)}
+              />
 
-              <button onClick={() => saveMove(appointment)} className="bg-black text-white rounded-xl px-4 py-3 font-semibold">
+              <input
+                type="time"
+                className="border rounded-xl p-3"
+                value={moveTime}
+                onChange={(event) => setMoveTime(event.target.value)}
+              />
+
+              <button
+                onClick={() => saveMove(appointment)}
+                className="bg-black text-white rounded-xl px-4 py-3 font-semibold"
+              >
                 Save Move
               </button>
             </div>
 
-            <button onClick={() => setMovingAppointmentId("")} className="mt-3 bg-gray-400 text-white px-4 py-2 rounded-xl">
+            <button
+              onClick={() => setMovingAppointmentId("")}
+              className="mt-3 bg-gray-400 text-white px-4 py-2 rounded-xl"
+            >
               Cancel Move
             </button>
           </div>
@@ -273,7 +313,7 @@ export default function CalendarPage() {
       <div className="max-w-7xl mx-auto space-y-8">
         <div className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-gray-200">
           <h1 className="text-5xl font-extrabold tracking-tight mb-3">
-            ChairTime Calendar
+            {shopSlug} Calendar
           </h1>
 
           <p className="text-gray-900">
@@ -289,7 +329,11 @@ export default function CalendarPage() {
           <div className="grid gap-4 sm:grid-cols-3">
             <div>
               <label className="block font-semibold mb-2">View</label>
-              <select className="w-full border rounded-xl p-3" value={viewMode} onChange={(e) => setViewMode(e.target.value)}>
+              <select
+                className="w-full border rounded-xl p-3"
+                value={viewMode}
+                onChange={(event) => setViewMode(event.target.value)}
+              >
                 <option value="day">Day</option>
                 <option value="week">Week</option>
               </select>
@@ -297,12 +341,21 @@ export default function CalendarPage() {
 
             <div>
               <label className="block font-semibold mb-2">Date</label>
-              <input type="date" className="w-full border rounded-xl p-3" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} />
+              <input
+                type="date"
+                className="w-full border rounded-xl p-3"
+                value={selectedDate}
+                onChange={(event) => setSelectedDate(event.target.value)}
+              />
             </div>
 
             <div>
               <label className="block font-semibold mb-2">Barber</label>
-              <select className="w-full border rounded-xl p-3" value={selectedBarberId} onChange={(e) => setSelectedBarberId(e.target.value)}>
+              <select
+                className="w-full border rounded-xl p-3"
+                value={selectedBarberId}
+                onChange={(event) => setSelectedBarberId(event.target.value)}
+              >
                 {barbers.map((barber) => (
                   <option key={barber.id} value={barber.id}>
                     {barber.name}
@@ -336,7 +389,10 @@ export default function CalendarPage() {
                       {appointmentsForHour.map((appointment) => appointmentCard(appointment))}
 
                       {blockedForHour.map((block) => (
-                        <div key={block.id} className="rounded-xl p-3 bg-gray-200 border border-gray-400">
+                        <div
+                          key={block.id}
+                          className="rounded-xl p-3 bg-gray-200 border border-gray-400"
+                        >
                           <p className="font-bold">
                             {formatTime(block.start_datetime)} – {formatTime(block.end_datetime)}
                           </p>
@@ -376,7 +432,10 @@ export default function CalendarPage() {
                         item.type === "appointment" ? (
                           appointmentCard(item.data)
                         ) : (
-                          <div key={`${item.type}-${item.id}`} className="rounded-xl p-3 border bg-gray-200 border-gray-400">
+                          <div
+                            key={`${item.type}-${item.id}`}
+                            className="rounded-xl p-3 border bg-gray-200 border-gray-400"
+                          >
                             <p className="font-bold">
                               {formatTime(item.time)} – {formatTime(item.endTime)} · {item.title}
                             </p>
