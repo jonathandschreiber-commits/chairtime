@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { useParams } from "next/navigation";
 
 const API_BASE = "https://chairtime-production-94da.up.railway.app";
 
@@ -20,6 +21,9 @@ const STATUS_STYLES = {
 };
 
 export default function AgendaPage() {
+  const params = useParams();
+  const shopSlug = params.shop;
+
   const today = new Date().toISOString().slice(0, 10);
 
   const [appointments, setAppointments] = useState([]);
@@ -30,10 +34,12 @@ export default function AgendaPage() {
   const [message, setMessage] = useState("");
 
   async function loadData() {
+    const query = "?shop_slug=" + encodeURIComponent(shopSlug);
+
     const [appointmentsRes, barbersRes, servicesRes] = await Promise.all([
-      fetch(API_BASE + "/api/appointments"),
-      fetch(API_BASE + "/api/barbers"),
-      fetch(API_BASE + "/api/services"),
+      fetch(API_BASE + "/api/appointments" + query),
+      fetch(API_BASE + "/api/barbers" + query),
+      fetch(API_BASE + "/api/services" + query),
     ]);
 
     setAppointments(await appointmentsRes.json());
@@ -42,8 +48,10 @@ export default function AgendaPage() {
   }
 
   useEffect(() => {
-    loadData();
-  }, []);
+    if (shopSlug) {
+      loadData();
+    }
+  }, [shopSlug]);
 
   function sameDay(value, date) {
     return String(value || "").slice(0, 10) === date;
@@ -92,9 +100,7 @@ export default function AgendaPage() {
         sameDay(appointment.start_datetime, selectedDate)
       )
       .filter((appointment) =>
-        selectedBarberId
-          ? appointment.barber_id === selectedBarberId
-          : true
+        selectedBarberId ? appointment.barber_id === selectedBarberId : true
       )
       .sort(
         (a, b) =>
@@ -110,7 +116,7 @@ export default function AgendaPage() {
             Daily Agenda
           </h1>
 
-          <p>Today’s appointments. Simple and fast.</p>
+          <p>{shopSlug} appointments. Simple and fast.</p>
 
           {message && (
             <p className="mt-4 font-bold text-green-700">{message}</p>
@@ -247,14 +253,14 @@ export default function AgendaPage() {
                     Cancel
                   </button>
 
-                  <button
-                    className="bg-gray-700 text-white rounded-xl p-4 font-bold"
-                  >
+                  <button className="bg-gray-700 text-white rounded-xl p-4 font-bold">
                     Move
                   </button>
 
                   <Link
                     href={
+                      "/" +
+                      shopSlug +
                       "/admin/customers?phone=" +
                       encodeURIComponent(phone)
                     }
