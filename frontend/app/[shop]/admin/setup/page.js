@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useParams } from "next/navigation";
 
 const API_BASE = "https://chairtime-production-94da.up.railway.app";
 
@@ -25,6 +26,9 @@ const WEEKDAY_MAP = {
 };
 
 export default function SetupPage() {
+  const params = useParams();
+  const shopSlug = params.shop;
+
   const [barbers, setBarbers] = useState([]);
   const [blockedTimes, setBlockedTimes] = useState([]);
   const [availabilityRules, setAvailabilityRules] = useState([]);
@@ -45,10 +49,12 @@ export default function SetupPage() {
   const [message, setMessage] = useState("");
 
   async function loadData() {
+    const query = "?shop_slug=" + encodeURIComponent(shopSlug);
+
     const [barbersRes, blockedRes, availabilityRes] = await Promise.all([
-      fetch(`${API_BASE}/api/barbers`),
-      fetch(`${API_BASE}/api/blocked-times`),
-      fetch(`${API_BASE}/api/availability-rules`),
+      fetch(`${API_BASE}/api/barbers${query}`),
+      fetch(`${API_BASE}/api/blocked-times${query}`),
+      fetch(`${API_BASE}/api/availability-rules${query}`),
     ]);
 
     const barbersData = await barbersRes.json();
@@ -64,12 +70,10 @@ export default function SetupPage() {
   }
 
   useEffect(() => {
-    loadData();
-  }, []);
-
-  function getBarberName(id) {
-    return barbers.find((barber) => barber.id === id)?.name || "Barber";
-  }
+    if (shopSlug) {
+      loadData();
+    }
+  }, [shopSlug]);
 
   function formatTime(value) {
     if (!value) return "";
@@ -88,6 +92,7 @@ export default function SetupPage() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        shop_slug: shopSlug,
         barber_id: availabilityBarberId,
         weekday: WEEKDAY_MAP[availabilityDay],
         start_time: `${availabilityStart}:00`,
@@ -115,6 +120,7 @@ export default function SetupPage() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        shop_slug: shopSlug,
         barber_id: blockBarberId,
         reason: blockReason,
         start_datetime: blockStart,
@@ -135,6 +141,7 @@ export default function SetupPage() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        shop_slug: shopSlug,
         barber_id: blockBarberId,
         reason,
         start_datetime: `${fullDayDate}T00:00:00`,
@@ -176,7 +183,7 @@ export default function SetupPage() {
   return (
     <main className="min-h-screen bg-gray-100 p-6">
       <div className="max-w-5xl mx-auto space-y-6">
-        <h1 className="text-4xl font-bold">Shop Setup</h1>
+        <h1 className="text-4xl font-bold">{shopSlug} Shop Setup</h1>
 
         {message && (
           <div className="bg-green-100 p-3 rounded-xl font-bold">
