@@ -20,6 +20,20 @@ class Shop(Base):
     timezone = Column(String, nullable=False, default="America/New_York")
 
 
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    shop_id = Column(String, nullable=True)
+    shop_slug = Column(String, nullable=True)
+    name = Column(String, nullable=False)
+    email = Column(String, nullable=False, unique=True)
+    password_hash = Column(String, nullable=False)
+    role = Column(String, nullable=False, default="owner")
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, server_default=func.now())
+
+
 class Barber(Base):
     __tablename__ = "barbers"
 

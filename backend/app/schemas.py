@@ -11,6 +11,30 @@ class ShopCreate(BaseModel):
     timezone: str = "America/New_York"
 
 
+class UserCreate(BaseModel):
+    shop_id: Optional[str] = None
+    shop_slug: Optional[str] = None
+    name: str
+    email: str
+    password: str
+    role: str = "owner"
+
+
+class UserLogin(BaseModel):
+    email: str
+    password: str
+
+
+class UserOut(BaseModel):
+    id: str
+    shop_id: Optional[str] = None
+    shop_slug: Optional[str] = None
+    name: str
+    email: str
+    role: str
+    is_active: bool
+
+
 class BarberCreate(BaseModel):
     shop_slug: Optional[str] = None
     name: str
