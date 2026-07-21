@@ -5,16 +5,21 @@ import jwt
 from fastapi import APIRouter, Depends, HTTPException, Security, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jwt.exceptions import InvalidTokenError
-from pwdlib import PasswordHash
+from passlib.context import CryptContext
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import User
 from app.schemas import UserCreate, UserLogin
 
+
 router = APIRouter()
 
-password_hash = PasswordHash.recommended()
+password_context = CryptContext(
+    schemes=["bcrypt"],
+    deprecated="auto",
+)
+
 bearer_scheme = HTTPBearer()
 
 JWT_ALGORITHM = "HS256"
@@ -33,11 +38,20 @@ def get_jwt_secret() -> str:
 
 
 def hash_password(password: str) -> str:
-    return password_hash.hash(password)
+    return password_context.hash(password)
 
 
-def verify_password(password: str, stored_hash: str) -> bool:
-    return password_hash.verify(password, stored_hash)
+def verify_password(
+    password: str,
+    stored_hash: str,
+) -> bool:
+    try:
+        return password_context.verify(
+            password,
+            stored_hash,
+        )
+    except (TypeError, ValueError):
+        return False
 
 
 def create_access_token(user: User) -> str:
@@ -46,7 +60,7 @@ def create_access_token(user: User) -> str:
     )
 
     payload = {
-        "sub": user.id,
+        "sub": str(user.id),
         "shop_slug": user.shop_slug,
         "role": user.role,
         "exp": expires_at,
@@ -60,9 +74,11 @@ def create_access_token(user: User) -> str:
 
 
 def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Security(bearer_scheme),
+    credentials: HTTPAuthorizationCredentials = Security(
+        bearer_scheme
+    ),
     db: Session = Depends(get_db),
-):
+) -> User:
     unauthorized_error = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Invalid or expired authentication token.",
@@ -81,10 +97,16 @@ def get_current_user(
         if not user_id:
             raise unauthorized_error
 
-    except InvalidTokenError:
+        user_id = int(user_id)
+
+    except (InvalidTokenError, TypeError, ValueError):
         raise unauthorized_error
 
-    user = db.query(User).filter(User.id == user_id).first()
+    user = (
+        db.query(User)
+        .filter(User.id == user_id)
+        .first()
+    )
 
     if not user or not user.is_active:
         raise unauthorized_error
@@ -98,6 +120,32 @@ def register(
     db: Session = Depends(get_db),
 ):
     email = payload.email.strip().lower()
+    name = payload.name.strip()
+    shop_slug = payload.shop_slug.strip().lower()
+
+    if not name:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Name is required.",
+        )
+
+    if not email:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email is required.",
+        )
+
+    if not shop_slug:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Shop slug is required.",
+        )
+
+    if len(payload.password) < 8:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password must be at least 8 characters.",
+        )
 
     existing_user = (
         db.query(User)
@@ -107,20 +155,14 @@ def register(
 
     if existing_user:
         raise HTTPException(
-            status_code=400,
+            status_code=status.HTTP_400_BAD_REQUEST,
             detail="An account already exists for this email.",
-        )
-
-    if len(payload.password) < 8:
-        raise HTTPException(
-            status_code=400,
-            detail="Password must be at least 8 characters.",
         )
 
     user = User(
         shop_id=payload.shop_id,
-        shop_slug=payload.shop_slug,
-        name=payload.name.strip(),
+        shop_slug=shop_slug,
+        name=name,
         email=email,
         password_hash=hash_password(payload.password),
         role=payload.role,
@@ -128,8 +170,16 @@ def register(
     )
 
     db.add(user)
-    db.commit()
-    db.refresh(user)
+
+    try:
+        db.commit()
+        db.refresh(user)
+    except Exception:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="The account could not be created.",
+        )
 
     access_token = create_access_token(user)
 
@@ -142,6 +192,7 @@ def register(
             "id": user.id,
             "name": user.name,
             "email": user.email,
+            "shop_id": user.shop_id,
             "shop_slug": user.shop_slug,
             "role": user.role,
         },
@@ -168,6 +219,7 @@ def login(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password.",
+            headers={"WWW-Authenticate": "Bearer"},
         )
 
     if not user.is_active:
@@ -187,6 +239,7 @@ def login(
             "id": user.id,
             "name": user.name,
             "email": user.email,
+            "shop_id": user.shop_id,
             "shop_slug": user.shop_slug,
             "role": user.role,
         },
