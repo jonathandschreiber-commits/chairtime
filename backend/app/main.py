@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import Base, engine
 from app.routes.appointments import router as appointments_router
+from app.routes.auth import router as auth_router
 from app.routes.availability import router as availability_router
 from app.routes.barbers import router as barbers_router
 from app.routes.blocked_times import router as blocked_times_router
@@ -24,6 +25,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(
+    auth_router,
+    prefix="/api/auth",
+    tags=["Authentication"],
+)
 app.include_router(barbers_router, prefix="/api")
 app.include_router(services_router, prefix="/api")
 app.include_router(shops_router, prefix="/api")
