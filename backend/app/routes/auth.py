@@ -97,9 +97,7 @@ def get_current_user(
         if not user_id:
             raise unauthorized_error
 
-        user_id = int(user_id)
-
-    except (InvalidTokenError, TypeError, ValueError):
+    except InvalidTokenError:
         raise unauthorized_error
 
     user = (
@@ -189,7 +187,7 @@ def register(
         "token_type": "bearer",
         "expires_in": ACCESS_TOKEN_MINUTES * 60,
         "user": {
-            "id": user.id,
+            "id": str(user.id),
             "name": user.name,
             "email": user.email,
             "shop_id": user.shop_id,
@@ -236,7 +234,7 @@ def login(
         "token_type": "bearer",
         "expires_in": ACCESS_TOKEN_MINUTES * 60,
         "user": {
-            "id": user.id,
+            "id": str(user.id),
             "name": user.name,
             "email": user.email,
             "shop_id": user.shop_id,
@@ -251,7 +249,7 @@ def read_current_user(
     current_user: User = Depends(get_current_user),
 ):
     return {
-        "id": current_user.id,
+        "id": str(current_user.id),
         "name": current_user.name,
         "email": current_user.email,
         "shop_id": current_user.shop_id,
