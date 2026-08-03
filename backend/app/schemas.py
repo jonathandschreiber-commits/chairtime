@@ -7,6 +7,7 @@ from pydantic import BaseModel
 class ShopCreate(BaseModel):
     slug: Optional[str] = None
     name: str
+    business_type: str = "service_business"
     phone: Optional[str] = None
     timezone: str = "America/New_York"
 
