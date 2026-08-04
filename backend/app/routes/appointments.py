@@ -56,6 +56,95 @@ def find_shop_appointment(
     return appointment
 
 
+def parse_datetime(value: str) -> datetime:
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid appointment date and time.",
+        )
+
+
+def calculate_appointment_end(
+    start_datetime: datetime,
+    service: Service,
+) -> datetime:
+    return start_datetime + timedelta(
+        minutes=service.duration_minutes
+    )
+
+
+def verify_no_reschedule_conflict(
+    db: Session,
+    appointment: Appointment,
+    new_start: datetime,
+    new_end: datetime,
+    shop_slug: str,
+) -> None:
+    appointment_conflict = (
+        db.query(Appointment)
+        .filter(
+            Appointment.shop_slug == shop_slug,
+            Appointment.barber_id == appointment.barber_id,
+            Appointment.id != appointment.id,
+            Appointment.status != "canceled",
+            Appointment.start_datetime < new_end,
+            Appointment.end_datetime > new_start,
+        )
+        .first()
+    )
+
+    if appointment_conflict:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="That time is already booked.",
+        )
+
+    blocked_conflict = (
+        db.query(BlockedTime)
+        .filter(
+            BlockedTime.shop_slug == shop_slug,
+            BlockedTime.barber_id == appointment.barber_id,
+            BlockedTime.start_datetime < new_end,
+            BlockedTime.end_datetime > new_start,
+        )
+        .first()
+    )
+
+    if blocked_conflict:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="That time is blocked.",
+        )
+
+
+def apply_reschedule(
+    db: Session,
+    appointment: Appointment,
+    new_start: datetime,
+    new_end: datetime,
+) -> Appointment:
+    appointment.start_datetime = new_start
+    appointment.end_datetime = new_end
+    appointment.status = "confirmed"
+    appointment.reminder_sent = False
+    appointment.reminder_sent_at = None
+
+    try:
+        db.commit()
+        db.refresh(appointment)
+    except Exception:
+        db.rollback()
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="The appointment could not be moved.",
+        )
+
+    return appointment
+
+
 @router.post("/appointments")
 def create_appointment(
     payload: AppointmentCreate,
@@ -99,8 +188,9 @@ def create_appointment(
             detail="Staff member not found.",
         )
 
-    end_datetime = payload.start_datetime + timedelta(
-        minutes=service.duration_minutes
+    end_datetime = calculate_appointment_end(
+        payload.start_datetime,
+        service,
     )
 
     overlap = has_overlap(
@@ -176,8 +266,6 @@ def create_appointment(
     return appointment
 
 
-# Temporary legacy endpoint.
-# This remains available until Calendar and Customers are migrated.
 @router.get("/appointments")
 def list_appointments(
     shop_slug: str | None = None,
@@ -197,7 +285,6 @@ def list_appointments(
     ).all()
 
 
-# Secure endpoint used by authenticated admin pages.
 @router.get("/admin/appointments")
 def list_admin_appointments(
     current_user: User = Depends(get_current_user),
@@ -213,7 +300,6 @@ def list_admin_appointments(
     )
 
 
-# Temporary legacy endpoint.
 @router.patch("/appointments/{appointment_id}/cancel")
 def cancel_appointment(
     appointment_id: str,
@@ -239,14 +325,13 @@ def cancel_appointment(
     return appointment
 
 
-# Temporary legacy endpoint.
 @router.patch("/appointments/{appointment_id}/status")
 def update_appointment_status(
     appointment_id: str,
-    status: str,
+    status_value: str,
     db: Session = Depends(get_db),
 ):
-    if status not in ALLOWED_APPOINTMENT_STATUSES:
+    if status_value not in ALLOWED_APPOINTMENT_STATUSES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid appointment status.",
@@ -264,7 +349,7 @@ def update_appointment_status(
             detail="Appointment not found.",
         )
 
-    appointment.status = status
+    appointment.status = status_value
 
     db.commit()
     db.refresh(appointment)
@@ -272,7 +357,6 @@ def update_appointment_status(
     return appointment
 
 
-# Secure endpoint used by the authenticated Daily Agenda.
 @router.patch("/admin/appointments/{appointment_id}/status")
 def update_admin_appointment_status(
     appointment_id: str,
@@ -340,62 +424,72 @@ def reschedule_appointment(
             detail="Service not found.",
         )
 
-    try:
-        new_start = datetime.fromisoformat(new_start_datetime)
-    except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid appointment date and time.",
-        )
+    new_start = parse_datetime(new_start_datetime)
+    new_end = calculate_appointment_end(new_start, service)
 
-    new_end = new_start + timedelta(
-        minutes=service.duration_minutes
+    verify_no_reschedule_conflict(
+        db,
+        appointment,
+        new_start,
+        new_end,
+        appointment.shop_slug,
     )
 
-    conflict = (
-        db.query(Appointment)
+    return apply_reschedule(
+        db,
+        appointment,
+        new_start,
+        new_end,
+    )
+
+
+@router.patch("/admin/appointments/{appointment_id}/reschedule")
+def reschedule_admin_appointment(
+    appointment_id: str,
+    new_start_datetime: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    shop_slug = require_user_shop_slug(current_user)
+
+    appointment = find_shop_appointment(
+        db,
+        appointment_id,
+        shop_slug,
+    )
+
+    service = (
+        db.query(Service)
         .filter(
-            Appointment.barber_id == appointment.barber_id,
-            Appointment.id != appointment.id,
-            Appointment.status != "canceled",
-            Appointment.start_datetime < new_end,
-            Appointment.end_datetime > new_start,
+            Service.id == appointment.service_id,
+            Service.shop_slug == shop_slug,
         )
         .first()
     )
 
-    if conflict:
+    if not service:
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="That time is already booked.",
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Service not found.",
         )
 
-    blocked_conflict = (
-        db.query(BlockedTime)
-        .filter(
-            BlockedTime.barber_id == appointment.barber_id,
-            BlockedTime.start_datetime < new_end,
-            BlockedTime.end_datetime > new_start,
-        )
-        .first()
+    new_start = parse_datetime(new_start_datetime)
+    new_end = calculate_appointment_end(new_start, service)
+
+    verify_no_reschedule_conflict(
+        db,
+        appointment,
+        new_start,
+        new_end,
+        shop_slug,
     )
 
-    if blocked_conflict:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="That time is blocked.",
-        )
-
-    appointment.start_datetime = new_start
-    appointment.end_datetime = new_end
-    appointment.status = "confirmed"
-    appointment.reminder_sent = False
-    appointment.reminder_sent_at = None
-
-    db.commit()
-    db.refresh(appointment)
-
-    return appointment
+    return apply_reschedule(
+        db,
+        appointment,
+        new_start,
+        new_end,
+    )
 
 
 @router.patch("/appointments/{appointment_id}/notes")
