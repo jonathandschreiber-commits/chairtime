@@ -25,13 +25,24 @@ const STATUS_STYLES = {
 
 function localDateValue(date = new Date()) {
   const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(
-    2,
-    "0"
-  );
-  const day = String(date.getDate()).padStart(2, "0");
+
+  const month = String(
+    date.getMonth() + 1
+  ).padStart(2, "0");
+
+  const day = String(
+    date.getDate()
+  ).padStart(2, "0");
 
   return `${year}-${month}-${day}`;
+}
+
+function datePart(value) {
+  return String(value || "").slice(0, 10);
+}
+
+function timePart(value) {
+  return String(value || "").slice(11, 16);
 }
 
 function displayShopName(slug) {
@@ -40,7 +51,8 @@ function displayShopName(slug) {
     .filter(Boolean)
     .map(
       (word) =>
-        word.charAt(0).toUpperCase() + word.slice(1)
+        word.charAt(0).toUpperCase() +
+        word.slice(1)
     )
     .join(" ");
 }
@@ -48,16 +60,34 @@ function displayShopName(slug) {
 export default function AgendaPage() {
   const params = useParams();
   const router = useRouter();
+
   const shopSlug = params.shop;
 
   const [appointments, setAppointments] = useState([]);
   const [barbers, setBarbers] = useState([]);
   const [services, setServices] = useState([]);
+
   const [selectedDate, setSelectedDate] = useState(
     localDateValue()
   );
+
   const [selectedBarberId, setSelectedBarberId] =
     useState("");
+
+  const [
+    movingAppointmentId,
+    setMovingAppointmentId,
+  ] = useState("");
+
+  const [moveDate, setMoveDate] = useState(
+    localDateValue()
+  );
+
+  const [moveTime, setMoveTime] = useState("09:00");
+
+  const [savingMove, setSavingMove] =
+    useState(false);
+
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -86,12 +116,14 @@ export default function AgendaPage() {
             `/${shopSlug}/admin/today`
           )}`
         );
+
         return;
       }
 
       if (!response.ok) {
         throw new Error(
-          data?.error || "The agenda could not be loaded."
+          data?.error ||
+            "The agenda could not be loaded."
         );
       }
 
@@ -102,6 +134,7 @@ export default function AgendaPage() {
         router.replace(
           `/${data.shop_slug}/admin/today`
         );
+
         return;
       }
 
@@ -126,32 +159,126 @@ export default function AgendaPage() {
   }, [loadData, shopSlug]);
 
   function sameDay(value, date) {
-    return String(value || "").slice(0, 10) === date;
+    return datePart(value) === date;
   }
 
   function formatTime(value) {
-    return new Date(value).toLocaleTimeString([], {
-      hour: "numeric",
-      minute: "2-digit",
-    });
+    return new Date(value).toLocaleTimeString(
+      [],
+      {
+        hour: "numeric",
+        minute: "2-digit",
+      }
+    );
   }
 
   function cleanPhone(phone) {
-    return String(phone || "").replace(/\D/g, "");
+    return String(phone || "").replace(
+      /\D/g,
+      ""
+    );
   }
 
   function barberName(id) {
     return (
-      barbers.find((barber) => barber.id === id)?.name ||
-      "Staff member"
+      barbers.find(
+        (barber) => barber.id === id
+      )?.name || "Staff member"
     );
   }
 
   function serviceName(id) {
     return (
-      services.find((service) => service.id === id)
-        ?.name || "Service"
+      services.find(
+        (service) => service.id === id
+      )?.name || "Service"
     );
+  }
+
+  function startMove(appointment) {
+    setMovingAppointmentId(appointment.id);
+
+    setMoveDate(
+      datePart(appointment.start_datetime)
+    );
+
+    setMoveTime(
+      timePart(appointment.start_datetime) ||
+        "09:00"
+    );
+
+    setMessage("");
+    setError("");
+  }
+
+  function cancelMove() {
+    setMovingAppointmentId("");
+    setSavingMove(false);
+    setError("");
+  }
+
+  async function saveMove(appointmentId) {
+    if (
+      !moveDate ||
+      !moveTime ||
+      savingMove
+    ) {
+      return;
+    }
+
+    setSavingMove(true);
+    setMessage("");
+    setError("");
+
+    const newStartDatetime =
+      `${moveDate}T${moveTime}:00`;
+
+    try {
+      const response = await fetch(
+        `/api/admin/appointments/${encodeURIComponent(
+          appointmentId
+        )}/reschedule`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify({
+            new_start_datetime:
+              newStartDatetime,
+          }),
+        }
+      );
+
+      const data = await response.json();
+
+      if (response.status === 401) {
+        router.replace("/login");
+        return;
+      }
+
+      if (!response.ok) {
+        throw new Error(
+          data?.error ||
+            "The appointment could not be moved."
+        );
+      }
+
+      setMovingAppointmentId("");
+      setSelectedDate(moveDate);
+      setMessage("Appointment moved.");
+
+      await loadData();
+    } catch (moveError) {
+      setError(
+        moveError instanceof Error
+          ? moveError.message
+          : "The appointment could not be moved."
+      );
+    } finally {
+      setSavingMove(false);
+    }
   }
 
   async function updateStatus(
@@ -218,7 +345,8 @@ export default function AgendaPage() {
       )
       .filter((appointment) =>
         selectedBarberId
-          ? appointment.barber_id === selectedBarberId
+          ? appointment.barber_id ===
+            selectedBarberId
           : true
       )
       .sort(
@@ -270,7 +398,9 @@ export default function AgendaPage() {
                 className="w-full border rounded-xl p-4 text-lg"
                 value={selectedDate}
                 onChange={(event) =>
-                  setSelectedDate(event.target.value)
+                  setSelectedDate(
+                    event.target.value
+                  )
                 }
               />
             </div>
@@ -289,7 +419,9 @@ export default function AgendaPage() {
                   )
                 }
               >
-                <option value="">All staff</option>
+                <option value="">
+                  All staff
+                </option>
 
                 {barbers.map((barber) => (
                   <option
@@ -323,138 +455,227 @@ export default function AgendaPage() {
           ) : null}
 
           {!loading &&
-            agendaAppointments.map((appointment) => {
-              const statusStyle =
-                STATUS_STYLES[appointment.status] ||
-                STATUS_STYLES.confirmed;
+            agendaAppointments.map(
+              (appointment) => {
+                const statusStyle =
+                  STATUS_STYLES[
+                    appointment.status
+                  ] ||
+                  STATUS_STYLES.confirmed;
 
-              const statusLabel =
-                STATUS_LABELS[appointment.status] ||
-                "Confirmed";
+                const statusLabel =
+                  STATUS_LABELS[
+                    appointment.status
+                  ] || "Confirmed";
 
-              const phone = cleanPhone(
-                appointment.customer_phone
-              );
+                const phone = cleanPhone(
+                  appointment.customer_phone
+                );
 
-              return (
-                <div
-                  key={appointment.id}
-                  className={
-                    "rounded-3xl shadow-lg p-6 border " +
-                    statusStyle
-                  }
-                >
-                  <div className="flex justify-between gap-4">
-                    <div>
-                      <p className="text-4xl font-extrabold">
-                        {formatTime(
-                          appointment.start_datetime
-                        )}
-                      </p>
+                const isMoving =
+                  movingAppointmentId ===
+                  appointment.id;
 
-                      <p className="text-2xl font-bold mt-2">
-                        {appointment.customer_name}
-                      </p>
+                return (
+                  <div
+                    key={appointment.id}
+                    className={
+                      "rounded-3xl shadow-lg p-6 border " +
+                      statusStyle
+                    }
+                  >
+                    <div className="flex justify-between gap-4">
+                      <div>
+                        <p className="text-4xl font-extrabold">
+                          {formatTime(
+                            appointment.start_datetime
+                          )}
+                        </p>
 
-                      <p className="text-lg text-gray-900">
-                        {serviceName(
-                          appointment.service_id
-                        )}{" "}
-                        ·{" "}
-                        {barberName(
-                          appointment.barber_id
-                        )}
-                      </p>
+                        <p className="text-2xl font-bold mt-2">
+                          {
+                            appointment.customer_name
+                          }
+                        </p>
 
-                      <div className="grid grid-cols-2 gap-3 mt-4">
-                        <a
-                          className="bg-black text-white rounded-xl p-4 text-center font-bold"
-                          href={`tel:${phone}`}
-                        >
-                          Call
-                        </a>
+                        <p className="text-lg text-gray-900">
+                          {serviceName(
+                            appointment.service_id
+                          )}{" "}
+                          ·{" "}
+                          {barberName(
+                            appointment.barber_id
+                          )}
+                        </p>
 
-                        <a
-                          className="bg-gray-800 text-white rounded-xl p-4 text-center font-bold"
-                          href={`sms:${phone}`}
-                        >
-                          Text
-                        </a>
+                        <div className="grid grid-cols-2 gap-3 mt-4">
+                          <a
+                            className="bg-black text-white rounded-xl p-4 text-center font-bold"
+                            href={`tel:${phone}`}
+                          >
+                            Call
+                          </a>
+
+                          <a
+                            className="bg-gray-800 text-white rounded-xl p-4 text-center font-bold"
+                            href={`sms:${phone}`}
+                          >
+                            Text
+                          </a>
+                        </div>
+                      </div>
+
+                      <div>
+                        <span className="font-bold bg-white border rounded-full px-3 py-1">
+                          {statusLabel}
+                        </span>
                       </div>
                     </div>
 
-                    <div>
-                      <span className="font-bold bg-white border rounded-full px-3 py-1">
-                        {statusLabel}
-                      </span>
-                    </div>
+                    {!isMoving ? (
+                      <div className="grid grid-cols-2 sm:grid-cols-6 gap-3 mt-5">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            updateStatus(
+                              appointment.id,
+                              "confirmed"
+                            )
+                          }
+                          className="bg-blue-500 text-white rounded-xl p-4 font-bold"
+                        >
+                          Confirm
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            updateStatus(
+                              appointment.id,
+                              "completed"
+                            )
+                          }
+                          className="bg-green-600 text-white rounded-xl p-4 font-bold"
+                        >
+                          Done
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            updateStatus(
+                              appointment.id,
+                              "no_show"
+                            )
+                          }
+                          className="bg-yellow-500 text-white rounded-xl p-4 font-bold"
+                        >
+                          No-show
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            updateStatus(
+                              appointment.id,
+                              "canceled"
+                            )
+                          }
+                          className="bg-red-500 text-white rounded-xl p-4 font-bold"
+                        >
+                          Cancel
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            startMove(appointment)
+                          }
+                          className="bg-gray-700 text-white rounded-xl p-4 font-bold"
+                        >
+                          Move
+                        </button>
+
+                        <Link
+                          href={`/${shopSlug}/admin/customers?phone=${encodeURIComponent(
+                            phone
+                          )}`}
+                          className="bg-purple-700 text-white rounded-xl p-4 font-bold text-center"
+                        >
+                          Customer
+                        </Link>
+                      </div>
+                    ) : (
+                      <div className="mt-5 rounded-2xl border bg-white p-4">
+                        <p className="font-bold text-lg mb-3">
+                          Move this appointment
+                        </p>
+
+                        <div className="grid gap-3 sm:grid-cols-3">
+                          <div>
+                            <label className="block font-bold mb-2">
+                              New date
+                            </label>
+
+                            <input
+                              type="date"
+                              className="w-full border rounded-xl p-3"
+                              value={moveDate}
+                              onChange={(event) =>
+                                setMoveDate(
+                                  event.target.value
+                                )
+                              }
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block font-bold mb-2">
+                              New time
+                            </label>
+
+                            <input
+                              type="time"
+                              className="w-full border rounded-xl p-3"
+                              value={moveTime}
+                              onChange={(event) =>
+                                setMoveTime(
+                                  event.target.value
+                                )
+                              }
+                            />
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() =>
+                              saveMove(
+                                appointment.id
+                              )
+                            }
+                            disabled={savingMove}
+                            className="self-end bg-black text-white rounded-xl p-3 font-bold disabled:opacity-60"
+                          >
+                            {savingMove
+                              ? "Moving..."
+                              : "Save Move"}
+                          </button>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={cancelMove}
+                          disabled={savingMove}
+                          className="mt-3 bg-gray-400 text-white rounded-xl px-4 py-3 font-bold disabled:opacity-60"
+                        >
+                          Cancel Move
+                        </button>
+                      </div>
+                    )}
                   </div>
-
-                  <div className="grid grid-cols-2 sm:grid-cols-6 gap-3 mt-5">
-                    <button
-                      onClick={() =>
-                        updateStatus(
-                          appointment.id,
-                          "confirmed"
-                        )
-                      }
-                      className="bg-blue-500 text-white rounded-xl p-4 font-bold"
-                    >
-                      Confirm
-                    </button>
-
-                    <button
-                      onClick={() =>
-                        updateStatus(
-                          appointment.id,
-                          "completed"
-                        )
-                      }
-                      className="bg-green-600 text-white rounded-xl p-4 font-bold"
-                    >
-                      Done
-                    </button>
-
-                    <button
-                      onClick={() =>
-                        updateStatus(
-                          appointment.id,
-                          "no_show"
-                        )
-                      }
-                      className="bg-yellow-500 text-white rounded-xl p-4 font-bold"
-                    >
-                      No-show
-                    </button>
-
-                    <button
-                      onClick={() =>
-                        updateStatus(
-                          appointment.id,
-                          "canceled"
-                        )
-                      }
-                      className="bg-red-500 text-white rounded-xl p-4 font-bold"
-                    >
-                      Cancel
-                    </button>
-
-                    <button className="bg-gray-700 text-white rounded-xl p-4 font-bold">
-                      Move
-                    </button>
-
-                    <Link
-                      href={`/${shopSlug}/admin/customers?phone=${encodeURIComponent(
-                        phone
-                      )}`}
-                      className="bg-purple-700 text-white rounded-xl p-4 font-bold text-center"
-                    >
-                      Customer
-                    </Link>
-                  </div>
-                </div>
-              );
-            })}
+                );
+              }
+            )}
         </section>
       </div>
     </main>
