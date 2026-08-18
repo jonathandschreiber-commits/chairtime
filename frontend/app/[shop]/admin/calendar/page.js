@@ -33,6 +33,16 @@ const DAYS = [
   "Saturday",
 ];
 
+const RECURRING_DAYS = [
+  { label: "Mon", value: 0 },
+  { label: "Tue", value: 1 },
+  { label: "Wed", value: 2 },
+  { label: "Thu", value: 3 },
+  { label: "Fri", value: 4 },
+  { label: "Sat", value: 5 },
+  { label: "Sun", value: 6 },
+];
+
 const STATUS_STYLES = {
   confirmed: "bg-blue-100 border-blue-300",
   completed: "bg-green-100 border-green-300",
@@ -89,6 +99,13 @@ function displayShopName(slug) {
     .join(" ");
 }
 
+function defaultRecurringEndDate() {
+  const date = new Date();
+  date.setMonth(date.getMonth() + 3);
+
+  return localDateValue(date);
+}
+
 export default function CalendarPage() {
   const params = useParams();
   const router = useRouter();
@@ -117,10 +134,15 @@ export default function CalendarPage() {
 
   const [showBlockForm, setShowBlockForm] =
     useState(false);
+
+  const [blockMode, setBlockMode] =
+    useState("one-time");
+
   const [blockReason, setBlockReason] =
     useState("Lunch");
   const [customBlockReason, setCustomBlockReason] =
     useState("");
+
   const [blockDate, setBlockDate] = useState(
     localDateValue()
   );
@@ -128,9 +150,24 @@ export default function CalendarPage() {
     useState("12:00");
   const [blockEndTime, setBlockEndTime] =
     useState("12:30");
+
+  const [recurringStartDate, setRecurringStartDate] =
+    useState(localDateValue());
+  const [recurringEndDate, setRecurringEndDate] =
+    useState(defaultRecurringEndDate());
+  const [recurringDays, setRecurringDays] = useState([
+    0,
+    1,
+    2,
+    3,
+    4,
+  ]);
+
   const [savingBlock, setSavingBlock] =
     useState(false);
   const [deletingBlockId, setDeletingBlockId] =
+    useState("");
+  const [deletingSeriesId, setDeletingSeriesId] =
     useState("");
 
   const [message, setMessage] = useState("");
@@ -413,11 +450,16 @@ export default function CalendarPage() {
   }
 
   function openBlockForm() {
+    setBlockMode("one-time");
     setBlockDate(selectedDate);
+    setRecurringStartDate(selectedDate);
+    setRecurringEndDate(defaultRecurringEndDate());
     setBlockStartTime("12:00");
     setBlockEndTime("12:30");
     setBlockReason("Lunch");
     setCustomBlockReason("");
+    setRecurringDays([0, 1, 2, 3, 4]);
+
     setShowBlockForm(true);
     setMessage("");
     setError("");
@@ -429,23 +471,31 @@ export default function CalendarPage() {
     setError("");
   }
 
-  async function saveBlockedTime() {
-    if (
-      !selectedBarberId ||
-      !blockDate ||
-      !blockStartTime ||
-      !blockEndTime ||
-      savingBlock
-    ) {
-      return;
-    }
+  function toggleRecurringDay(dayValue) {
+    setRecurringDays((currentDays) => {
+      if (currentDays.includes(dayValue)) {
+        return currentDays.filter(
+          (day) => day !== dayValue
+        );
+      }
 
-    const finalReason =
-      blockReason === "Other"
-        ? customBlockReason.trim()
-        : blockReason;
+      return [
+        ...currentDays,
+        dayValue,
+      ].sort((a, b) => a - b);
+    });
+  }
 
-    if (!finalReason) {
+  function finalBlockReason() {
+    return blockReason === "Other"
+      ? customBlockReason.trim()
+      : blockReason;
+  }
+
+  async function saveOneTimeBlockedTime() {
+    const reason = finalBlockReason();
+
+    if (!reason) {
       setError("Please enter a reason.");
       return;
     }
@@ -456,47 +506,137 @@ export default function CalendarPage() {
     const endDatetime =
       `${blockDate}T${blockEndTime}:00`;
 
+    const response = await fetch(
+      "/api/admin/blocked-times",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({
+          barber_id: selectedBarberId,
+          reason,
+          start_datetime: startDatetime,
+          end_datetime: endDatetime,
+        }),
+      }
+    );
+
+    const data = await response.json();
+
+    if (response.status === 401) {
+      router.replace("/login");
+      return false;
+    }
+
+    if (!response.ok) {
+      throw new Error(
+        data?.error ||
+          "Blocked time could not be created."
+      );
+    }
+
+    setSelectedDate(blockDate);
+    setMessage("Time blocked.");
+
+    return true;
+  }
+
+  async function saveRecurringBlockedTime() {
+    const reason = finalBlockReason();
+
+    if (!reason) {
+      setError("Please enter a reason.");
+      return false;
+    }
+
+    if (recurringDays.length === 0) {
+      setError(
+        "Choose at least one day of the week."
+      );
+      return false;
+    }
+
+    const response = await fetch(
+      "/api/admin/blocked-times/recurring",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({
+          barber_id: selectedBarberId,
+          reason,
+          start_date: recurringStartDate,
+          end_date: recurringEndDate,
+          start_time: `${blockStartTime}:00`,
+          end_time: `${blockEndTime}:00`,
+          weekdays: recurringDays,
+        }),
+      }
+    );
+
+    const data = await response.json();
+
+    if (response.status === 401) {
+      router.replace("/login");
+      return false;
+    }
+
+    if (!response.ok) {
+      throw new Error(
+        data?.error ||
+          "Recurring blocked time could not be created."
+      );
+    }
+
+    const created =
+      data?.occurrences_created || 0;
+
+    setSelectedDate(recurringStartDate);
+    setMessage(
+      `Recurring blocked time created (${created} occurrences).`
+    );
+
+    return true;
+  }
+
+  async function saveBlockedTime() {
+    if (
+      !selectedBarberId ||
+      !blockStartTime ||
+      !blockEndTime ||
+      savingBlock
+    ) {
+      return;
+    }
+
     setSavingBlock(true);
     setMessage("");
     setError("");
 
     try {
-      const response = await fetch(
-        "/api/admin/blocked-times",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Accept: "application/json",
-          },
-          body: JSON.stringify({
-            barber_id: selectedBarberId,
-            reason: finalReason,
-            start_datetime: startDatetime,
-            end_datetime: endDatetime,
-          }),
+      let saved = false;
+
+      if (blockMode === "recurring") {
+        saved =
+          await saveRecurringBlockedTime();
+      } else {
+        if (!blockDate) {
+          setError("Please choose a date.");
+          return;
         }
-      );
 
-      const data = await response.json();
-
-      if (response.status === 401) {
-        router.replace("/login");
-        return;
+        saved =
+          await saveOneTimeBlockedTime();
       }
 
-      if (!response.ok) {
-        throw new Error(
-          data?.error ||
-            "Blocked time could not be created."
-        );
+      if (saved) {
+        setShowBlockForm(false);
+        await loadData();
       }
-
-      setSelectedDate(blockDate);
-      setShowBlockForm(false);
-      setMessage("Time blocked.");
-
-      await loadData();
     } catch (blockError) {
       setError(
         blockError instanceof Error
@@ -563,6 +703,66 @@ export default function CalendarPage() {
       );
     } finally {
       setDeletingBlockId("");
+    }
+  }
+
+  async function deleteBlockedTimeSeries(seriesId) {
+    if (!seriesId || deletingSeriesId) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "Delete every remaining blocked time in this recurring series?"
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setDeletingSeriesId(seriesId);
+    setMessage("");
+    setError("");
+
+    try {
+      const response = await fetch(
+        `/api/admin/blocked-time-series/${encodeURIComponent(
+          seriesId
+        )}`,
+        {
+          method: "DELETE",
+          headers: {
+            Accept: "application/json",
+          },
+        }
+      );
+
+      const data = await response.json();
+
+      if (response.status === 401) {
+        router.replace("/login");
+        return;
+      }
+
+      if (!response.ok) {
+        throw new Error(
+          data?.error ||
+            "Recurring series could not be deleted."
+        );
+      }
+
+      setMessage(
+        `Recurring series deleted (${data?.occurrences_deleted || 0} occurrences).`
+      );
+
+      await loadData();
+    } catch (deleteError) {
+      setError(
+        deleteError instanceof Error
+          ? deleteError.message
+          : "Recurring series could not be deleted."
+      );
+    } finally {
+      setDeletingSeriesId("");
     }
   }
 
@@ -850,12 +1050,14 @@ export default function CalendarPage() {
   }
 
   function blockedTimeCard(block) {
+    const recurring = Boolean(block.series_id);
+
     return (
       <div
         key={block.id}
         className="rounded-xl p-4 bg-gray-200 border border-gray-400"
       >
-        <div className="flex justify-between gap-4 items-start">
+        <div className="flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-start">
           <div>
             <p className="font-bold">
               {formatTime(block.start_datetime)} –{" "}
@@ -865,22 +1067,53 @@ export default function CalendarPage() {
             <p className="text-gray-900">
               Blocked: {block.reason}
             </p>
+
+            {recurring ? (
+              <p className="text-sm font-semibold mt-1">
+                Repeats weekly
+              </p>
+            ) : null}
           </div>
 
-          <button
-            type="button"
-            onClick={() =>
-              deleteBlockedTime(block.id)
-            }
-            disabled={
-              deletingBlockId === block.id
-            }
-            className="bg-red-500 text-white px-3 py-2 rounded-xl text-sm font-semibold disabled:opacity-60"
-          >
-            {deletingBlockId === block.id
-              ? "Deleting..."
-              : "Delete"}
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() =>
+                deleteBlockedTime(block.id)
+              }
+              disabled={
+                deletingBlockId === block.id
+              }
+              className="bg-red-500 text-white px-3 py-2 rounded-xl text-sm font-semibold disabled:opacity-60"
+            >
+              {deletingBlockId === block.id
+                ? "Deleting..."
+                : recurring
+                  ? "Delete This"
+                  : "Delete"}
+            </button>
+
+            {recurring ? (
+              <button
+                type="button"
+                onClick={() =>
+                  deleteBlockedTimeSeries(
+                    block.series_id
+                  )
+                }
+                disabled={
+                  deletingSeriesId ===
+                  block.series_id
+                }
+                className="bg-black text-white px-3 py-2 rounded-xl text-sm font-semibold disabled:opacity-60"
+              >
+                {deletingSeriesId ===
+                block.series_id
+                  ? "Deleting..."
+                  : "Delete Series"}
+              </button>
+            ) : null}
+          </div>
         </div>
       </div>
     );
@@ -1002,58 +1235,206 @@ export default function CalendarPage() {
                   />
                 </div>
               ) : null}
+            </div>
 
-              <div>
-                <label className="block font-semibold mb-2">
-                  Date
-                </label>
+            <div className="mt-6">
+              <label className="block font-semibold mb-3">
+                Repeat
+              </label>
 
-                <input
-                  type="date"
-                  className="w-full border rounded-xl p-3"
-                  value={blockDate}
-                  onChange={(event) =>
-                    setBlockDate(event.target.value)
+              <div className="flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setBlockMode("one-time")
                   }
-                />
-              </div>
+                  className={`px-4 py-3 rounded-xl font-bold border ${
+                    blockMode === "one-time"
+                      ? "bg-black text-white"
+                      : "bg-white text-black"
+                  }`}
+                >
+                  One-time
+                </button>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-semibold mb-2">
-                    Start
-                  </label>
-
-                  <input
-                    type="time"
-                    className="w-full border rounded-xl p-3"
-                    value={blockStartTime}
-                    onChange={(event) =>
-                      setBlockStartTime(
-                        event.target.value
-                      )
-                    }
-                  />
-                </div>
-
-                <div>
-                  <label className="block font-semibold mb-2">
-                    End
-                  </label>
-
-                  <input
-                    type="time"
-                    className="w-full border rounded-xl p-3"
-                    value={blockEndTime}
-                    onChange={(event) =>
-                      setBlockEndTime(
-                        event.target.value
-                      )
-                    }
-                  />
-                </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setBlockMode("recurring")
+                  }
+                  className={`px-4 py-3 rounded-xl font-bold border ${
+                    blockMode === "recurring"
+                      ? "bg-black text-white"
+                      : "bg-white text-black"
+                  }`}
+                >
+                  Repeat Weekly
+                </button>
               </div>
             </div>
+
+            {blockMode === "one-time" ? (
+              <div className="grid gap-4 sm:grid-cols-2 mt-6">
+                <div>
+                  <label className="block font-semibold mb-2">
+                    Date
+                  </label>
+
+                  <input
+                    type="date"
+                    className="w-full border rounded-xl p-3"
+                    value={blockDate}
+                    onChange={(event) =>
+                      setBlockDate(event.target.value)
+                    }
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-semibold mb-2">
+                      Start
+                    </label>
+
+                    <input
+                      type="time"
+                      className="w-full border rounded-xl p-3"
+                      value={blockStartTime}
+                      onChange={(event) =>
+                        setBlockStartTime(
+                          event.target.value
+                        )
+                      }
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-semibold mb-2">
+                      End
+                    </label>
+
+                    <input
+                      type="time"
+                      className="w-full border rounded-xl p-3"
+                      value={blockEndTime}
+                      onChange={(event) =>
+                        setBlockEndTime(
+                          event.target.value
+                        )
+                      }
+                    />
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-5 mt-6">
+                <div>
+                  <label className="block font-semibold mb-3">
+                    Days
+                  </label>
+
+                  <div className="flex flex-wrap gap-2">
+                    {RECURRING_DAYS.map((day) => {
+                      const selected =
+                        recurringDays.includes(
+                          day.value
+                        );
+
+                      return (
+                        <button
+                          key={day.value}
+                          type="button"
+                          onClick={() =>
+                            toggleRecurringDay(
+                              day.value
+                            )
+                          }
+                          className={`px-4 py-3 rounded-xl font-bold border ${
+                            selected
+                              ? "bg-black text-white"
+                              : "bg-white text-black"
+                          }`}
+                        >
+                          {day.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <label className="block font-semibold mb-2">
+                      Starting
+                    </label>
+
+                    <input
+                      type="date"
+                      className="w-full border rounded-xl p-3"
+                      value={recurringStartDate}
+                      onChange={(event) =>
+                        setRecurringStartDate(
+                          event.target.value
+                        )
+                      }
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-semibold mb-2">
+                      Until
+                    </label>
+
+                    <input
+                      type="date"
+                      className="w-full border rounded-xl p-3"
+                      value={recurringEndDate}
+                      onChange={(event) =>
+                        setRecurringEndDate(
+                          event.target.value
+                        )
+                      }
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-semibold mb-2">
+                      Start
+                    </label>
+
+                    <input
+                      type="time"
+                      className="w-full border rounded-xl p-3"
+                      value={blockStartTime}
+                      onChange={(event) =>
+                        setBlockStartTime(
+                          event.target.value
+                        )
+                      }
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-semibold mb-2">
+                      End
+                    </label>
+
+                    <input
+                      type="time"
+                      className="w-full border rounded-xl p-3"
+                      value={blockEndTime}
+                      onChange={(event) =>
+                        setBlockEndTime(
+                          event.target.value
+                        )
+                      }
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
 
             <div className="flex flex-wrap gap-3 mt-6">
               <button
@@ -1064,7 +1445,9 @@ export default function CalendarPage() {
               >
                 {savingBlock
                   ? "Saving..."
-                  : "Save Blocked Time"}
+                  : blockMode === "recurring"
+                    ? "Save Recurring Block"
+                    : "Save Blocked Time"}
               </button>
 
               <button
