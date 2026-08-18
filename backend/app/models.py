@@ -217,6 +217,11 @@ class BlockedTime(Base):
         DateTime,
         nullable=False,
     )
+    series_id = Column(
+        String,
+        nullable=True,
+        index=True,
+    )
 
 
 class Appointment(Base):

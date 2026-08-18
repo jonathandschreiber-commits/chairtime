@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 
 from app.database import Base, engine
 from app.routes.appointments import router as appointments_router
@@ -13,7 +14,62 @@ from app.routes.reminders import router as reminders_router
 from app.routes.services import router as services_router
 from app.routes.shops import router as shops_router
 
+
+def run_startup_migrations():
+    with engine.begin() as conn:
+        dialect_name = engine.dialect.name
+
+        if dialect_name == "postgresql":
+            conn.execute(
+                text(
+                    """
+                    ALTER TABLE blocked_times
+                    ADD COLUMN IF NOT EXISTS series_id VARCHAR
+                    """
+                )
+            )
+
+            conn.execute(
+                text(
+                    """
+                    CREATE INDEX IF NOT EXISTS ix_blocked_times_series_id
+                    ON blocked_times (series_id)
+                    """
+                )
+            )
+
+        elif dialect_name == "sqlite":
+            existing_columns = conn.execute(
+                text("PRAGMA table_info(blocked_times)")
+            ).fetchall()
+
+            column_names = {
+                row[1]
+                for row in existing_columns
+            }
+
+            if "series_id" not in column_names:
+                conn.execute(
+                    text(
+                        """
+                        ALTER TABLE blocked_times
+                        ADD COLUMN series_id VARCHAR
+                        """
+                    )
+                )
+
+            conn.execute(
+                text(
+                    """
+                    CREATE INDEX IF NOT EXISTS ix_blocked_times_series_id
+                    ON blocked_times (series_id)
+                    """
+                )
+            )
+
+
 Base.metadata.create_all(bind=engine)
+run_startup_migrations()
 
 app = FastAPI(title="ChairTime API")
 

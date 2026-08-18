@@ -1,7 +1,7 @@
-from datetime import datetime, time
+from datetime import date, datetime, time
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ShopCreate(BaseModel):
@@ -90,6 +90,19 @@ class BlockedTimeCreate(BaseModel):
     reason: str
     start_datetime: datetime
     end_datetime: datetime
+
+
+class RecurringBlockedTimeCreate(BaseModel):
+    barber_id: str
+    reason: str
+    start_date: date
+    end_date: date
+    start_time: time
+    end_time: time
+    weekdays: list[int] = Field(
+        min_length=1,
+        max_length=7,
+    )
 
 
 class AppointmentCreate(BaseModel):

@@ -1,17 +1,27 @@
+import uuid
+from datetime import datetime, timedelta
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import BlockedTime, User
+from app.models import Appointment, Barber, BlockedTime, User
 from app.routes.auth import get_current_user
-from app.schemas import BlockedTimeCreate
+from app.schemas import (
+    BlockedTimeCreate,
+    RecurringBlockedTimeCreate,
+)
 
 
 router = APIRouter()
 
+MAX_RECURRENCE_DAYS = 366
+
 
 def require_user_shop_slug(current_user: User) -> str:
-    shop_slug = str(current_user.shop_slug or "").strip().lower()
+    shop_slug = str(
+        current_user.shop_slug or ""
+    ).strip().lower()
 
     if not shop_slug:
         raise HTTPException(
@@ -20,6 +30,52 @@ def require_user_shop_slug(current_user: User) -> str:
         )
 
     return shop_slug
+
+
+def validate_reason(reason: str) -> str:
+    clean_reason = str(reason or "").strip()
+
+    if not clean_reason:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A reason is required.",
+        )
+
+    return clean_reason
+
+
+def validate_datetime_range(
+    start_datetime: datetime,
+    end_datetime: datetime,
+) -> None:
+    if end_datetime <= start_datetime:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="End time must be after start time.",
+        )
+
+
+def require_shop_barber(
+    db: Session,
+    barber_id: str,
+    shop_slug: str,
+) -> Barber:
+    barber = (
+        db.query(Barber)
+        .filter(
+            Barber.id == barber_id,
+            Barber.shop_slug == shop_slug,
+        )
+        .first()
+    )
+
+    if not barber:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Staff member not found.",
+        )
+
+    return barber
 
 
 def find_shop_blocked_time(
@@ -45,35 +101,101 @@ def find_shop_blocked_time(
     return blocked_time
 
 
-def validate_blocked_time(
-    payload: BlockedTimeCreate,
+def has_appointment_conflict(
+    db: Session,
+    shop_slug: str,
+    barber_id: str,
+    start_datetime: datetime,
+    end_datetime: datetime,
+) -> bool:
+    conflict = (
+        db.query(Appointment)
+        .filter(
+            Appointment.shop_slug == shop_slug,
+            Appointment.barber_id == barber_id,
+            Appointment.status != "canceled",
+            Appointment.start_datetime < end_datetime,
+            Appointment.end_datetime > start_datetime,
+        )
+        .first()
+    )
+
+    return conflict is not None
+
+
+def has_blocked_time_conflict(
+    db: Session,
+    shop_slug: str,
+    barber_id: str,
+    start_datetime: datetime,
+    end_datetime: datetime,
+) -> bool:
+    conflict = (
+        db.query(BlockedTime)
+        .filter(
+            BlockedTime.shop_slug == shop_slug,
+            BlockedTime.barber_id == barber_id,
+            BlockedTime.start_datetime < end_datetime,
+            BlockedTime.end_datetime > start_datetime,
+        )
+        .first()
+    )
+
+    return conflict is not None
+
+
+def validate_no_conflict(
+    db: Session,
+    shop_slug: str,
+    barber_id: str,
+    start_datetime: datetime,
+    end_datetime: datetime,
 ) -> None:
-    if payload.end_datetime <= payload.start_datetime:
+    if has_appointment_conflict(
+        db,
+        shop_slug,
+        barber_id,
+        start_datetime,
+        end_datetime,
+    ):
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="End time must be after start time.",
+            status_code=status.HTTP_409_CONFLICT,
+            detail="That time already has an appointment.",
         )
 
-    if not str(payload.reason or "").strip():
+    if has_blocked_time_conflict(
+        db,
+        shop_slug,
+        barber_id,
+        start_datetime,
+        end_datetime,
+    ):
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="A reason is required.",
+            status_code=status.HTTP_409_CONFLICT,
+            detail="That time is already blocked.",
         )
 
 
-# Temporary compatibility endpoint used by existing pages.
 @router.post("/blocked-times")
 def create_blocked_time(
     payload: BlockedTimeCreate,
     db: Session = Depends(get_db),
 ):
-    validate_blocked_time(payload)
+    clean_reason = validate_reason(payload.reason)
 
-    blocked_time = BlockedTime(
-        **payload.model_dump()
+    validate_datetime_range(
+        payload.start_datetime,
+        payload.end_datetime,
     )
 
-    blocked_time.reason = blocked_time.reason.strip()
+    blocked_time = BlockedTime(
+        shop_slug=payload.shop_slug,
+        barber_id=payload.barber_id,
+        reason=clean_reason,
+        start_datetime=payload.start_datetime,
+        end_datetime=payload.end_datetime,
+        series_id=None,
+    )
 
     db.add(blocked_time)
 
@@ -91,7 +213,6 @@ def create_blocked_time(
     return blocked_time
 
 
-# Temporary compatibility endpoint used by existing pages.
 @router.get("/blocked-times")
 def list_blocked_times(
     shop_slug: str | None = None,
@@ -111,7 +232,6 @@ def list_blocked_times(
     ).all()
 
 
-# Temporary compatibility endpoint used by existing pages.
 @router.delete("/blocked-times/{blocked_time_id}")
 def delete_blocked_time(
     blocked_time_id: str,
@@ -119,7 +239,9 @@ def delete_blocked_time(
 ):
     blocked_time = (
         db.query(BlockedTime)
-        .filter(BlockedTime.id == blocked_time_id)
+        .filter(
+            BlockedTime.id == blocked_time_id
+        )
         .first()
     )
 
@@ -155,8 +277,12 @@ def list_admin_blocked_times(
 
     return (
         db.query(BlockedTime)
-        .filter(BlockedTime.shop_slug == shop_slug)
-        .order_by(BlockedTime.start_datetime.asc())
+        .filter(
+            BlockedTime.shop_slug == shop_slug
+        )
+        .order_by(
+            BlockedTime.start_datetime.asc()
+        )
         .all()
     )
 
@@ -167,16 +293,35 @@ def create_admin_blocked_time(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    validate_blocked_time(payload)
-
     shop_slug = require_user_shop_slug(current_user)
+    clean_reason = validate_reason(payload.reason)
+
+    require_shop_barber(
+        db,
+        payload.barber_id,
+        shop_slug,
+    )
+
+    validate_datetime_range(
+        payload.start_datetime,
+        payload.end_datetime,
+    )
+
+    validate_no_conflict(
+        db,
+        shop_slug,
+        payload.barber_id,
+        payload.start_datetime,
+        payload.end_datetime,
+    )
 
     blocked_time = BlockedTime(
         shop_slug=shop_slug,
         barber_id=payload.barber_id,
-        reason=payload.reason.strip(),
+        reason=clean_reason,
         start_datetime=payload.start_datetime,
         end_datetime=payload.end_datetime,
+        series_id=None,
     )
 
     db.add(blocked_time)
@@ -193,6 +338,153 @@ def create_admin_blocked_time(
         )
 
     return blocked_time
+
+
+@router.post("/admin/blocked-times/recurring")
+def create_recurring_admin_blocked_time(
+    payload: RecurringBlockedTimeCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    shop_slug = require_user_shop_slug(current_user)
+    clean_reason = validate_reason(payload.reason)
+
+    require_shop_barber(
+        db,
+        payload.barber_id,
+        shop_slug,
+    )
+
+    if payload.end_date < payload.start_date:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="End date must be on or after start date.",
+        )
+
+    recurrence_days = (
+        payload.end_date - payload.start_date
+    ).days
+
+    if recurrence_days > MAX_RECURRENCE_DAYS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Recurring blocked time cannot exceed one year.",
+        )
+
+    weekdays = set(payload.weekdays)
+
+    if any(
+        weekday < 0 or weekday > 6
+        for weekday in weekdays
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Weekdays must be between 0 and 6.",
+        )
+
+    if payload.end_time <= payload.start_time:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="End time must be after start time.",
+        )
+
+    occurrences = []
+    current_date = payload.start_date
+
+    while current_date <= payload.end_date:
+        if current_date.weekday() in weekdays:
+            start_datetime = datetime.combine(
+                current_date,
+                payload.start_time,
+            )
+
+            end_datetime = datetime.combine(
+                current_date,
+                payload.end_time,
+            )
+
+            occurrences.append(
+                (
+                    start_datetime,
+                    end_datetime,
+                )
+            )
+
+        current_date += timedelta(days=1)
+
+    if not occurrences:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No matching dates were found for the selected weekdays.",
+        )
+
+    for start_datetime, end_datetime in occurrences:
+        if has_appointment_conflict(
+            db,
+            shop_slug,
+            payload.barber_id,
+            start_datetime,
+            end_datetime,
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "A selected recurring time conflicts with "
+                    f"an appointment on {start_datetime:%B %d, %Y}."
+                ),
+            )
+
+        if has_blocked_time_conflict(
+            db,
+            shop_slug,
+            payload.barber_id,
+            start_datetime,
+            end_datetime,
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "A selected recurring time is already blocked on "
+                    f"{start_datetime:%B %d, %Y}."
+                ),
+            )
+
+    series_id = str(uuid.uuid4())
+
+    blocked_times = [
+        BlockedTime(
+            shop_slug=shop_slug,
+            barber_id=payload.barber_id,
+            reason=clean_reason,
+            start_datetime=start_datetime,
+            end_datetime=end_datetime,
+            series_id=series_id,
+        )
+        for start_datetime, end_datetime in occurrences
+    ]
+
+    db.add_all(blocked_times)
+
+    try:
+        db.commit()
+
+        for blocked_time in blocked_times:
+            db.refresh(blocked_time)
+
+    except Exception:
+        db.rollback()
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Recurring blocked time could not be created.",
+        )
+
+    return {
+        "success": True,
+        "series_id": series_id,
+        "occurrences_created": len(blocked_times),
+        "blocked_times": blocked_times,
+    }
 
 
 @router.delete("/admin/blocked-times/{blocked_time_id}")
@@ -223,4 +515,48 @@ def delete_admin_blocked_time(
 
     return {
         "message": "Blocked time deleted.",
+    }
+
+
+@router.delete("/admin/blocked-time-series/{series_id}")
+def delete_admin_blocked_time_series(
+    series_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    shop_slug = require_user_shop_slug(current_user)
+
+    blocked_times = (
+        db.query(BlockedTime)
+        .filter(
+            BlockedTime.shop_slug == shop_slug,
+            BlockedTime.series_id == series_id,
+        )
+        .all()
+    )
+
+    if not blocked_times:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Blocked-time series not found.",
+        )
+
+    deleted_count = len(blocked_times)
+
+    for blocked_time in blocked_times:
+        db.delete(blocked_time)
+
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Blocked-time series could not be deleted.",
+        )
+
+    return {
+        "success": True,
+        "occurrences_deleted": deleted_count,
     }
