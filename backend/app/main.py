@@ -13,7 +13,7 @@ from app.routes.migration import router as migration_router
 from app.routes.reminders import router as reminders_router
 from app.routes.services import router as services_router
 from app.routes.shops import router as shops_router
-
+from app.routes.voice import router as voice_router
 
 def run_startup_migrations():
     with engine.begin() as conn:
@@ -95,7 +95,7 @@ app.include_router(appointments_router, prefix="/api")
 app.include_router(customers_router, prefix="/api")
 app.include_router(reminders_router, prefix="/api")
 app.include_router(migration_router, prefix="/api")
-
+app.include_router(voice_router, prefix="/api")
 
 @app.get("/")
 def healthcheck():
