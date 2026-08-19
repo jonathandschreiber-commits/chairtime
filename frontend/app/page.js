@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 const API_BASE = "https://chairtime-production-94da.up.railway.app";
+const SHOP_SLUG = "joebarber";
 
 export default function HomePage() {
   const today = new Date().toISOString().slice(0, 10);
@@ -22,17 +23,33 @@ export default function HomePage() {
   const [selectedSlot, setSelectedSlot] = useState("");
 
   const [message, setMessage] = useState("");
+  const [booking, setBooking] = useState(false);
 
   async function loadData() {
-    const [barbersRes, servicesRes, appointmentsRes] = await Promise.all([
-      fetch(`${API_BASE}/api/barbers`),
-      fetch(`${API_BASE}/api/services`),
-      fetch(`${API_BASE}/api/appointments`),
-    ]);
+    try {
+      const query = `?shop_slug=${encodeURIComponent(SHOP_SLUG)}`;
 
-    setBarbers(await barbersRes.json());
-    setServices(await servicesRes.json());
-    setAppointments(await appointmentsRes.json());
+      const [barbersRes, servicesRes, appointmentsRes] =
+        await Promise.all([
+          fetch(`${API_BASE}/api/barbers${query}`),
+          fetch(`${API_BASE}/api/services${query}`),
+          fetch(`${API_BASE}/api/appointments${query}`),
+        ]);
+
+      if (barbersRes.ok) {
+        setBarbers(await barbersRes.json());
+      }
+
+      if (servicesRes.ok) {
+        setServices(await servicesRes.json());
+      }
+
+      if (appointmentsRes.ok) {
+        setAppointments(await appointmentsRes.json());
+      }
+    } catch (error) {
+      console.error("Could not load booking data:", error);
+    }
   }
 
   useEffect(() => {
@@ -50,16 +67,19 @@ export default function HomePage() {
       return null;
     }
 
-    return appointments
-      .filter(
-        (appointment) =>
-          cleanPhone(appointment.customer_phone) === phone
-      )
-      .sort(
-        (a, b) =>
-          new Date(b.start_datetime) -
-          new Date(a.start_datetime)
-      )[0] || null;
+    return (
+      appointments
+        .filter(
+          (appointment) =>
+            appointment.shop_slug === SHOP_SLUG &&
+            cleanPhone(appointment.customer_phone) === phone
+        )
+        .sort(
+          (a, b) =>
+            new Date(b.start_datetime) -
+            new Date(a.start_datetime)
+        )[0] || null
+    );
   }, [appointments, customerPhone]);
 
   useEffect(() => {
@@ -78,28 +98,42 @@ export default function HomePage() {
     if (recognizedCustomer.service_id) {
       setSelectedServiceId(recognizedCustomer.service_id);
     }
-  }, [recognizedCustomer]);
+  }, [recognizedCustomer, customerName]);
 
   useEffect(() => {
     if (!selectedBarberId || !selectedServiceId || !selectedDate) {
+      setAvailableSlots([]);
+      setSelectedSlot("");
       return;
     }
 
     async function loadAvailability() {
       setSelectedSlot("");
 
-      const response = await fetch(
-        `${API_BASE}/api/availability?barber_id=${selectedBarberId}&service_id=${selectedServiceId}&target_date=${selectedDate}`
-      );
+      try {
+        const params = new URLSearchParams({
+          shop_slug: SHOP_SLUG,
+          barber_id: selectedBarberId,
+          service_id: selectedServiceId,
+          target_date: selectedDate,
+        });
 
-      if (!response.ok) {
+        const response = await fetch(
+          `${API_BASE}/api/availability?${params.toString()}`
+        );
+
+        if (!response.ok) {
+          setAvailableSlots([]);
+          return;
+        }
+
+        const data = await response.json();
+
+        setAvailableSlots(data.slots || []);
+      } catch (error) {
+        console.error("Could not load availability:", error);
         setAvailableSlots([]);
-        return;
       }
-
-      const data = await response.json();
-
-      setAvailableSlots(data.slots || []);
     }
 
     loadAvailability();
@@ -122,8 +156,8 @@ export default function HomePage() {
 
   async function createAppointment() {
     if (
-      !customerName ||
-      !customerPhone ||
+      !customerName.trim() ||
+      !customerPhone.trim() ||
       !selectedBarberId ||
       !selectedServiceId ||
       !selectedSlot
@@ -132,28 +166,59 @@ export default function HomePage() {
       return;
     }
 
-    const response = await fetch(`${API_BASE}/api/appointments`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        barber_id: selectedBarberId,
-        service_id: selectedServiceId,
-        customer_name: customerName,
-        customer_phone: customerPhone,
-        notes,
-        start_datetime: selectedSlot,
-      }),
-    });
+    setBooking(true);
+    setMessage("");
 
-    if (response.ok) {
-      setMessage("Appointment booked successfully.");
-      setSelectedSlot("");
-      setNotes("");
-      loadData();
-    } else {
+    try {
+      const response = await fetch(`${API_BASE}/api/appointments`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          shop_slug: SHOP_SLUG,
+          barber_id: selectedBarberId,
+          service_id: selectedServiceId,
+          customer_name: customerName.trim(),
+          customer_phone: customerPhone.trim(),
+          notes: notes.trim() || null,
+          start_datetime: selectedSlot,
+        }),
+      });
+
+      if (response.ok) {
+        setMessage("Appointment booked successfully.");
+        setSelectedSlot("");
+        setNotes("");
+        await loadData();
+      } else {
+        let detail = "";
+
+        try {
+          const errorData = await response.json();
+          detail =
+            typeof errorData.detail === "string"
+              ? errorData.detail
+              : "";
+        } catch {
+          // Keep the simple customer-facing message below.
+        }
+
+        console.error(
+          "Appointment creation failed:",
+          response.status,
+          detail
+        );
+
+        setMessage(
+          detail || "Could not create appointment."
+        );
+      }
+    } catch (error) {
+      console.error("Could not create appointment:", error);
       setMessage("Could not create appointment.");
+    } finally {
+      setBooking(false);
     }
   }
 
@@ -170,7 +235,13 @@ export default function HomePage() {
           </p>
 
           {message && (
-            <p className="mt-4 font-bold text-green-700">
+            <p
+              className={`mt-4 font-bold ${
+                message === "Appointment booked successfully."
+                  ? "text-green-700"
+                  : "text-red-700"
+              }`}
+            >
               {message}
             </p>
           )}
@@ -223,9 +294,10 @@ export default function HomePage() {
             <select
               className="w-full border rounded-2xl p-5 text-xl"
               value={selectedBarberId}
-              onChange={(event) =>
-                setSelectedBarberId(event.target.value)
-              }
+              onChange={(event) => {
+                setSelectedBarberId(event.target.value);
+                setSelectedSlot("");
+              }}
             >
               <option value="">Select barber</option>
 
@@ -245,9 +317,10 @@ export default function HomePage() {
             <select
               className="w-full border rounded-2xl p-5 text-xl"
               value={selectedServiceId}
-              onChange={(event) =>
-                setSelectedServiceId(event.target.value)
-              }
+              onChange={(event) => {
+                setSelectedServiceId(event.target.value);
+                setSelectedSlot("");
+              }}
             >
               <option value="">Select service</option>
 
@@ -268,9 +341,10 @@ export default function HomePage() {
               type="date"
               className="w-full border rounded-2xl p-5 text-xl"
               value={selectedDate}
-              onChange={(event) =>
-                setSelectedDate(event.target.value)
-              }
+              onChange={(event) => {
+                setSelectedDate(event.target.value);
+                setSelectedSlot("");
+              }}
             />
           </div>
 
@@ -283,6 +357,7 @@ export default function HomePage() {
               {availableSlots.map((slot) => (
                 <button
                   key={slot}
+                  type="button"
                   onClick={() => setSelectedSlot(slot)}
                   className={`rounded-2xl p-4 font-bold border ${
                     selectedSlot === slot
@@ -318,10 +393,12 @@ export default function HomePage() {
           </div>
 
           <button
+            type="button"
             onClick={createAppointment}
-            className="w-full bg-black text-white rounded-2xl p-5 text-xl font-bold"
+            disabled={booking}
+            className="w-full bg-black text-white rounded-2xl p-5 text-xl font-bold disabled:opacity-50"
           >
-            Book Appointment
+            {booking ? "Booking..." : "Book Appointment"}
           </button>
         </section>
       </div>
