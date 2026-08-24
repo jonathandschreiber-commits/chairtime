@@ -1,4 +1,5 @@
 from datetime import date, datetime, timedelta
+from difflib import SequenceMatcher
 import re
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -33,6 +34,8 @@ class VoiceBookingRequest(BaseModel):
 NUMBER_WORDS = {
     "zero": "0",
     "one": "1",
+    "won": "1",
+    "juan": "1",
     "two": "2",
     "three": "3",
     "four": "4",
@@ -55,83 +58,133 @@ NUMBER_WORDS = {
 }
 
 
-def normalize_spoken_barber_name(barber_name: str | None):
-    """
-    Normalize natural speech and common transcription errors.
+NO_PREFERENCE_VALUES = {
+    "any",
+    "anyone",
+    "any barber",
+    "anyone available",
+    "no preference",
+    "whoever",
+    "whoever is available",
+}
 
-    Examples:
-    "Barber One" -> "Barber 1"
-    "Barbara One" -> "Barber 1"
-    "barber two" -> "barber 2"
-    "Barber number three" -> "Barber 3"
-    """
 
-    if not barber_name:
+def clean_text(value: str | None):
+    if not value:
         return None
 
-    cleaned = " ".join(barber_name.strip().split())
+    cleaned = " ".join(value.strip().split())
 
     if not cleaned:
-        return None
-
-    # Common speech-to-text error:
-    # "Barbara One" -> "Barber One"
-    cleaned = re.sub(
-        r"^barbara\b",
-        "Barber",
-        cleaned,
-        flags=re.IGNORECASE,
-    )
-
-    # Remove "number" before a spoken number:
-    # "Barber number three" -> "Barber three"
-    cleaned = re.sub(
-        (
-            r"\bnumber\s+"
-            r"(?=(zero|one|two|three|four|five|six|seven|eight|nine|"
-            r"ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|"
-            r"seventeen|eighteen|nineteen|twenty)\b)"
-        ),
-        "",
-        cleaned,
-        flags=re.IGNORECASE,
-    )
-
-    # Convert spoken numbers to digits.
-    for word, digit in NUMBER_WORDS.items():
-        cleaned = re.sub(
-            rf"\b{word}\b",
-            digit,
-            cleaned,
-            flags=re.IGNORECASE,
-        )
-
-    return " ".join(cleaned.split())
-
-
-def clean_barber_name(barber_name: str | None):
-    if not barber_name:
-        return None
-
-    cleaned = barber_name.strip()
-
-    if not cleaned:
-        return None
-
-    no_preference_values = {
-        "any",
-        "anyone",
-        "any barber",
-        "anyone available",
-        "no preference",
-        "whoever",
-        "whoever is available",
-    }
-
-    if cleaned.lower() in no_preference_values:
         return None
 
     return cleaned
+
+
+def normalize_staff_name(value: str | None):
+    """
+    Convert a spoken or transcribed staff name into a comparison-friendly
+    form.
+
+    Examples:
+        Barber One      -> barber 1
+        Barbara One     -> barber 1
+        Barbara Juan    -> barber 1
+        Barber Juan     -> barber 1
+        Barber number 1 -> barber 1
+
+    This function is used only for matching. The canonical staff name
+    stored in ChairTime is returned to the caller.
+    """
+
+    cleaned = clean_text(value)
+
+    if not cleaned:
+        return None
+
+    cleaned = cleaned.lower()
+
+    # Remove punctuation while retaining letters and numbers.
+    cleaned = re.sub(
+        r"[^a-z0-9\s]",
+        " ",
+        cleaned,
+    )
+
+    cleaned = " ".join(cleaned.split())
+
+    # Common speech-to-text interpretation of "barber".
+    if cleaned.startswith("barbara "):
+        cleaned = "barber " + cleaned[len("barbara "):]
+
+    if cleaned == "barbara":
+        cleaned = "barber"
+
+    # "Barber number one" -> "Barber one"
+    cleaned = re.sub(
+        r"\bnumber\s+",
+        "",
+        cleaned,
+    )
+
+    words = cleaned.split()
+    normalized_words = []
+
+    for word in words:
+        replacement = NUMBER_WORDS.get(word)
+
+        if replacement is not None:
+            normalized_words.append(replacement)
+        else:
+            normalized_words.append(word)
+
+    cleaned = " ".join(normalized_words)
+
+    # HighLevel may occasionally produce things such as:
+    # "Barber One O O N E".
+    #
+    # If we already obtained a numeric staff identifier, trailing
+    # individually-spelled letters are not useful for matching.
+    words = cleaned.split()
+
+    number_index = None
+
+    for index, word in enumerate(words):
+        if word.isdigit():
+            number_index = index
+            break
+
+    if number_index is not None:
+        meaningful_words = words[: number_index + 1]
+        trailing_words = words[number_index + 1 :]
+
+        if trailing_words and all(
+            len(word) == 1 and word.isalpha()
+            for word in trailing_words
+        ):
+            words = meaningful_words
+
+    return " ".join(words)
+
+
+def clean_barber_name(barber_name: str | None):
+    cleaned = clean_text(barber_name)
+
+    if not cleaned:
+        return None
+
+    if cleaned.lower() in NO_PREFERENCE_VALUES:
+        return None
+
+    return cleaned
+
+
+def similarity_score(first: str, second: str):
+    return SequenceMatcher(
+        None,
+        first,
+        second,
+    ).ratio()
 
 
 def find_service(
@@ -139,7 +192,13 @@ def find_service(
     shop_slug: str,
     service_name: str,
 ):
-    cleaned_service_name = service_name.strip()
+    cleaned_service_name = clean_text(service_name)
+
+    if not cleaned_service_name:
+        raise HTTPException(
+            status_code=400,
+            detail="Service name is required",
+        )
 
     service = (
         db.query(Service)
@@ -159,46 +218,192 @@ def find_service(
     return service
 
 
+def resolve_barber_from_roster(
+    db: Session,
+    shop_slug: str,
+    spoken_name: str,
+):
+    """
+    Resolve a possibly imperfect voice transcription against the actual
+    ChairTime barber roster for this shop.
+
+    Matching order:
+    1. Exact database match.
+    2. Exact normalized match.
+    3. Strong fuzzy match, only when sufficiently unambiguous.
+    """
+
+    barbers = (
+        db.query(Barber)
+        .filter(
+            Barber.shop_slug == shop_slug,
+        )
+        .order_by(Barber.name)
+        .all()
+    )
+
+    if not barbers:
+        raise HTTPException(
+            status_code=404,
+            detail="No barbers are configured for this shop",
+        )
+
+    # First preference: literal exact match.
+    exact_barber = (
+        db.query(Barber)
+        .filter(
+            Barber.shop_slug == shop_slug,
+            Barber.name.ilike(spoken_name),
+        )
+        .first()
+    )
+
+    if exact_barber:
+        return exact_barber
+
+    normalized_input = normalize_staff_name(spoken_name)
+
+    if not normalized_input:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Barber '{spoken_name}' not found",
+        )
+
+    # Second preference: exact normalized match.
+    normalized_matches = []
+
+    for barber in barbers:
+        normalized_candidate = normalize_staff_name(
+            barber.name
+        )
+
+        if normalized_candidate == normalized_input:
+            normalized_matches.append(barber)
+
+    if len(normalized_matches) == 1:
+        return normalized_matches[0]
+
+    if len(normalized_matches) > 1:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": (
+                    "The barber name is ambiguous. "
+                    "Please ask the caller which staff member they mean."
+                ),
+                "heard_name": spoken_name,
+                "possible_barbers": [
+                    barber.name
+                    for barber in normalized_matches
+                ],
+            },
+        )
+
+    # Third preference: compare the transcription against real roster names.
+    scored_matches = []
+
+    for barber in barbers:
+        normalized_candidate = normalize_staff_name(
+            barber.name
+        )
+
+        if not normalized_candidate:
+            continue
+
+        score = similarity_score(
+            normalized_input,
+            normalized_candidate,
+        )
+
+        scored_matches.append(
+            (
+                score,
+                barber,
+            )
+        )
+
+    scored_matches.sort(
+        key=lambda item: item[0],
+        reverse=True,
+    )
+
+    if not scored_matches:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Barber '{spoken_name}' not found",
+        )
+
+    best_score, best_barber = scored_matches[0]
+
+    second_best_score = (
+        scored_matches[1][0]
+        if len(scored_matches) > 1
+        else 0.0
+    )
+
+    # Do not guess unless the similarity is strong.
+    minimum_score = 0.78
+
+    # If two employees are nearly tied, ask the caller rather than
+    # choosing the wrong person.
+    minimum_margin = 0.10
+
+    if best_score < minimum_score:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "message": (
+                    "The barber name could not be matched confidently."
+                ),
+                "heard_name": spoken_name,
+                "available_barbers": [
+                    barber.name
+                    for barber in barbers
+                ],
+            },
+        )
+
+    if (
+        len(scored_matches) > 1
+        and best_score - second_best_score < minimum_margin
+    ):
+        likely_matches = [
+            barber.name
+            for score, barber in scored_matches
+            if best_score - score < minimum_margin
+        ]
+
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": (
+                    "The barber name is ambiguous. "
+                    "Please ask the caller to clarify."
+                ),
+                "heard_name": spoken_name,
+                "possible_barbers": likely_matches,
+            },
+        )
+
+    return best_barber
+
+
 def find_barber(
     db: Session,
     shop_slug: str,
     service: Service,
     barber_name: str | None,
 ):
-    cleaned_barber_name = clean_barber_name(barber_name)
+    cleaned_barber_name = clean_barber_name(
+        barber_name
+    )
 
     if cleaned_barber_name:
-        # First try the name exactly as supplied.
-        barber = (
-            db.query(Barber)
-            .filter(
-                Barber.shop_slug == shop_slug,
-                Barber.name.ilike(cleaned_barber_name),
-            )
-            .first()
+        barber = resolve_barber_from_roster(
+            db=db,
+            shop_slug=shop_slug,
+            spoken_name=cleaned_barber_name,
         )
-
-        # If that fails, normalize natural speech and transcription errors.
-        if not barber:
-            normalized_barber_name = normalize_spoken_barber_name(
-                cleaned_barber_name
-            )
-
-            if normalized_barber_name:
-                barber = (
-                    db.query(Barber)
-                    .filter(
-                        Barber.shop_slug == shop_slug,
-                        Barber.name.ilike(normalized_barber_name),
-                    )
-                    .first()
-                )
-
-        if not barber:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Barber '{cleaned_barber_name}' not found",
-            )
 
     elif service.barber_id:
         barber = (
@@ -226,7 +431,10 @@ def find_barber(
             detail="No barber is available for this shop",
         )
 
-    if service.barber_id and service.barber_id != barber.id:
+    if (
+        service.barber_id
+        and service.barber_id != barber.id
+    ):
         raise HTTPException(
             status_code=404,
             detail=(
@@ -238,8 +446,18 @@ def find_barber(
     return barber
 
 
-def parse_start_time(start_time_text: str):
-    cleaned = start_time_text.strip()
+def parse_start_time(
+    start_time_text: str,
+):
+    cleaned = clean_text(
+        start_time_text
+    )
+
+    if not cleaned:
+        raise HTTPException(
+            status_code=400,
+            detail="Appointment start time is required",
+        )
 
     formats = [
         "%H:%M",
@@ -256,7 +474,9 @@ def parse_start_time(start_time_text: str):
                 cleaned,
                 format_string,
             )
+
             return parsed.time()
+
         except ValueError:
             continue
 
@@ -296,6 +516,7 @@ def get_voice_availability(
             service.id,
             target_date,
         )
+
     except Exception as error:
         raise HTTPException(
             status_code=400,
@@ -350,8 +571,13 @@ def voice_book_appointment(
     payload: VoiceBookingRequest,
     db: Session = Depends(get_db),
 ):
-    customer_name = payload.customer_name.strip()
-    customer_phone = payload.customer_phone.strip()
+    customer_name = clean_text(
+        payload.customer_name
+    )
+
+    customer_phone = clean_text(
+        payload.customer_phone
+    )
 
     if not customer_name:
         raise HTTPException(
@@ -394,6 +620,7 @@ def voice_book_appointment(
             service.id,
             payload.target_date,
         )
+
     except Exception as error:
         raise HTTPException(
             status_code=400,
@@ -403,14 +630,22 @@ def voice_book_appointment(
     available_datetimes = []
 
     for slot in available_slots:
-        if isinstance(slot, datetime):
-            available_datetimes.append(slot)
+        if isinstance(
+            slot,
+            datetime,
+        ):
+            available_datetimes.append(
+                slot
+            )
             continue
 
         try:
             available_datetimes.append(
-                datetime.fromisoformat(str(slot))
+                datetime.fromisoformat(
+                    str(slot)
+                )
             )
+
         except ValueError:
             continue
 
@@ -422,7 +657,9 @@ def voice_book_appointment(
                     "The requested appointment time "
                     "is no longer available"
                 ),
-                "requested_time": requested_start.isoformat(),
+                "requested_time": (
+                    requested_start.isoformat()
+                ),
                 "available_slots": [
                     slot.isoformat()
                     for slot in available_datetimes
@@ -430,8 +667,11 @@ def voice_book_appointment(
             },
         )
 
-    requested_end = requested_start + timedelta(
-        minutes=service.duration_minutes
+    requested_end = (
+        requested_start
+        + timedelta(
+            minutes=service.duration_minutes
+        )
     )
 
     appointment = Appointment(
@@ -447,9 +687,16 @@ def voice_book_appointment(
     )
 
     try:
-        db.add(appointment)
+        db.add(
+            appointment
+        )
+
         db.commit()
-        db.refresh(appointment)
+
+        db.refresh(
+            appointment
+        )
+
     except Exception:
         db.rollback()
 
@@ -467,8 +714,12 @@ def voice_book_appointment(
         "service": service.name,
         "customer_name": appointment.customer_name,
         "customer_phone": appointment.customer_phone,
-        "start_datetime": appointment.start_datetime.isoformat(),
-        "end_datetime": appointment.end_datetime.isoformat(),
+        "start_datetime": (
+            appointment.start_datetime.isoformat()
+        ),
+        "end_datetime": (
+            appointment.end_datetime.isoformat()
+        ),
         "status": appointment.status,
         "reminder_sent": appointment.reminder_sent,
     }
