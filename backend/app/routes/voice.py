@@ -57,10 +57,11 @@ NUMBER_WORDS = {
 
 def normalize_spoken_barber_name(barber_name: str | None):
     """
-    Normalize natural speech versions of staff names.
+    Normalize natural speech and common transcription errors.
 
     Examples:
     "Barber One" -> "Barber 1"
+    "Barbara One" -> "Barber 1"
     "barber two" -> "barber 2"
     "Barber number three" -> "Barber 3"
     """
@@ -73,13 +74,30 @@ def normalize_spoken_barber_name(barber_name: str | None):
     if not cleaned:
         return None
 
+    # Common speech-to-text error:
+    # "Barbara One" -> "Barber One"
     cleaned = re.sub(
-        r"\bnumber\s+(?=(zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty)\b)",
+        r"^barbara\b",
+        "Barber",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+
+    # Remove "number" before a spoken number:
+    # "Barber number three" -> "Barber three"
+    cleaned = re.sub(
+        (
+            r"\bnumber\s+"
+            r"(?=(zero|one|two|three|four|five|six|seven|eight|nine|"
+            r"ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|"
+            r"seventeen|eighteen|nineteen|twenty)\b)"
+        ),
         "",
         cleaned,
         flags=re.IGNORECASE,
     )
 
+    # Convert spoken numbers to digits.
     for word, digit in NUMBER_WORDS.items():
         cleaned = re.sub(
             rf"\b{word}\b",
@@ -150,7 +168,7 @@ def find_barber(
     cleaned_barber_name = clean_barber_name(barber_name)
 
     if cleaned_barber_name:
-        # First try exactly what the voice system supplied.
+        # First try the name exactly as supplied.
         barber = (
             db.query(Barber)
             .filter(
@@ -160,8 +178,7 @@ def find_barber(
             .first()
         )
 
-        # If that fails, normalize spoken numbers:
-        # "Barber One" -> "Barber 1"
+        # If that fails, normalize natural speech and transcription errors.
         if not barber:
             normalized_barber_name = normalize_spoken_barber_name(
                 cleaned_barber_name
