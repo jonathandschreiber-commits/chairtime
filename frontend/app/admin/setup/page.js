@@ -30,19 +30,16 @@ export default function SetupPage() {
   const [blockedTimes, setBlockedTimes] = useState([]);
   const [availabilityRules, setAvailabilityRules] = useState([]);
 
-  // Services
   const [serviceBarberId, setServiceBarberId] = useState("");
   const [serviceName, setServiceName] = useState("");
   const [serviceDuration, setServiceDuration] = useState("30");
   const [servicePrice, setServicePrice] = useState("");
 
-  // Weekly availability
   const [availabilityBarberId, setAvailabilityBarberId] = useState("");
   const [availabilityDay, setAvailabilityDay] = useState("Monday");
   const [availabilityStart, setAvailabilityStart] = useState("09:00");
   const [availabilityEnd, setAvailabilityEnd] = useState("17:00");
 
-  // Blocked time
   const [blockBarberId, setBlockBarberId] = useState("");
   const [blockReason, setBlockReason] = useState("Lunch");
   const [blockStart, setBlockStart] = useState("");
@@ -90,10 +87,6 @@ export default function SetupPage() {
     loadData();
   }, []);
 
-  function getBarberName(id) {
-    return barbers.find((barber) => barber.id === id)?.name || "Barber";
-  }
-
   function formatTime(value) {
     if (!value) return "";
     return value.toString().slice(0, 5);
@@ -127,12 +120,14 @@ export default function SetupPage() {
 
     const response = await fetch(`${API_BASE}/api/services`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify({
         barber_id: serviceBarberId,
         name: serviceName.trim(),
         duration_minutes: duration,
-        price: price,
+        price,
       }),
     });
 
@@ -163,11 +158,26 @@ export default function SetupPage() {
   }
 
   async function addAvailabilityRule() {
-    if (!availabilityBarberId) return;
+    if (!availabilityBarberId) {
+      setMessage("Choose a barber.");
+      return;
+    }
 
-    await fetch(`${API_BASE}/api/availability-rules`, {
+    if (!availabilityStart || !availabilityEnd) {
+      setMessage("Enter start and end times.");
+      return;
+    }
+
+    if (availabilityStart >= availabilityEnd) {
+      setMessage("End time must be later than start time.");
+      return;
+    }
+
+    const response = await fetch(`${API_BASE}/api/availability-rules`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify({
         barber_id: availabilityBarberId,
         weekday: WEEKDAY_MAP[availabilityDay],
@@ -176,32 +186,60 @@ export default function SetupPage() {
       }),
     });
 
-    setMessage("Weekly availability added.");
+    if (!response.ok) {
+      setMessage("Could not save availability.");
+      return;
+    }
+
+    setMessage("Weekly availability saved.");
     loadData();
   }
 
   async function deleteAvailabilityRule(id) {
-    await fetch(`${API_BASE}/api/availability-rules/${id}`, {
-      method: "DELETE",
-    });
+    const response = await fetch(
+      `${API_BASE}/api/availability-rules/${id}`,
+      {
+        method: "DELETE",
+      }
+    );
+
+    if (!response.ok) {
+      setMessage("Could not delete availability.");
+      return;
+    }
 
     setMessage("Weekly availability deleted.");
     loadData();
   }
 
   async function blockTime() {
-    if (!blockBarberId || !blockStart || !blockEnd) return;
+    if (!blockBarberId || !blockStart || !blockEnd) {
+      setMessage("Choose a barber and enter start and end times.");
+      return;
+    }
 
-    await fetch(`${API_BASE}/api/blocked-times`, {
+    if (blockStart >= blockEnd) {
+      setMessage("Blocked end time must be later than start time.");
+      return;
+    }
+
+    const response = await fetch(`${API_BASE}/api/blocked-times`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify({
         barber_id: blockBarberId,
-        reason: blockReason,
+        reason: blockReason || "Blocked",
         start_datetime: blockStart,
         end_datetime: blockEnd,
       }),
     });
+
+    if (!response.ok) {
+      setMessage("Could not block time.");
+      return;
+    }
 
     setMessage("Time blocked.");
     setBlockStart("");
@@ -210,11 +248,16 @@ export default function SetupPage() {
   }
 
   async function blockFullDay(reason) {
-    if (!blockBarberId || !fullDayDate) return;
+    if (!blockBarberId || !fullDayDate) {
+      setMessage("Choose a barber and date.");
+      return;
+    }
 
-    await fetch(`${API_BASE}/api/blocked-times`, {
+    const response = await fetch(`${API_BASE}/api/blocked-times`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify({
         barber_id: blockBarberId,
         reason,
@@ -223,14 +266,24 @@ export default function SetupPage() {
       }),
     });
 
+    if (!response.ok) {
+      setMessage("Could not block full day.");
+      return;
+    }
+
     setMessage(`${reason} full day blocked.`);
     loadData();
   }
 
   async function deleteBlockedTime(id) {
-    await fetch(`${API_BASE}/api/blocked-times/${id}`, {
+    const response = await fetch(`${API_BASE}/api/blocked-times/${id}`, {
       method: "DELETE",
     });
+
+    if (!response.ok) {
+      setMessage("Could not remove blocked time.");
+      return;
+    }
 
     setMessage("Blocked time removed.");
     loadData();
@@ -242,19 +295,24 @@ export default function SetupPage() {
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [services, serviceBarberId]);
 
-  const sortedAvailabilityRules = useMemo(() => {
-    return [...availabilityRules]
+  const selectedBarberAvailability = useMemo(() => {
+    return availabilityRules
       .filter((rule) => rule.barber_id === availabilityBarberId)
       .sort((a, b) => {
-        if (a.weekday !== b.weekday) return a.weekday - b.weekday;
-        return a.start_time.localeCompare(b.start_time);
+        if (a.weekday !== b.weekday) {
+          return a.weekday - b.weekday;
+        }
+
+        return String(a.start_time).localeCompare(
+          String(b.start_time)
+        );
       });
   }, [availabilityRules, availabilityBarberId]);
 
-  const upcomingBlockedTimes = useMemo(() => {
+  const selectedBarberBlockedTimes = useMemo(() => {
     const now = new Date();
 
-    return [...blockedTimes]
+    return blockedTimes
       .filter(
         (block) =>
           block.barber_id === blockBarberId &&
@@ -277,7 +335,6 @@ export default function SetupPage() {
           </div>
         )}
 
-        {/* SERVICES */}
         <div className="bg-white p-6 rounded-2xl shadow space-y-4">
           <h2 className="text-2xl font-bold">Services</h2>
 
@@ -340,6 +397,7 @@ export default function SetupPage() {
                 >
                   <div>
                     <div className="font-bold">{service.name}</div>
+
                     <div className="text-sm text-gray-600">
                       {service.duration_minutes} minutes · $
                       {Number(service.price).toFixed(2)}
@@ -358,13 +416,14 @@ export default function SetupPage() {
           </div>
         </div>
 
-        {/* WEEKLY AVAILABILITY */}
         <div className="bg-white p-6 rounded-2xl shadow space-y-4">
           <h2 className="text-2xl font-bold">Weekly Availability</h2>
 
           <select
             value={availabilityBarberId}
-            onChange={(e) => setAvailabilityBarberId(e.target.value)}
+            onChange={(e) =>
+              setAvailabilityBarberId(e.target.value)
+            }
             className="border p-3 rounded w-full"
           >
             {barbers.map((barber) => (
@@ -380,7 +439,9 @@ export default function SetupPage() {
             className="border p-3 rounded w-full"
           >
             {Object.keys(WEEKDAY_MAP).map((day) => (
-              <option key={day}>{day}</option>
+              <option key={day} value={day}>
+                {day}
+              </option>
             ))}
           </select>
 
@@ -405,28 +466,37 @@ export default function SetupPage() {
             Save Availability
           </button>
 
-          {sortedAvailabilityRules.map((rule) => (
-            <div
-              key={rule.id}
-              className="border rounded-xl p-3 flex justify-between"
-            >
-              <div>
-                {WEEKDAY_NAMES[rule.weekday]} ·{" "}
-                {formatTime(rule.start_time)} -{" "}
-                {formatTime(rule.end_time)}
+          <div className="space-y-2">
+            {selectedBarberAvailability.length === 0 ? (
+              <div className="text-gray-500">
+                No weekly availability for this barber yet.
               </div>
+            ) : (
+              selectedBarberAvailability.map((rule) => (
+                <div
+                  key={rule.id}
+                  className="border rounded-xl p-3 flex justify-between items-center"
+                >
+                  <div>
+                    {WEEKDAY_NAMES[rule.weekday]} ·{" "}
+                    {formatTime(rule.start_time)} -{" "}
+                    {formatTime(rule.end_time)}
+                  </div>
 
-              <button
-                onClick={() => deleteAvailabilityRule(rule.id)}
-                className="bg-red-500 text-white px-3 py-1 rounded"
-              >
-                Delete
-              </button>
-            </div>
-          ))}
+                  <button
+                    onClick={() =>
+                      deleteAvailabilityRule(rule.id)
+                    }
+                    className="bg-red-500 text-white px-3 py-1 rounded"
+                  >
+                    Delete
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
         </div>
 
-        {/* QUICK BLOCK TIME */}
         <div className="bg-white p-6 rounded-2xl shadow space-y-4">
           <h2 className="text-2xl font-bold">Quick Block Time</h2>
 
@@ -443,8 +513,10 @@ export default function SetupPage() {
           </select>
 
           <input
+            type="text"
             value={blockReason}
             onChange={(e) => setBlockReason(e.target.value)}
+            placeholder="Reason"
             className="border p-3 rounded w-full"
           />
 
@@ -470,7 +542,6 @@ export default function SetupPage() {
           </button>
         </div>
 
-        {/* FULL DAY BLOCK */}
         <div className="bg-white p-6 rounded-2xl shadow space-y-4">
           <h2 className="text-2xl font-bold">Full Day Block</h2>
 
@@ -509,26 +580,38 @@ export default function SetupPage() {
             </button>
           </div>
 
-          {upcomingBlockedTimes.map((block) => (
-            <div
-              key={block.id}
-              className="border rounded-xl p-3 flex justify-between"
-            >
-              <div>
-                {block.reason} ·{" "}
-                {isFullDay(block)
-                  ? new Date(block.start_datetime).toLocaleDateString()
-                  : new Date(block.start_datetime).toLocaleString()}
+          <div className="space-y-2">
+            {selectedBarberBlockedTimes.length === 0 ? (
+              <div className="text-gray-500">
+                No upcoming blocked times for this barber.
               </div>
+            ) : (
+              selectedBarberBlockedTimes.map((block) => (
+                <div
+                  key={block.id}
+                  className="border rounded-xl p-3 flex justify-between items-center"
+                >
+                  <div>
+                    {block.reason} ·{" "}
+                    {isFullDay(block)
+                      ? new Date(
+                          block.start_datetime
+                        ).toLocaleDateString()
+                      : new Date(
+                          block.start_datetime
+                        ).toLocaleString()}
+                  </div>
 
-              <button
-                onClick={() => deleteBlockedTime(block.id)}
-                className="bg-red-500 text-white px-3 py-1 rounded"
-              >
-                Delete
-              </button>
-            </div>
-          ))}
+                  <button
+                    onClick={() => deleteBlockedTime(block.id)}
+                    className="bg-red-500 text-white px-3 py-1 rounded"
+                  >
+                    Delete
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
         </div>
       </div>
     </main>
