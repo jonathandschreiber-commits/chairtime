@@ -26,14 +26,23 @@ const WEEKDAY_MAP = {
 
 export default function SetupPage() {
   const [barbers, setBarbers] = useState([]);
+  const [services, setServices] = useState([]);
   const [blockedTimes, setBlockedTimes] = useState([]);
   const [availabilityRules, setAvailabilityRules] = useState([]);
 
+  // Services
+  const [serviceBarberId, setServiceBarberId] = useState("");
+  const [serviceName, setServiceName] = useState("");
+  const [serviceDuration, setServiceDuration] = useState("30");
+  const [servicePrice, setServicePrice] = useState("");
+
+  // Weekly availability
   const [availabilityBarberId, setAvailabilityBarberId] = useState("");
   const [availabilityDay, setAvailabilityDay] = useState("Monday");
   const [availabilityStart, setAvailabilityStart] = useState("09:00");
   const [availabilityEnd, setAvailabilityEnd] = useState("17:00");
 
+  // Blocked time
   const [blockBarberId, setBlockBarberId] = useState("");
   const [blockReason, setBlockReason] = useState("Lunch");
   const [blockStart, setBlockStart] = useState("");
@@ -45,21 +54,35 @@ export default function SetupPage() {
   const [message, setMessage] = useState("");
 
   async function loadData() {
-    const [barbersRes, blockedRes, availabilityRes] = await Promise.all([
-      fetch(`${API_BASE}/api/barbers`),
-      fetch(`${API_BASE}/api/blocked-times`),
-      fetch(`${API_BASE}/api/availability-rules`),
-    ]);
+    try {
+      const [barbersRes, servicesRes, blockedRes, availabilityRes] =
+        await Promise.all([
+          fetch(`${API_BASE}/api/barbers`),
+          fetch(`${API_BASE}/api/services`),
+          fetch(`${API_BASE}/api/blocked-times`),
+          fetch(`${API_BASE}/api/availability-rules`),
+        ]);
 
-    const barbersData = await barbersRes.json();
+      const barbersData = await barbersRes.json();
+      const servicesData = await servicesRes.json();
+      const blockedData = await blockedRes.json();
+      const availabilityData = await availabilityRes.json();
 
-    setBarbers(barbersData);
-    setBlockedTimes(await blockedRes.json());
-    setAvailabilityRules(await availabilityRes.json());
+      setBarbers(barbersData);
+      setServices(servicesData);
+      setBlockedTimes(blockedData);
+      setAvailabilityRules(availabilityData);
 
-    if (barbersData.length > 0) {
-      if (!availabilityBarberId) setAvailabilityBarberId(barbersData[0].id);
-      if (!blockBarberId) setBlockBarberId(barbersData[0].id);
+      if (barbersData.length > 0) {
+        setServiceBarberId((current) => current || barbersData[0].id);
+        setAvailabilityBarberId(
+          (current) => current || barbersData[0].id
+        );
+        setBlockBarberId((current) => current || barbersData[0].id);
+      }
+    } catch (error) {
+      console.error(error);
+      setMessage("Could not load shop setup.");
     }
   }
 
@@ -83,7 +106,65 @@ export default function SetupPage() {
     );
   }
 
+  async function addService() {
+    if (!serviceBarberId || !serviceName.trim()) {
+      setMessage("Choose a barber and enter a service name.");
+      return;
+    }
+
+    const duration = Number(serviceDuration);
+    const price = Number(servicePrice);
+
+    if (!duration || duration <= 0) {
+      setMessage("Enter a valid service duration.");
+      return;
+    }
+
+    if (servicePrice === "" || Number.isNaN(price) || price < 0) {
+      setMessage("Enter a valid service price.");
+      return;
+    }
+
+    const response = await fetch(`${API_BASE}/api/services`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        barber_id: serviceBarberId,
+        name: serviceName.trim(),
+        duration_minutes: duration,
+        price: price,
+      }),
+    });
+
+    if (!response.ok) {
+      setMessage("Could not add service.");
+      return;
+    }
+
+    setMessage("Service added.");
+    setServiceName("");
+    setServiceDuration("30");
+    setServicePrice("");
+    loadData();
+  }
+
+  async function deleteService(id) {
+    const response = await fetch(`${API_BASE}/api/services/${id}`, {
+      method: "DELETE",
+    });
+
+    if (!response.ok) {
+      setMessage("Could not delete service.");
+      return;
+    }
+
+    setMessage("Service deleted.");
+    loadData();
+  }
+
   async function addAvailabilityRule() {
+    if (!availabilityBarberId) return;
+
     await fetch(`${API_BASE}/api/availability-rules`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -155,23 +236,35 @@ export default function SetupPage() {
     loadData();
   }
 
+  const selectedBarberServices = useMemo(() => {
+    return services
+      .filter((service) => service.barber_id === serviceBarberId)
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [services, serviceBarberId]);
+
   const sortedAvailabilityRules = useMemo(() => {
-    return [...availabilityRules].sort((a, b) => {
-      if (a.weekday !== b.weekday) return a.weekday - b.weekday;
-      return a.start_time.localeCompare(b.start_time);
-    });
-  }, [availabilityRules]);
+    return [...availabilityRules]
+      .filter((rule) => rule.barber_id === availabilityBarberId)
+      .sort((a, b) => {
+        if (a.weekday !== b.weekday) return a.weekday - b.weekday;
+        return a.start_time.localeCompare(b.start_time);
+      });
+  }, [availabilityRules, availabilityBarberId]);
 
   const upcomingBlockedTimes = useMemo(() => {
     const now = new Date();
 
     return [...blockedTimes]
-      .filter((block) => new Date(block.end_datetime) >= now)
+      .filter(
+        (block) =>
+          block.barber_id === blockBarberId &&
+          new Date(block.end_datetime) >= now
+      )
       .sort(
         (a, b) =>
           new Date(a.start_datetime) - new Date(b.start_datetime)
       );
-  }, [blockedTimes]);
+  }, [blockedTimes, blockBarberId]);
 
   return (
     <main className="min-h-screen bg-gray-100 p-6">
@@ -184,6 +277,88 @@ export default function SetupPage() {
           </div>
         )}
 
+        {/* SERVICES */}
+        <div className="bg-white p-6 rounded-2xl shadow space-y-4">
+          <h2 className="text-2xl font-bold">Services</h2>
+
+          <select
+            value={serviceBarberId}
+            onChange={(e) => setServiceBarberId(e.target.value)}
+            className="border p-3 rounded w-full"
+          >
+            {barbers.map((barber) => (
+              <option key={barber.id} value={barber.id}>
+                {barber.name}
+              </option>
+            ))}
+          </select>
+
+          <input
+            type="text"
+            placeholder="Service name"
+            value={serviceName}
+            onChange={(e) => setServiceName(e.target.value)}
+            className="border p-3 rounded w-full"
+          />
+
+          <input
+            type="number"
+            min="1"
+            placeholder="Duration in minutes"
+            value={serviceDuration}
+            onChange={(e) => setServiceDuration(e.target.value)}
+            className="border p-3 rounded w-full"
+          />
+
+          <input
+            type="number"
+            min="0"
+            step="0.01"
+            placeholder="Price"
+            value={servicePrice}
+            onChange={(e) => setServicePrice(e.target.value)}
+            className="border p-3 rounded w-full"
+          />
+
+          <button
+            onClick={addService}
+            className="bg-black text-white px-4 py-3 rounded-xl"
+          >
+            Add Service
+          </button>
+
+          <div className="space-y-2">
+            {selectedBarberServices.length === 0 ? (
+              <div className="text-gray-500">
+                No services for this barber yet.
+              </div>
+            ) : (
+              selectedBarberServices.map((service) => (
+                <div
+                  key={service.id}
+                  className="border rounded-xl p-3 flex justify-between items-center"
+                >
+                  <div>
+                    <div className="font-bold">{service.name}</div>
+                    <div className="text-sm text-gray-600">
+                      {service.duration_minutes} minutes · $
+                      {Number(service.price).toFixed(2)}
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => deleteService(service.id)}
+                    className="bg-red-500 text-white px-3 py-1 rounded"
+                  >
+                    Delete
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* WEEKLY AVAILABILITY */}
         <div className="bg-white p-6 rounded-2xl shadow space-y-4">
           <h2 className="text-2xl font-bold">Weekly Availability</h2>
 
@@ -251,8 +426,21 @@ export default function SetupPage() {
           ))}
         </div>
 
+        {/* QUICK BLOCK TIME */}
         <div className="bg-white p-6 rounded-2xl shadow space-y-4">
           <h2 className="text-2xl font-bold">Quick Block Time</h2>
+
+          <select
+            value={blockBarberId}
+            onChange={(e) => setBlockBarberId(e.target.value)}
+            className="border p-3 rounded w-full"
+          >
+            {barbers.map((barber) => (
+              <option key={barber.id} value={barber.id}>
+                {barber.name}
+              </option>
+            ))}
+          </select>
 
           <input
             value={blockReason}
@@ -282,8 +470,21 @@ export default function SetupPage() {
           </button>
         </div>
 
+        {/* FULL DAY BLOCK */}
         <div className="bg-white p-6 rounded-2xl shadow space-y-4">
           <h2 className="text-2xl font-bold">Full Day Block</h2>
+
+          <select
+            value={blockBarberId}
+            onChange={(e) => setBlockBarberId(e.target.value)}
+            className="border p-3 rounded w-full"
+          >
+            {barbers.map((barber) => (
+              <option key={barber.id} value={barber.id}>
+                {barber.name}
+              </option>
+            ))}
+          </select>
 
           <input
             type="date"
