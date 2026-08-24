@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import Appointment, Barber
 
+
 router = APIRouter()
 
 
@@ -31,12 +32,23 @@ def send_highlevel_sms(phone: str, message: str):
         return {
             "success": False,
             "step": "config",
-            "error": "Missing HIGHLEVEL_API_TOKEN, HIGHLEVEL_LOCATION_ID, or phone",
+            "error": (
+                "Missing HIGHLEVEL_API_TOKEN, "
+                "HIGHLEVEL_LOCATION_ID, or phone"
+            ),
         }
 
-    clean_phone = "".join(character for character in str(phone) if character.isdigit())
+    clean_phone = "".join(
+        character
+        for character in str(phone)
+        if character.isdigit()
+    )
 
-    formatted_phone = f"+1{clean_phone}" if len(clean_phone) == 10 else str(phone)
+    formatted_phone = (
+        f"+1{clean_phone}"
+        if len(clean_phone) == 10
+        else str(phone)
+    )
 
     contact_payload = {
         "firstName": "ChairTime",
@@ -57,10 +69,18 @@ def send_highlevel_sms(phone: str, message: str):
     )
 
     try:
-        with request.urlopen(contact_req, timeout=10) as response:
-            contact_data = json.loads(response.read().decode("utf-8"))
+        with request.urlopen(
+            contact_req,
+            timeout=10,
+        ) as response:
+            contact_data = json.loads(
+                response.read().decode("utf-8")
+            )
 
-        contact_id = contact_data.get("contact", {}).get("id") or contact_data.get("id")
+        contact_id = (
+            contact_data.get("contact", {}).get("id")
+            or contact_data.get("id")
+        )
 
     except error.HTTPError as http_error:
         error_body_text = http_error.read().decode("utf-8")
@@ -70,7 +90,9 @@ def send_highlevel_sms(phone: str, message: str):
         except Exception:
             error_body = {}
 
-        contact_id = error_body.get("meta", {}).get("contactId")
+        contact_id = (
+            error_body.get("meta", {}).get("contactId")
+        )
 
         if not contact_id:
             return {
@@ -108,7 +130,10 @@ def send_highlevel_sms(phone: str, message: str):
     )
 
     try:
-        with request.urlopen(message_req, timeout=10) as response:
+        with request.urlopen(
+            message_req,
+            timeout=10,
+        ) as response:
             message_data = response.read().decode("utf-8")
 
         return {
@@ -142,16 +167,25 @@ def send_reminders_head():
 
 
 @router.get("/send-reminders")
-def send_reminders_get(db: Session = Depends(get_db)):
+def send_reminders_get(
+    db: Session = Depends(get_db),
+):
     return send_reminders(db)
 
 
 @router.post("/send-reminders")
-def send_reminders(db: Session = Depends(get_db)):
-    now = datetime.now(ZoneInfo("America/New_York")).replace(tzinfo=None)
+def send_reminders(
+    db: Session = Depends(get_db),
+):
+    now = datetime.now(
+        ZoneInfo("America/New_York")
+    ).replace(tzinfo=None)
 
-window_start = now
-window_end = now + timedelta(hours=24)
+    # TEMPORARY TEST WINDOW:
+    # Send reminders for any confirmed appointment
+    # occurring within the next 24 hours.
+    window_start = now
+    window_end = now + timedelta(hours=24)
 
     appointments = (
         db.query(Appointment)
@@ -167,13 +201,19 @@ window_end = now + timedelta(hours=24)
     reminders_sent = 0
 
     for appointment in appointments:
-        barber = db.query(Barber).filter(Barber.id == appointment.barber_id).first()
+        barber = (
+            db.query(Barber)
+            .filter(
+                Barber.id == appointment.barber_id
+            )
+            .first()
+        )
 
         reminder_message = (
             "Reminder: You have an appointment with "
             f"{barber.name if barber else 'your barber'} "
-            "today at "
-            f"{appointment.start_datetime.strftime('%I:%M %p')}. "
+            "at "
+            f"{appointment.start_datetime.strftime('%I:%M %p').lstrip('0')}. "
             "Reply STOP to unsubscribe."
         )
 
@@ -203,18 +243,32 @@ def test_highlevel_location():
     if not api_token or not location_id:
         return {
             "success": False,
-            "error": "Missing HIGHLEVEL_API_TOKEN or HIGHLEVEL_LOCATION_ID",
+            "error": (
+                "Missing HIGHLEVEL_API_TOKEN "
+                "or HIGHLEVEL_LOCATION_ID"
+            ),
         }
 
     location_req = request.Request(
-        f"https://services.leadconnectorhq.com/locations/{location_id}",
-        headers=highlevel_headers(api_token, location_id),
+        (
+            "https://services.leadconnectorhq.com/"
+            f"locations/{location_id}"
+        ),
+        headers=highlevel_headers(
+            api_token,
+            location_id,
+        ),
         method="GET",
     )
 
     try:
-        with request.urlopen(location_req, timeout=10) as response:
-            return json.loads(response.read().decode("utf-8"))
+        with request.urlopen(
+            location_req,
+            timeout=10,
+        ) as response:
+            return json.loads(
+                response.read().decode("utf-8")
+            )
 
     except Exception as caught_error:
         return {
