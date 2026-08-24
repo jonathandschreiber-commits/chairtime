@@ -1,7 +1,7 @@
-import os
 import json
+import os
 from datetime import datetime, timedelta
-from urllib import request, error
+from urllib import error, request
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, Response
@@ -12,6 +12,9 @@ from app.models import Appointment, Barber
 
 
 router = APIRouter()
+
+
+TIMEZONE = "America/New_York"
 
 
 def highlevel_headers(api_token: str, location_id: str):
@@ -64,7 +67,10 @@ def send_highlevel_sms(phone: str, message: str):
     contact_req = request.Request(
         "https://services.leadconnectorhq.com/contacts/",
         data=json.dumps(contact_payload).encode("utf-8"),
-        headers=highlevel_headers(api_token, location_id),
+        headers=highlevel_headers(
+            api_token,
+            location_id,
+        ),
         method="POST",
     )
 
@@ -83,15 +89,21 @@ def send_highlevel_sms(phone: str, message: str):
         )
 
     except error.HTTPError as http_error:
-        error_body_text = http_error.read().decode("utf-8")
+        error_body_text = (
+            http_error.read().decode("utf-8")
+        )
 
         try:
-            error_body = json.loads(error_body_text)
+            error_body = json.loads(
+                error_body_text
+            )
         except Exception:
             error_body = {}
 
         contact_id = (
-            error_body.get("meta", {}).get("contactId")
+            error_body
+            .get("meta", {})
+            .get("contactId")
         )
 
         if not contact_id:
@@ -125,7 +137,10 @@ def send_highlevel_sms(phone: str, message: str):
     message_req = request.Request(
         "https://services.leadconnectorhq.com/conversations/messages",
         data=json.dumps(message_payload).encode("utf-8"),
-        headers=highlevel_headers(api_token, location_id),
+        headers=highlevel_headers(
+            api_token,
+            location_id,
+        ),
         method="POST",
     )
 
@@ -134,7 +149,9 @@ def send_highlevel_sms(phone: str, message: str):
             message_req,
             timeout=10,
         ) as response:
-            message_data = response.read().decode("utf-8")
+            message_data = (
+                response.read().decode("utf-8")
+            )
 
         return {
             "success": True,
@@ -149,7 +166,9 @@ def send_highlevel_sms(phone: str, message: str):
             "step": "message",
             "contact_id": contact_id,
             "status": http_error.code,
-            "error": http_error.read().decode("utf-8"),
+            "error": (
+                http_error.read().decode("utf-8")
+            ),
         }
 
     except Exception as general_error:
@@ -161,16 +180,67 @@ def send_highlevel_sms(phone: str, message: str):
         }
 
 
+def format_appointment_time(
+    appointment_datetime: datetime,
+):
+    return (
+        appointment_datetime
+        .strftime("%I:%M %p")
+        .lstrip("0")
+    )
+
+
+def build_reminder_message(
+    appointment: Appointment,
+    barber: Barber | None,
+    now: datetime,
+):
+    barber_name = (
+        barber.name
+        if barber
+        else "your barber"
+    )
+
+    appointment_time = format_appointment_time(
+        appointment.start_datetime
+    )
+
+    if appointment.start_datetime.date() == now.date():
+        day_text = "today"
+    elif (
+        appointment.start_datetime.date()
+        == (now + timedelta(days=1)).date()
+    ):
+        day_text = "tomorrow"
+    else:
+        day_text = (
+            appointment.start_datetime
+            .strftime("%A, %B %d")
+            .replace(" 0", " ")
+        )
+
+    return (
+        "Reminder: You have an appointment with "
+        f"{barber_name} "
+        f"{day_text} at {appointment_time}. "
+        "Reply STOP to unsubscribe."
+    )
+
+
 @router.head("/send-reminders")
 def send_reminders_head():
-    return Response(status_code=200)
+    return Response(
+        status_code=200
+    )
 
 
 @router.get("/send-reminders")
 def send_reminders_get(
     db: Session = Depends(get_db),
 ):
-    return send_reminders(db)
+    return send_reminders(
+        db
+    )
 
 
 @router.post("/send-reminders")
@@ -178,14 +248,29 @@ def send_reminders(
     db: Session = Depends(get_db),
 ):
     now = datetime.now(
-        ZoneInfo("America/New_York")
-    ).replace(tzinfo=None)
+        ZoneInfo(TIMEZONE)
+    ).replace(
+        tzinfo=None
+    )
 
-    # TEMPORARY TEST WINDOW:
-    # Send reminders for any confirmed appointment
-    # occurring within the next 24 hours.
-    window_start = now
-    window_end = now + timedelta(hours=24)
+    #
+    # PRODUCTION REMINDER WINDOW
+    #
+    # Appointments between 3 and 4 hours away
+    # are eligible for a reminder.
+    #
+    # reminder_sent prevents duplicate texts if
+    # this endpoint runs more than once.
+    #
+    window_start = (
+        now
+        + timedelta(hours=3)
+    )
+
+    window_end = (
+        now
+        + timedelta(hours=4)
+    )
 
     appointments = (
         db.query(Appointment)
@@ -199,22 +284,22 @@ def send_reminders(
     )
 
     reminders_sent = 0
+    reminders_failed = 0
 
     for appointment in appointments:
         barber = (
             db.query(Barber)
             .filter(
-                Barber.id == appointment.barber_id
+                Barber.id
+                == appointment.barber_id
             )
             .first()
         )
 
-        reminder_message = (
-            "Reminder: You have an appointment with "
-            f"{barber.name if barber else 'your barber'} "
-            "at "
-            f"{appointment.start_datetime.strftime('%I:%M %p').lstrip('0')}. "
-            "Reply STOP to unsubscribe."
+        reminder_message = build_reminder_message(
+            appointment=appointment,
+            barber=barber,
+            now=now,
         )
 
         result = send_highlevel_sms(
@@ -224,21 +309,38 @@ def send_reminders(
 
         if result.get("success"):
             appointment.reminder_sent = True
-            appointment.reminder_sent_at = datetime.utcnow()
+            appointment.reminder_sent_at = (
+                datetime.utcnow()
+            )
+
             reminders_sent += 1
+
+        else:
+            reminders_failed += 1
 
     db.commit()
 
     return {
         "success": True,
+        "appointments_found": len(
+            appointments
+        ),
         "reminders_sent": reminders_sent,
+        "reminders_failed": reminders_failed,
+        "window_start": window_start.isoformat(),
+        "window_end": window_end.isoformat(),
     }
 
 
 @router.get("/test-highlevel-location")
 def test_highlevel_location():
-    api_token = os.getenv("HIGHLEVEL_API_TOKEN")
-    location_id = os.getenv("HIGHLEVEL_LOCATION_ID")
+    api_token = os.getenv(
+        "HIGHLEVEL_API_TOKEN"
+    )
+
+    location_id = os.getenv(
+        "HIGHLEVEL_LOCATION_ID"
+    )
 
     if not api_token or not location_id:
         return {
@@ -278,10 +380,13 @@ def test_highlevel_location():
 
 
 @router.get("/test-highlevel-sms")
-def test_highlevel_sms(phone: str):
-    result = send_highlevel_sms(
+def test_highlevel_sms(
+    phone: str,
+):
+    return send_highlevel_sms(
         phone,
-        "ChairTime test message. Reply STOP to unsubscribe.",
+        (
+            "ChairTime test message. "
+            "Reply STOP to unsubscribe."
+        ),
     )
-
-    return result
