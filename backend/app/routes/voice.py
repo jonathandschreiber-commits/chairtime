@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import Appointment, Barber, Service
+from app.routes.reminders import send_highlevel_sms
 from app.scheduling import generate_available_slots
 
 
@@ -104,7 +105,6 @@ def normalize_staff_name(value: str | None):
 
     cleaned = cleaned.lower()
 
-    # Remove punctuation while retaining letters and numbers.
     cleaned = re.sub(
         r"[^a-z0-9\s]",
         " ",
@@ -113,14 +113,12 @@ def normalize_staff_name(value: str | None):
 
     cleaned = " ".join(cleaned.split())
 
-    # Common speech-to-text interpretation of "barber".
     if cleaned.startswith("barbara "):
         cleaned = "barber " + cleaned[len("barbara "):]
 
     if cleaned == "barbara":
         cleaned = "barber"
 
-    # "Barber number one" -> "Barber one"
     cleaned = re.sub(
         r"\bnumber\s+",
         "",
@@ -140,11 +138,6 @@ def normalize_staff_name(value: str | None):
 
     cleaned = " ".join(normalized_words)
 
-    # HighLevel may occasionally produce things such as:
-    # "Barber One O O N E".
-    #
-    # If we already obtained a numeric staff identifier, trailing
-    # individually-spelled letters are not useful for matching.
     words = cleaned.split()
 
     number_index = None
@@ -248,7 +241,6 @@ def resolve_barber_from_roster(
             detail="No barbers are configured for this shop",
         )
 
-    # First preference: literal exact match.
     exact_barber = (
         db.query(Barber)
         .filter(
@@ -269,7 +261,6 @@ def resolve_barber_from_roster(
             detail=f"Barber '{spoken_name}' not found",
         )
 
-    # Second preference: exact normalized match.
     normalized_matches = []
 
     for barber in barbers:
@@ -299,7 +290,6 @@ def resolve_barber_from_roster(
             },
         )
 
-    # Third preference: compare the transcription against real roster names.
     scored_matches = []
 
     for barber in barbers:
@@ -341,11 +331,7 @@ def resolve_barber_from_roster(
         else 0.0
     )
 
-    # Do not guess unless the similarity is strong.
     minimum_score = 0.78
-
-    # If two employees are nearly tied, ask the caller rather than
-    # choosing the wrong person.
     minimum_margin = 0.10
 
     if best_score < minimum_score:
@@ -486,6 +472,34 @@ def parse_start_time(
             "Invalid start_time. Use a time such as "
             "'13:30' or '1:30 PM'."
         ),
+    )
+
+
+def build_confirmation_message(
+    service_name: str,
+    barber_name: str,
+    start_datetime: datetime,
+):
+    """
+    Build the immediate SMS sent after a successful booking.
+    """
+
+    date_text = start_datetime.strftime(
+        "%A, %B %d"
+    ).replace(
+        " 0",
+        " ",
+    )
+
+    time_text = start_datetime.strftime(
+        "%I:%M %p"
+    ).lstrip("0")
+
+    return (
+        f"Joe's Barbershop: Your {service_name.lower()} with "
+        f"{barber_name} is confirmed for {date_text} at {time_text}. "
+        "You'll receive a reminder before your appointment. "
+        "Reply STOP to unsubscribe."
     )
 
 
@@ -705,6 +719,42 @@ def voice_book_appointment(
             detail="The appointment could not be created",
         )
 
+    #
+    # The appointment has already been committed successfully.
+    # SMS failure must never undo or invalidate the booking.
+    #
+
+    confirmation_message = build_confirmation_message(
+        service_name=service.name,
+        barber_name=barber.name,
+        start_datetime=appointment.start_datetime,
+    )
+
+    confirmation_sms_sent = False
+    confirmation_sms_error = None
+
+    try:
+        sms_result = send_highlevel_sms(
+            appointment.customer_phone,
+            confirmation_message,
+        )
+
+        confirmation_sms_sent = bool(
+            sms_result.get("success")
+        )
+
+        if not confirmation_sms_sent:
+            confirmation_sms_error = (
+                sms_result.get("error")
+                or "Confirmation SMS could not be sent"
+            )
+
+    except Exception as sms_error:
+        confirmation_sms_sent = False
+        confirmation_sms_error = str(
+            sms_error
+        )
+
     return {
         "success": True,
         "message": "Appointment successfully created",
@@ -721,5 +771,8 @@ def voice_book_appointment(
             appointment.end_datetime.isoformat()
         ),
         "status": appointment.status,
+        "confirmation_sms_sent": confirmation_sms_sent,
+        "confirmation_sms_error": confirmation_sms_error,
+        "reminder_scheduled": True,
         "reminder_sent": appointment.reminder_sent,
     }
