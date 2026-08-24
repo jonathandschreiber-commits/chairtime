@@ -1,4 +1,5 @@
 from datetime import date, datetime, timedelta
+import re
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -27,6 +28,67 @@ class VoiceBookingRequest(BaseModel):
     customer_name: str
     customer_phone: str
     barber_name: str | None = None
+
+
+NUMBER_WORDS = {
+    "zero": "0",
+    "one": "1",
+    "two": "2",
+    "three": "3",
+    "four": "4",
+    "five": "5",
+    "six": "6",
+    "seven": "7",
+    "eight": "8",
+    "nine": "9",
+    "ten": "10",
+    "eleven": "11",
+    "twelve": "12",
+    "thirteen": "13",
+    "fourteen": "14",
+    "fifteen": "15",
+    "sixteen": "16",
+    "seventeen": "17",
+    "eighteen": "18",
+    "nineteen": "19",
+    "twenty": "20",
+}
+
+
+def normalize_spoken_barber_name(barber_name: str | None):
+    """
+    Normalize natural speech versions of staff names.
+
+    Examples:
+    "Barber One" -> "Barber 1"
+    "barber two" -> "barber 2"
+    "Barber number three" -> "Barber 3"
+    """
+
+    if not barber_name:
+        return None
+
+    cleaned = " ".join(barber_name.strip().split())
+
+    if not cleaned:
+        return None
+
+    cleaned = re.sub(
+        r"\bnumber\s+(?=(zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty)\b)",
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+
+    for word, digit in NUMBER_WORDS.items():
+        cleaned = re.sub(
+            rf"\b{word}\b",
+            digit,
+            cleaned,
+            flags=re.IGNORECASE,
+        )
+
+    return " ".join(cleaned.split())
 
 
 def clean_barber_name(barber_name: str | None):
@@ -59,11 +121,13 @@ def find_service(
     shop_slug: str,
     service_name: str,
 ):
+    cleaned_service_name = service_name.strip()
+
     service = (
         db.query(Service)
         .filter(
             Service.shop_slug == shop_slug,
-            Service.name.ilike(service_name.strip()),
+            Service.name.ilike(cleaned_service_name),
         )
         .first()
     )
@@ -86,6 +150,7 @@ def find_barber(
     cleaned_barber_name = clean_barber_name(barber_name)
 
     if cleaned_barber_name:
+        # First try exactly what the voice system supplied.
         barber = (
             db.query(Barber)
             .filter(
@@ -94,6 +159,23 @@ def find_barber(
             )
             .first()
         )
+
+        # If that fails, normalize spoken numbers:
+        # "Barber One" -> "Barber 1"
+        if not barber:
+            normalized_barber_name = normalize_spoken_barber_name(
+                cleaned_barber_name
+            )
+
+            if normalized_barber_name:
+                barber = (
+                    db.query(Barber)
+                    .filter(
+                        Barber.shop_slug == shop_slug,
+                        Barber.name.ilike(normalized_barber_name),
+                    )
+                    .first()
+                )
 
         if not barber:
             raise HTTPException(
@@ -279,7 +361,9 @@ def voice_book_appointment(
         barber_name=payload.barber_name,
     )
 
-    requested_time = parse_start_time(payload.start_time)
+    requested_time = parse_start_time(
+        payload.start_time
+    )
 
     requested_start = datetime.combine(
         payload.target_date,
