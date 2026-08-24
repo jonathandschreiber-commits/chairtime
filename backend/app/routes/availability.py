@@ -16,10 +16,26 @@ def create_availability_rule(
     payload: AvailabilityCreate,
     db: Session = Depends(get_db),
 ):
+    existing_rule = (
+        db.query(AvailabilityRule)
+        .filter(
+            AvailabilityRule.barber_id == payload.barber_id,
+            AvailabilityRule.weekday == payload.weekday,
+            AvailabilityRule.start_time == payload.start_time,
+            AvailabilityRule.end_time == payload.end_time,
+        )
+        .first()
+    )
+
+    if existing_rule:
+        return existing_rule
+
     rule = AvailabilityRule(**payload.model_dump())
+
     db.add(rule)
     db.commit()
     db.refresh(rule)
+
     return rule
 
 
@@ -33,7 +49,61 @@ def list_availability_rules(
     if shop_slug:
         query = query.filter(AvailabilityRule.shop_slug == shop_slug)
 
-    return query.all()
+    return (
+        query.order_by(
+            AvailabilityRule.barber_id,
+            AvailabilityRule.weekday,
+            AvailabilityRule.start_time,
+        )
+        .all()
+    )
+
+
+@router.post("/availability-rules/remove-duplicates")
+def remove_duplicate_availability_rules(
+    db: Session = Depends(get_db),
+):
+    rules = (
+        db.query(AvailabilityRule)
+        .order_by(
+            AvailabilityRule.barber_id,
+            AvailabilityRule.weekday,
+            AvailabilityRule.start_time,
+            AvailabilityRule.end_time,
+        )
+        .all()
+    )
+
+    seen = set()
+    duplicate_ids = []
+
+    for rule in rules:
+        key = (
+            rule.barber_id,
+            rule.weekday,
+            str(rule.start_time),
+            str(rule.end_time),
+        )
+
+        if key in seen:
+            duplicate_ids.append(rule.id)
+        else:
+            seen.add(key)
+
+    if duplicate_ids:
+        (
+            db.query(AvailabilityRule)
+            .filter(AvailabilityRule.id.in_(duplicate_ids))
+            .delete(synchronize_session=False)
+        )
+
+        db.commit()
+
+    return {
+        "success": True,
+        "duplicates_removed": len(duplicate_ids),
+        "remaining_rules": len(seen),
+    }
 
 
 @router.delete("/availability-rules/{rule_id}")
@@ -79,4 +149,7 @@ def get_availability(
         return {"slots": slots}
 
     except Exception as error:
-        raise HTTPException(status_code=400, detail=str(error))
+        raise HTTPException(
+            status_code=400,
+            detail=str(error),
+        )
