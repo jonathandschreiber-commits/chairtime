@@ -52,6 +52,15 @@ class BarberUpdate(BaseModel):
     timezone: Optional[str] = None
 
 
+class ServiceCatalogCreate(BaseModel):
+    shop_slug: str
+    name: str
+
+
+class ServiceCatalogUpdate(BaseModel):
+    name: str
+
+
 class ServiceCreate(BaseModel):
     shop_slug: Optional[str] = None
     barber_id: Optional[str] = None
