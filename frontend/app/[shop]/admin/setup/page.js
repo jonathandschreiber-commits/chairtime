@@ -30,8 +30,19 @@ export default function SetupPage() {
   const shopSlug = params.shop;
 
   const [barbers, setBarbers] = useState([]);
+  const [services, setServices] = useState([]);
   const [blockedTimes, setBlockedTimes] = useState([]);
   const [availabilityRules, setAvailabilityRules] = useState([]);
+
+  const [serviceBarberId, setServiceBarberId] = useState("");
+  const [serviceName, setServiceName] = useState("");
+  const [serviceDuration, setServiceDuration] = useState("30");
+  const [servicePrice, setServicePrice] = useState("");
+
+  const [editingServiceId, setEditingServiceId] = useState("");
+  const [editedServiceName, setEditedServiceName] = useState("");
+  const [editedServiceDuration, setEditedServiceDuration] = useState("");
+  const [editedServicePrice, setEditedServicePrice] = useState("");
 
   const [availabilityBarberId, setAvailabilityBarberId] = useState("");
   const [availabilityDay, setAvailabilityDay] = useState("Monday");
@@ -42,6 +53,7 @@ export default function SetupPage() {
   const [blockReason, setBlockReason] = useState("Lunch");
   const [blockStart, setBlockStart] = useState("");
   const [blockEnd, setBlockEnd] = useState("");
+
   const [fullDayDate, setFullDayDate] = useState(
     new Date().toISOString().slice(0, 10)
   );
@@ -49,23 +61,49 @@ export default function SetupPage() {
   const [message, setMessage] = useState("");
 
   async function loadData() {
+    if (!shopSlug) return;
+
     const query = "?shop_slug=" + encodeURIComponent(shopSlug);
 
-    const [barbersRes, blockedRes, availabilityRes] = await Promise.all([
-      fetch(`${API_BASE}/api/barbers${query}`),
-      fetch(`${API_BASE}/api/blocked-times${query}`),
-      fetch(`${API_BASE}/api/availability-rules${query}`),
-    ]);
+    try {
+      const [
+        barbersRes,
+        servicesRes,
+        blockedRes,
+        availabilityRes,
+      ] = await Promise.all([
+        fetch(`${API_BASE}/api/barbers${query}`),
+        fetch(`${API_BASE}/api/services${query}`),
+        fetch(`${API_BASE}/api/blocked-times${query}`),
+        fetch(`${API_BASE}/api/availability-rules${query}`),
+      ]);
 
-    const barbersData = await barbersRes.json();
+      const barbersData = await barbersRes.json();
+      const servicesData = await servicesRes.json();
+      const blockedData = await blockedRes.json();
+      const availabilityData = await availabilityRes.json();
 
-    setBarbers(barbersData);
-    setBlockedTimes(await blockedRes.json());
-    setAvailabilityRules(await availabilityRes.json());
+      setBarbers(barbersData);
+      setServices(servicesData);
+      setBlockedTimes(blockedData);
+      setAvailabilityRules(availabilityData);
 
-    if (barbersData.length > 0) {
-      if (!availabilityBarberId) setAvailabilityBarberId(barbersData[0].id);
-      if (!blockBarberId) setBlockBarberId(barbersData[0].id);
+      if (barbersData.length > 0) {
+        setServiceBarberId(
+          (current) => current || barbersData[0].id
+        );
+
+        setAvailabilityBarberId(
+          (current) => current || barbersData[0].id
+        );
+
+        setBlockBarberId(
+          (current) => current || barbersData[0].id
+        );
+      }
+    } catch (error) {
+      console.error(error);
+      setMessage("Could not load shop setup.");
     }
   }
 
@@ -77,7 +115,7 @@ export default function SetupPage() {
 
   function formatTime(value) {
     if (!value) return "";
-    return value.toString().slice(0, 5);
+    return String(value).slice(0, 5);
   }
 
   function isFullDay(block) {
@@ -87,103 +125,374 @@ export default function SetupPage() {
     );
   }
 
-  async function addAvailabilityRule() {
-    await fetch(`${API_BASE}/api/availability-rules`, {
+  async function addService() {
+    const cleanName = serviceName.trim();
+    const duration = Number(serviceDuration);
+    const price = Number(servicePrice);
+
+    if (!serviceBarberId) {
+      setMessage("Choose a staff member.");
+      return;
+    }
+
+    if (!cleanName) {
+      setMessage("Enter a service name.");
+      return;
+    }
+
+    if (!duration || duration <= 0) {
+      setMessage("Enter a valid duration.");
+      return;
+    }
+
+    if (
+      servicePrice === "" ||
+      Number.isNaN(price) ||
+      price < 0
+    ) {
+      setMessage("Enter a valid price.");
+      return;
+    }
+
+    const response = await fetch(`${API_BASE}/api/services`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify({
         shop_slug: shopSlug,
-        barber_id: availabilityBarberId,
-        weekday: WEEKDAY_MAP[availabilityDay],
-        start_time: `${availabilityStart}:00`,
-        end_time: `${availabilityEnd}:00`,
+        barber_id: serviceBarberId,
+        name: cleanName,
+        duration_minutes: duration,
+        price,
       }),
     });
 
-    setMessage("Weekly availability added.");
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      setMessage(error.detail || "Could not add service.");
+      return;
+    }
+
+    setServiceName("");
+    setServiceDuration("30");
+    setServicePrice("");
+    setMessage("Service added.");
+
+    loadData();
+  }
+
+  function startEditingService(service) {
+    setEditingServiceId(service.id);
+    setEditedServiceName(service.name);
+    setEditedServiceDuration(
+      String(service.duration_minutes)
+    );
+    setEditedServicePrice(String(service.price));
+    setMessage("");
+  }
+
+  function cancelEditingService() {
+    setEditingServiceId("");
+    setEditedServiceName("");
+    setEditedServiceDuration("");
+    setEditedServicePrice("");
+  }
+
+  async function updateService(serviceId) {
+    const cleanName = editedServiceName.trim();
+    const duration = Number(editedServiceDuration);
+    const price = Number(editedServicePrice);
+
+    if (!cleanName) {
+      setMessage("Enter a service name.");
+      return;
+    }
+
+    if (!duration || duration <= 0) {
+      setMessage("Enter a valid duration.");
+      return;
+    }
+
+    if (
+      editedServicePrice === "" ||
+      Number.isNaN(price) ||
+      price < 0
+    ) {
+      setMessage("Enter a valid price.");
+      return;
+    }
+
+    const response = await fetch(
+      `${API_BASE}/api/services/${encodeURIComponent(
+        serviceId
+      )}`,
+      {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: cleanName,
+          duration_minutes: duration,
+          price,
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      setMessage(error.detail || "Could not update service.");
+      return;
+    }
+
+    cancelEditingService();
+    setMessage("Service updated.");
+
+    loadData();
+  }
+
+  async function deleteService(service) {
+    const confirmed = window.confirm(
+      `Delete ${service.name}?`
+    );
+
+    if (!confirmed) return;
+
+    const response = await fetch(
+      `${API_BASE}/api/services/${encodeURIComponent(
+        service.id
+      )}`,
+      {
+        method: "DELETE",
+      }
+    );
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      setMessage(error.detail || "Could not delete service.");
+      return;
+    }
+
+    setMessage("Service deleted.");
+    loadData();
+  }
+
+  async function addAvailabilityRule() {
+    if (!availabilityBarberId) {
+      setMessage("Choose a staff member.");
+      return;
+    }
+
+    if (!availabilityStart || !availabilityEnd) {
+      setMessage("Enter start and end times.");
+      return;
+    }
+
+    if (availabilityStart >= availabilityEnd) {
+      setMessage("End time must be later than start time.");
+      return;
+    }
+
+    const response = await fetch(
+      `${API_BASE}/api/availability-rules`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          shop_slug: shopSlug,
+          barber_id: availabilityBarberId,
+          weekday: WEEKDAY_MAP[availabilityDay],
+          start_time: `${availabilityStart}:00`,
+          end_time: `${availabilityEnd}:00`,
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      setMessage(
+        error.detail || "Could not save availability."
+      );
+      return;
+    }
+
+    setMessage("Weekly availability saved.");
     loadData();
   }
 
   async function deleteAvailabilityRule(id) {
-    await fetch(`${API_BASE}/api/availability-rules/${id}`, {
-      method: "DELETE",
-    });
+    const response = await fetch(
+      `${API_BASE}/api/availability-rules/${encodeURIComponent(
+        id
+      )}`,
+      {
+        method: "DELETE",
+      }
+    );
+
+    if (!response.ok) {
+      setMessage("Could not delete availability.");
+      return;
+    }
 
     setMessage("Weekly availability deleted.");
     loadData();
   }
 
   async function blockTime() {
-    if (!blockBarberId || !blockStart || !blockEnd) return;
+    if (!blockBarberId) {
+      setMessage("Choose a staff member.");
+      return;
+    }
 
-    await fetch(`${API_BASE}/api/blocked-times`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        shop_slug: shopSlug,
-        barber_id: blockBarberId,
-        reason: blockReason,
-        start_datetime: blockStart,
-        end_datetime: blockEnd,
-      }),
-    });
+    if (!blockStart || !blockEnd) {
+      setMessage("Enter the start and end of the blocked time.");
+      return;
+    }
 
-    setMessage("Time blocked.");
+    if (blockStart >= blockEnd) {
+      setMessage("End time must be later than start time.");
+      return;
+    }
+
+    const response = await fetch(
+      `${API_BASE}/api/blocked-times`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          shop_slug: shopSlug,
+          barber_id: blockBarberId,
+          reason: blockReason.trim() || "Blocked",
+          start_datetime: blockStart,
+          end_datetime: blockEnd,
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      setMessage(error.detail || "Could not block time.");
+      return;
+    }
+
+    setBlockReason("Lunch");
     setBlockStart("");
     setBlockEnd("");
+    setMessage("Time blocked.");
+
     loadData();
   }
 
   async function blockFullDay(reason) {
-    if (!blockBarberId || !fullDayDate) return;
+    if (!blockBarberId || !fullDayDate) {
+      setMessage("Choose a staff member and date.");
+      return;
+    }
 
-    await fetch(`${API_BASE}/api/blocked-times`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        shop_slug: shopSlug,
-        barber_id: blockBarberId,
-        reason,
-        start_datetime: `${fullDayDate}T00:00:00`,
-        end_datetime: `${fullDayDate}T23:59:00`,
-      }),
-    });
+    const response = await fetch(
+      `${API_BASE}/api/blocked-times`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          shop_slug: shopSlug,
+          barber_id: blockBarberId,
+          reason,
+          start_datetime: `${fullDayDate}T00:00:00`,
+          end_datetime: `${fullDayDate}T23:59:00`,
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      setMessage(
+        error.detail || "Could not block full day."
+      );
+      return;
+    }
 
     setMessage(`${reason} full day blocked.`);
     loadData();
   }
 
   async function deleteBlockedTime(id) {
-    await fetch(`${API_BASE}/api/blocked-times/${id}`, {
-      method: "DELETE",
-    });
+    const response = await fetch(
+      `${API_BASE}/api/blocked-times/${encodeURIComponent(
+        id
+      )}`,
+      {
+        method: "DELETE",
+      }
+    );
+
+    if (!response.ok) {
+      setMessage("Could not remove blocked time.");
+      return;
+    }
 
     setMessage("Blocked time removed.");
     loadData();
   }
 
-  const sortedAvailabilityRules = useMemo(() => {
-    return [...availabilityRules].sort((a, b) => {
-      if (a.weekday !== b.weekday) return a.weekday - b.weekday;
-      return a.start_time.localeCompare(b.start_time);
-    });
-  }, [availabilityRules]);
+  const selectedBarberServices = useMemo(() => {
+    return services
+      .filter(
+        (service) =>
+          service.barber_id === serviceBarberId
+      )
+      .sort((a, b) =>
+        String(a.name).localeCompare(String(b.name))
+      );
+  }, [services, serviceBarberId]);
 
-  const upcomingBlockedTimes = useMemo(() => {
+  const selectedBarberAvailability = useMemo(() => {
+    return availabilityRules
+      .filter(
+        (rule) =>
+          rule.barber_id === availabilityBarberId
+      )
+      .sort((a, b) => {
+        if (a.weekday !== b.weekday) {
+          return a.weekday - b.weekday;
+        }
+
+        return String(a.start_time).localeCompare(
+          String(b.start_time)
+        );
+      });
+  }, [availabilityRules, availabilityBarberId]);
+
+  const selectedBarberBlockedTimes = useMemo(() => {
     const now = new Date();
 
-    return [...blockedTimes]
-      .filter((block) => new Date(block.end_datetime) >= now)
+    return blockedTimes
+      .filter(
+        (block) =>
+          block.barber_id === blockBarberId &&
+          new Date(block.end_datetime) >= now
+      )
       .sort(
         (a, b) =>
-          new Date(a.start_datetime) - new Date(b.start_datetime)
+          new Date(a.start_datetime) -
+          new Date(b.start_datetime)
       );
-  }, [blockedTimes]);
+  }, [blockedTimes, blockBarberId]);
 
   return (
     <main className="min-h-screen bg-gray-100 p-6">
       <div className="max-w-5xl mx-auto space-y-6">
-        <h1 className="text-4xl font-bold">{shopSlug} Shop Setup</h1>
+        <h1 className="text-4xl font-bold">
+          {shopSlug} Shop Setup
+        </h1>
 
         {message && (
           <div className="bg-green-100 p-3 rounded-xl font-bold">
@@ -192,15 +501,197 @@ export default function SetupPage() {
         )}
 
         <div className="bg-white p-6 rounded-2xl shadow space-y-4">
-          <h2 className="text-2xl font-bold">Weekly Availability</h2>
+          <h2 className="text-2xl font-bold">
+            Services
+          </h2>
 
           <select
-            value={availabilityBarberId}
-            onChange={(e) => setAvailabilityBarberId(e.target.value)}
+            value={serviceBarberId}
+            onChange={(event) => {
+              setServiceBarberId(event.target.value);
+              cancelEditingService();
+            }}
             className="border p-3 rounded w-full"
           >
             {barbers.map((barber) => (
-              <option key={barber.id} value={barber.id}>
+              <option
+                key={barber.id}
+                value={barber.id}
+              >
+                {barber.name}
+              </option>
+            ))}
+          </select>
+
+          <input
+            type="text"
+            placeholder="Service name"
+            value={serviceName}
+            onChange={(event) =>
+              setServiceName(event.target.value)
+            }
+            className="border p-3 rounded w-full"
+          />
+
+          <input
+            type="number"
+            min="1"
+            placeholder="Duration in minutes"
+            value={serviceDuration}
+            onChange={(event) =>
+              setServiceDuration(event.target.value)
+            }
+            className="border p-3 rounded w-full"
+          />
+
+          <input
+            type="number"
+            min="0"
+            step="0.01"
+            placeholder="Price"
+            value={servicePrice}
+            onChange={(event) =>
+              setServicePrice(event.target.value)
+            }
+            className="border p-3 rounded w-full"
+          />
+
+          <button
+            onClick={addService}
+            className="bg-black text-white px-4 py-3 rounded-xl font-bold"
+          >
+            Add Service
+          </button>
+
+          <div className="space-y-2">
+            {selectedBarberServices.length === 0 ? (
+              <p className="text-gray-500">
+                No services for this staff member.
+              </p>
+            ) : (
+              selectedBarberServices.map((service) => (
+                <div
+                  key={service.id}
+                  className="border rounded-xl p-4"
+                >
+                  {editingServiceId === service.id ? (
+                    <div className="space-y-3">
+                      <input
+                        type="text"
+                        value={editedServiceName}
+                        onChange={(event) =>
+                          setEditedServiceName(
+                            event.target.value
+                          )
+                        }
+                        className="border p-3 rounded w-full"
+                        placeholder="Service name"
+                      />
+
+                      <input
+                        type="number"
+                        min="1"
+                        value={editedServiceDuration}
+                        onChange={(event) =>
+                          setEditedServiceDuration(
+                            event.target.value
+                          )
+                        }
+                        className="border p-3 rounded w-full"
+                        placeholder="Duration in minutes"
+                      />
+
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={editedServicePrice}
+                        onChange={(event) =>
+                          setEditedServicePrice(
+                            event.target.value
+                          )
+                        }
+                        className="border p-3 rounded w-full"
+                        placeholder="Price"
+                      />
+
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() =>
+                            updateService(service.id)
+                          }
+                          className="bg-black text-white px-4 py-2 rounded-xl"
+                        >
+                          Save
+                        </button>
+
+                        <button
+                          onClick={cancelEditingService}
+                          className="bg-gray-200 px-4 py-2 rounded-xl"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex justify-between items-center gap-4">
+                      <div>
+                        <p className="font-bold">
+                          {service.name}
+                        </p>
+
+                        <p className="text-sm text-gray-600">
+                          {service.duration_minutes} minutes · $
+                          {Number(service.price).toFixed(2)}
+                        </p>
+                      </div>
+
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() =>
+                            startEditingService(service)
+                          }
+                          className="bg-black text-white px-3 py-2 rounded"
+                        >
+                          Edit
+                        </button>
+
+                        <button
+                          onClick={() =>
+                            deleteService(service)
+                          }
+                          className="bg-red-500 text-white px-3 py-2 rounded"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        <div className="bg-white p-6 rounded-2xl shadow space-y-4">
+          <h2 className="text-2xl font-bold">
+            Weekly Availability
+          </h2>
+
+          <select
+            value={availabilityBarberId}
+            onChange={(event) =>
+              setAvailabilityBarberId(
+                event.target.value
+              )
+            }
+            className="border p-3 rounded w-full"
+          >
+            {barbers.map((barber) => (
+              <option
+                key={barber.id}
+                value={barber.id}
+              >
                 {barber.name}
               </option>
             ))}
@@ -208,25 +699,33 @@ export default function SetupPage() {
 
           <select
             value={availabilityDay}
-            onChange={(e) => setAvailabilityDay(e.target.value)}
+            onChange={(event) =>
+              setAvailabilityDay(event.target.value)
+            }
             className="border p-3 rounded w-full"
           >
             {Object.keys(WEEKDAY_MAP).map((day) => (
-              <option key={day}>{day}</option>
+              <option key={day} value={day}>
+                {day}
+              </option>
             ))}
           </select>
 
           <input
             type="time"
             value={availabilityStart}
-            onChange={(e) => setAvailabilityStart(e.target.value)}
+            onChange={(event) =>
+              setAvailabilityStart(event.target.value)
+            }
             className="border p-3 rounded w-full"
           />
 
           <input
             type="time"
             value={availabilityEnd}
-            onChange={(e) => setAvailabilityEnd(e.target.value)}
+            onChange={(event) =>
+              setAvailabilityEnd(event.target.value)
+            }
             className="border p-3 rounded w-full"
           />
 
@@ -237,47 +736,83 @@ export default function SetupPage() {
             Save Availability
           </button>
 
-          {sortedAvailabilityRules.map((rule) => (
-            <div
-              key={rule.id}
-              className="border rounded-xl p-3 flex justify-between"
-            >
-              <div>
-                {WEEKDAY_NAMES[rule.weekday]} ·{" "}
-                {formatTime(rule.start_time)} -{" "}
-                {formatTime(rule.end_time)}
-              </div>
+          <div className="space-y-2">
+            {selectedBarberAvailability.length === 0 ? (
+              <p className="text-gray-500">
+                No weekly availability for this staff member.
+              </p>
+            ) : (
+              selectedBarberAvailability.map((rule) => (
+                <div
+                  key={rule.id}
+                  className="border rounded-xl p-3 flex justify-between items-center"
+                >
+                  <div>
+                    {WEEKDAY_NAMES[rule.weekday]} ·{" "}
+                    {formatTime(rule.start_time)} -{" "}
+                    {formatTime(rule.end_time)}
+                  </div>
 
-              <button
-                onClick={() => deleteAvailabilityRule(rule.id)}
-                className="bg-red-500 text-white px-3 py-1 rounded"
-              >
-                Delete
-              </button>
-            </div>
-          ))}
+                  <button
+                    onClick={() =>
+                      deleteAvailabilityRule(rule.id)
+                    }
+                    className="bg-red-500 text-white px-3 py-1 rounded"
+                  >
+                    Delete
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
         </div>
 
         <div className="bg-white p-6 rounded-2xl shadow space-y-4">
-          <h2 className="text-2xl font-bold">Quick Block Time</h2>
+          <h2 className="text-2xl font-bold">
+            Quick Block Time
+          </h2>
+
+          <select
+            value={blockBarberId}
+            onChange={(event) =>
+              setBlockBarberId(event.target.value)
+            }
+            className="border p-3 rounded w-full"
+          >
+            {barbers.map((barber) => (
+              <option
+                key={barber.id}
+                value={barber.id}
+              >
+                {barber.name}
+              </option>
+            ))}
+          </select>
 
           <input
             value={blockReason}
-            onChange={(e) => setBlockReason(e.target.value)}
+            onChange={(event) =>
+              setBlockReason(event.target.value)
+            }
+            placeholder="Reason"
             className="border p-3 rounded w-full"
           />
 
           <input
             type="datetime-local"
             value={blockStart}
-            onChange={(e) => setBlockStart(e.target.value)}
+            onChange={(event) =>
+              setBlockStart(event.target.value)
+            }
             className="border p-3 rounded w-full"
           />
 
           <input
             type="datetime-local"
             value={blockEnd}
-            onChange={(e) => setBlockEnd(e.target.value)}
+            onChange={(event) =>
+              setBlockEnd(event.target.value)
+            }
             className="border p-3 rounded w-full"
           />
 
@@ -290,52 +825,98 @@ export default function SetupPage() {
         </div>
 
         <div className="bg-white p-6 rounded-2xl shadow space-y-4">
-          <h2 className="text-2xl font-bold">Full Day Block</h2>
+          <h2 className="text-2xl font-bold">
+            Full Day Block
+          </h2>
+
+          <select
+            value={blockBarberId}
+            onChange={(event) =>
+              setBlockBarberId(event.target.value)
+            }
+            className="border p-3 rounded w-full"
+          >
+            {barbers.map((barber) => (
+              <option
+                key={barber.id}
+                value={barber.id}
+              >
+                {barber.name}
+              </option>
+            ))}
+          </select>
 
           <input
             type="date"
             value={fullDayDate}
-            onChange={(e) => setFullDayDate(e.target.value)}
+            onChange={(event) =>
+              setFullDayDate(event.target.value)
+            }
             className="border p-3 rounded w-full"
           />
 
           <div className="flex gap-3">
             <button
-              onClick={() => blockFullDay("Vacation")}
+              onClick={() =>
+                blockFullDay("Vacation")
+              }
               className="bg-black text-white px-4 py-3 rounded-xl"
             >
               Vacation
             </button>
 
             <button
-              onClick={() => blockFullDay("Closed")}
+              onClick={() =>
+                blockFullDay("Closed")
+              }
               className="bg-red-600 text-white px-4 py-3 rounded-xl"
             >
               Closed
             </button>
           </div>
 
-          {upcomingBlockedTimes.map((block) => (
-            <div
-              key={block.id}
-              className="border rounded-xl p-3 flex justify-between"
-            >
-              <div>
-                {block.reason} ·{" "}
-                {isFullDay(block)
-                  ? new Date(block.start_datetime).toLocaleDateString()
-                  : new Date(block.start_datetime).toLocaleString()}
-              </div>
+          <div className="space-y-2">
+            {selectedBarberBlockedTimes.length === 0 ? (
+              <p className="text-gray-500">
+                No upcoming blocked times for this staff member.
+              </p>
+            ) : (
+              selectedBarberBlockedTimes.map((block) => (
+                <div
+                  key={block.id}
+                  className="border rounded-xl p-3 flex justify-between items-center"
+                >
+                  <div>
+                    {block.reason} ·{" "}
+                    {isFullDay(block)
+                      ? new Date(
+                          block.start_datetime
+                        ).toLocaleDateString()
+                      : new Date(
+                          block.start_datetime
+                        ).toLocaleString()}
+                  </div>
 
-              <button
-                onClick={() => deleteBlockedTime(block.id)}
-                className="bg-red-500 text-white px-3 py-1 rounded"
-              >
-                Delete
-              </button>
-            </div>
-          ))}
+                  <button
+                    onClick={() =>
+                      deleteBlockedTime(block.id)
+                    }
+                    className="bg-red-500 text-white px-3 py-1 rounded"
+                  >
+                    Delete
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
         </div>
+
+        <a
+          href={`/${shopSlug}/admin`}
+          className="inline-block font-bold underline"
+        >
+          Back to Admin
+        </a>
       </div>
     </main>
   );
