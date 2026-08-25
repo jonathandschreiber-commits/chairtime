@@ -20,7 +20,8 @@ export default function StaffServicesPage() {
   const [editingServiceId, setEditingServiceId] = useState("");
   const [editedServiceName, setEditedServiceName] = useState("");
 
-  const [message, setMessage] = useState("");
+  const [staffMessage, setStaffMessage] = useState("");
+  const [serviceMessage, setServiceMessage] = useState("");
 
   async function loadData() {
     if (!shopSlug) return;
@@ -39,20 +40,17 @@ export default function StaffServicesPage() {
     ]);
 
     if (!barbersResponse.ok) {
-      setMessage("Could not load staff.");
+      setStaffMessage("Could not load staff.");
       return;
     }
 
     if (!servicesResponse.ok) {
-      setMessage("Could not load services.");
+      setServiceMessage("Could not load services.");
       return;
     }
 
-    const barbersData = await barbersResponse.json();
-    const servicesData = await servicesResponse.json();
-
-    setBarbers(barbersData);
-    setServices(servicesData);
+    setBarbers(await barbersResponse.json());
+    setServices(await servicesResponse.json());
   }
 
   useEffect(() => {
@@ -63,7 +61,7 @@ export default function StaffServicesPage() {
     const cleanName = newBarberName.trim();
 
     if (!cleanName) {
-      setMessage("Enter a staff name.");
+      setStaffMessage("Enter a staff name.");
       return;
     }
 
@@ -87,21 +85,23 @@ export default function StaffServicesPage() {
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({}));
-      setMessage(
+
+      setStaffMessage(
         error.detail || "Could not add staff member."
       );
+
       return;
     }
 
     setNewBarberName("");
-    setMessage("Staff member added.");
+    setStaffMessage("Staff member added.");
     loadData();
   }
 
   function startEditingBarber(barber) {
     setEditingBarberId(barber.id);
     setEditedBarberName(barber.name);
-    setMessage("");
+    setStaffMessage("");
   }
 
   function cancelEditingBarber() {
@@ -113,7 +113,7 @@ export default function StaffServicesPage() {
     const cleanName = editedBarberName.trim();
 
     if (!cleanName) {
-      setMessage("Enter a staff name.");
+      setStaffMessage("Enter a staff name.");
       return;
     }
 
@@ -132,14 +132,16 @@ export default function StaffServicesPage() {
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({}));
-      setMessage(
+
+      setStaffMessage(
         error.detail || "Could not update staff member."
       );
+
       return;
     }
 
     cancelEditingBarber();
-    setMessage("Staff member updated.");
+    setStaffMessage("Staff member updated.");
     loadData();
   }
 
@@ -161,13 +163,15 @@ export default function StaffServicesPage() {
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({}));
-      setMessage(
+
+      setStaffMessage(
         error.detail || "Could not delete staff member."
       );
+
       return;
     }
 
-    setMessage("Staff member deleted.");
+    setStaffMessage("Staff member deleted.");
     loadData();
   }
 
@@ -175,7 +179,7 @@ export default function StaffServicesPage() {
     const cleanName = newServiceName.trim();
 
     if (!cleanName) {
-      setMessage("Enter a service name.");
+      setServiceMessage("Enter a service name.");
       return;
     }
 
@@ -195,23 +199,25 @@ export default function StaffServicesPage() {
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({}));
-      setMessage(
+
+      setServiceMessage(
         typeof error.detail === "string"
           ? error.detail
           : "Could not add service."
       );
+
       return;
     }
 
     setNewServiceName("");
-    setMessage("Service added.");
+    setServiceMessage("Service added.");
     loadData();
   }
 
   function startEditingService(service) {
     setEditingServiceId(service.id);
     setEditedServiceName(service.name);
-    setMessage("");
+    setServiceMessage("");
   }
 
   function cancelEditingService() {
@@ -223,7 +229,7 @@ export default function StaffServicesPage() {
     const cleanName = editedServiceName.trim();
 
     if (!cleanName) {
-      setMessage("Enter a service name.");
+      setServiceMessage("Enter a service name.");
       return;
     }
 
@@ -244,16 +250,18 @@ export default function StaffServicesPage() {
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({}));
-      setMessage(
+
+      setServiceMessage(
         typeof error.detail === "string"
           ? error.detail
           : "Could not update service."
       );
+
       return;
     }
 
     cancelEditingService();
-    setMessage("Service updated.");
+    setServiceMessage("Service updated.");
     loadData();
   }
 
@@ -276,7 +284,25 @@ export default function StaffServicesPage() {
     if (!response.ok) {
       const error = await response.json().catch(() => ({}));
 
-      setMessage(
+      if (
+        error.detail &&
+        typeof error.detail === "object"
+      ) {
+        const staff =
+          error.detail.assigned_staff || [];
+
+        if (staff.length > 0) {
+          setServiceMessage(
+            `${service.name} is currently assigned to: ${staff.join(
+              ", "
+            )}. Remove those assignments in Shop Setup first.`
+          );
+
+          return;
+        }
+      }
+
+      setServiceMessage(
         typeof error.detail === "string"
           ? error.detail
           : "Could not delete service."
@@ -285,7 +311,7 @@ export default function StaffServicesPage() {
       return;
     }
 
-    setMessage("Service deleted.");
+    setServiceMessage("Service deleted.");
     loadData();
   }
 
@@ -300,12 +326,6 @@ export default function StaffServicesPage() {
           <p className="text-gray-700 mt-2">
             Manage the shop's staff and master service list.
           </p>
-
-          {message && (
-            <div className="mt-4 bg-green-100 p-3 rounded-xl font-bold">
-              {message}
-            </div>
-          )}
         </div>
 
         <div className="bg-white rounded-3xl shadow-lg p-6 border space-y-4">
@@ -313,97 +333,95 @@ export default function StaffServicesPage() {
             Staff
           </h2>
 
-          <div className="space-y-3">
-            <input
-              type="text"
-              value={newBarberName}
-              onChange={(event) =>
-                setNewBarberName(event.target.value)
-              }
-              placeholder="Staff name"
-              className="border p-3 rounded-xl w-full"
-            />
+          {staffMessage && (
+            <div className="bg-green-100 p-3 rounded-xl font-bold">
+              {staffMessage}
+            </div>
+          )}
 
-            <button
-              onClick={addBarber}
-              className="bg-black text-white px-5 py-3 rounded-xl font-bold"
-            >
-              Add Staff Member
-            </button>
-          </div>
+          <input
+            type="text"
+            value={newBarberName}
+            onChange={(event) =>
+              setNewBarberName(event.target.value)
+            }
+            placeholder="Staff name"
+            className="border p-3 rounded-xl w-full"
+          />
+
+          <button
+            onClick={addBarber}
+            className="bg-black text-white px-5 py-3 rounded-xl font-bold"
+          >
+            Add Staff Member
+          </button>
 
           <div className="space-y-3">
-            {barbers.length === 0 ? (
-              <p className="text-gray-500">
-                No staff members found.
-              </p>
-            ) : (
-              barbers.map((barber) => (
-                <div
-                  key={barber.id}
-                  className="border rounded-2xl p-4"
-                >
-                  {editingBarberId === barber.id ? (
-                    <div className="space-y-3">
-                      <input
-                        type="text"
-                        value={editedBarberName}
-                        onChange={(event) =>
-                          setEditedBarberName(
-                            event.target.value
-                          )
+            {barbers.map((barber) => (
+              <div
+                key={barber.id}
+                className="border rounded-2xl p-4"
+              >
+                {editingBarberId === barber.id ? (
+                  <div className="space-y-3">
+                    <input
+                      type="text"
+                      value={editedBarberName}
+                      onChange={(event) =>
+                        setEditedBarberName(
+                          event.target.value
+                        )
+                      }
+                      className="border p-3 rounded-xl w-full"
+                    />
+
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() =>
+                          updateBarber(barber.id)
                         }
-                        className="border p-3 rounded-xl w-full"
-                      />
+                        className="bg-black text-white px-4 py-2 rounded-xl"
+                      >
+                        Save
+                      </button>
 
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() =>
-                            updateBarber(barber.id)
-                          }
-                          className="bg-black text-white px-4 py-2 rounded-xl"
-                        >
-                          Save
-                        </button>
-
-                        <button
-                          onClick={cancelEditingBarber}
-                          className="bg-gray-200 px-4 py-2 rounded-xl"
-                        >
-                          Cancel
-                        </button>
-                      </div>
+                      <button
+                        onClick={cancelEditingBarber}
+                        className="bg-gray-200 px-4 py-2 rounded-xl"
+                      >
+                        Cancel
+                      </button>
                     </div>
-                  ) : (
-                    <div className="flex justify-between items-center gap-4">
-                      <p className="text-xl font-bold">
-                        {barber.name}
-                      </p>
+                  </div>
+                ) : (
+                  <div className="flex justify-between items-center gap-4">
+                    <p className="text-xl font-bold">
+                      {barber.name}
+                    </p>
 
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() =>
-                            startEditingBarber(barber)
-                          }
-                          className="bg-black text-white px-4 py-2 rounded-xl"
-                        >
-                          Edit
-                        </button>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() =>
+                          startEditingBarber(barber)
+                        }
+                        className="bg-black text-white px-4 py-2 rounded-xl"
+                      >
+                        Edit
+                      </button>
 
-                        <button
-                          onClick={() =>
-                            deleteBarber(barber)
-                          }
-                          className="bg-red-600 text-white px-4 py-2 rounded-xl"
-                        >
-                          Delete
-                        </button>
-                      </div>
+                      <button
+                        onClick={() =>
+                          deleteBarber(barber)
+                        }
+                        className="bg-red-600 text-white px-4 py-2 rounded-xl"
+                      >
+                        Delete
+                      </button>
                     </div>
-                  )}
-                </div>
-              ))
-            )}
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
         </div>
 
@@ -413,87 +431,103 @@ export default function StaffServicesPage() {
           </h2>
 
           <p className="text-gray-600">
-            These are the services offered by the shop.
-            Staff members are assigned to them in Shop Setup.
+            Add each service once here. Assign it to individual
+            staff members in Shop Setup.
           </p>
 
-          <div className="space-y-3">
-            <input
-              type="text"
-              value={newServiceName}
-              onChange={(event) =>
-                setNewServiceName(event.target.value)
-              }
-              placeholder="Service name"
-              className="border p-3 rounded-xl w-full"
-            />
+          {serviceMessage && (
+            <div className="bg-green-100 p-3 rounded-xl font-bold">
+              {serviceMessage}
+            </div>
+          )}
 
-            <button
-              onClick={addService}
-              className="bg-black text-white px-5 py-3 rounded-xl font-bold"
-            >
-              Add Service
-            </button>
-          </div>
+          <input
+            type="text"
+            value={newServiceName}
+            onChange={(event) =>
+              setNewServiceName(event.target.value)
+            }
+            placeholder="Service name"
+            className="border p-3 rounded-xl w-full"
+          />
+
+          <button
+            onClick={addService}
+            className="bg-black text-white px-5 py-3 rounded-xl font-bold"
+          >
+            Add Service
+          </button>
 
           <div className="space-y-3">
-            {services.length === 0 ? (
-              <p className="text-gray-500">
-                No services found.
-              </p>
-            ) : (
-              services.map((service) => (
-                <div
-                  key={service.id}
-                  className="border rounded-2xl p-4"
-                >
-                  {editingServiceId === service.id ? (
-                    <div className="space-y-3">
-                      <input
-                        type="text"
-                        value={editedServiceName}
-                        onChange={(event) =>
-                          setEditedServiceName(
-                            event.target.value
-                          )
+            {services.map((service) => (
+              <div
+                key={service.id}
+                className="border rounded-2xl p-4"
+              >
+                {editingServiceId === service.id ? (
+                  <div className="space-y-3">
+                    <input
+                      type="text"
+                      value={editedServiceName}
+                      onChange={(event) =>
+                        setEditedServiceName(
+                          event.target.value
+                        )
+                      }
+                      className="border p-3 rounded-xl w-full"
+                    />
+
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() =>
+                          updateService(service.id)
                         }
-                        className="border p-3 rounded-xl w-full"
-                      />
+                        className="bg-black text-white px-4 py-2 rounded-xl"
+                      >
+                        Save
+                      </button>
 
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() =>
-                            updateService(service.id)
-                          }
-                          className="bg-black text-white px-4 py-2 rounded-xl"
-                        >
-                          Save
-                        </button>
-
-                        <button
-                          onClick={cancelEditingService}
-                          className="bg-gray-200 px-4 py-2 rounded-xl"
-                        >
-                          Cancel
-                        </button>
-                      </div>
+                      <button
+                        onClick={cancelEditingService}
+                        className="bg-gray-200 px-4 py-2 rounded-xl"
+                      >
+                        Cancel
+                      </button>
                     </div>
-                  ) : (
-                    <div className="flex justify-between items-center gap-4">
+                  </div>
+                ) : (
+                  <div className="flex justify-between items-center gap-4">
+                    <div>
                       <p className="text-xl font-bold">
                         {service.name}
                       </p>
 
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() =>
-                            startEditingService(service)
-                          }
-                          className="bg-black text-white px-4 py-2 rounded-xl"
-                        >
-                          Edit
-                        </button>
+                      {service.assignment_count > 0 && (
+                        <p className="text-sm text-gray-600 mt-1">
+                          Assigned to{" "}
+                          {service.assigned_staff.join(", ")}
+                        </p>
+                      )}
+                    </div>
 
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() =>
+                          startEditingService(service)
+                        }
+                        className="bg-black text-white px-4 py-2 rounded-xl"
+                      >
+                        Edit
+                      </button>
+
+                      {service.assignment_count > 0 ? (
+                        <button
+                          disabled
+                          className="bg-gray-300 text-gray-600 px-4 py-2 rounded-xl cursor-not-allowed"
+                        >
+                          In Use
+                        </button>
+                      ) : (
                         <button
                           onClick={() =>
                             deleteService(service)
@@ -502,12 +536,12 @@ export default function StaffServicesPage() {
                         >
                           Delete
                         </button>
-                      </div>
+                      )}
                     </div>
-                  )}
-                </div>
-              ))
-            )}
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
         </div>
 
