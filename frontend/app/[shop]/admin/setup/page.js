@@ -35,7 +35,8 @@ export default function SetupPage() {
   const [blockedTimes, setBlockedTimes] = useState([]);
   const [availabilityRules, setAvailabilityRules] = useState([]);
 
-  const [serviceBarberId, setServiceBarberId] = useState("");
+  const [selectedBarberId, setSelectedBarberId] = useState("");
+
   const [serviceName, setServiceName] = useState("");
   const [serviceDuration, setServiceDuration] = useState("30");
   const [servicePrice, setServicePrice] = useState("");
@@ -45,12 +46,10 @@ export default function SetupPage() {
   const [editedServiceDuration, setEditedServiceDuration] = useState("");
   const [editedServicePrice, setEditedServicePrice] = useState("");
 
-  const [availabilityBarberId, setAvailabilityBarberId] = useState("");
   const [availabilityDay, setAvailabilityDay] = useState("Monday");
   const [availabilityStart, setAvailabilityStart] = useState("09:00");
   const [availabilityEnd, setAvailabilityEnd] = useState("17:00");
 
-  const [blockBarberId, setBlockBarberId] = useState("");
   const [blockReason, setBlockReason] = useState("Lunch");
   const [blockStart, setBlockStart] = useState("");
   const [blockEnd, setBlockEnd] = useState("");
@@ -107,17 +106,19 @@ export default function SetupPage() {
       setAvailabilityRules(availabilityData);
 
       if (barbersData.length > 0) {
-        setServiceBarberId(
-          (current) => current || barbersData[0].id
-        );
+        setSelectedBarberId((current) => {
+          const stillExists = barbersData.some(
+            (barber) => barber.id === current
+          );
 
-        setAvailabilityBarberId(
-          (current) => current || barbersData[0].id
-        );
+          if (current && stillExists) {
+            return current;
+          }
 
-        setBlockBarberId(
-          (current) => current || barbersData[0].id
-        );
+          return barbersData[0].id;
+        });
+      } else {
+        setSelectedBarberId("");
       }
     } catch (error) {
       console.error(error);
@@ -143,11 +144,31 @@ export default function SetupPage() {
     );
   }
 
+  function handleBarberChange(barberId) {
+    setSelectedBarberId(barberId);
+
+    setServiceName("");
+    setServiceDuration("30");
+    setServicePrice("");
+
+    cancelEditingService();
+
+    setAvailabilityDay("Monday");
+    setAvailabilityStart("09:00");
+    setAvailabilityEnd("17:00");
+
+    setBlockReason("Lunch");
+    setBlockStart("");
+    setBlockEnd("");
+
+    setMessage("");
+  }
+
   async function addService() {
     const duration = Number(serviceDuration);
     const price = Number(servicePrice);
 
-    if (!serviceBarberId) {
+    if (!selectedBarberId) {
       setMessage("Choose a staff member.");
       return;
     }
@@ -180,7 +201,7 @@ export default function SetupPage() {
         },
         body: JSON.stringify({
           shop_slug: shopSlug,
-          barber_id: serviceBarberId,
+          barber_id: selectedBarberId,
           name: serviceName,
           duration_minutes: duration,
           price,
@@ -205,6 +226,7 @@ export default function SetupPage() {
     setServiceName("");
     setServiceDuration("30");
     setServicePrice("");
+
     setMessage("Service assigned.");
 
     loadData();
@@ -292,6 +314,7 @@ export default function SetupPage() {
     }
 
     cancelEditingService();
+
     setMessage("Service updated.");
 
     loadData();
@@ -334,7 +357,7 @@ export default function SetupPage() {
   }
 
   async function addAvailabilityRule() {
-    if (!availabilityBarberId) {
+    if (!selectedBarberId) {
       setMessage("Choose a staff member.");
       return;
     }
@@ -346,6 +369,7 @@ export default function SetupPage() {
       setMessage(
         "Enter start and end times."
       );
+
       return;
     }
 
@@ -355,6 +379,7 @@ export default function SetupPage() {
       setMessage(
         "End time must be later than start time."
       );
+
       return;
     }
 
@@ -367,7 +392,7 @@ export default function SetupPage() {
         },
         body: JSON.stringify({
           shop_slug: shopSlug,
-          barber_id: availabilityBarberId,
+          barber_id: selectedBarberId,
           weekday:
             WEEKDAY_MAP[availabilityDay],
           start_time: `${availabilityStart}:00`,
@@ -410,6 +435,7 @@ export default function SetupPage() {
       setMessage(
         "Could not delete availability."
       );
+
       return;
     }
 
@@ -421,7 +447,7 @@ export default function SetupPage() {
   }
 
   async function blockTime() {
-    if (!blockBarberId) {
+    if (!selectedBarberId) {
       setMessage("Choose a staff member.");
       return;
     }
@@ -430,6 +456,7 @@ export default function SetupPage() {
       setMessage(
         "Enter the start and end of the blocked time."
       );
+
       return;
     }
 
@@ -437,6 +464,7 @@ export default function SetupPage() {
       setMessage(
         "End time must be later than start time."
       );
+
       return;
     }
 
@@ -449,7 +477,7 @@ export default function SetupPage() {
         },
         body: JSON.stringify({
           shop_slug: shopSlug,
-          barber_id: blockBarberId,
+          barber_id: selectedBarberId,
           reason:
             blockReason.trim() || "Blocked",
           start_datetime: blockStart,
@@ -474,16 +502,18 @@ export default function SetupPage() {
     setBlockReason("Lunch");
     setBlockStart("");
     setBlockEnd("");
+
     setMessage("Time blocked.");
 
     loadData();
   }
 
   async function blockFullDay(reason) {
-    if (!blockBarberId || !fullDayDate) {
+    if (!selectedBarberId || !fullDayDate) {
       setMessage(
         "Choose a staff member and date."
       );
+
       return;
     }
 
@@ -496,7 +526,7 @@ export default function SetupPage() {
         },
         body: JSON.stringify({
           shop_slug: shopSlug,
-          barber_id: blockBarberId,
+          barber_id: selectedBarberId,
           reason,
           start_datetime:
             `${fullDayDate}T00:00:00`,
@@ -540,6 +570,7 @@ export default function SetupPage() {
       setMessage(
         "Could not remove blocked time."
       );
+
       return;
     }
 
@@ -550,27 +581,41 @@ export default function SetupPage() {
     loadData();
   }
 
+  const selectedBarber = useMemo(() => {
+    return (
+      barbers.find(
+        (barber) =>
+          barber.id === selectedBarberId
+      ) || null
+    );
+  }, [barbers, selectedBarberId]);
+
   const selectedBarberServices =
     useMemo(() => {
       return services
         .filter(
           (service) =>
             service.barber_id ===
-            serviceBarberId
+            selectedBarberId
         )
         .sort((a, b) =>
           String(a.name).localeCompare(
             String(b.name)
           )
         );
-    }, [services, serviceBarberId]);
+    }, [
+      services,
+      selectedBarberId,
+    ]);
 
   const availableCatalogServices =
     useMemo(() => {
       const assignedNames = new Set(
         selectedBarberServices.map(
           (service) =>
-            String(service.name).toLowerCase()
+            String(service.name)
+              .trim()
+              .toLowerCase()
         )
       );
 
@@ -578,9 +623,9 @@ export default function SetupPage() {
         .filter(
           (service) =>
             !assignedNames.has(
-              String(
-                service.name
-              ).toLowerCase()
+              String(service.name)
+                .trim()
+                .toLowerCase()
             )
         )
         .sort((a, b) =>
@@ -599,14 +644,15 @@ export default function SetupPage() {
         .filter(
           (rule) =>
             rule.barber_id ===
-            availabilityBarberId
+            selectedBarberId
         )
         .sort((a, b) => {
           if (
             a.weekday !== b.weekday
           ) {
             return (
-              a.weekday - b.weekday
+              a.weekday -
+              b.weekday
             );
           }
 
@@ -618,7 +664,7 @@ export default function SetupPage() {
         });
     }, [
       availabilityRules,
-      availabilityBarberId,
+      selectedBarberId,
     ]);
 
   const selectedBarberBlockedTimes =
@@ -629,7 +675,7 @@ export default function SetupPage() {
         .filter(
           (block) =>
             block.barber_id ===
-              blockBarberId &&
+              selectedBarberId &&
             new Date(
               block.end_datetime
             ) >= now
@@ -645,7 +691,7 @@ export default function SetupPage() {
         );
     }, [
       blockedTimes,
-      blockBarberId,
+      selectedBarberId,
     ]);
 
   return (
@@ -663,554 +709,563 @@ export default function SetupPage() {
 
         <div className="bg-white p-6 rounded-2xl shadow space-y-4">
           <h2 className="text-2xl font-bold">
-            Services
+            Staff Member
           </h2>
 
           <p className="text-gray-600">
-            Choose a staff member, then assign
-            services from the shop's master
-            service list.
+            Choose the staff member whose
+            services, availability, and blocked
+            time you want to manage.
           </p>
 
-          <select
-            value={serviceBarberId}
-            onChange={(event) => {
-              setServiceBarberId(
-                event.target.value
-              );
+          {barbers.length === 0 ? (
+            <div className="space-y-3">
+              <p className="text-gray-500">
+                No staff members found.
+              </p>
 
-              setServiceName("");
-              cancelEditingService();
-            }}
-            className="border p-3 rounded w-full"
-          >
-            {barbers.map((barber) => (
-              <option
-                key={barber.id}
-                value={barber.id}
+              <a
+                href={`/${shopSlug}/admin/staff`}
+                className="inline-block bg-black text-white px-4 py-3 rounded-xl font-bold"
               >
-                {barber.name}
-              </option>
-            ))}
-          </select>
-
-          <select
-            value={serviceName}
-            onChange={(event) =>
-              setServiceName(
-                event.target.value
-              )
-            }
-            className="border p-3 rounded w-full"
-          >
-            <option value="">
-              Choose service
-            </option>
-
-            {availableCatalogServices.map(
-              (service) => (
+                Add Staff
+              </a>
+            </div>
+          ) : (
+            <select
+              value={selectedBarberId}
+              onChange={(event) =>
+                handleBarberChange(
+                  event.target.value
+                )
+              }
+              className="border p-3 rounded w-full"
+            >
+              {barbers.map((barber) => (
                 <option
-                  key={service.id}
-                  value={service.name}
+                  key={barber.id}
+                  value={barber.id}
                 >
-                  {service.name}
+                  {barber.name}
                 </option>
-              )
-            )}
-          </select>
-
-          {availableCatalogServices.length ===
-            0 && (
-            <p className="text-sm text-gray-500">
-              All shop services are already
-              assigned to this staff member.
-            </p>
+              ))}
+            </select>
           )}
+        </div>
 
-          <input
-            type="number"
-            min="1"
-            placeholder="Duration in minutes"
-            value={serviceDuration}
-            onChange={(event) =>
-              setServiceDuration(
-                event.target.value
-              )
-            }
-            className="border p-3 rounded w-full"
-          />
+        {selectedBarber && (
+          <>
+            <div className="bg-white p-6 rounded-2xl shadow space-y-4">
+              <h2 className="text-2xl font-bold">
+                Services
+              </h2>
 
-          <input
-            type="number"
-            min="0"
-            step="0.01"
-            placeholder="Price"
-            value={servicePrice}
-            onChange={(event) =>
-              setServicePrice(
-                event.target.value
-              )
-            }
-            className="border p-3 rounded w-full"
-          />
-
-          <button
-            onClick={addService}
-            disabled={
-              !serviceName ||
-              !serviceBarberId
-            }
-            className={`px-4 py-3 rounded-xl font-bold ${
-              !serviceName ||
-              !serviceBarberId
-                ? "bg-gray-300 text-gray-600 cursor-not-allowed"
-                : "bg-black text-white"
-            }`}
-          >
-            Assign Service
-          </button>
-
-          <div className="space-y-2">
-            {selectedBarberServices.length ===
-            0 ? (
-              <p className="text-gray-500">
-                No services for this staff
-                member.
+              <p className="text-gray-600">
+                Assign services to{" "}
+                <strong>
+                  {selectedBarber.name}
+                </strong>{" "}
+                from the shop's master service
+                list.
               </p>
-            ) : (
-              selectedBarberServices.map(
-                (service) => (
-                  <div
-                    key={service.id}
-                    className="border rounded-xl p-4"
-                  >
-                    {editingServiceId ===
-                    service.id ? (
-                      <div className="space-y-3">
-                        <select
-                          value={
-                            editedServiceName
-                          }
-                          onChange={(event) =>
-                            setEditedServiceName(
-                              event.target.value
-                            )
-                          }
-                          className="border p-3 rounded w-full"
-                        >
-                          {serviceCatalog.map(
-                            (
-                              catalogService
-                            ) => (
-                              <option
-                                key={
-                                  catalogService.id
+
+              <select
+                value={serviceName}
+                onChange={(event) =>
+                  setServiceName(
+                    event.target.value
+                  )
+                }
+                className="border p-3 rounded w-full"
+              >
+                <option value="">
+                  Choose service
+                </option>
+
+                {availableCatalogServices.map(
+                  (service) => (
+                    <option
+                      key={service.id}
+                      value={service.name}
+                    >
+                      {service.name}
+                    </option>
+                  )
+                )}
+              </select>
+
+              {availableCatalogServices.length ===
+                0 && (
+                <p className="text-sm text-gray-500">
+                  All shop services are already
+                  assigned to{" "}
+                  {selectedBarber.name}.
+                </p>
+              )}
+
+              <input
+                type="number"
+                min="1"
+                placeholder="Duration in minutes"
+                value={serviceDuration}
+                onChange={(event) =>
+                  setServiceDuration(
+                    event.target.value
+                  )
+                }
+                className="border p-3 rounded w-full"
+              />
+
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                placeholder="Price"
+                value={servicePrice}
+                onChange={(event) =>
+                  setServicePrice(
+                    event.target.value
+                  )
+                }
+                className="border p-3 rounded w-full"
+              />
+
+              <button
+                onClick={addService}
+                disabled={
+                  !serviceName ||
+                  !selectedBarberId
+                }
+                className={`px-4 py-3 rounded-xl font-bold ${
+                  !serviceName ||
+                  !selectedBarberId
+                    ? "bg-gray-300 text-gray-600 cursor-not-allowed"
+                    : "bg-black text-white"
+                }`}
+              >
+                Assign Service
+              </button>
+
+              <div className="space-y-2">
+                {selectedBarberServices.length ===
+                0 ? (
+                  <p className="text-gray-500">
+                    No services assigned to{" "}
+                    {selectedBarber.name}.
+                  </p>
+                ) : (
+                  selectedBarberServices.map(
+                    (service) => (
+                      <div
+                        key={service.id}
+                        className="border rounded-xl p-4"
+                      >
+                        {editingServiceId ===
+                        service.id ? (
+                          <div className="space-y-3">
+                            <select
+                              value={
+                                editedServiceName
+                              }
+                              onChange={(
+                                event
+                              ) =>
+                                setEditedServiceName(
+                                  event.target
+                                    .value
+                                )
+                              }
+                              className="border p-3 rounded w-full"
+                            >
+                              {serviceCatalog.map(
+                                (
+                                  catalogService
+                                ) => (
+                                  <option
+                                    key={
+                                      catalogService.id
+                                    }
+                                    value={
+                                      catalogService.name
+                                    }
+                                  >
+                                    {
+                                      catalogService.name
+                                    }
+                                  </option>
+                                )
+                              )}
+                            </select>
+
+                            <input
+                              type="number"
+                              min="1"
+                              value={
+                                editedServiceDuration
+                              }
+                              onChange={(
+                                event
+                              ) =>
+                                setEditedServiceDuration(
+                                  event.target
+                                    .value
+                                )
+                              }
+                              className="border p-3 rounded w-full"
+                              placeholder="Duration in minutes"
+                            />
+
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={
+                                editedServicePrice
+                              }
+                              onChange={(
+                                event
+                              ) =>
+                                setEditedServicePrice(
+                                  event.target
+                                    .value
+                                )
+                              }
+                              className="border p-3 rounded w-full"
+                              placeholder="Price"
+                            />
+
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() =>
+                                  updateService(
+                                    service.id
+                                  )
                                 }
-                                value={
-                                  catalogService.name
-                                }
+                                className="bg-black text-white px-4 py-2 rounded-xl"
                               >
-                                {
-                                  catalogService.name
+                                Save
+                              </button>
+
+                              <button
+                                onClick={
+                                  cancelEditingService
                                 }
-                              </option>
-                            )
-                          )}
-                        </select>
+                                className="bg-gray-200 px-4 py-2 rounded-xl"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex justify-between items-center gap-4">
+                            <div>
+                              <p className="font-bold">
+                                {
+                                  service.name
+                                }
+                              </p>
 
-                        <input
-                          type="number"
-                          min="1"
-                          value={
-                            editedServiceDuration
-                          }
-                          onChange={(
-                            event
-                          ) =>
-                            setEditedServiceDuration(
-                              event.target
-                                .value
-                            )
-                          }
-                          className="border p-3 rounded w-full"
-                          placeholder="Duration in minutes"
-                        />
+                              <p className="text-sm text-gray-600">
+                                {
+                                  service.duration_minutes
+                                }{" "}
+                                minutes · $
+                                {Number(
+                                  service.price
+                                ).toFixed(2)}
+                              </p>
+                            </div>
 
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          value={
-                            editedServicePrice
-                          }
-                          onChange={(
-                            event
-                          ) =>
-                            setEditedServicePrice(
-                              event.target
-                                .value
-                            )
-                          }
-                          className="border p-3 rounded w-full"
-                          placeholder="Price"
-                        />
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() =>
+                                  startEditingService(
+                                    service
+                                  )
+                                }
+                                className="bg-black text-white px-3 py-2 rounded"
+                              >
+                                Edit
+                              </button>
 
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() =>
-                              updateService(
-                                service.id
-                              )
-                            }
-                            className="bg-black text-white px-4 py-2 rounded-xl"
-                          >
-                            Save
-                          </button>
-
-                          <button
-                            onClick={
-                              cancelEditingService
-                            }
-                            className="bg-gray-200 px-4 py-2 rounded-xl"
-                          >
-                            Cancel
-                          </button>
-                        </div>
+                              <button
+                                onClick={() =>
+                                  deleteService(
+                                    service
+                                  )
+                                }
+                                className="bg-red-500 text-white px-3 py-2 rounded"
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </div>
-                    ) : (
-                      <div className="flex justify-between items-center gap-4">
+                    )
+                  )
+                )}
+              </div>
+            </div>
+
+            <div className="bg-white p-6 rounded-2xl shadow space-y-4">
+              <h2 className="text-2xl font-bold">
+                Weekly Availability
+              </h2>
+
+              <p className="text-gray-600">
+                Set the normal weekly schedule
+                for{" "}
+                <strong>
+                  {selectedBarber.name}
+                </strong>
+                .
+              </p>
+
+              <select
+                value={availabilityDay}
+                onChange={(event) =>
+                  setAvailabilityDay(
+                    event.target.value
+                  )
+                }
+                className="border p-3 rounded w-full"
+              >
+                {Object.keys(
+                  WEEKDAY_MAP
+                ).map((day) => (
+                  <option
+                    key={day}
+                    value={day}
+                  >
+                    {day}
+                  </option>
+                ))}
+              </select>
+
+              <input
+                type="time"
+                value={availabilityStart}
+                onChange={(event) =>
+                  setAvailabilityStart(
+                    event.target.value
+                  )
+                }
+                className="border p-3 rounded w-full"
+              />
+
+              <input
+                type="time"
+                value={availabilityEnd}
+                onChange={(event) =>
+                  setAvailabilityEnd(
+                    event.target.value
+                  )
+                }
+                className="border p-3 rounded w-full"
+              />
+
+              <button
+                onClick={addAvailabilityRule}
+                className="bg-black text-white px-4 py-3 rounded-xl"
+              >
+                Save Availability
+              </button>
+
+              <div className="space-y-2">
+                {selectedBarberAvailability.length ===
+                0 ? (
+                  <p className="text-gray-500">
+                    No weekly availability for{" "}
+                    {selectedBarber.name}.
+                  </p>
+                ) : (
+                  selectedBarberAvailability.map(
+                    (rule) => (
+                      <div
+                        key={rule.id}
+                        className="border rounded-xl p-3 flex justify-between items-center"
+                      >
                         <div>
-                          <p className="font-bold">
-                            {
-                              service.name
-                            }
-                          </p>
-
-                          <p className="text-sm text-gray-600">
-                            {
-                              service.duration_minutes
-                            }{" "}
-                            minutes · $
-                            {Number(
-                              service.price
-                            ).toFixed(2)}
-                          </p>
+                          {
+                            WEEKDAY_NAMES[
+                              rule.weekday
+                            ]
+                          }{" "}
+                          ·{" "}
+                          {formatTime(
+                            rule.start_time
+                          )}{" "}
+                          -{" "}
+                          {formatTime(
+                            rule.end_time
+                          )}
                         </div>
 
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() =>
-                              startEditingService(
-                                service
-                              )
-                            }
-                            className="bg-black text-white px-3 py-2 rounded"
-                          >
-                            Edit
-                          </button>
-
-                          <button
-                            onClick={() =>
-                              deleteService(
-                                service
-                              )
-                            }
-                            className="bg-red-500 text-white px-3 py-2 rounded"
-                          >
-                            Remove
-                          </button>
-                        </div>
+                        <button
+                          onClick={() =>
+                            deleteAvailabilityRule(
+                              rule.id
+                            )
+                          }
+                          className="bg-red-500 text-white px-3 py-1 rounded"
+                        >
+                          Delete
+                        </button>
                       </div>
-                    )}
-                  </div>
-                )
-              )
-            )}
-          </div>
-        </div>
+                    )
+                  )
+                )}
+              </div>
+            </div>
 
-        <div className="bg-white p-6 rounded-2xl shadow space-y-4">
-          <h2 className="text-2xl font-bold">
-            Weekly Availability
-          </h2>
+            <div className="bg-white p-6 rounded-2xl shadow space-y-4">
+              <h2 className="text-2xl font-bold">
+                Quick Block Time
+              </h2>
 
-          <select
-            value={availabilityBarberId}
-            onChange={(event) =>
-              setAvailabilityBarberId(
-                event.target.value
-              )
-            }
-            className="border p-3 rounded w-full"
-          >
-            {barbers.map((barber) => (
-              <option
-                key={barber.id}
-                value={barber.id}
-              >
-                {barber.name}
-              </option>
-            ))}
-          </select>
-
-          <select
-            value={availabilityDay}
-            onChange={(event) =>
-              setAvailabilityDay(
-                event.target.value
-              )
-            }
-            className="border p-3 rounded w-full"
-          >
-            {Object.keys(
-              WEEKDAY_MAP
-            ).map((day) => (
-              <option
-                key={day}
-                value={day}
-              >
-                {day}
-              </option>
-            ))}
-          </select>
-
-          <input
-            type="time"
-            value={availabilityStart}
-            onChange={(event) =>
-              setAvailabilityStart(
-                event.target.value
-              )
-            }
-            className="border p-3 rounded w-full"
-          />
-
-          <input
-            type="time"
-            value={availabilityEnd}
-            onChange={(event) =>
-              setAvailabilityEnd(
-                event.target.value
-              )
-            }
-            className="border p-3 rounded w-full"
-          />
-
-          <button
-            onClick={addAvailabilityRule}
-            className="bg-black text-white px-4 py-3 rounded-xl"
-          >
-            Save Availability
-          </button>
-
-          <div className="space-y-2">
-            {selectedBarberAvailability.length ===
-            0 ? (
-              <p className="text-gray-500">
-                No weekly availability for
-                this staff member.
+              <p className="text-gray-600">
+                Block a specific period for{" "}
+                <strong>
+                  {selectedBarber.name}
+                </strong>
+                .
               </p>
-            ) : (
-              selectedBarberAvailability.map(
-                (rule) => (
-                  <div
-                    key={rule.id}
-                    className="border rounded-xl p-3 flex justify-between items-center"
-                  >
-                    <div>
-                      {
-                        WEEKDAY_NAMES[
-                          rule.weekday
-                        ]
-                      }{" "}
-                      ·{" "}
-                      {formatTime(
-                        rule.start_time
-                      )}{" "}
-                      -{" "}
-                      {formatTime(
-                        rule.end_time
-                      )}
-                    </div>
 
-                    <button
-                      onClick={() =>
-                        deleteAvailabilityRule(
-                          rule.id
-                        )
-                      }
-                      className="bg-red-500 text-white px-3 py-1 rounded"
-                    >
-                      Delete
-                    </button>
-                  </div>
-                )
-              )
-            )}
-          </div>
-        </div>
+              <input
+                value={blockReason}
+                onChange={(event) =>
+                  setBlockReason(
+                    event.target.value
+                  )
+                }
+                placeholder="Reason"
+                className="border p-3 rounded w-full"
+              />
 
-        <div className="bg-white p-6 rounded-2xl shadow space-y-4">
-          <h2 className="text-2xl font-bold">
-            Quick Block Time
-          </h2>
+              <input
+                type="datetime-local"
+                value={blockStart}
+                onChange={(event) =>
+                  setBlockStart(
+                    event.target.value
+                  )
+                }
+                className="border p-3 rounded w-full"
+              />
 
-          <select
-            value={blockBarberId}
-            onChange={(event) =>
-              setBlockBarberId(
-                event.target.value
-              )
-            }
-            className="border p-3 rounded w-full"
-          >
-            {barbers.map((barber) => (
-              <option
-                key={barber.id}
-                value={barber.id}
+              <input
+                type="datetime-local"
+                value={blockEnd}
+                onChange={(event) =>
+                  setBlockEnd(
+                    event.target.value
+                  )
+                }
+                className="border p-3 rounded w-full"
+              />
+
+              <button
+                onClick={blockTime}
+                className="bg-black text-white px-4 py-3 rounded-xl"
               >
-                {barber.name}
-              </option>
-            ))}
-          </select>
+                Block Time
+              </button>
+            </div>
 
-          <input
-            value={blockReason}
-            onChange={(event) =>
-              setBlockReason(
-                event.target.value
-              )
-            }
-            placeholder="Reason"
-            className="border p-3 rounded w-full"
-          />
+            <div className="bg-white p-6 rounded-2xl shadow space-y-4">
+              <h2 className="text-2xl font-bold">
+                Full Day Block
+              </h2>
 
-          <input
-            type="datetime-local"
-            value={blockStart}
-            onChange={(event) =>
-              setBlockStart(
-                event.target.value
-              )
-            }
-            className="border p-3 rounded w-full"
-          />
-
-          <input
-            type="datetime-local"
-            value={blockEnd}
-            onChange={(event) =>
-              setBlockEnd(
-                event.target.value
-              )
-            }
-            className="border p-3 rounded w-full"
-          />
-
-          <button
-            onClick={blockTime}
-            className="bg-black text-white px-4 py-3 rounded-xl"
-          >
-            Block Time
-          </button>
-        </div>
-
-        <div className="bg-white p-6 rounded-2xl shadow space-y-4">
-          <h2 className="text-2xl font-bold">
-            Full Day Block
-          </h2>
-
-          <select
-            value={blockBarberId}
-            onChange={(event) =>
-              setBlockBarberId(
-                event.target.value
-              )
-            }
-            className="border p-3 rounded w-full"
-          >
-            {barbers.map((barber) => (
-              <option
-                key={barber.id}
-                value={barber.id}
-              >
-                {barber.name}
-              </option>
-            ))}
-          </select>
-
-          <input
-            type="date"
-            value={fullDayDate}
-            onChange={(event) =>
-              setFullDayDate(
-                event.target.value
-              )
-            }
-            className="border p-3 rounded w-full"
-          />
-
-          <div className="flex gap-3">
-            <button
-              onClick={() =>
-                blockFullDay("Vacation")
-              }
-              className="bg-black text-white px-4 py-3 rounded-xl"
-            >
-              Vacation
-            </button>
-
-            <button
-              onClick={() =>
-                blockFullDay("Closed")
-              }
-              className="bg-red-600 text-white px-4 py-3 rounded-xl"
-            >
-              Closed
-            </button>
-          </div>
-
-          <div className="space-y-2">
-            {selectedBarberBlockedTimes.length ===
-            0 ? (
-              <p className="text-gray-500">
-                No upcoming blocked times for
-                this staff member.
+              <p className="text-gray-600">
+                Mark a vacation or closed day
+                for{" "}
+                <strong>
+                  {selectedBarber.name}
+                </strong>
+                .
               </p>
-            ) : (
-              selectedBarberBlockedTimes.map(
-                (block) => (
-                  <div
-                    key={block.id}
-                    className="border rounded-xl p-3 flex justify-between items-center"
-                  >
-                    <div>
-                      {block.reason} ·{" "}
-                      {isFullDay(block)
-                        ? new Date(
-                            block.start_datetime
-                          ).toLocaleDateString()
-                        : new Date(
-                            block.start_datetime
-                          ).toLocaleString()}
-                    </div>
 
-                    <button
-                      onClick={() =>
-                        deleteBlockedTime(
-                          block.id
-                        )
-                      }
-                      className="bg-red-500 text-white px-3 py-1 rounded"
-                    >
-                      Delete
-                    </button>
-                  </div>
-                )
-              )
-            )}
-          </div>
-        </div>
+              <input
+                type="date"
+                value={fullDayDate}
+                onChange={(event) =>
+                  setFullDayDate(
+                    event.target.value
+                  )
+                }
+                className="border p-3 rounded w-full"
+              />
+
+              <div className="flex gap-3">
+                <button
+                  onClick={() =>
+                    blockFullDay(
+                      "Vacation"
+                    )
+                  }
+                  className="bg-black text-white px-4 py-3 rounded-xl"
+                >
+                  Vacation
+                </button>
+
+                <button
+                  onClick={() =>
+                    blockFullDay(
+                      "Closed"
+                    )
+                  }
+                  className="bg-red-600 text-white px-4 py-3 rounded-xl"
+                >
+                  Closed
+                </button>
+              </div>
+
+              <div className="space-y-2">
+                {selectedBarberBlockedTimes.length ===
+                0 ? (
+                  <p className="text-gray-500">
+                    No upcoming blocked times
+                    for{" "}
+                    {selectedBarber.name}.
+                  </p>
+                ) : (
+                  selectedBarberBlockedTimes.map(
+                    (block) => (
+                      <div
+                        key={block.id}
+                        className="border rounded-xl p-3 flex justify-between items-center"
+                      >
+                        <div>
+                          {block.reason} ·{" "}
+                          {isFullDay(block)
+                            ? new Date(
+                                block.start_datetime
+                              ).toLocaleDateString()
+                            : new Date(
+                                block.start_datetime
+                              ).toLocaleString()}
+                        </div>
+
+                        <button
+                          onClick={() =>
+                            deleteBlockedTime(
+                              block.id
+                            )
+                          }
+                          className="bg-red-500 text-white px-3 py-1 rounded"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    )
+                  )
+                )}
+              </div>
+            </div>
+          </>
+        )}
 
         <a
           href={`/${shopSlug}/admin`}
