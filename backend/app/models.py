@@ -129,6 +129,25 @@ class Barber(Base):
     )
 
 
+class ServiceCatalog(Base):
+    __tablename__ = "service_catalog"
+
+    id = Column(
+        String,
+        primary_key=True,
+        default=generate_uuid,
+    )
+    shop_slug = Column(
+        String,
+        nullable=False,
+        index=True,
+    )
+    name = Column(
+        String,
+        nullable=False,
+    )
+
+
 class Service(Base):
     __tablename__ = "services"
 
