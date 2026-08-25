@@ -4,8 +4,8 @@ from sqlalchemy import (
     Boolean,
     Column,
     DateTime,
-    Float,
     Integer,
+    Numeric,
     String,
     Text,
     Time,
@@ -154,7 +154,7 @@ class Service(Base):
         nullable=False,
     )
     price = Column(
-        Float,
+        Numeric(10, 2),
         nullable=False,
     )
 
