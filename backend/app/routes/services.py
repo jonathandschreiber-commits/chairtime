@@ -3,7 +3,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Service, ServiceCatalog
+from app.models import Barber, Service, ServiceCatalog
 from app.schemas import (
     ServiceCatalogCreate,
     ServiceCatalogUpdate,
@@ -19,6 +19,10 @@ def clean_name(value: str):
     return " ".join(value.strip().split())
 
 
+def normalized_name(value: str):
+    return clean_name(value).lower()
+
+
 def find_catalog_item_by_name(
     db: Session,
     shop_slug: str,
@@ -29,7 +33,7 @@ def find_catalog_item_by_name(
         .filter(
             ServiceCatalog.shop_slug == shop_slug,
             func.lower(ServiceCatalog.name)
-            == clean_name(name).lower(),
+            == normalized_name(name),
         )
         .first()
     )
@@ -39,14 +43,6 @@ def seed_catalog_from_existing_services(
     db: Session,
     shop_slug: str,
 ):
-    """
-    Add any existing staff-assigned service names to the shop's
-    master service catalog.
-
-    This lets existing ChairTime shops adopt the catalog without
-    re-entering services manually.
-    """
-
     existing_services = (
         db.query(Service)
         .filter(
@@ -72,16 +68,96 @@ def seed_catalog_from_existing_services(
         if existing_catalog_item:
             continue
 
-        catalog_item = ServiceCatalog(
-            shop_slug=shop_slug,
-            name=service_name,
+        db.add(
+            ServiceCatalog(
+                shop_slug=shop_slug,
+                name=service_name,
+            )
         )
 
-        db.add(catalog_item)
         added = True
 
     if added:
         db.commit()
+
+
+def remove_duplicate_catalog_items(
+    db: Session,
+    shop_slug: str,
+):
+    """
+    Keep one catalog entry for each service name, ignoring
+    capitalization and extra spaces.
+
+    Catalog IDs are not used by appointments or staff assignments,
+    so duplicate catalog rows can safely be removed.
+    """
+
+    catalog_items = (
+        db.query(ServiceCatalog)
+        .filter(
+            ServiceCatalog.shop_slug == shop_slug,
+        )
+        .order_by(ServiceCatalog.name, ServiceCatalog.id)
+        .all()
+    )
+
+    seen = {}
+    duplicates = []
+
+    for item in catalog_items:
+        key = normalized_name(item.name)
+
+        if key in seen:
+            duplicates.append(item)
+        else:
+            seen[key] = item
+
+    if duplicates:
+        for item in duplicates:
+            db.delete(item)
+
+        db.commit()
+
+
+def get_assignment_details(
+    db: Session,
+    shop_slug: str,
+    service_name: str,
+):
+    assignments = (
+        db.query(Service)
+        .filter(
+            Service.shop_slug == shop_slug,
+            func.lower(Service.name)
+            == normalized_name(service_name),
+        )
+        .all()
+    )
+
+    barber_ids = {
+        service.barber_id
+        for service in assignments
+        if service.barber_id
+    }
+
+    if not barber_ids:
+        return []
+
+    barbers = (
+        db.query(Barber)
+        .filter(
+            Barber.shop_slug == shop_slug,
+            Barber.id.in_(barber_ids),
+        )
+        .order_by(Barber.name)
+        .all()
+    )
+
+    return [
+        barber.name
+        for barber in barbers
+    ]
 
 
 #
@@ -99,7 +175,12 @@ def list_service_catalog(
         shop_slug=shop_slug,
     )
 
-    return (
+    remove_duplicate_catalog_items(
+        db=db,
+        shop_slug=shop_slug,
+    )
+
+    catalog_items = (
         db.query(ServiceCatalog)
         .filter(
             ServiceCatalog.shop_slug == shop_slug,
@@ -107,6 +188,27 @@ def list_service_catalog(
         .order_by(ServiceCatalog.name)
         .all()
     )
+
+    results = []
+
+    for item in catalog_items:
+        assigned_staff = get_assignment_details(
+            db=db,
+            shop_slug=shop_slug,
+            service_name=item.name,
+        )
+
+        results.append(
+            {
+                "id": item.id,
+                "shop_slug": item.shop_slug,
+                "name": item.name,
+                "assignment_count": len(assigned_staff),
+                "assigned_staff": assigned_staff,
+            }
+        )
+
+    return results
 
 
 @router.post("/service-catalog")
@@ -180,7 +282,7 @@ def update_service_catalog_item(
             ServiceCatalog.shop_slug
             == catalog_item.shop_slug,
             func.lower(ServiceCatalog.name)
-            == new_name.lower(),
+            == normalized_name(new_name),
             ServiceCatalog.id != catalog_item.id,
         )
         .first()
@@ -194,21 +296,15 @@ def update_service_catalog_item(
 
     old_name = catalog_item.name
 
-    #
-    # Rename the master catalog entry.
-    #
     catalog_item.name = new_name
 
-    #
-    # Also rename every staff assignment using this service.
-    #
     assigned_services = (
         db.query(Service)
         .filter(
             Service.shop_slug
             == catalog_item.shop_slug,
             func.lower(Service.name)
-            == old_name.lower(),
+            == normalized_name(old_name),
         )
         .all()
     )
@@ -241,28 +337,21 @@ def delete_service_catalog_item(
             detail="Service not found",
         )
 
-    #
-    # Do not allow the shop to delete a master service while staff
-    # members are still assigned to provide it.
-    #
-    assigned_service = (
-        db.query(Service)
-        .filter(
-            Service.shop_slug
-            == catalog_item.shop_slug,
-            func.lower(Service.name)
-            == catalog_item.name.lower(),
-        )
-        .first()
+    assigned_staff = get_assignment_details(
+        db=db,
+        shop_slug=catalog_item.shop_slug,
+        service_name=catalog_item.name,
     )
 
-    if assigned_service:
+    if assigned_staff:
         raise HTTPException(
             status_code=409,
-            detail=(
-                "This service is still assigned to one or more "
-                "staff members. Remove those assignments first."
-            ),
+            detail={
+                "message": (
+                    "This service is still assigned to staff."
+                ),
+                "assigned_staff": assigned_staff,
+            },
         )
 
     db.delete(catalog_item)
@@ -291,10 +380,6 @@ def create_service(
             detail="Service name is required",
         )
 
-    #
-    # Prevent the same staff member from being assigned the same
-    # service more than once.
-    #
     if payload.barber_id and payload.shop_slug:
         existing_assignment = (
             db.query(Service)
@@ -304,7 +389,7 @@ def create_service(
                 Service.barber_id
                 == payload.barber_id,
                 func.lower(Service.name)
-                == service_name.lower(),
+                == normalized_name(service_name),
             )
             .first()
         )
@@ -318,9 +403,6 @@ def create_service(
                 ),
             )
 
-    #
-    # Make sure the service also exists in the master catalog.
-    #
     if payload.shop_slug:
         catalog_item = find_catalog_item_by_name(
             db=db,
@@ -329,11 +411,18 @@ def create_service(
         )
 
         if not catalog_item:
-            catalog_item = ServiceCatalog(
-                shop_slug=payload.shop_slug,
-                name=service_name,
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "This service is not in the shop service list. "
+                    "Add it from Staff & Services first."
+                ),
             )
-            db.add(catalog_item)
+
+        #
+        # Always use the catalog spelling.
+        #
+        service_name = catalog_item.name
 
     service_data = payload.model_dump()
     service_data["name"] = service_name
@@ -436,8 +525,6 @@ def update_service(
                 detail="Service name is required",
             )
 
-        updates["name"] = new_name
-
         shop_slug = (
             updates.get("shop_slug")
             or service.shop_slug
@@ -451,11 +538,16 @@ def update_service(
             )
 
             if not catalog_item:
-                catalog_item = ServiceCatalog(
-                    shop_slug=shop_slug,
-                    name=new_name,
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "This service is not in the shop service list."
+                    ),
                 )
-                db.add(catalog_item)
+
+            new_name = catalog_item.name
+
+        updates["name"] = new_name
 
     for key, value in updates.items():
         setattr(
