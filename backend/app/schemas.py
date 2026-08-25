@@ -77,6 +77,33 @@ class ServiceUpdate(BaseModel):
     price: Optional[float] = None
 
 
+class ShopAvailabilityRuleCreate(BaseModel):
+    shop_slug: str
+    weekday: int
+    start_time: time
+    end_time: time
+
+
+class ShopBlockedTimeCreate(BaseModel):
+    shop_slug: str
+    reason: str
+    start_datetime: datetime
+    end_datetime: datetime
+
+
+class ShopRecurringBlockedTimeCreate(BaseModel):
+    shop_slug: str
+    reason: str
+    start_date: date
+    end_date: date
+    start_time: time
+    end_time: time
+    weekdays: list[int] = Field(
+        min_length=1,
+        max_length=7,
+    )
+
+
 class AvailabilityCreate(BaseModel):
     shop_slug: Optional[str] = None
     barber_id: str
