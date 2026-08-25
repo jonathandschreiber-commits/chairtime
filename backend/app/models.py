@@ -178,6 +178,65 @@ class Service(Base):
     )
 
 
+class ShopAvailabilityRule(Base):
+    __tablename__ = "shop_availability_rules"
+
+    id = Column(
+        String,
+        primary_key=True,
+        default=generate_uuid,
+    )
+    shop_slug = Column(
+        String,
+        nullable=False,
+        index=True,
+    )
+    weekday = Column(
+        Integer,
+        nullable=False,
+    )
+    start_time = Column(
+        Time,
+        nullable=False,
+    )
+    end_time = Column(
+        Time,
+        nullable=False,
+    )
+
+
+class ShopBlockedTime(Base):
+    __tablename__ = "shop_blocked_times"
+
+    id = Column(
+        String,
+        primary_key=True,
+        default=generate_uuid,
+    )
+    shop_slug = Column(
+        String,
+        nullable=False,
+        index=True,
+    )
+    reason = Column(
+        String,
+        nullable=False,
+    )
+    start_datetime = Column(
+        DateTime,
+        nullable=False,
+    )
+    end_datetime = Column(
+        DateTime,
+        nullable=False,
+    )
+    series_id = Column(
+        String,
+        nullable=True,
+        index=True,
+    )
+
+
 class AvailabilityRule(Base):
     __tablename__ = "availability_rules"
 
