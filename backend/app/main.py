@@ -12,8 +12,12 @@ from app.routes.customers import router as customers_router
 from app.routes.migration import router as migration_router
 from app.routes.reminders import router as reminders_router
 from app.routes.services import router as services_router
+from app.routes.shop_blocked_times import (
+    router as shop_blocked_times_router,
+)
 from app.routes.shops import router as shops_router
 from app.routes.voice import router as voice_router
+
 
 def run_startup_migrations():
     with engine.begin() as conn:
@@ -40,7 +44,9 @@ def run_startup_migrations():
 
         elif dialect_name == "sqlite":
             existing_columns = conn.execute(
-                text("PRAGMA table_info(blocked_times)")
+                text(
+                    "PRAGMA table_info(blocked_times)"
+                )
             ).fetchall()
 
             column_names = {
@@ -68,10 +74,16 @@ def run_startup_migrations():
             )
 
 
-Base.metadata.create_all(bind=engine)
+Base.metadata.create_all(
+    bind=engine
+)
+
 run_startup_migrations()
 
-app = FastAPI(title="ChairTime API")
+
+app = FastAPI(
+    title="ChairTime API"
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -81,22 +93,71 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 app.include_router(
     auth_router,
     prefix="/api/auth",
     tags=["Authentication"],
 )
-app.include_router(barbers_router, prefix="/api")
-app.include_router(services_router, prefix="/api")
-app.include_router(shops_router, prefix="/api")
-app.include_router(availability_router, prefix="/api")
-app.include_router(blocked_times_router, prefix="/api")
-app.include_router(appointments_router, prefix="/api")
-app.include_router(customers_router, prefix="/api")
-app.include_router(reminders_router, prefix="/api")
-app.include_router(migration_router, prefix="/api")
-app.include_router(voice_router, prefix="/api")
+
+app.include_router(
+    barbers_router,
+    prefix="/api",
+)
+
+app.include_router(
+    services_router,
+    prefix="/api",
+)
+
+app.include_router(
+    shops_router,
+    prefix="/api",
+)
+
+app.include_router(
+    availability_router,
+    prefix="/api",
+)
+
+app.include_router(
+    blocked_times_router,
+    prefix="/api",
+)
+
+app.include_router(
+    shop_blocked_times_router,
+    prefix="/api",
+)
+
+app.include_router(
+    appointments_router,
+    prefix="/api",
+)
+
+app.include_router(
+    customers_router,
+    prefix="/api",
+)
+
+app.include_router(
+    reminders_router,
+    prefix="/api",
+)
+
+app.include_router(
+    migration_router,
+    prefix="/api",
+)
+
+app.include_router(
+    voice_router,
+    prefix="/api",
+)
+
 
 @app.get("/")
 def healthcheck():
-    return {"status": "ChairTime backend is running"}
+    return {
+        "status": "ChairTime backend is running"
+    }
