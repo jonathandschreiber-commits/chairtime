@@ -5,34 +5,58 @@ import { useParams } from "next/navigation";
 
 const API_BASE = "https://chairtime-production-94da.up.railway.app";
 
-export default function StaffPage() {
+export default function StaffServicesPage() {
   const params = useParams();
   const shopSlug = params.shop;
 
   const [barbers, setBarbers] = useState([]);
+  const [services, setServices] = useState([]);
+
   const [newBarberName, setNewBarberName] = useState("");
   const [editingBarberId, setEditingBarberId] = useState("");
   const [editedBarberName, setEditedBarberName] = useState("");
+
+  const [newServiceName, setNewServiceName] = useState("");
+  const [editingServiceId, setEditingServiceId] = useState("");
+  const [editedServiceName, setEditedServiceName] = useState("");
+
   const [message, setMessage] = useState("");
 
-  async function loadBarbers() {
+  async function loadData() {
     if (!shopSlug) return;
 
-    const response = await fetch(
-      `${API_BASE}/api/barbers?shop_slug=${encodeURIComponent(shopSlug)}`
-    );
+    const [barbersResponse, servicesResponse] = await Promise.all([
+      fetch(
+        `${API_BASE}/api/barbers?shop_slug=${encodeURIComponent(
+          shopSlug
+        )}`
+      ),
+      fetch(
+        `${API_BASE}/api/service-catalog?shop_slug=${encodeURIComponent(
+          shopSlug
+        )}`
+      ),
+    ]);
 
-    if (!response.ok) {
+    if (!barbersResponse.ok) {
       setMessage("Could not load staff.");
       return;
     }
 
-    const data = await response.json();
-    setBarbers(data);
+    if (!servicesResponse.ok) {
+      setMessage("Could not load services.");
+      return;
+    }
+
+    const barbersData = await barbersResponse.json();
+    const servicesData = await servicesResponse.json();
+
+    setBarbers(barbersData);
+    setServices(servicesData);
   }
 
   useEffect(() => {
-    loadBarbers();
+    loadData();
   }, [shopSlug]);
 
   async function addBarber() {
@@ -63,22 +87,24 @@ export default function StaffPage() {
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({}));
-      setMessage(error.detail || "Could not add staff member.");
+      setMessage(
+        error.detail || "Could not add staff member."
+      );
       return;
     }
 
     setNewBarberName("");
     setMessage("Staff member added.");
-    loadBarbers();
+    loadData();
   }
 
-  function startEditing(barber) {
+  function startEditingBarber(barber) {
     setEditingBarberId(barber.id);
     setEditedBarberName(barber.name);
     setMessage("");
   }
 
-  function cancelEditing() {
+  function cancelEditingBarber() {
     setEditingBarberId("");
     setEditedBarberName("");
   }
@@ -106,14 +132,15 @@ export default function StaffPage() {
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({}));
-      setMessage(error.detail || "Could not update staff member.");
+      setMessage(
+        error.detail || "Could not update staff member."
+      );
       return;
     }
 
-    setEditingBarberId("");
-    setEditedBarberName("");
+    cancelEditingBarber();
     setMessage("Staff member updated.");
-    loadBarbers();
+    loadData();
   }
 
   async function deleteBarber(barber) {
@@ -124,7 +151,9 @@ export default function StaffPage() {
     if (!confirmed) return;
 
     const response = await fetch(
-      `${API_BASE}/api/barbers/${encodeURIComponent(barber.id)}`,
+      `${API_BASE}/api/barbers/${encodeURIComponent(
+        barber.id
+      )}`,
       {
         method: "DELETE",
       }
@@ -132,22 +161,144 @@ export default function StaffPage() {
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({}));
-      setMessage(error.detail || "Could not delete staff member.");
+      setMessage(
+        error.detail || "Could not delete staff member."
+      );
       return;
     }
 
     setMessage("Staff member deleted.");
-    loadBarbers();
+    loadData();
+  }
+
+  async function addService() {
+    const cleanName = newServiceName.trim();
+
+    if (!cleanName) {
+      setMessage("Enter a service name.");
+      return;
+    }
+
+    const response = await fetch(
+      `${API_BASE}/api/service-catalog`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          shop_slug: shopSlug,
+          name: cleanName,
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      setMessage(
+        typeof error.detail === "string"
+          ? error.detail
+          : "Could not add service."
+      );
+      return;
+    }
+
+    setNewServiceName("");
+    setMessage("Service added.");
+    loadData();
+  }
+
+  function startEditingService(service) {
+    setEditingServiceId(service.id);
+    setEditedServiceName(service.name);
+    setMessage("");
+  }
+
+  function cancelEditingService() {
+    setEditingServiceId("");
+    setEditedServiceName("");
+  }
+
+  async function updateService(id) {
+    const cleanName = editedServiceName.trim();
+
+    if (!cleanName) {
+      setMessage("Enter a service name.");
+      return;
+    }
+
+    const response = await fetch(
+      `${API_BASE}/api/service-catalog/${encodeURIComponent(
+        id
+      )}`,
+      {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: cleanName,
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      setMessage(
+        typeof error.detail === "string"
+          ? error.detail
+          : "Could not update service."
+      );
+      return;
+    }
+
+    cancelEditingService();
+    setMessage("Service updated.");
+    loadData();
+  }
+
+  async function deleteService(service) {
+    const confirmed = window.confirm(
+      `Delete ${service.name} from the shop's service list?`
+    );
+
+    if (!confirmed) return;
+
+    const response = await fetch(
+      `${API_BASE}/api/service-catalog/${encodeURIComponent(
+        service.id
+      )}`,
+      {
+        method: "DELETE",
+      }
+    );
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+
+      setMessage(
+        typeof error.detail === "string"
+          ? error.detail
+          : "Could not delete service."
+      );
+
+      return;
+    }
+
+    setMessage("Service deleted.");
+    loadData();
   }
 
   return (
     <main className="min-h-screen bg-gray-100 p-6">
       <div className="max-w-4xl mx-auto space-y-6">
         <div className="bg-white rounded-3xl shadow-lg p-6 border">
-          <h1 className="text-4xl font-bold">Staff</h1>
+          <h1 className="text-4xl font-bold">
+            Staff & Services
+          </h1>
 
           <p className="text-gray-700 mt-2">
-            Add, rename, or remove service providers.
+            Manage the shop's staff and master service list.
           </p>
 
           {message && (
@@ -159,105 +310,205 @@ export default function StaffPage() {
 
         <div className="bg-white rounded-3xl shadow-lg p-6 border space-y-4">
           <h2 className="text-2xl font-bold">
-            Add Staff Member
+            Staff
           </h2>
 
-          <input
-            type="text"
-            value={newBarberName}
-            onChange={(event) =>
-              setNewBarberName(event.target.value)
-            }
-            placeholder="Staff name"
-            className="border p-3 rounded-xl w-full"
-          />
+          <div className="space-y-3">
+            <input
+              type="text"
+              value={newBarberName}
+              onChange={(event) =>
+                setNewBarberName(event.target.value)
+              }
+              placeholder="Staff name"
+              className="border p-3 rounded-xl w-full"
+            />
 
-          <button
-            onClick={addBarber}
-            className="bg-black text-white px-5 py-3 rounded-xl font-bold"
-          >
-            Add Staff Member
-          </button>
-        </div>
+            <button
+              onClick={addBarber}
+              className="bg-black text-white px-5 py-3 rounded-xl font-bold"
+            >
+              Add Staff Member
+            </button>
+          </div>
 
-        <div className="bg-white rounded-3xl shadow-lg p-6 border space-y-3">
-          <h2 className="text-2xl font-bold">
-            Current Staff
-          </h2>
-
-          {barbers.length === 0 ? (
-            <p className="text-gray-500">
-              No staff members found.
-            </p>
-          ) : (
-            barbers.map((barber) => (
-              <div
-                key={barber.id}
-                className="border rounded-2xl p-4"
-              >
-                {editingBarberId === barber.id ? (
-                  <div className="space-y-3">
-                    <input
-                      type="text"
-                      value={editedBarberName}
-                      onChange={(event) =>
-                        setEditedBarberName(
-                          event.target.value
-                        )
-                      }
-                      className="border p-3 rounded-xl w-full"
-                    />
-
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() =>
-                          updateBarber(barber.id)
+          <div className="space-y-3">
+            {barbers.length === 0 ? (
+              <p className="text-gray-500">
+                No staff members found.
+              </p>
+            ) : (
+              barbers.map((barber) => (
+                <div
+                  key={barber.id}
+                  className="border rounded-2xl p-4"
+                >
+                  {editingBarberId === barber.id ? (
+                    <div className="space-y-3">
+                      <input
+                        type="text"
+                        value={editedBarberName}
+                        onChange={(event) =>
+                          setEditedBarberName(
+                            event.target.value
+                          )
                         }
-                        className="bg-black text-white px-4 py-2 rounded-xl"
-                      >
-                        Save
-                      </button>
+                        className="border p-3 rounded-xl w-full"
+                      />
 
-                      <button
-                        onClick={cancelEditing}
-                        className="bg-gray-200 px-4 py-2 rounded-xl"
-                      >
-                        Cancel
-                      </button>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() =>
+                            updateBarber(barber.id)
+                          }
+                          className="bg-black text-white px-4 py-2 rounded-xl"
+                        >
+                          Save
+                        </button>
+
+                        <button
+                          onClick={cancelEditingBarber}
+                          className="bg-gray-200 px-4 py-2 rounded-xl"
+                        >
+                          Cancel
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                ) : (
-                  <div className="flex justify-between items-center gap-4">
-                    <div>
+                  ) : (
+                    <div className="flex justify-between items-center gap-4">
                       <p className="text-xl font-bold">
                         {barber.name}
                       </p>
-                    </div>
 
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() =>
-                          startEditing(barber)
-                        }
-                        className="bg-black text-white px-4 py-2 rounded-xl"
-                      >
-                        Edit
-                      </button>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() =>
+                            startEditingBarber(barber)
+                          }
+                          className="bg-black text-white px-4 py-2 rounded-xl"
+                        >
+                          Edit
+                        </button>
 
-                      <button
-                        onClick={() =>
-                          deleteBarber(barber)
-                        }
-                        className="bg-red-600 text-white px-4 py-2 rounded-xl"
-                      >
-                        Delete
-                      </button>
+                        <button
+                          onClick={() =>
+                            deleteBarber(barber)
+                          }
+                          className="bg-red-600 text-white px-4 py-2 rounded-xl"
+                        >
+                          Delete
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                )}
-              </div>
-            ))
-          )}
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        <div className="bg-white rounded-3xl shadow-lg p-6 border space-y-4">
+          <h2 className="text-2xl font-bold">
+            Services
+          </h2>
+
+          <p className="text-gray-600">
+            These are the services offered by the shop.
+            Staff members are assigned to them in Shop Setup.
+          </p>
+
+          <div className="space-y-3">
+            <input
+              type="text"
+              value={newServiceName}
+              onChange={(event) =>
+                setNewServiceName(event.target.value)
+              }
+              placeholder="Service name"
+              className="border p-3 rounded-xl w-full"
+            />
+
+            <button
+              onClick={addService}
+              className="bg-black text-white px-5 py-3 rounded-xl font-bold"
+            >
+              Add Service
+            </button>
+          </div>
+
+          <div className="space-y-3">
+            {services.length === 0 ? (
+              <p className="text-gray-500">
+                No services found.
+              </p>
+            ) : (
+              services.map((service) => (
+                <div
+                  key={service.id}
+                  className="border rounded-2xl p-4"
+                >
+                  {editingServiceId === service.id ? (
+                    <div className="space-y-3">
+                      <input
+                        type="text"
+                        value={editedServiceName}
+                        onChange={(event) =>
+                          setEditedServiceName(
+                            event.target.value
+                          )
+                        }
+                        className="border p-3 rounded-xl w-full"
+                      />
+
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() =>
+                            updateService(service.id)
+                          }
+                          className="bg-black text-white px-4 py-2 rounded-xl"
+                        >
+                          Save
+                        </button>
+
+                        <button
+                          onClick={cancelEditingService}
+                          className="bg-gray-200 px-4 py-2 rounded-xl"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex justify-between items-center gap-4">
+                      <p className="text-xl font-bold">
+                        {service.name}
+                      </p>
+
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() =>
+                            startEditingService(service)
+                          }
+                          className="bg-black text-white px-4 py-2 rounded-xl"
+                        >
+                          Edit
+                        </button>
+
+                        <button
+                          onClick={() =>
+                            deleteService(service)
+                          }
+                          className="bg-red-600 text-white px-4 py-2 rounded-xl"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
         </div>
 
         <a
