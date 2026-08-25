@@ -12,6 +12,9 @@ from app.routes.customers import router as customers_router
 from app.routes.migration import router as migration_router
 from app.routes.reminders import router as reminders_router
 from app.routes.services import router as services_router
+from app.routes.shop_availability import (
+    router as shop_availability_router,
+)
 from app.routes.shop_blocked_times import (
     router as shop_blocked_times_router,
 )
@@ -117,6 +120,11 @@ app.include_router(
 
 app.include_router(
     availability_router,
+    prefix="/api",
+)
+
+app.include_router(
+    shop_availability_router,
     prefix="/api",
 )
 
