@@ -20,7 +20,7 @@ export default function AdminHome({ shop = "" }) {
       href: basePath + "/setup",
     },
     {
-      name: "Staff",
+      name: "Staff & Services",
       href: basePath + "/staff",
     },
   ];
