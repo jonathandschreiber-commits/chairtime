@@ -25,6 +25,16 @@ const WEEKDAY_MAP = {
   Sunday: 6,
 };
 
+const WEEKDAYS = [
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+  "Sunday",
+];
+
 export default function SetupPage() {
   const params = useParams();
   const shopSlug = params.shop;
@@ -35,6 +45,10 @@ export default function SetupPage() {
   const [blockedTimes, setBlockedTimes] = useState([]);
   const [availabilityRules, setAvailabilityRules] = useState([]);
 
+  const [shopAvailabilityRules, setShopAvailabilityRules] =
+    useState([]);
+  const [shopBlockedTimes, setShopBlockedTimes] = useState([]);
+
   const [selectedBarberId, setSelectedBarberId] = useState("");
 
   const [serviceName, setServiceName] = useState("");
@@ -43,7 +57,8 @@ export default function SetupPage() {
 
   const [editingServiceId, setEditingServiceId] = useState("");
   const [editedServiceName, setEditedServiceName] = useState("");
-  const [editedServiceDuration, setEditedServiceDuration] = useState("");
+  const [editedServiceDuration, setEditedServiceDuration] =
+    useState("");
   const [editedServicePrice, setEditedServicePrice] = useState("");
 
   const [availabilityDay, setAvailabilityDay] = useState("Monday");
@@ -57,6 +72,50 @@ export default function SetupPage() {
   const [fullDayDate, setFullDayDate] = useState(
     new Date().toISOString().slice(0, 10)
   );
+
+  /*
+   * Shop-wide hours
+   */
+  const [shopHoursDay, setShopHoursDay] = useState("Monday");
+  const [shopHoursStart, setShopHoursStart] = useState("09:00");
+  const [shopHoursEnd, setShopHoursEnd] = useState("17:00");
+
+  /*
+   * One-time shop-wide time block
+   */
+  const [shopBlockReason, setShopBlockReason] = useState("Closed");
+  const [shopBlockStart, setShopBlockStart] = useState("");
+  const [shopBlockEnd, setShopBlockEnd] = useState("");
+
+  /*
+   * One-time full-day shop closure
+   */
+  const [shopClosureDate, setShopClosureDate] = useState(
+    new Date().toISOString().slice(0, 10)
+  );
+  const [shopClosureReason, setShopClosureReason] =
+    useState("Closed");
+
+  /*
+   * Recurring shop-wide block
+   */
+  const [recurringReason, setRecurringReason] = useState("Lunch");
+  const [recurringStartDate, setRecurringStartDate] = useState(
+    new Date().toISOString().slice(0, 10)
+  );
+  const [recurringEndDate, setRecurringEndDate] = useState(
+    new Date().toISOString().slice(0, 10)
+  );
+  const [recurringStartTime, setRecurringStartTime] =
+    useState("12:00");
+  const [recurringEndTime, setRecurringEndTime] = useState("13:00");
+  const [recurringWeekdays, setRecurringWeekdays] = useState([
+    0,
+    1,
+    2,
+    3,
+    4,
+  ]);
 
   const [message, setMessage] = useState("");
 
@@ -73,12 +132,16 @@ export default function SetupPage() {
         catalogRes,
         blockedRes,
         availabilityRes,
+        shopAvailabilityRes,
+        shopBlockedRes,
       ] = await Promise.all([
         fetch(`${API_BASE}/api/barbers${query}`),
         fetch(`${API_BASE}/api/services${query}`),
         fetch(`${API_BASE}/api/service-catalog${query}`),
         fetch(`${API_BASE}/api/blocked-times${query}`),
         fetch(`${API_BASE}/api/availability-rules${query}`),
+        fetch(`${API_BASE}/api/shop-availability-rules${query}`),
+        fetch(`${API_BASE}/api/shop-blocked-times${query}`),
       ]);
 
       if (
@@ -86,7 +149,9 @@ export default function SetupPage() {
         !servicesRes.ok ||
         !catalogRes.ok ||
         !blockedRes.ok ||
-        !availabilityRes.ok
+        !availabilityRes.ok ||
+        !shopAvailabilityRes.ok ||
+        !shopBlockedRes.ok
       ) {
         setMessage("Could not load shop setup.");
         return;
@@ -99,11 +164,19 @@ export default function SetupPage() {
       const availabilityData =
         await availabilityRes.json();
 
+      const shopAvailabilityData =
+        await shopAvailabilityRes.json();
+
+      const shopBlockedData =
+        await shopBlockedRes.json();
+
       setBarbers(barbersData);
       setServices(servicesData);
       setServiceCatalog(catalogData);
       setBlockedTimes(blockedData);
       setAvailabilityRules(availabilityData);
+      setShopAvailabilityRules(shopAvailabilityData);
+      setShopBlockedTimes(shopBlockedData);
 
       if (barbersData.length > 0) {
         setSelectedBarberId((current) => {
@@ -137,11 +210,52 @@ export default function SetupPage() {
     return String(value).slice(0, 5);
   }
 
+  function formatDateTime(value) {
+    if (!value) return "";
+
+    return new Date(value).toLocaleString();
+  }
+
+  function formatDate(value) {
+    if (!value) return "";
+
+    const datePart = String(value).slice(0, 10);
+    const [year, month, day] = datePart.split("-");
+
+    if (!year || !month || !day) {
+      return new Date(value).toLocaleDateString();
+    }
+
+    return new Date(
+      Number(year),
+      Number(month) - 1,
+      Number(day)
+    ).toLocaleDateString();
+  }
+
   function isFullDay(block) {
     return (
       block.start_datetime?.endsWith("T00:00:00") &&
       block.end_datetime?.endsWith("T23:59:00")
     );
+  }
+
+  function getErrorMessage(error, fallback) {
+    if (!error) return fallback;
+
+    if (typeof error.detail === "string") {
+      return error.detail;
+    }
+
+    if (
+      error.detail &&
+      typeof error.detail === "object" &&
+      typeof error.detail.message === "string"
+    ) {
+      return error.detail.message;
+    }
+
+    return fallback;
   }
 
   function handleBarberChange(barberId) {
@@ -163,6 +277,439 @@ export default function SetupPage() {
 
     setMessage("");
   }
+
+  /*
+   * SHOP-WIDE HOURS
+   */
+
+  async function addShopHours() {
+    if (!shopHoursStart || !shopHoursEnd) {
+      setMessage("Enter shop opening and closing times.");
+      return;
+    }
+
+    if (shopHoursStart >= shopHoursEnd) {
+      setMessage(
+        "Shop closing time must be later than opening time."
+      );
+      return;
+    }
+
+    const response = await fetch(
+      `${API_BASE}/api/shop-availability-rules`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          shop_slug: shopSlug,
+          weekday: WEEKDAY_MAP[shopHoursDay],
+          start_time: `${shopHoursStart}:00`,
+          end_time: `${shopHoursEnd}:00`,
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      const error = await response
+        .json()
+        .catch(() => ({}));
+
+      setMessage(
+        getErrorMessage(
+          error,
+          "Could not save shop hours."
+        )
+      );
+
+      return;
+    }
+
+    setMessage(`${shopHoursDay} shop hours saved.`);
+    loadData();
+  }
+
+  async function deleteShopHours(ruleId) {
+    const response = await fetch(
+      `${API_BASE}/api/shop-availability-rules/${encodeURIComponent(
+        ruleId
+      )}`,
+      {
+        method: "DELETE",
+      }
+    );
+
+    if (!response.ok) {
+      const error = await response
+        .json()
+        .catch(() => ({}));
+
+      setMessage(
+        getErrorMessage(
+          error,
+          "Could not delete shop hours."
+        )
+      );
+
+      return;
+    }
+
+    setMessage("Shop hours removed.");
+    loadData();
+  }
+
+  async function closeShopWeekday(weekday) {
+    const rulesForDay = shopAvailabilityRules.filter(
+      (rule) => rule.weekday === weekday
+    );
+
+    if (rulesForDay.length === 0) {
+      setMessage(
+        `${WEEKDAY_NAMES[weekday]} is already closed.`
+      );
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Mark the shop closed every ${WEEKDAY_NAMES[weekday]}?`
+    );
+
+    if (!confirmed) return;
+
+    for (const rule of rulesForDay) {
+      const response = await fetch(
+        `${API_BASE}/api/shop-availability-rules/${encodeURIComponent(
+          rule.id
+        )}`,
+        {
+          method: "DELETE",
+        }
+      );
+
+      if (!response.ok) {
+        setMessage(
+          `Could not mark ${WEEKDAY_NAMES[weekday]} closed.`
+        );
+        return;
+      }
+    }
+
+    setMessage(
+      `Shop is now closed on ${WEEKDAY_NAMES[weekday]}s.`
+    );
+
+    loadData();
+  }
+
+  /*
+   * SHOP-WIDE ONE-TIME BLOCK
+   */
+
+  async function addShopBlockTime() {
+    if (!shopBlockStart || !shopBlockEnd) {
+      setMessage(
+        "Enter the start and end of the shop-wide block."
+      );
+      return;
+    }
+
+    if (shopBlockStart >= shopBlockEnd) {
+      setMessage(
+        "Shop block end time must be later than start time."
+      );
+      return;
+    }
+
+    const response = await fetch(
+      `${API_BASE}/api/shop-blocked-times`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          shop_slug: shopSlug,
+          reason:
+            shopBlockReason.trim() || "Closed",
+          start_datetime: shopBlockStart,
+          end_datetime: shopBlockEnd,
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      const error = await response
+        .json()
+        .catch(() => ({}));
+
+      setMessage(
+        getErrorMessage(
+          error,
+          "Could not block the shop."
+        )
+      );
+
+      return;
+    }
+
+    setShopBlockReason("Closed");
+    setShopBlockStart("");
+    setShopBlockEnd("");
+
+    setMessage("Shop-wide time blocked.");
+    loadData();
+  }
+
+  /*
+   * SHOP-WIDE FULL DAY
+   */
+
+  async function addShopFullDayClosure(
+    reason = shopClosureReason
+  ) {
+    if (!shopClosureDate) {
+      setMessage("Choose a closure date.");
+      return;
+    }
+
+    const cleanReason =
+      String(reason || "").trim() || "Closed";
+
+    const response = await fetch(
+      `${API_BASE}/api/shop-blocked-times`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          shop_slug: shopSlug,
+          reason: cleanReason,
+          start_datetime:
+            `${shopClosureDate}T00:00:00`,
+          end_datetime:
+            `${shopClosureDate}T23:59:00`,
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      const error = await response
+        .json()
+        .catch(() => ({}));
+
+      setMessage(
+        getErrorMessage(
+          error,
+          "Could not close the shop."
+        )
+      );
+
+      return;
+    }
+
+    setMessage(
+      `${cleanReason} shop closure saved.`
+    );
+
+    loadData();
+  }
+
+  /*
+   * SHOP-WIDE RECURRING BLOCK
+   */
+
+  function toggleRecurringWeekday(weekday) {
+    setRecurringWeekdays((current) => {
+      if (current.includes(weekday)) {
+        return current.filter(
+          (item) => item !== weekday
+        );
+      }
+
+      return [...current, weekday].sort(
+        (a, b) => a - b
+      );
+    });
+  }
+
+  async function addRecurringShopBlock() {
+    if (!recurringReason.trim()) {
+      setMessage(
+        "Enter a reason for the recurring block."
+      );
+      return;
+    }
+
+    if (
+      !recurringStartDate ||
+      !recurringEndDate
+    ) {
+      setMessage(
+        "Choose the recurring block start and end dates."
+      );
+      return;
+    }
+
+    if (recurringEndDate < recurringStartDate) {
+      setMessage(
+        "Recurring end date must be on or after start date."
+      );
+      return;
+    }
+
+    if (
+      !recurringStartTime ||
+      !recurringEndTime
+    ) {
+      setMessage(
+        "Enter recurring start and end times."
+      );
+      return;
+    }
+
+    if (
+      recurringStartTime >= recurringEndTime
+    ) {
+      setMessage(
+        "Recurring end time must be later than start time."
+      );
+      return;
+    }
+
+    if (recurringWeekdays.length === 0) {
+      setMessage(
+        "Choose at least one weekday."
+      );
+      return;
+    }
+
+    const response = await fetch(
+      `${API_BASE}/api/shop-blocked-times/recurring`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          shop_slug: shopSlug,
+          reason: recurringReason.trim(),
+          start_date: recurringStartDate,
+          end_date: recurringEndDate,
+          start_time: `${recurringStartTime}:00`,
+          end_time: `${recurringEndTime}:00`,
+          weekdays: recurringWeekdays,
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      const error = await response
+        .json()
+        .catch(() => ({}));
+
+      setMessage(
+        getErrorMessage(
+          error,
+          "Could not create recurring shop block."
+        )
+      );
+
+      return;
+    }
+
+    const data = await response.json();
+
+    setMessage(
+      `Recurring shop block created${
+        data.occurrences_created
+          ? ` (${data.occurrences_created} occurrences).`
+          : "."
+      }`
+    );
+
+    loadData();
+  }
+
+  async function deleteShopBlockedTime(block) {
+    const confirmed = window.confirm(
+      `Delete this ${block.reason} shop block?`
+    );
+
+    if (!confirmed) return;
+
+    const response = await fetch(
+      `${API_BASE}/api/shop-blocked-times/${encodeURIComponent(
+        block.id
+      )}`,
+      {
+        method: "DELETE",
+      }
+    );
+
+    if (!response.ok) {
+      const error = await response
+        .json()
+        .catch(() => ({}));
+
+      setMessage(
+        getErrorMessage(
+          error,
+          "Could not delete shop block."
+        )
+      );
+
+      return;
+    }
+
+    setMessage("Shop block deleted.");
+    loadData();
+  }
+
+  async function deleteShopBlockedSeries(block) {
+    if (!block.series_id) return;
+
+    const confirmed = window.confirm(
+      `Delete the entire recurring ${block.reason} series?`
+    );
+
+    if (!confirmed) return;
+
+    const response = await fetch(
+      `${API_BASE}/api/shop-blocked-time-series/${encodeURIComponent(
+        block.series_id
+      )}?shop_slug=${encodeURIComponent(shopSlug)}`,
+      {
+        method: "DELETE",
+      }
+    );
+
+    if (!response.ok) {
+      const error = await response
+        .json()
+        .catch(() => ({}));
+
+      setMessage(
+        getErrorMessage(
+          error,
+          "Could not delete recurring shop block."
+        )
+      );
+
+      return;
+    }
+
+    setMessage(
+      "Recurring shop block series deleted."
+    );
+
+    loadData();
+  }
+
+  /*
+   * STAFF SERVICES
+   */
 
   async function addService() {
     const duration = Number(serviceDuration);
@@ -215,9 +762,10 @@ export default function SetupPage() {
         .catch(() => ({}));
 
       setMessage(
-        typeof error.detail === "string"
-          ? error.detail
-          : "Could not assign service."
+        getErrorMessage(
+          error,
+          "Could not assign service."
+        )
       );
 
       return;
@@ -305,9 +853,10 @@ export default function SetupPage() {
         .catch(() => ({}));
 
       setMessage(
-        typeof error.detail === "string"
-          ? error.detail
-          : "Could not update service."
+        getErrorMessage(
+          error,
+          "Could not update service."
+        )
       );
 
       return;
@@ -342,8 +891,10 @@ export default function SetupPage() {
         .catch(() => ({}));
 
       setMessage(
-        error.detail ||
+        getErrorMessage(
+          error,
           "Could not remove service."
+        )
       );
 
       return;
@@ -355,6 +906,10 @@ export default function SetupPage() {
 
     loadData();
   }
+
+  /*
+   * STAFF AVAILABILITY
+   */
 
   async function addAvailabilityRule() {
     if (!selectedBarberId) {
@@ -407,8 +962,10 @@ export default function SetupPage() {
         .catch(() => ({}));
 
       setMessage(
-        error.detail ||
+        getErrorMessage(
+          error,
           "Could not save availability."
+        )
       );
 
       return;
@@ -445,6 +1002,10 @@ export default function SetupPage() {
 
     loadData();
   }
+
+  /*
+   * STAFF BLOCKS
+   */
 
   async function blockTime() {
     if (!selectedBarberId) {
@@ -492,8 +1053,10 @@ export default function SetupPage() {
         .catch(() => ({}));
 
       setMessage(
-        error.detail ||
+        getErrorMessage(
+          error,
           "Could not block time."
+        )
       );
 
       return;
@@ -542,8 +1105,10 @@ export default function SetupPage() {
         .catch(() => ({}));
 
       setMessage(
-        error.detail ||
+        getErrorMessage(
+          error,
           "Could not block full day."
+        )
       );
 
       return;
@@ -580,6 +1145,10 @@ export default function SetupPage() {
 
     loadData();
   }
+
+  /*
+   * DERIVED DATA
+   */
 
   const selectedBarber = useMemo(() => {
     return (
@@ -694,6 +1263,58 @@ export default function SetupPage() {
       selectedBarberId,
     ]);
 
+  const sortedShopHours = useMemo(() => {
+    return [...shopAvailabilityRules].sort(
+      (a, b) => {
+        if (a.weekday !== b.weekday) {
+          return a.weekday - b.weekday;
+        }
+
+        return String(
+          a.start_time
+        ).localeCompare(
+          String(b.start_time)
+        );
+      }
+    );
+  }, [shopAvailabilityRules]);
+
+  const groupedShopHours = useMemo(() => {
+    const grouped = {};
+
+    for (let weekday = 0; weekday <= 6; weekday++) {
+      grouped[weekday] = [];
+    }
+
+    for (const rule of sortedShopHours) {
+      grouped[rule.weekday].push(rule);
+    }
+
+    return grouped;
+  }, [sortedShopHours]);
+
+  const upcomingShopBlockedTimes =
+    useMemo(() => {
+      const now = new Date();
+
+      return [...shopBlockedTimes]
+        .filter(
+          (block) =>
+            new Date(
+              block.end_datetime
+            ) >= now
+        )
+        .sort(
+          (a, b) =>
+            new Date(
+              a.start_datetime
+            ) -
+            new Date(
+              b.start_datetime
+            )
+        );
+    }, [shopBlockedTimes]);
+
   return (
     <main className="min-h-screen bg-gray-100 p-6">
       <div className="max-w-5xl mx-auto space-y-6">
@@ -706,6 +1327,520 @@ export default function SetupPage() {
             {message}
           </div>
         )}
+
+        {/* SHOP-WIDE SETTINGS */}
+
+        <div className="bg-white p-6 rounded-2xl shadow space-y-5">
+          <div>
+            <h2 className="text-2xl font-bold">
+              Shop Hours
+            </h2>
+
+            <p className="text-gray-600 mt-1">
+              These hours apply to the entire shop.
+              A day with no hours is closed.
+            </p>
+          </div>
+
+          <select
+            value={shopHoursDay}
+            onChange={(event) =>
+              setShopHoursDay(
+                event.target.value
+              )
+            }
+            className="border p-3 rounded w-full"
+          >
+            {WEEKDAYS.map((day) => (
+              <option
+                key={day}
+                value={day}
+              >
+                {day}
+              </option>
+            ))}
+          </select>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <p className="font-bold mb-1">
+                Opens
+              </p>
+
+              <input
+                type="time"
+                value={shopHoursStart}
+                onChange={(event) =>
+                  setShopHoursStart(
+                    event.target.value
+                  )
+                }
+                className="border p-3 rounded w-full"
+              />
+            </div>
+
+            <div>
+              <p className="font-bold mb-1">
+                Closes
+              </p>
+
+              <input
+                type="time"
+                value={shopHoursEnd}
+                onChange={(event) =>
+                  setShopHoursEnd(
+                    event.target.value
+                  )
+                }
+                className="border p-3 rounded w-full"
+              />
+            </div>
+          </div>
+
+          <button
+            onClick={addShopHours}
+            className="bg-black text-white px-4 py-3 rounded-xl font-bold"
+          >
+            Save Shop Hours
+          </button>
+
+          <div className="space-y-2">
+            {WEEKDAYS.map((dayName) => {
+              const weekday =
+                WEEKDAY_MAP[dayName];
+
+              const rules =
+                groupedShopHours[
+                  weekday
+                ] || [];
+
+              return (
+                <div
+                  key={dayName}
+                  className="border rounded-xl p-3"
+                >
+                  <div className="flex justify-between items-center gap-3">
+                    <div>
+                      <p className="font-bold">
+                        {dayName}
+                      </p>
+
+                      {rules.length === 0 ? (
+                        <p className="text-sm text-gray-500">
+                          Closed
+                        </p>
+                      ) : (
+                        rules.map((rule) => (
+                          <div
+                            key={rule.id}
+                            className="text-sm text-gray-700 mt-1"
+                          >
+                            {formatTime(
+                              rule.start_time
+                            )}{" "}
+                            -{" "}
+                            {formatTime(
+                              rule.end_time
+                            )}
+                          </div>
+                        ))
+                      )}
+                    </div>
+
+                    <div className="flex flex-wrap gap-2 justify-end">
+                      {rules.map((rule) => (
+                        <button
+                          key={rule.id}
+                          onClick={() =>
+                            deleteShopHours(
+                              rule.id
+                            )
+                          }
+                          className="bg-red-500 text-white px-3 py-1 rounded"
+                        >
+                          Delete Hours
+                        </button>
+                      ))}
+
+                      {rules.length > 0 && (
+                        <button
+                          onClick={() =>
+                            closeShopWeekday(
+                              weekday
+                            )
+                          }
+                          className="bg-gray-200 px-3 py-1 rounded"
+                        >
+                          Closed
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="bg-white p-6 rounded-2xl shadow space-y-5">
+          <div>
+            <h2 className="text-2xl font-bold">
+              Shop Closures & Breaks
+            </h2>
+
+            <p className="text-gray-600 mt-1">
+              These blocks apply to every staff
+              member in the shop.
+            </p>
+          </div>
+
+          <div className="border rounded-2xl p-4 space-y-3">
+            <h3 className="text-xl font-bold">
+              One-Time Time Block
+            </h3>
+
+            <p className="text-sm text-gray-600">
+              Use this for a staff meeting,
+              special closure, or another
+              one-time period when nobody can
+              be booked.
+            </p>
+
+            <input
+              type="text"
+              value={shopBlockReason}
+              onChange={(event) =>
+                setShopBlockReason(
+                  event.target.value
+                )
+              }
+              placeholder="Reason"
+              className="border p-3 rounded w-full"
+            />
+
+            <input
+              type="datetime-local"
+              value={shopBlockStart}
+              onChange={(event) =>
+                setShopBlockStart(
+                  event.target.value
+                )
+              }
+              className="border p-3 rounded w-full"
+            />
+
+            <input
+              type="datetime-local"
+              value={shopBlockEnd}
+              onChange={(event) =>
+                setShopBlockEnd(
+                  event.target.value
+                )
+              }
+              className="border p-3 rounded w-full"
+            />
+
+            <button
+              onClick={addShopBlockTime}
+              className="bg-black text-white px-4 py-3 rounded-xl font-bold"
+            >
+              Block Entire Shop
+            </button>
+          </div>
+
+          <div className="border rounded-2xl p-4 space-y-3">
+            <h3 className="text-xl font-bold">
+              Full-Day Shop Closure
+            </h3>
+
+            <p className="text-sm text-gray-600">
+              Use this for a holiday, vacation
+              day, weather closure, or other
+              full-day closing.
+            </p>
+
+            <input
+              type="date"
+              value={shopClosureDate}
+              onChange={(event) =>
+                setShopClosureDate(
+                  event.target.value
+                )
+              }
+              className="border p-3 rounded w-full"
+            />
+
+            <input
+              type="text"
+              value={shopClosureReason}
+              onChange={(event) =>
+                setShopClosureReason(
+                  event.target.value
+                )
+              }
+              placeholder="Reason"
+              className="border p-3 rounded w-full"
+            />
+
+            <div className="flex flex-wrap gap-3">
+              <button
+                onClick={() =>
+                  addShopFullDayClosure(
+                    shopClosureReason
+                  )
+                }
+                className="bg-black text-white px-4 py-3 rounded-xl font-bold"
+              >
+                Close Shop
+              </button>
+
+              <button
+                onClick={() =>
+                  addShopFullDayClosure(
+                    "Vacation"
+                  )
+                }
+                className="bg-gray-800 text-white px-4 py-3 rounded-xl font-bold"
+              >
+                Vacation
+              </button>
+
+              <button
+                onClick={() =>
+                  addShopFullDayClosure(
+                    "Holiday"
+                  )
+                }
+                className="bg-gray-200 px-4 py-3 rounded-xl font-bold"
+              >
+                Holiday
+              </button>
+            </div>
+          </div>
+
+          <div className="border rounded-2xl p-4 space-y-3">
+            <h3 className="text-xl font-bold">
+              Recurring Shop Block
+            </h3>
+
+            <p className="text-sm text-gray-600">
+              Use this for a recurring lunch,
+              staff meeting, or another
+              shop-wide break.
+            </p>
+
+            <input
+              type="text"
+              value={recurringReason}
+              onChange={(event) =>
+                setRecurringReason(
+                  event.target.value
+                )
+              }
+              placeholder="Reason"
+              className="border p-3 rounded w-full"
+            />
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <p className="font-bold mb-1">
+                  Start Date
+                </p>
+
+                <input
+                  type="date"
+                  value={recurringStartDate}
+                  onChange={(event) =>
+                    setRecurringStartDate(
+                      event.target.value
+                    )
+                  }
+                  className="border p-3 rounded w-full"
+                />
+              </div>
+
+              <div>
+                <p className="font-bold mb-1">
+                  End Date
+                </p>
+
+                <input
+                  type="date"
+                  value={recurringEndDate}
+                  onChange={(event) =>
+                    setRecurringEndDate(
+                      event.target.value
+                    )
+                  }
+                  className="border p-3 rounded w-full"
+                />
+              </div>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <p className="font-bold mb-1">
+                  Start Time
+                </p>
+
+                <input
+                  type="time"
+                  value={recurringStartTime}
+                  onChange={(event) =>
+                    setRecurringStartTime(
+                      event.target.value
+                    )
+                  }
+                  className="border p-3 rounded w-full"
+                />
+              </div>
+
+              <div>
+                <p className="font-bold mb-1">
+                  End Time
+                </p>
+
+                <input
+                  type="time"
+                  value={recurringEndTime}
+                  onChange={(event) =>
+                    setRecurringEndTime(
+                      event.target.value
+                    )
+                  }
+                  className="border p-3 rounded w-full"
+                />
+              </div>
+            </div>
+
+            <div>
+              <p className="font-bold mb-2">
+                Days
+              </p>
+
+              <div className="grid gap-2 sm:grid-cols-4">
+                {WEEKDAYS.map(
+                  (dayName) => {
+                    const weekday =
+                      WEEKDAY_MAP[
+                        dayName
+                      ];
+
+                    const checked =
+                      recurringWeekdays.includes(
+                        weekday
+                      );
+
+                    return (
+                      <label
+                        key={dayName}
+                        className="border rounded-xl p-3 flex items-center gap-2 cursor-pointer"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={
+                            checked
+                          }
+                          onChange={() =>
+                            toggleRecurringWeekday(
+                              weekday
+                            )
+                          }
+                        />
+
+                        <span>
+                          {dayName}
+                        </span>
+                      </label>
+                    );
+                  }
+                )}
+              </div>
+            </div>
+
+            <button
+              onClick={addRecurringShopBlock}
+              className="bg-black text-white px-4 py-3 rounded-xl font-bold"
+            >
+              Save Recurring Block
+            </button>
+          </div>
+
+          <div className="space-y-2">
+            <h3 className="text-xl font-bold">
+              Upcoming Shop-Wide Blocks
+            </h3>
+
+            {upcomingShopBlockedTimes.length ===
+            0 ? (
+              <p className="text-gray-500">
+                No upcoming shop-wide closures
+                or breaks.
+              </p>
+            ) : (
+              upcomingShopBlockedTimes.map(
+                (block) => (
+                  <div
+                    key={block.id}
+                    className="border rounded-xl p-3 flex justify-between items-center gap-4"
+                  >
+                    <div>
+                      <p className="font-bold">
+                        {block.reason}
+                      </p>
+
+                      <p className="text-sm text-gray-600">
+                        {isFullDay(block)
+                          ? formatDate(
+                              block.start_datetime
+                            )
+                          : `${formatDateTime(
+                              block.start_datetime
+                            )} - ${formatDateTime(
+                              block.end_datetime
+                            )}`}
+                      </p>
+
+                      {block.series_id && (
+                        <p className="text-xs text-gray-500 mt-1">
+                          Recurring
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="flex flex-wrap gap-2 justify-end">
+                      <button
+                        onClick={() =>
+                          deleteShopBlockedTime(
+                            block
+                          )
+                        }
+                        className="bg-red-500 text-white px-3 py-2 rounded"
+                      >
+                        Delete This One
+                      </button>
+
+                      {block.series_id && (
+                        <button
+                          onClick={() =>
+                            deleteShopBlockedSeries(
+                              block
+                            )
+                          }
+                          className="bg-red-700 text-white px-3 py-2 rounded"
+                        >
+                          Delete Series
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )
+              )
+            )}
+          </div>
+        </div>
+
+        {/* INDIVIDUAL STAFF SETTINGS */}
 
         <div className="bg-white p-6 rounded-2xl shadow space-y-4">
           <h2 className="text-2xl font-bold">
@@ -1240,12 +2375,12 @@ export default function SetupPage() {
                         <div>
                           {block.reason} ·{" "}
                           {isFullDay(block)
-                            ? new Date(
+                            ? formatDate(
                                 block.start_datetime
-                              ).toLocaleDateString()
-                            : new Date(
+                              )
+                            : formatDateTime(
                                 block.start_datetime
-                              ).toLocaleString()}
+                              )}
                         </div>
 
                         <button
