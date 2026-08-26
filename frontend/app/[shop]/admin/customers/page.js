@@ -46,6 +46,18 @@ function timePart(value) {
   return String(value || "").slice(11, 16);
 }
 
+function displayShopName(slug) {
+  return String(slug || "")
+    .split("-")
+    .filter(Boolean)
+    .map(
+      (word) =>
+        word.charAt(0).toUpperCase() +
+        word.slice(1)
+    )
+    .join(" ");
+}
+
 function CustomersPageContent() {
   const params = useParams();
   const router = useRouter();
@@ -552,7 +564,7 @@ function CustomersPageContent() {
     return (
       <div
         key={appointment.id}
-        className={`border rounded-xl p-4 ${statusStyle}`}
+        className={`border rounded-2xl p-4 ${statusStyle}`}
       >
         <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-start">
           <div>
@@ -715,14 +727,40 @@ function CustomersPageContent() {
   }
 
   return (
-    <main className="min-h-screen bg-gray-100 p-6">
+    <main className="min-h-screen bg-purple-50 p-4 sm:p-8">
       <div className="max-w-5xl mx-auto space-y-6">
-        <h1 className="text-4xl font-bold">
-          {shopSlug} Customers
-        </h1>
+        <section className="rounded-3xl shadow-lg p-6 border border-purple-200 bg-gradient-to-r from-purple-100 via-fuchsia-50 to-white">
+          <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-sm font-extrabold uppercase tracking-widest text-purple-700 mb-2">
+                {displayShopName(shopSlug)}
+              </p>
 
-        <div className="bg-white rounded-2xl p-5 shadow border">
-          <label className="block text-lg font-bold mb-2">
+              <h1 className="text-5xl font-extrabold tracking-tight text-gray-950">
+                Customers
+              </h1>
+
+              <p className="mt-2 text-lg text-gray-700">
+                Find customers, review history, and manage upcoming appointments.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() =>
+                router.push(
+                  `/${shopSlug}/admin`
+                )
+              }
+              className="inline-flex items-center justify-center rounded-xl bg-blue-600 px-5 py-3 font-bold text-white shadow hover:bg-blue-700"
+            >
+              Admin Home
+            </button>
+          </div>
+        </section>
+
+        <section className="bg-white rounded-3xl p-5 shadow-lg border border-purple-200">
+          <label className="block text-lg font-bold mb-2 text-purple-950">
             Search customers
           </label>
 
@@ -735,7 +773,7 @@ function CustomersPageContent() {
               )
             }
             placeholder="Search by name or phone"
-            className="w-full border rounded-xl p-4 text-lg"
+            className="w-full border border-purple-200 rounded-xl p-4 text-lg bg-purple-50 focus:outline-none focus:ring-2 focus:ring-purple-300"
           />
 
           {customerSearch &&
@@ -744,16 +782,16 @@ function CustomersPageContent() {
                 No customers found.
               </p>
             )}
-        </div>
+        </section>
 
         {message && (
-          <p className="font-bold text-green-700">
+          <p className="rounded-xl bg-green-50 border border-green-200 px-4 py-3 font-bold text-green-700">
             {message}
           </p>
         )}
 
         {error && (
-          <p className="font-bold text-red-700">
+          <p className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 font-bold text-red-700">
             {error}
           </p>
         )}
@@ -815,21 +853,21 @@ function CustomersPageContent() {
                 );
 
             return (
-              <div
+              <section
                 key={customerKey}
                 className={
                   isHighlighted
-                    ? "bg-yellow-50 rounded-2xl p-6 shadow border-4 border-yellow-400"
-                    : "bg-white rounded-2xl p-6 shadow border"
+                    ? "bg-white rounded-3xl p-6 shadow-xl border-4 border-purple-500"
+                    : "bg-white rounded-3xl p-6 shadow-lg border border-purple-200"
                 }
               >
-                <div className="flex justify-between items-center gap-4">
+                <div className="flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-center">
                   <div>
-                    <h2 className="text-2xl font-bold">
+                    <h2 className="text-3xl font-extrabold text-purple-950">
                       {latest.customer_name}
                     </h2>
 
-                    <p>
+                    <p className="text-lg text-gray-700">
                       {latest.customer_phone}
                     </p>
 
@@ -838,7 +876,7 @@ function CustomersPageContent() {
                         (tag) => (
                           <span
                             key={tag}
-                            className="px-3 py-1 rounded-full bg-purple-100"
+                            className="px-3 py-1 rounded-full bg-purple-100 text-purple-900 font-semibold"
                           >
                             {tag}
                           </span>
@@ -847,13 +885,13 @@ function CustomersPageContent() {
                     </div>
                   </div>
 
-                  <div className="flex gap-2 flex-wrap justify-end">
+                  <div className="flex gap-2 flex-wrap">
                     <a
                       href={
                         "tel:" +
                         latest.customer_phone
                       }
-                      className="bg-black text-white px-4 py-2 rounded-xl"
+                      className="bg-black text-white px-4 py-2 rounded-xl font-semibold"
                     >
                       Call
                     </a>
@@ -863,7 +901,7 @@ function CustomersPageContent() {
                         "sms:" +
                         latest.customer_phone
                       }
-                      className="bg-blue-700 text-white px-4 py-2 rounded-xl"
+                      className="bg-blue-700 text-white px-4 py-2 rounded-xl font-semibold"
                     >
                       Text
                     </a>
@@ -883,14 +921,14 @@ function CustomersPageContent() {
                           latest.customer_phone
                         );
                       }}
-                      className="bg-green-600 text-white px-4 py-2 rounded-xl"
+                      className="bg-green-600 text-white px-4 py-2 rounded-xl font-semibold"
                     >
                       Edit
                     </button>
                   </div>
                 </div>
 
-                <div className="mt-4 flex gap-2 flex-wrap">
+                <div className="mt-5 flex gap-2 flex-wrap">
                   {QUICK_TAGS.map((tag) => {
                     const active =
                       activeTags.includes(tag);
@@ -921,8 +959,8 @@ function CustomersPageContent() {
                         }}
                         className={
                           active
-                            ? "bg-purple-700 text-white px-3 py-2 rounded-full"
-                            : "bg-gray-200 px-3 py-2 rounded-full"
+                            ? "bg-purple-700 text-white px-3 py-2 rounded-full font-semibold"
+                            : "bg-purple-100 text-purple-950 px-3 py-2 rounded-full font-semibold"
                         }
                       >
                         {tag}
@@ -939,16 +977,16 @@ function CustomersPageContent() {
 
                       setCustomTagText("");
                     }}
-                    className="bg-black text-white px-3 py-2 rounded-full"
+                    className="bg-purple-950 text-white px-3 py-2 rounded-full font-semibold"
                   >
-                    Add Tag
+                    + Add Tag
                   </button>
                 </div>
 
                 {isAddingTag && (
-                  <div className="mt-4 bg-purple-50 p-4 rounded-xl">
+                  <div className="mt-4 bg-purple-50 border border-purple-200 p-4 rounded-2xl">
                     <input
-                      className="border p-3 rounded w-full mb-2"
+                      className="border border-purple-200 p-3 rounded-xl w-full mb-2 bg-white"
                       placeholder="Type custom tag"
                       value={customTagText}
                       onChange={(event) =>
@@ -967,7 +1005,7 @@ function CustomersPageContent() {
                             activeTags
                           )
                         }
-                        className="bg-black text-white px-4 py-2 rounded-xl"
+                        className="bg-purple-700 text-white px-4 py-2 rounded-xl font-semibold"
                       >
                         Save Tag
                       </button>
@@ -981,7 +1019,7 @@ function CustomersPageContent() {
 
                           setCustomTagText("");
                         }}
-                        className="bg-gray-300 px-4 py-2 rounded-xl"
+                        className="bg-gray-300 px-4 py-2 rounded-xl font-semibold"
                       >
                         Cancel
                       </button>
@@ -989,9 +1027,9 @@ function CustomersPageContent() {
                   </div>
                 )}
 
-                <div className="mt-4 bg-yellow-50 p-4 rounded-xl">
-                  <div className="flex justify-between items-center mb-2">
-                    <p className="font-bold">
+                <div className="mt-5 bg-amber-50 border border-amber-200 p-4 rounded-2xl">
+                  <div className="flex justify-between items-center gap-3 mb-2">
+                    <p className="font-bold text-lg">
                       Customer Notes
                     </p>
 
@@ -1007,7 +1045,7 @@ function CustomersPageContent() {
                             ""
                         );
                       }}
-                      className="bg-yellow-600 text-white px-3 py-2 rounded-xl"
+                      className="bg-amber-600 text-white px-3 py-2 rounded-xl font-semibold"
                     >
                       Edit Notes
                     </button>
@@ -1021,16 +1059,15 @@ function CustomersPageContent() {
                     </p>
                   ) : (
                     <p className="text-gray-600">
-                      No permanent customer
-                      notes.
+                      No permanent customer notes.
                     </p>
                   )}
                 </div>
 
                 {isEditingNotes && (
-                  <div className="mt-4 bg-yellow-50 p-4 rounded-xl">
+                  <div className="mt-4 bg-amber-50 border border-amber-200 p-4 rounded-2xl">
                     <textarea
-                      className="border p-3 rounded w-full mb-2 min-h-32"
+                      className="border border-amber-200 p-3 rounded-xl w-full mb-2 min-h-32 bg-white"
                       placeholder="Permanent customer notes"
                       value={customerNotesText}
                       onChange={(event) =>
@@ -1048,7 +1085,7 @@ function CustomersPageContent() {
                             latest.customer_phone
                           )
                         }
-                        className="bg-black text-white px-4 py-2 rounded-xl"
+                        className="bg-black text-white px-4 py-2 rounded-xl font-semibold"
                       >
                         Save Notes
                       </button>
@@ -1064,7 +1101,7 @@ function CustomersPageContent() {
                             ""
                           );
                         }}
-                        className="bg-gray-300 px-4 py-2 rounded-xl"
+                        className="bg-gray-300 px-4 py-2 rounded-xl font-semibold"
                       >
                         Cancel
                       </button>
@@ -1074,9 +1111,13 @@ function CustomersPageContent() {
 
                 {editingCustomerKey ===
                   customerKey && (
-                  <div className="mt-4 bg-green-50 p-4 rounded-xl">
+                  <div className="mt-4 bg-green-50 border border-green-200 p-4 rounded-2xl">
+                    <label className="block font-bold mb-2">
+                      Customer name
+                    </label>
+
                     <input
-                      className="border p-3 rounded w-full mb-2"
+                      className="border p-3 rounded-xl w-full mb-3 bg-white"
                       value={editName}
                       onChange={(event) =>
                         setEditName(
@@ -1085,8 +1126,12 @@ function CustomersPageContent() {
                       }
                     />
 
+                    <label className="block font-bold mb-2">
+                      Phone
+                    </label>
+
                     <input
-                      className="border p-3 rounded w-full mb-2"
+                      className="border p-3 rounded-xl w-full mb-3 bg-white"
                       value={editPhone}
                       onChange={(event) =>
                         setEditPhone(
@@ -1102,15 +1147,15 @@ function CustomersPageContent() {
                           latest.customer_phone
                         )
                       }
-                      className="bg-black text-white px-4 py-2 rounded-xl"
+                      className="bg-green-700 text-white px-4 py-2 rounded-xl font-semibold"
                     >
                       Save Customer
                     </button>
                   </div>
                 )}
 
-                <div className="mt-6">
-                  <h3 className="text-xl font-bold mb-3">
+                <div className="mt-7">
+                  <h3 className="text-2xl font-extrabold text-purple-950 mb-3">
                     Upcoming Appointments
                   </h3>
 
@@ -1126,7 +1171,7 @@ function CustomersPageContent() {
                       )}
                     </div>
                   ) : (
-                    <div className="border rounded-xl p-4 bg-gray-50">
+                    <div className="border border-purple-100 rounded-2xl p-4 bg-purple-50">
                       <p className="text-gray-600">
                         No upcoming appointments.
                       </p>
@@ -1134,8 +1179,8 @@ function CustomersPageContent() {
                   )}
                 </div>
 
-                <div className="mt-6">
-                  <h3 className="text-xl font-bold mb-3">
+                <div className="mt-7">
+                  <h3 className="text-2xl font-extrabold text-purple-950 mb-3">
                     Past Appointments
                   </h3>
 
@@ -1151,14 +1196,14 @@ function CustomersPageContent() {
                       )}
                     </div>
                   ) : (
-                    <div className="border rounded-xl p-4 bg-gray-50">
+                    <div className="border border-purple-100 rounded-2xl p-4 bg-purple-50">
                       <p className="text-gray-600">
                         No past appointments.
                       </p>
                     </div>
                   )}
                 </div>
-              </div>
+              </section>
             );
           }
         )}
@@ -1171,8 +1216,12 @@ export default function CustomersPage() {
   return (
     <Suspense
       fallback={
-        <main className="p-6">
-          Loading customers...
+        <main className="min-h-screen bg-purple-50 p-6">
+          <div className="max-w-5xl mx-auto bg-white rounded-3xl p-6 shadow">
+            <p className="text-xl font-bold">
+              Loading customers...
+            </p>
+          </div>
         </main>
       }
     >
