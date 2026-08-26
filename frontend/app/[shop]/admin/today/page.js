@@ -361,32 +361,46 @@ export default function AgendaPage() {
   ]);
 
   return (
-    <main className="min-h-screen bg-gray-100 p-4 sm:p-8">
+    <main className="min-h-screen bg-orange-50 p-4 sm:p-8">
       <div className="max-w-4xl mx-auto space-y-6">
-        <section className="bg-white rounded-3xl shadow-lg p-6 border border-gray-200">
-          <h1 className="text-5xl font-extrabold tracking-tight mb-2">
-            Daily Agenda
-          </h1>
+        <section className="rounded-3xl shadow-lg p-6 border border-orange-200 bg-gradient-to-r from-orange-100 via-amber-50 to-white">
+          <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-sm font-extrabold uppercase tracking-widest text-orange-700 mb-2">
+                {displayShopName(shopSlug)}
+              </p>
 
-          <p>
-            {displayShopName(shopSlug)} appointments.
-            Simple and fast.
-          </p>
+              <h1 className="text-5xl font-extrabold tracking-tight mb-2 text-gray-950">
+                Daily Agenda
+              </h1>
+
+              <p className="text-lg text-gray-700">
+                Today at a glance. Simple and fast.
+              </p>
+            </div>
+
+            <Link
+              href={`/${shopSlug}/admin`}
+              className="inline-flex items-center justify-center rounded-xl bg-blue-600 px-5 py-3 font-bold text-white shadow hover:bg-blue-700"
+            >
+              Admin Home
+            </Link>
+          </div>
 
           {message ? (
-            <p className="mt-4 font-bold text-green-700">
+            <p className="mt-4 rounded-xl bg-green-50 border border-green-200 px-4 py-3 font-bold text-green-700">
               {message}
             </p>
           ) : null}
 
           {error ? (
-            <p className="mt-4 font-bold text-red-700">
+            <p className="mt-4 rounded-xl bg-red-50 border border-red-200 px-4 py-3 font-bold text-red-700">
               {error}
             </p>
           ) : null}
         </section>
 
-        <section className="bg-white rounded-3xl shadow-lg p-6 border border-gray-200">
+        <section className="bg-white rounded-3xl shadow-lg p-6 border border-orange-200">
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
               <label className="block font-bold mb-2">
@@ -395,7 +409,7 @@ export default function AgendaPage() {
 
               <input
                 type="date"
-                className="w-full border rounded-xl p-4 text-lg"
+                className="w-full border border-orange-200 rounded-xl p-4 text-lg bg-orange-50 focus:outline-none focus:ring-2 focus:ring-orange-300"
                 value={selectedDate}
                 onChange={(event) =>
                   setSelectedDate(
@@ -411,7 +425,7 @@ export default function AgendaPage() {
               </label>
 
               <select
-                className="w-full border rounded-xl p-4 text-lg"
+                className="w-full border border-orange-200 rounded-xl p-4 text-lg bg-orange-50 focus:outline-none focus:ring-2 focus:ring-orange-300"
                 value={selectedBarberId}
                 onChange={(event) =>
                   setSelectedBarberId(
@@ -438,7 +452,7 @@ export default function AgendaPage() {
 
         <section className="space-y-4">
           {loading ? (
-            <div className="bg-white rounded-3xl shadow-lg p-6 border border-gray-200">
+            <div className="bg-white rounded-3xl shadow-lg p-6 border border-orange-200">
               <p className="text-2xl font-bold">
                 Loading agenda...
               </p>
@@ -447,7 +461,7 @@ export default function AgendaPage() {
 
           {!loading &&
           agendaAppointments.length === 0 ? (
-            <div className="bg-white rounded-3xl shadow-lg p-6 border border-gray-200">
+            <div className="bg-white rounded-3xl shadow-lg p-6 border border-orange-200">
               <p className="text-2xl font-bold">
                 No appointments.
               </p>
