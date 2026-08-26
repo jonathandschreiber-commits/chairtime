@@ -255,13 +255,27 @@ def create_appointment(
         "Reply STOP to unsubscribe."
     )
 
-    try:
-        send_highlevel_sms(
+    sms_result = send_highlevel_sms(
+        appointment.customer_phone,
+        confirmation_message,
+    )
+
+    if not sms_result.get("success"):
+        print(
+            "Confirmation SMS first attempt failed:",
+            sms_result,
+        )
+
+        sms_result = send_highlevel_sms(
             appointment.customer_phone,
             confirmation_message,
         )
-    except Exception as error:
-        print(f"Confirmation SMS failed: {error}")
+
+        if not sms_result.get("success"):
+            print(
+                "Confirmation SMS retry failed:",
+                sms_result,
+            )
 
     return appointment
 
