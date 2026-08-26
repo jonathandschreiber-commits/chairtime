@@ -8,6 +8,7 @@ import {
 } from "react";
 import {
   useParams,
+  useRouter,
   useSearchParams,
 } from "next/navigation";
 
@@ -23,8 +24,31 @@ const QUICK_TAGS = [
   "Family",
 ];
 
+const STATUS_LABELS = {
+  confirmed: "Confirmed",
+  completed: "Completed",
+  no_show: "No-show",
+  canceled: "Canceled",
+};
+
+const STATUS_STYLES = {
+  confirmed: "bg-blue-100 border-blue-300",
+  completed: "bg-green-100 border-green-300",
+  no_show: "bg-yellow-100 border-yellow-300",
+  canceled: "bg-red-100 border-red-300",
+};
+
+function datePart(value) {
+  return String(value || "").slice(0, 10);
+}
+
+function timePart(value) {
+  return String(value || "").slice(11, 16);
+}
+
 function CustomersPageContent() {
   const params = useParams();
+  const router = useRouter();
   const shopSlug = params.shop;
 
   const searchParams = useSearchParams();
@@ -34,7 +58,9 @@ function CustomersPageContent() {
   const [appointments, setAppointments] = useState([]);
   const [barbers, setBarbers] = useState([]);
   const [services, setServices] = useState([]);
+
   const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
   const [customerSearch, setCustomerSearch] =
     useState("");
 
@@ -42,6 +68,7 @@ function CustomersPageContent() {
     editingCustomerKey,
     setEditingCustomerKey,
   ] = useState("");
+
   const [editName, setEditName] = useState("");
   const [editPhone, setEditPhone] = useState("");
 
@@ -49,6 +76,7 @@ function CustomersPageContent() {
     addingTagCustomerKey,
     setAddingTagCustomerKey,
   ] = useState("");
+
   const [customTagText, setCustomTagText] =
     useState("");
 
@@ -56,9 +84,25 @@ function CustomersPageContent() {
     editingNotesCustomerKey,
     setEditingNotesCustomerKey,
   ] = useState("");
+
   const [
     customerNotesText,
     setCustomerNotesText,
+  ] = useState("");
+
+  const [
+    movingAppointmentId,
+    setMovingAppointmentId,
+  ] = useState("");
+
+  const [moveDate, setMoveDate] = useState("");
+  const [moveTime, setMoveTime] = useState("");
+  const [savingMove, setSavingMove] =
+    useState(false);
+
+  const [
+    updatingAppointmentId,
+    setUpdatingAppointmentId,
   ] = useState("");
 
   async function loadData() {
@@ -77,7 +121,10 @@ function CustomersPageContent() {
       fetch(API_BASE + "/api/services" + query),
     ]);
 
-    setAppointments(await appointmentsRes.json());
+    setAppointments(
+      await appointmentsRes.json()
+    );
+
     setBarbers(await barbersRes.json());
     setServices(await servicesRes.json());
   }
@@ -90,8 +137,9 @@ function CustomersPageContent() {
 
   function barberName(id) {
     return (
-      barbers.find((barber) => barber.id === id)
-        ?.name || "Barber"
+      barbers.find(
+        (barber) => barber.id === id
+      )?.name || "Barber"
     );
   }
 
@@ -114,7 +162,23 @@ function CustomersPageContent() {
       .filter(Boolean);
   }
 
+  function isFutureAppointment(appointment) {
+    const start = new Date(
+      appointment.start_datetime
+    );
+
+    return (
+      start.getTime() > Date.now() &&
+      appointment.status !== "completed" &&
+      appointment.status !== "canceled" &&
+      appointment.status !== "no_show"
+    );
+  }
+
   async function updateCustomer(oldPhone) {
+    setMessage("");
+    setError("");
+
     const response = await fetch(
       API_BASE +
         "/api/customers/update?old_phone=" +
@@ -133,9 +197,9 @@ function CustomersPageContent() {
     if (response.ok) {
       setMessage("Customer updated.");
       setEditingCustomerKey("");
-      loadData();
+      await loadData();
     } else {
-      setMessage("Could not update customer.");
+      setError("Could not update customer.");
     }
   }
 
@@ -143,6 +207,9 @@ function CustomersPageContent() {
     customerPhone,
     tags
   ) {
+    setMessage("");
+    setError("");
+
     const response = await fetch(
       API_BASE +
         "/api/customers/tags?customer_phone=" +
@@ -158,15 +225,18 @@ function CustomersPageContent() {
 
     if (response.ok) {
       setMessage("Tags updated.");
-      loadData();
+      await loadData();
     } else {
-      setMessage("Could not update tags.");
+      setError("Could not update tags.");
     }
   }
 
   async function updateCustomerNotes(
     customerPhone
   ) {
+    setMessage("");
+    setError("");
+
     const response = await fetch(
       API_BASE +
         "/api/customers/notes?customer_phone=" +
@@ -184,9 +254,9 @@ function CustomersPageContent() {
       setMessage("Customer notes saved.");
       setEditingNotesCustomerKey("");
       setCustomerNotesText("");
-      loadData();
+      await loadData();
     } else {
-      setMessage(
+      setError(
         "Could not save customer notes."
       );
     }
@@ -199,12 +269,12 @@ function CustomersPageContent() {
     const cleanTag = customTagText.trim();
 
     if (!cleanTag) {
-      setMessage("Enter a tag first.");
+      setError("Enter a tag first.");
       return;
     }
 
     if (activeTags.includes(cleanTag)) {
-      setMessage("That tag already exists.");
+      setError("That tag already exists.");
       return;
     }
 
@@ -215,6 +285,167 @@ function CustomersPageContent() {
 
     setCustomTagText("");
     setAddingTagCustomerKey("");
+  }
+
+  function startMove(appointment) {
+    setMovingAppointmentId(appointment.id);
+
+    setMoveDate(
+      datePart(appointment.start_datetime)
+    );
+
+    setMoveTime(
+      timePart(appointment.start_datetime) ||
+        "09:00"
+    );
+
+    setMessage("");
+    setError("");
+  }
+
+  function cancelMove() {
+    setMovingAppointmentId("");
+    setMoveDate("");
+    setMoveTime("");
+    setSavingMove(false);
+  }
+
+  async function saveMove(appointmentId) {
+    if (
+      !moveDate ||
+      !moveTime ||
+      savingMove
+    ) {
+      return;
+    }
+
+    setSavingMove(true);
+    setMessage("");
+    setError("");
+
+    const newStartDatetime =
+      `${moveDate}T${moveTime}:00`;
+
+    try {
+      const response = await fetch(
+        `/api/admin/appointments/${encodeURIComponent(
+          appointmentId
+        )}/reschedule`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type":
+              "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify({
+            new_start_datetime:
+              newStartDatetime,
+          }),
+        }
+      );
+
+      const data = await response.json();
+
+      if (response.status === 401) {
+        router.replace("/login");
+        return;
+      }
+
+      if (!response.ok) {
+        throw new Error(
+          data?.error ||
+            "The appointment could not be moved."
+        );
+      }
+
+      setMovingAppointmentId("");
+      setMoveDate("");
+      setMoveTime("");
+      setMessage("Appointment moved.");
+
+      await loadData();
+    } catch (moveError) {
+      setError(
+        moveError instanceof Error
+          ? moveError.message
+          : "The appointment could not be moved."
+      );
+    } finally {
+      setSavingMove(false);
+    }
+  }
+
+  async function updateAppointmentStatus(
+    appointmentId,
+    status
+  ) {
+    if (updatingAppointmentId) {
+      return;
+    }
+
+    if (status === "canceled") {
+      const confirmed = window.confirm(
+        "Cancel this appointment?"
+      );
+
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    setUpdatingAppointmentId(appointmentId);
+    setMessage("");
+    setError("");
+
+    try {
+      const response = await fetch(
+        `/api/admin/appointments/${encodeURIComponent(
+          appointmentId
+        )}/status`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type":
+              "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify({
+            status,
+          }),
+        }
+      );
+
+      const data = await response.json();
+
+      if (response.status === 401) {
+        router.replace("/login");
+        return;
+      }
+
+      if (!response.ok) {
+        throw new Error(
+          data?.error ||
+            "Appointment status could not be updated."
+        );
+      }
+
+      setMessage(
+        `Appointment marked ${
+          STATUS_LABELS[status] || status
+        }.`
+      );
+
+      await loadData();
+    } catch (statusError) {
+      setError(
+        statusError instanceof Error
+          ? statusError.message
+          : "Appointment status could not be updated."
+      );
+    } finally {
+      setUpdatingAppointmentId("");
+    }
   }
 
   const groupedCustomers = useMemo(() => {
@@ -232,14 +463,20 @@ function CustomersPageContent() {
 
     let result = Object.values(groups);
 
+    result.forEach((appointmentsGroup) => {
+      appointmentsGroup.sort(
+        (a, b) =>
+          new Date(b.start_datetime) -
+          new Date(a.start_datetime)
+      );
+    });
+
     const searchText = customerSearch
       .trim()
       .toLowerCase();
 
-    const searchDigits = customerSearch.replace(
-      /\D/g,
-      ""
-    );
+    const searchDigits =
+      customerSearch.replace(/\D/g, "");
 
     if (searchText) {
       result = result.filter(
@@ -255,10 +492,8 @@ function CustomersPageContent() {
             customer.customer_phone || ""
           );
 
-          const phoneDigits = phone.replace(
-            /\D/g,
-            ""
-          );
+          const phoneDigits =
+            phone.replace(/\D/g, "");
 
           return (
             name.includes(searchText) ||
@@ -266,7 +501,9 @@ function CustomersPageContent() {
               .toLowerCase()
               .includes(searchText) ||
             (searchDigits &&
-              phoneDigits.includes(searchDigits))
+              phoneDigits.includes(
+                searchDigits
+              ))
           );
         }
       );
@@ -275,13 +512,15 @@ function CustomersPageContent() {
     if (selectedPhone) {
       result = result.sort((a, b) => {
         if (
-          a[0].customer_phone === selectedPhone
+          a[0].customer_phone ===
+          selectedPhone
         ) {
           return -1;
         }
 
         if (
-          b[0].customer_phone === selectedPhone
+          b[0].customer_phone ===
+          selectedPhone
         ) {
           return 1;
         }
@@ -296,6 +535,192 @@ function CustomersPageContent() {
     selectedPhone,
     customerSearch,
   ]);
+
+  function appointmentCard(appointment) {
+    const future =
+      isFutureAppointment(appointment);
+
+    const isMoving =
+      movingAppointmentId === appointment.id;
+
+    const status =
+      appointment.status || "confirmed";
+
+    const statusLabel =
+      STATUS_LABELS[status] || "Confirmed";
+
+    const statusStyle =
+      STATUS_STYLES[status] ||
+      STATUS_STYLES.confirmed;
+
+    const busy =
+      updatingAppointmentId ===
+      appointment.id;
+
+    return (
+      <div
+        key={appointment.id}
+        className={`border rounded-xl p-4 ${statusStyle}`}
+      >
+        <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-start">
+          <div>
+            <p className="font-bold">
+              {new Date(
+                appointment.start_datetime
+              ).toLocaleString()}
+            </p>
+
+            <p>
+              {serviceName(
+                appointment.service_id
+              )}{" "}
+              ·{" "}
+              {barberName(
+                appointment.barber_id
+              )}
+            </p>
+
+            {appointment.notes && (
+              <p className="mt-1">
+                {appointment.notes}
+              </p>
+            )}
+          </div>
+
+          <span className="bg-white border rounded-full px-3 py-1 text-sm font-bold self-start">
+            {statusLabel}
+          </span>
+        </div>
+
+        {future && !isMoving && (
+          <div className="flex flex-wrap gap-2 mt-4">
+            <button
+              type="button"
+              onClick={() =>
+                startMove(appointment)
+              }
+              disabled={busy}
+              className="bg-purple-600 text-white px-3 py-2 rounded-xl font-semibold disabled:opacity-60"
+            >
+              Move
+            </button>
+
+            <button
+              type="button"
+              onClick={() =>
+                updateAppointmentStatus(
+                  appointment.id,
+                  "confirmed"
+                )
+              }
+              disabled={busy}
+              className="bg-blue-500 text-white px-3 py-2 rounded-xl font-semibold disabled:opacity-60"
+            >
+              Confirm
+            </button>
+
+            <button
+              type="button"
+              onClick={() =>
+                updateAppointmentStatus(
+                  appointment.id,
+                  "completed"
+                )
+              }
+              disabled={busy}
+              className="bg-green-600 text-white px-3 py-2 rounded-xl font-semibold disabled:opacity-60"
+            >
+              Complete
+            </button>
+
+            <button
+              type="button"
+              onClick={() =>
+                updateAppointmentStatus(
+                  appointment.id,
+                  "no_show"
+                )
+              }
+              disabled={busy}
+              className="bg-yellow-500 text-white px-3 py-2 rounded-xl font-semibold disabled:opacity-60"
+            >
+              No-show
+            </button>
+
+            <button
+              type="button"
+              onClick={() =>
+                updateAppointmentStatus(
+                  appointment.id,
+                  "canceled"
+                )
+              }
+              disabled={busy}
+              className="bg-red-500 text-white px-3 py-2 rounded-xl font-semibold disabled:opacity-60"
+            >
+              {busy
+                ? "Updating..."
+                : "Cancel"}
+            </button>
+          </div>
+        )}
+
+        {future && isMoving && (
+          <div className="mt-4 bg-white border rounded-xl p-4">
+            <p className="font-bold mb-3">
+              Move this appointment
+            </p>
+
+            <div className="grid gap-3 sm:grid-cols-3">
+              <input
+                type="date"
+                value={moveDate}
+                onChange={(event) =>
+                  setMoveDate(
+                    event.target.value
+                  )
+                }
+                className="border rounded-xl p-3"
+              />
+
+              <input
+                type="time"
+                value={moveTime}
+                onChange={(event) =>
+                  setMoveTime(
+                    event.target.value
+                  )
+                }
+                className="border rounded-xl p-3"
+              />
+
+              <button
+                type="button"
+                onClick={() =>
+                  saveMove(appointment.id)
+                }
+                disabled={savingMove}
+                className="bg-black text-white rounded-xl p-3 font-bold disabled:opacity-60"
+              >
+                {savingMove
+                  ? "Moving..."
+                  : "Save Move"}
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={cancelMove}
+              disabled={savingMove}
+              className="mt-3 bg-gray-300 px-4 py-2 rounded-xl font-semibold disabled:opacity-60"
+            >
+              Cancel Move
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <main className="min-h-screen bg-gray-100 p-6">
@@ -335,11 +760,20 @@ function CustomersPageContent() {
           </p>
         )}
 
+        {error && (
+          <p className="font-bold text-red-700">
+            {error}
+          </p>
+        )}
+
         {groupedCustomers.map(
           (appointmentsGroup) => {
-            const latest = appointmentsGroup[0];
+            const latest =
+              appointmentsGroup[0];
+
             const customerKey =
               latest.customer_phone;
+
             const activeTags = tagList(
               latest.customer_tags
             );
@@ -375,14 +809,16 @@ function CustomersPageContent() {
                     </p>
 
                     <div className="flex gap-2 mt-2 flex-wrap">
-                      {activeTags.map((tag) => (
-                        <span
-                          key={tag}
-                          className="px-3 py-1 rounded-full bg-purple-100"
-                        >
-                          {tag}
-                        </span>
-                      ))}
+                      {activeTags.map(
+                        (tag) => (
+                          <span
+                            key={tag}
+                            className="px-3 py-1 rounded-full bg-purple-100"
+                          >
+                            {tag}
+                          </span>
+                        )
+                      )}
                     </div>
                   </div>
 
@@ -413,9 +849,11 @@ function CustomersPageContent() {
                         setEditingCustomerKey(
                           customerKey
                         );
+
                         setEditName(
                           latest.customer_name
                         );
+
                         setEditPhone(
                           latest.customer_phone
                         );
@@ -437,16 +875,19 @@ function CustomersPageContent() {
                         type="button"
                         key={tag}
                         onClick={() => {
-                          const nextTags = active
-                            ? activeTags.filter(
-                                (activeTag) =>
-                                  activeTag !==
-                                  tag
-                              )
-                            : [
-                                ...activeTags,
-                                tag,
-                              ];
+                          const nextTags =
+                            active
+                              ? activeTags.filter(
+                                  (
+                                    activeTag
+                                  ) =>
+                                    activeTag !==
+                                    tag
+                                )
+                              : [
+                                  ...activeTags,
+                                  tag,
+                                ];
 
                           updateCustomerTags(
                             latest.customer_phone,
@@ -470,6 +911,7 @@ function CustomersPageContent() {
                       setAddingTagCustomerKey(
                         customerKey
                       );
+
                       setCustomTagText("");
                     }}
                     className="bg-black text-white px-3 py-2 rounded-full"
@@ -511,6 +953,7 @@ function CustomersPageContent() {
                           setAddingTagCustomerKey(
                             ""
                           );
+
                           setCustomTagText("");
                         }}
                         className="bg-gray-300 px-4 py-2 rounded-xl"
@@ -533,6 +976,7 @@ function CustomersPageContent() {
                         setEditingNotesCustomerKey(
                           customerKey
                         );
+
                         setCustomerNotesText(
                           latest.customer_notes ||
                             ""
@@ -590,6 +1034,7 @@ function CustomersPageContent() {
                           setEditingNotesCustomerKey(
                             ""
                           );
+
                           setCustomerNotesText(
                             ""
                           );
@@ -639,39 +1084,19 @@ function CustomersPageContent() {
                   </div>
                 )}
 
-                <div className="mt-4 space-y-2">
-                  {appointmentsGroup.map(
-                    (appointment) => (
-                      <div
-                        key={appointment.id}
-                        className="border rounded-xl p-3 bg-gray-50"
-                      >
-                        <p className="font-bold">
-                          {new Date(
-                            appointment.start_datetime
-                          ).toLocaleString()}
-                        </p>
+                <div className="mt-6">
+                  <h3 className="text-xl font-bold mb-3">
+                    Appointments
+                  </h3>
 
-                        <p>
-                          {serviceName(
-                            appointment.service_id
-                          )}{" "}
-                          ·{" "}
-                          {barberName(
-                            appointment.barber_id
-                          )}
-                        </p>
-
-                        {appointment.notes && (
-                          <p>
-                            {
-                              appointment.notes
-                            }
-                          </p>
-                        )}
-                      </div>
-                    )
-                  )}
+                  <div className="space-y-3">
+                    {appointmentsGroup.map(
+                      (appointment) =>
+                        appointmentCard(
+                          appointment
+                        )
+                    )}
+                  </div>
                 </div>
               </div>
             );
