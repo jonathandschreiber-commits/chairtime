@@ -162,7 +162,7 @@ function CustomersPageContent() {
       .filter(Boolean);
   }
 
-  function isFutureAppointment(appointment) {
+  function isUpcomingAppointment(appointment) {
     const start = new Date(
       appointment.start_datetime
     );
@@ -463,14 +463,6 @@ function CustomersPageContent() {
 
     let result = Object.values(groups);
 
-    result.forEach((appointmentsGroup) => {
-      appointmentsGroup.sort(
-        (a, b) =>
-          new Date(b.start_datetime) -
-          new Date(a.start_datetime)
-      );
-    });
-
     const searchText = customerSearch
       .trim()
       .toLowerCase();
@@ -536,10 +528,10 @@ function CustomersPageContent() {
     customerSearch,
   ]);
 
-  function appointmentCard(appointment) {
-    const future =
-      isFutureAppointment(appointment);
-
+  function appointmentCard(
+    appointment,
+    allowActions
+  ) {
     const isMoving =
       movingAppointmentId === appointment.id;
 
@@ -592,7 +584,7 @@ function CustomersPageContent() {
           </span>
         </div>
 
-        {future && !isMoving && (
+        {allowActions && !isMoving && (
           <div className="flex flex-wrap gap-2 mt-4">
             <button
               type="button"
@@ -665,7 +657,7 @@ function CustomersPageContent() {
           </div>
         )}
 
-        {future && isMoving && (
+        {allowActions && isMoving && (
           <div className="mt-4 bg-white border rounded-xl p-4">
             <p className="font-bold mb-3">
               Move this appointment
@@ -788,6 +780,39 @@ function CustomersPageContent() {
             const isEditingNotes =
               editingNotesCustomerKey ===
               customerKey;
+
+            const upcomingAppointments =
+              appointmentsGroup
+                .filter(
+                  isUpcomingAppointment
+                )
+                .sort(
+                  (a, b) =>
+                    new Date(
+                      a.start_datetime
+                    ) -
+                    new Date(
+                      b.start_datetime
+                    )
+                );
+
+            const pastAppointments =
+              appointmentsGroup
+                .filter(
+                  (appointment) =>
+                    !isUpcomingAppointment(
+                      appointment
+                    )
+                )
+                .sort(
+                  (a, b) =>
+                    new Date(
+                      b.start_datetime
+                    ) -
+                    new Date(
+                      a.start_datetime
+                    )
+                );
 
             return (
               <div
@@ -1086,17 +1111,52 @@ function CustomersPageContent() {
 
                 <div className="mt-6">
                   <h3 className="text-xl font-bold mb-3">
-                    Appointments
+                    Upcoming Appointments
                   </h3>
 
-                  <div className="space-y-3">
-                    {appointmentsGroup.map(
-                      (appointment) =>
-                        appointmentCard(
-                          appointment
-                        )
-                    )}
-                  </div>
+                  {upcomingAppointments.length >
+                  0 ? (
+                    <div className="space-y-3">
+                      {upcomingAppointments.map(
+                        (appointment) =>
+                          appointmentCard(
+                            appointment,
+                            true
+                          )
+                      )}
+                    </div>
+                  ) : (
+                    <div className="border rounded-xl p-4 bg-gray-50">
+                      <p className="text-gray-600">
+                        No upcoming appointments.
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                <div className="mt-6">
+                  <h3 className="text-xl font-bold mb-3">
+                    Past Appointments
+                  </h3>
+
+                  {pastAppointments.length >
+                  0 ? (
+                    <div className="space-y-3">
+                      {pastAppointments.map(
+                        (appointment) =>
+                          appointmentCard(
+                            appointment,
+                            false
+                          )
+                      )}
+                    </div>
+                  ) : (
+                    <div className="border rounded-xl p-4 bg-gray-50">
+                      <p className="text-gray-600">
+                        No past appointments.
+                      </p>
+                    </div>
+                  )}
                 </div>
               </div>
             );
