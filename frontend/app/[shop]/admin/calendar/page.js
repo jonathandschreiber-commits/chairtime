@@ -70,11 +70,12 @@ const BLOCK_REASON_OPTIONS = [
 
 function localDateValue(date = new Date()) {
   const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(
-    2,
-    "0"
-  );
-  const day = String(date.getDate()).padStart(2, "0");
+  const month = String(
+    date.getMonth() + 1
+  ).padStart(2, "0");
+  const day = String(
+    date.getDate()
+  ).padStart(2, "0");
 
   return `${year}-${month}-${day}`;
 }
@@ -108,12 +109,14 @@ function defaultRecurringEndDate() {
 
 function weekdayValueForDate(dateString) {
   if (!dateString) {
-    return new Date().getDay() === 0
-      ? 6
-      : new Date().getDay() - 1;
+    const today = new Date().getDay();
+    return today === 0 ? 6 : today - 1;
   }
 
-  const date = new Date(`${dateString}T12:00:00`);
+  const date = new Date(
+    `${dateString}T12:00:00`
+  );
+
   const javascriptDay = date.getDay();
 
   return javascriptDay === 0
@@ -127,25 +130,37 @@ export default function CalendarPage() {
 
   const shopSlug = params.shop;
 
-  const [appointments, setAppointments] = useState([]);
+  const [appointments, setAppointments] =
+    useState([]);
   const [barbers, setBarbers] = useState([]);
   const [services, setServices] = useState([]);
-  const [blockedTimes, setBlockedTimes] = useState([]);
+  const [blockedTimes, setBlockedTimes] =
+    useState([]);
 
-  const [selectedDate, setSelectedDate] = useState(
-    localDateValue()
-  );
-  const [selectedBarberId, setSelectedBarberId] =
-    useState("");
-  const [viewMode, setViewMode] = useState("day");
+  const [selectedDate, setSelectedDate] =
+    useState(localDateValue());
 
-  const [movingAppointmentId, setMovingAppointmentId] =
-    useState("");
-  const [moveDate, setMoveDate] = useState(
-    localDateValue()
-  );
-  const [moveTime, setMoveTime] = useState("09:00");
-  const [savingMove, setSavingMove] = useState(false);
+  const [
+    selectedBarberId,
+    setSelectedBarberId,
+  ] = useState("");
+
+  const [viewMode, setViewMode] =
+    useState("day");
+
+  const [
+    movingAppointmentId,
+    setMovingAppointmentId,
+  ] = useState("");
+
+  const [moveDate, setMoveDate] =
+    useState(localDateValue());
+
+  const [moveTime, setMoveTime] =
+    useState("09:00");
+
+  const [savingMove, setSavingMove] =
+    useState(false);
 
   const [showBlockForm, setShowBlockForm] =
     useState(false);
@@ -155,58 +170,89 @@ export default function CalendarPage() {
 
   const [blockReason, setBlockReason] =
     useState("Lunch");
-  const [customBlockReason, setCustomBlockReason] =
-    useState("");
 
-  const [blockDate, setBlockDate] = useState(
-    localDateValue()
-  );
-  const [blockStartTime, setBlockStartTime] =
-    useState("12:00");
-  const [blockEndTime, setBlockEndTime] =
-    useState("12:30");
+  const [
+    customBlockReason,
+    setCustomBlockReason,
+  ] = useState("");
 
-  const [recurringStartDate, setRecurringStartDate] =
+  const [blockDate, setBlockDate] =
     useState(localDateValue());
-  const [recurringEndDate, setRecurringEndDate] =
-    useState(defaultRecurringEndDate());
-  const [recurringDays, setRecurringDays] = useState([
+
+  const [
+    blockStartTime,
+    setBlockStartTime,
+  ] = useState("12:00");
+
+  const [
+    blockEndTime,
+    setBlockEndTime,
+  ] = useState("12:30");
+
+  const [
+    recurringStartDate,
+    setRecurringStartDate,
+  ] = useState(localDateValue());
+
+  const [
+    recurringEndDate,
+    setRecurringEndDate,
+  ] = useState(defaultRecurringEndDate());
+
+  const [
+    recurringDays,
+    setRecurringDays,
+  ] = useState([
     weekdayValueForDate(localDateValue()),
   ]);
 
   const [savingBlock, setSavingBlock] =
     useState(false);
-  const [deletingBlockId, setDeletingBlockId] =
-    useState("");
-  const [deletingSeriesId, setDeletingSeriesId] =
+
+  const [
+    deletingBlockId,
+    setDeletingBlockId,
+  ] = useState("");
+
+  const [
+    deletingSeriesId,
+    setDeletingSeriesId,
+  ] = useState("");
+
+  const [message, setMessage] =
     useState("");
 
-  const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [error, setError] =
+    useState("");
+
+  const [loading, setLoading] =
+    useState(true);
 
   const loadData = useCallback(async () => {
     setLoading(true);
     setError("");
 
     try {
-      const [agendaResponse, blockedResponse] =
-        await Promise.all([
-          fetch("/api/admin/agenda", {
-            method: "GET",
-            headers: {
-              Accept: "application/json",
-            },
-            cache: "no-store",
-          }),
-          fetch("/api/admin/blocked-times", {
-            method: "GET",
-            headers: {
-              Accept: "application/json",
-            },
-            cache: "no-store",
-          }),
-        ]);
+      const [
+        agendaResponse,
+        blockedResponse,
+      ] = await Promise.all([
+        fetch("/api/admin/agenda", {
+          method: "GET",
+          headers: {
+            Accept: "application/json",
+          },
+          cache: "no-store",
+        }),
+
+        fetch("/api/admin/blocked-times", {
+          method: "GET",
+          headers: {
+            Accept: "application/json",
+          },
+          cache: "no-store",
+        }),
+      ]);
 
       if (
         agendaResponse.status === 401 ||
@@ -221,8 +267,11 @@ export default function CalendarPage() {
         return;
       }
 
-      const agendaData = await agendaResponse.json();
-      const blockedData = await blockedResponse.json();
+      const agendaData =
+        await agendaResponse.json();
+
+      const blockedData =
+        await blockedResponse.json();
 
       if (!agendaResponse.ok) {
         throw new Error(
@@ -249,29 +298,38 @@ export default function CalendarPage() {
         return;
       }
 
-      const loadedBarbers = agendaData.barbers || [];
+      const loadedBarbers =
+        agendaData.barbers || [];
 
       setAppointments(
         agendaData.appointments || []
       );
+
       setBarbers(loadedBarbers);
-      setServices(agendaData.services || []);
+
+      setServices(
+        agendaData.services || []
+      );
+
       setBlockedTimes(
         blockedData.blocked_times || []
       );
 
-      setSelectedBarberId((currentValue) => {
-        if (
-          currentValue &&
-          loadedBarbers.some(
-            (barber) => barber.id === currentValue
-          )
-        ) {
-          return currentValue;
-        }
+      setSelectedBarberId(
+        (currentValue) => {
+          if (
+            currentValue &&
+            loadedBarbers.some(
+              (barber) =>
+                barber.id === currentValue
+            )
+          ) {
+            return currentValue;
+          }
 
-        return loadedBarbers[0]?.id || "";
-      });
+          return loadedBarbers[0]?.id || "";
+        }
+      );
     } catch (loadError) {
       setError(
         loadError instanceof Error
@@ -294,7 +352,9 @@ export default function CalendarPage() {
   }
 
   function formatTime(value) {
-    return new Date(value).toLocaleTimeString([], {
+    return new Date(
+      value
+    ).toLocaleTimeString([], {
       hour: "numeric",
       minute: "2-digit",
     });
@@ -302,36 +362,59 @@ export default function CalendarPage() {
 
   function serviceName(id) {
     return (
-      services.find((service) => service.id === id)
-        ?.name || "Service"
+      services.find(
+        (service) => service.id === id
+      )?.name || "Service"
     );
   }
 
   function getWeekDates(dateString) {
-    const date = new Date(`${dateString}T12:00:00`);
+    const date = new Date(
+      `${dateString}T12:00:00`
+    );
+
     const day = date.getDay();
+
     const sunday = new Date(date);
 
-    sunday.setDate(date.getDate() - day);
+    sunday.setDate(
+      date.getDate() - day
+    );
 
-    return Array.from({ length: 7 }, (_, index) => {
-      const weekDate = new Date(sunday);
+    return Array.from(
+      { length: 7 },
+      (_, index) => {
+        const weekDate =
+          new Date(sunday);
 
-      weekDate.setDate(
-        sunday.getDate() + index
-      );
+        weekDate.setDate(
+          sunday.getDate() + index
+        );
 
-      return localDateValue(weekDate);
-    });
+        return localDateValue(
+          weekDate
+        );
+      }
+    );
   }
 
   function startMove(appointment) {
-    setMovingAppointmentId(appointment.id);
-    setMoveDate(datePart(appointment.start_datetime));
-    setMoveTime(
-      timePart(appointment.start_datetime) ||
-        "09:00"
+    setMovingAppointmentId(
+      appointment.id
     );
+
+    setMoveDate(
+      datePart(
+        appointment.start_datetime
+      )
+    );
+
+    setMoveTime(
+      timePart(
+        appointment.start_datetime
+      ) || "09:00"
+    );
+
     setMessage("");
     setError("");
   }
@@ -342,7 +425,9 @@ export default function CalendarPage() {
     setError("");
   }
 
-  async function saveMove(appointmentId) {
+  async function saveMove(
+    appointmentId
+  ) {
     if (
       !moveDate ||
       !moveTime ||
@@ -366,7 +451,8 @@ export default function CalendarPage() {
         {
           method: "PATCH",
           headers: {
-            "Content-Type": "application/json",
+            "Content-Type":
+              "application/json",
             Accept: "application/json",
           },
           body: JSON.stringify({
@@ -376,7 +462,8 @@ export default function CalendarPage() {
         }
       );
 
-      const data = await response.json();
+      const data =
+        await response.json();
 
       if (response.status === 401) {
         router.replace("/login");
@@ -392,7 +479,9 @@ export default function CalendarPage() {
 
       setMovingAppointmentId("");
       setSelectedDate(moveDate);
-      setMessage("Appointment moved.");
+      setMessage(
+        "Appointment moved."
+      );
 
       await loadData();
     } catch (moveError) {
@@ -421,16 +510,19 @@ export default function CalendarPage() {
         {
           method: "PATCH",
           headers: {
-            "Content-Type": "application/json",
+            "Content-Type":
+              "application/json",
             Accept: "application/json",
           },
           body: JSON.stringify({
-            status: appointmentStatus,
+            status:
+              appointmentStatus,
           }),
         }
       );
 
-      const data = await response.json();
+      const data =
+        await response.json();
 
       if (response.status === 401) {
         router.replace("/login");
@@ -446,7 +538,9 @@ export default function CalendarPage() {
 
       setMessage(
         `Appointment marked ${
-          STATUS_LABELS[appointmentStatus]
+          STATUS_LABELS[
+            appointmentStatus
+          ]
         }.`
       );
 
@@ -462,16 +556,26 @@ export default function CalendarPage() {
 
   function openBlockForm() {
     setBlockMode("one-time");
+
     setBlockDate(selectedDate);
-    setRecurringStartDate(selectedDate);
-    setRecurringEndDate(defaultRecurringEndDate());
+
+    setRecurringStartDate(
+      selectedDate
+    );
+
+    setRecurringEndDate(
+      defaultRecurringEndDate()
+    );
+
     setBlockStartTime("12:00");
     setBlockEndTime("12:30");
     setBlockReason("Lunch");
     setCustomBlockReason("");
 
     setRecurringDays([
-      weekdayValueForDate(selectedDate),
+      weekdayValueForDate(
+        selectedDate
+      ),
     ]);
 
     setShowBlockForm(true);
@@ -485,31 +589,52 @@ export default function CalendarPage() {
     setError("");
   }
 
-  function toggleRecurringDay(dayValue) {
-    setRecurringDays((currentDays) => {
-      if (currentDays.includes(dayValue)) {
-        return currentDays.filter(
-          (day) => day !== dayValue
-        );
-      }
+  function toggleRecurringDay(
+    dayValue
+  ) {
+    setRecurringDays(
+      (currentDays) => {
+        if (
+          currentDays.includes(
+            dayValue
+          )
+        ) {
+          return currentDays.filter(
+            (day) =>
+              day !== dayValue
+          );
+        }
 
-      return [
-        ...currentDays,
-        dayValue,
-      ].sort((a, b) => a - b);
-    });
+        return [
+          ...currentDays,
+          dayValue,
+        ].sort((a, b) => a - b);
+      }
+    );
   }
 
-  function handleRecurringStartDateChange(nextDate) {
-    setRecurringStartDate(nextDate);
+  function handleRecurringStartDateChange(
+    nextDate
+  ) {
+    setRecurringStartDate(
+      nextDate
+    );
 
-    setRecurringDays((currentDays) => {
-      if (currentDays.length <= 1) {
-        return [weekdayValueForDate(nextDate)];
+    setRecurringDays(
+      (currentDays) => {
+        if (
+          currentDays.length <= 1
+        ) {
+          return [
+            weekdayValueForDate(
+              nextDate
+            ),
+          ];
+        }
+
+        return currentDays;
       }
-
-      return currentDays;
-    });
+    );
   }
 
   function finalBlockReason() {
@@ -519,10 +644,14 @@ export default function CalendarPage() {
   }
 
   async function saveOneTimeBlockedTime() {
-    const reason = finalBlockReason();
+    const reason =
+      finalBlockReason();
 
     if (!reason) {
-      setError("Please enter a reason.");
+      setError(
+        "Please enter a reason."
+      );
+
       return false;
     }
 
@@ -537,22 +666,29 @@ export default function CalendarPage() {
       {
         method: "POST",
         headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
+          "Content-Type":
+            "application/json",
+          Accept:
+            "application/json",
         },
         body: JSON.stringify({
-          barber_id: selectedBarberId,
+          barber_id:
+            selectedBarberId,
           reason,
-          start_datetime: startDatetime,
-          end_datetime: endDatetime,
+          start_datetime:
+            startDatetime,
+          end_datetime:
+            endDatetime,
         }),
       }
     );
 
-    const data = await response.json();
+    const data =
+      await response.json();
 
     if (response.status === 401) {
       router.replace("/login");
+
       return false;
     }
 
@@ -564,23 +700,33 @@ export default function CalendarPage() {
     }
 
     setSelectedDate(blockDate);
-    setMessage("Time blocked.");
+
+    setMessage(
+      "Time blocked."
+    );
 
     return true;
   }
 
   async function saveRecurringBlockedTime() {
-    const reason = finalBlockReason();
+    const reason =
+      finalBlockReason();
 
     if (!reason) {
-      setError("Please enter a reason.");
+      setError(
+        "Please enter a reason."
+      );
+
       return false;
     }
 
-    if (recurringDays.length === 0) {
+    if (
+      recurringDays.length === 0
+    ) {
       setError(
         "Choose at least one day of the week."
       );
+
       return false;
     }
 
@@ -589,25 +735,35 @@ export default function CalendarPage() {
       {
         method: "POST",
         headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
+          "Content-Type":
+            "application/json",
+          Accept:
+            "application/json",
         },
         body: JSON.stringify({
-          barber_id: selectedBarberId,
+          barber_id:
+            selectedBarberId,
           reason,
-          start_date: recurringStartDate,
-          end_date: recurringEndDate,
-          start_time: `${blockStartTime}:00`,
-          end_time: `${blockEndTime}:00`,
-          weekdays: recurringDays,
+          start_date:
+            recurringStartDate,
+          end_date:
+            recurringEndDate,
+          start_time:
+            `${blockStartTime}:00`,
+          end_time:
+            `${blockEndTime}:00`,
+          weekdays:
+            recurringDays,
         }),
       }
     );
 
-    const data = await response.json();
+    const data =
+      await response.json();
 
     if (response.status === 401) {
       router.replace("/login");
+
       return false;
     }
 
@@ -619,9 +775,13 @@ export default function CalendarPage() {
     }
 
     const created =
-      data?.occurrences_created || 0;
+      data?.occurrences_created ||
+      0;
 
-    setSelectedDate(recurringStartDate);
+    setSelectedDate(
+      recurringStartDate
+    );
+
     setMessage(
       `Recurring blocked time created (${created} occurrences).`
     );
@@ -646,12 +806,17 @@ export default function CalendarPage() {
     try {
       let saved = false;
 
-      if (blockMode === "recurring") {
+      if (
+        blockMode === "recurring"
+      ) {
         saved =
           await saveRecurringBlockedTime();
       } else {
         if (!blockDate) {
-          setError("Please choose a date.");
+          setError(
+            "Please choose a date."
+          );
+
           return;
         }
 
@@ -674,20 +839,26 @@ export default function CalendarPage() {
     }
   }
 
-  async function deleteBlockedTime(blockedTimeId) {
+  async function deleteBlockedTime(
+    blockedTimeId
+  ) {
     if (deletingBlockId) {
       return;
     }
 
-    const confirmed = window.confirm(
-      "Delete this blocked time?"
-    );
+    const confirmed =
+      window.confirm(
+        "Delete this blocked time?"
+      );
 
     if (!confirmed) {
       return;
     }
 
-    setDeletingBlockId(blockedTimeId);
+    setDeletingBlockId(
+      blockedTimeId
+    );
+
     setMessage("");
     setError("");
 
@@ -699,12 +870,14 @@ export default function CalendarPage() {
         {
           method: "DELETE",
           headers: {
-            Accept: "application/json",
+            Accept:
+              "application/json",
           },
         }
       );
 
-      const data = await response.json();
+      const data =
+        await response.json();
 
       if (response.status === 401) {
         router.replace("/login");
@@ -718,7 +891,9 @@ export default function CalendarPage() {
         );
       }
 
-      setMessage("Blocked time deleted.");
+      setMessage(
+        "Blocked time deleted."
+      );
 
       await loadData();
     } catch (deleteError) {
@@ -732,20 +907,29 @@ export default function CalendarPage() {
     }
   }
 
-  async function deleteBlockedTimeSeries(seriesId) {
-    if (!seriesId || deletingSeriesId) {
+  async function deleteBlockedTimeSeries(
+    seriesId
+  ) {
+    if (
+      !seriesId ||
+      deletingSeriesId
+    ) {
       return;
     }
 
-    const confirmed = window.confirm(
-      "Delete every remaining blocked time in this recurring series?"
-    );
+    const confirmed =
+      window.confirm(
+        "Delete every remaining blocked time in this recurring series?"
+      );
 
     if (!confirmed) {
       return;
     }
 
-    setDeletingSeriesId(seriesId);
+    setDeletingSeriesId(
+      seriesId
+    );
+
     setMessage("");
     setError("");
 
@@ -757,12 +941,14 @@ export default function CalendarPage() {
         {
           method: "DELETE",
           headers: {
-            Accept: "application/json",
+            Accept:
+              "application/json",
           },
         }
       );
 
-      const data = await response.json();
+      const data =
+        await response.json();
 
       if (response.status === 401) {
         router.replace("/login");
@@ -777,7 +963,10 @@ export default function CalendarPage() {
       }
 
       setMessage(
-        `Recurring series deleted (${data?.occurrences_deleted || 0} occurrences).`
+        `Recurring series deleted (${
+          data?.occurrences_deleted ||
+          0
+        } occurrences).`
       );
 
       await loadData();
@@ -792,64 +981,87 @@ export default function CalendarPage() {
     }
   }
 
-  const selectedBarber = barbers.find(
-    (barber) => barber.id === selectedBarberId
-  );
+  const selectedBarber =
+    barbers.find(
+      (barber) =>
+        barber.id ===
+        selectedBarberId
+    );
 
-  const dayAppointments = useMemo(() => {
-    return appointments
-      .filter(
-        (appointment) =>
-          appointment.barber_id ===
-          selectedBarberId
-      )
-      .filter((appointment) =>
-        sameDay(
-          appointment.start_datetime,
-          selectedDate
+  const dayAppointments =
+    useMemo(() => {
+      return appointments
+        .filter(
+          (appointment) =>
+            appointment.barber_id ===
+            selectedBarberId
         )
-      )
-      .sort(
-        (a, b) =>
-          new Date(a.start_datetime) -
-          new Date(b.start_datetime)
-      );
-  }, [
-    appointments,
-    selectedBarberId,
-    selectedDate,
-  ]);
+        .filter(
+          (appointment) =>
+            sameDay(
+              appointment.start_datetime,
+              selectedDate
+            )
+        )
+        .sort(
+          (a, b) =>
+            new Date(
+              a.start_datetime
+            ) -
+            new Date(
+              b.start_datetime
+            )
+        );
+    }, [
+      appointments,
+      selectedBarberId,
+      selectedDate,
+    ]);
 
-  const dayBlockedTimes = useMemo(() => {
-    return blockedTimes
-      .filter(
-        (block) =>
-          block.barber_id === selectedBarberId
-      )
-      .filter((block) =>
-        sameDay(
-          block.start_datetime,
-          selectedDate
+  const dayBlockedTimes =
+    useMemo(() => {
+      return blockedTimes
+        .filter(
+          (block) =>
+            block.barber_id ===
+            selectedBarberId
         )
-      )
-      .sort(
-        (a, b) =>
-          new Date(a.start_datetime) -
-          new Date(b.start_datetime)
-      );
-  }, [
-    blockedTimes,
-    selectedBarberId,
-    selectedDate,
-  ]);
+        .filter(
+          (block) =>
+            sameDay(
+              block.start_datetime,
+              selectedDate
+            )
+        )
+        .sort(
+          (a, b) =>
+            new Date(
+              a.start_datetime
+            ) -
+            new Date(
+              b.start_datetime
+            )
+        );
+    }, [
+      blockedTimes,
+      selectedBarberId,
+      selectedDate,
+    ]);
 
   const weekDates = useMemo(
-    () => getWeekDates(selectedDate),
+    () =>
+      getWeekDates(
+        selectedDate
+      ),
     [selectedDate]
   );
 
-  function appointmentItemsForHour(hourText) {
-    const hour = Number(hourText.split(":")[0]);
+  function appointmentItemsForHour(
+    hourText
+  ) {
+    const hour = Number(
+      hourText.split(":")[0]
+    );
 
     return dayAppointments.filter(
       (appointment) =>
@@ -859,8 +1071,12 @@ export default function CalendarPage() {
     );
   }
 
-  function blockedItemsForHour(hourText) {
-    const hour = Number(hourText.split(":")[0]);
+  function blockedItemsForHour(
+    hourText
+  ) {
+    const hour = Number(
+      hourText.split(":")[0]
+    );
 
     return dayBlockedTimes.filter(
       (block) =>
@@ -870,63 +1086,91 @@ export default function CalendarPage() {
     );
   }
 
-  function weekItemsForDate(date) {
-    const appointmentItems = appointments
-      .filter(
-        (appointment) =>
-          appointment.barber_id ===
-          selectedBarberId
-      )
-      .filter((appointment) =>
-        sameDay(appointment.start_datetime, date)
-      )
-      .map((appointment) => ({
-        type: "appointment",
-        id: appointment.id,
-        time: appointment.start_datetime,
-        data: appointment,
-      }));
+  function weekItemsForDate(
+    date
+  ) {
+    const appointmentItems =
+      appointments
+        .filter(
+          (appointment) =>
+            appointment.barber_id ===
+            selectedBarberId
+        )
+        .filter(
+          (appointment) =>
+            sameDay(
+              appointment.start_datetime,
+              date
+            )
+        )
+        .map(
+          (appointment) => ({
+            type:
+              "appointment",
+            id: appointment.id,
+            time:
+              appointment.start_datetime,
+            data:
+              appointment,
+          })
+        );
 
-    const blockedItems = blockedTimes
-      .filter(
-        (block) =>
-          block.barber_id === selectedBarberId
-      )
-      .filter((block) =>
-        sameDay(block.start_datetime, date)
-      )
-      .map((block) => ({
-        type: "blocked",
-        id: block.id,
-        time: block.start_datetime,
-        data: block,
-      }));
+    const blockedItems =
+      blockedTimes
+        .filter(
+          (block) =>
+            block.barber_id ===
+            selectedBarberId
+        )
+        .filter(
+          (block) =>
+            sameDay(
+              block.start_datetime,
+              date
+            )
+        )
+        .map(
+          (block) => ({
+            type: "blocked",
+            id: block.id,
+            time:
+              block.start_datetime,
+            data: block,
+          })
+        );
 
     return [
       ...appointmentItems,
       ...blockedItems,
     ].sort(
       (a, b) =>
-        new Date(a.time) - new Date(b.time)
+        new Date(a.time) -
+        new Date(b.time)
     );
   }
 
-  function appointmentCard(appointment) {
+  function appointmentCard(
+    appointment
+  ) {
     const isMoving =
-      movingAppointmentId === appointment.id;
+      movingAppointmentId ===
+      appointment.id;
 
     const statusStyle =
-      STATUS_STYLES[appointment.status] ||
+      STATUS_STYLES[
+        appointment.status
+      ] ||
       STATUS_STYLES.confirmed;
 
     const statusLabel =
-      STATUS_LABELS[appointment.status] ||
-      "Confirmed";
+      STATUS_LABELS[
+        appointment.status
+      ] || "Confirmed";
 
     return (
       <div
         key={appointment.id}
-        className={`rounded-xl p-4 border ${statusStyle}`}
+        className={`rounded-2xl p-4 border shadow-sm ${statusStyle}`}
       >
         <div className="flex justify-between gap-3 items-start">
           <div>
@@ -946,7 +1190,9 @@ export default function CalendarPage() {
                 }
                 className="font-bold text-blue-700 underline hover:text-blue-900"
               >
-                {appointment.customer_name}
+                {
+                  appointment.customer_name
+                }
               </button>
             </p>
 
@@ -957,13 +1203,21 @@ export default function CalendarPage() {
             </p>
 
             <p className="text-gray-900">
-              {appointment.customer_phone}
+              {
+                appointment.customer_phone
+              }
             </p>
 
             {appointment.notes ? (
               <div className="mt-3 rounded-xl bg-white border p-3 text-gray-900">
-                <p className="font-bold">Notes</p>
-                <p>{appointment.notes}</p>
+                <p className="font-bold">
+                  Notes
+                </p>
+                <p>
+                  {
+                    appointment.notes
+                  }
+                </p>
               </div>
             ) : null}
           </div>
@@ -977,7 +1231,11 @@ export default function CalendarPage() {
           <div className="flex flex-wrap gap-2 mt-4">
             <button
               type="button"
-              onClick={() => startMove(appointment)}
+              onClick={() =>
+                startMove(
+                  appointment
+                )
+              }
               className="bg-purple-600 text-white px-3 py-2 rounded-xl text-sm font-semibold"
             >
               Move
@@ -1047,7 +1305,9 @@ export default function CalendarPage() {
                 className="border rounded-xl p-3"
                 value={moveDate}
                 onChange={(event) =>
-                  setMoveDate(event.target.value)
+                  setMoveDate(
+                    event.target.value
+                  )
                 }
               />
 
@@ -1056,14 +1316,18 @@ export default function CalendarPage() {
                 className="border rounded-xl p-3"
                 value={moveTime}
                 onChange={(event) =>
-                  setMoveTime(event.target.value)
+                  setMoveTime(
+                    event.target.value
+                  )
                 }
               />
 
               <button
                 type="button"
                 onClick={() =>
-                  saveMove(appointment.id)
+                  saveMove(
+                    appointment.id
+                  )
                 }
                 disabled={savingMove}
                 className="bg-black text-white rounded-xl px-4 py-3 font-semibold disabled:opacity-60"
@@ -1088,19 +1352,28 @@ export default function CalendarPage() {
     );
   }
 
-  function blockedTimeCard(block) {
-    const recurring = Boolean(block.series_id);
+  function blockedTimeCard(
+    block
+  ) {
+    const recurring = Boolean(
+      block.series_id
+    );
 
     return (
       <div
         key={block.id}
-        className="rounded-xl p-4 bg-gray-200 border border-gray-400"
+        className="rounded-2xl p-4 bg-slate-100 border border-slate-300"
       >
         <div className="flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-start">
           <div>
             <p className="font-bold">
-              {formatTime(block.start_datetime)} –{" "}
-              {formatTime(block.end_datetime)}
+              {formatTime(
+                block.start_datetime
+              )}{" "}
+              –{" "}
+              {formatTime(
+                block.end_datetime
+              )}
             </p>
 
             <p className="text-gray-900">
@@ -1108,7 +1381,7 @@ export default function CalendarPage() {
             </p>
 
             {recurring ? (
-              <p className="text-sm font-semibold mt-1">
+              <p className="text-sm font-semibold mt-1 text-emerald-800">
                 Repeats weekly
               </p>
             ) : null}
@@ -1118,14 +1391,18 @@ export default function CalendarPage() {
             <button
               type="button"
               onClick={() =>
-                deleteBlockedTime(block.id)
+                deleteBlockedTime(
+                  block.id
+                )
               }
               disabled={
-                deletingBlockId === block.id
+                deletingBlockId ===
+                block.id
               }
               className="bg-red-500 text-white px-3 py-2 rounded-xl text-sm font-semibold disabled:opacity-60"
             >
-              {deletingBlockId === block.id
+              {deletingBlockId ===
+              block.id
                 ? "Deleting..."
                 : recurring
                   ? "Delete This"
@@ -1159,47 +1436,70 @@ export default function CalendarPage() {
   }
 
   return (
-    <main className="min-h-screen bg-gray-100 p-4 sm:p-10">
+    <main className="min-h-screen bg-emerald-50 p-4 sm:p-10">
       <div className="max-w-7xl mx-auto space-y-8">
-        <section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-gray-200">
+        <section className="rounded-3xl shadow-lg p-6 sm:p-8 border border-emerald-200 bg-gradient-to-r from-emerald-100 via-teal-50 to-white">
           <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
             <div>
+              <p className="text-sm font-extrabold uppercase tracking-widest text-emerald-700 mb-2">
+                {displayShopName(
+                  shopSlug
+                )}
+              </p>
+
               <h1 className="text-5xl font-extrabold tracking-tight mb-3">
-                {displayShopName(shopSlug)} Calendar
+                Calendar
               </h1>
 
-              <p className="text-gray-900">
-                View appointments and manage blocked
-                time.
+              <p className="text-lg text-gray-700">
+                View appointments and manage blocked time.
               </p>
             </div>
 
-            <button
-              type="button"
-              onClick={openBlockForm}
-              disabled={!selectedBarberId}
-              className="bg-black text-white rounded-xl px-5 py-3 font-bold disabled:opacity-50"
-            >
-              + Block Time
-            </button>
+            <div className="flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={() =>
+                  router.push(
+                    `/${shopSlug}/admin`
+                  )
+                }
+                className="bg-blue-600 text-white rounded-xl px-5 py-3 font-bold shadow hover:bg-blue-700"
+              >
+                Admin Home
+              </button>
+
+              <button
+                type="button"
+                onClick={
+                  openBlockForm
+                }
+                disabled={
+                  !selectedBarberId
+                }
+                className="bg-emerald-700 text-white rounded-xl px-5 py-3 font-bold shadow hover:bg-emerald-800 disabled:opacity-50"
+              >
+                + Block Time
+              </button>
+            </div>
           </div>
 
           {message ? (
-            <p className="mt-4 font-semibold text-green-700">
+            <p className="mt-4 rounded-xl bg-green-50 border border-green-200 px-4 py-3 font-semibold text-green-700">
               {message}
             </p>
           ) : null}
 
           {error ? (
-            <p className="mt-4 font-semibold text-red-700">
+            <p className="mt-4 rounded-xl bg-red-50 border border-red-200 px-4 py-3 font-semibold text-red-700">
               {error}
             </p>
           ) : null}
         </section>
 
         {showBlockForm ? (
-          <section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-gray-200">
-            <h2 className="text-3xl font-bold mb-6">
+          <section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-emerald-200">
+            <h2 className="text-3xl font-bold mb-6 text-emerald-950">
               Block Time
             </h2>
 
@@ -1210,22 +1510,32 @@ export default function CalendarPage() {
                 </label>
 
                 <select
-                  className="w-full border rounded-xl p-3"
-                  value={selectedBarberId}
+                  className="w-full border border-emerald-200 rounded-xl p-3 bg-emerald-50"
+                  value={
+                    selectedBarberId
+                  }
                   onChange={(event) =>
                     setSelectedBarberId(
                       event.target.value
                     )
                   }
                 >
-                  {barbers.map((barber) => (
-                    <option
-                      key={barber.id}
-                      value={barber.id}
-                    >
-                      {barber.name}
-                    </option>
-                  ))}
+                  {barbers.map(
+                    (barber) => (
+                      <option
+                        key={
+                          barber.id
+                        }
+                        value={
+                          barber.id
+                        }
+                      >
+                        {
+                          barber.name
+                        }
+                      </option>
+                    )
+                  )}
                 </select>
               </div>
 
@@ -1235,8 +1545,10 @@ export default function CalendarPage() {
                 </label>
 
                 <select
-                  className="w-full border rounded-xl p-3"
-                  value={blockReason}
+                  className="w-full border border-emerald-200 rounded-xl p-3 bg-emerald-50"
+                  value={
+                    blockReason
+                  }
                   onChange={(event) =>
                     setBlockReason(
                       event.target.value
@@ -1256,15 +1568,18 @@ export default function CalendarPage() {
                 </select>
               </div>
 
-              {blockReason === "Other" ? (
+              {blockReason ===
+              "Other" ? (
                 <div className="sm:col-span-2">
                   <label className="block font-semibold mb-2">
                     Custom reason
                   </label>
 
                   <input
-                    className="w-full border rounded-xl p-3"
-                    value={customBlockReason}
+                    className="w-full border border-emerald-200 rounded-xl p-3 bg-emerald-50"
+                    value={
+                      customBlockReason
+                    }
                     onChange={(event) =>
                       setCustomBlockReason(
                         event.target.value
@@ -1285,12 +1600,15 @@ export default function CalendarPage() {
                 <button
                   type="button"
                   onClick={() =>
-                    setBlockMode("one-time")
+                    setBlockMode(
+                      "one-time"
+                    )
                   }
                   className={`px-4 py-3 rounded-xl font-bold border ${
-                    blockMode === "one-time"
-                      ? "bg-black text-white"
-                      : "bg-white text-black"
+                    blockMode ===
+                    "one-time"
+                      ? "bg-emerald-700 text-white border-emerald-700"
+                      : "bg-white text-black border-emerald-200"
                   }`}
                 >
                   One-time
@@ -1299,7 +1617,10 @@ export default function CalendarPage() {
                 <button
                   type="button"
                   onClick={() => {
-                    setBlockMode("recurring");
+                    setBlockMode(
+                      "recurring"
+                    );
+
                     setRecurringDays([
                       weekdayValueForDate(
                         recurringStartDate
@@ -1307,9 +1628,10 @@ export default function CalendarPage() {
                     ]);
                   }}
                   className={`px-4 py-3 rounded-xl font-bold border ${
-                    blockMode === "recurring"
-                      ? "bg-black text-white"
-                      : "bg-white text-black"
+                    blockMode ===
+                    "recurring"
+                      ? "bg-emerald-700 text-white border-emerald-700"
+                      : "bg-white text-black border-emerald-200"
                   }`}
                 >
                   Repeat Weekly
@@ -1317,7 +1639,8 @@ export default function CalendarPage() {
               </div>
             </div>
 
-            {blockMode === "one-time" ? (
+            {blockMode ===
+            "one-time" ? (
               <div className="grid gap-4 sm:grid-cols-2 mt-6">
                 <div>
                   <label className="block font-semibold mb-2">
@@ -1326,10 +1649,12 @@ export default function CalendarPage() {
 
                   <input
                     type="date"
-                    className="w-full border rounded-xl p-3"
+                    className="w-full border border-emerald-200 rounded-xl p-3 bg-emerald-50"
                     value={blockDate}
                     onChange={(event) =>
-                      setBlockDate(event.target.value)
+                      setBlockDate(
+                        event.target.value
+                      )
                     }
                   />
                 </div>
@@ -1342,11 +1667,16 @@ export default function CalendarPage() {
 
                     <input
                       type="time"
-                      className="w-full border rounded-xl p-3"
-                      value={blockStartTime}
-                      onChange={(event) =>
+                      className="w-full border border-emerald-200 rounded-xl p-3 bg-emerald-50"
+                      value={
+                        blockStartTime
+                      }
+                      onChange={(
+                        event
+                      ) =>
                         setBlockStartTime(
-                          event.target.value
+                          event.target
+                            .value
                         )
                       }
                     />
@@ -1359,11 +1689,16 @@ export default function CalendarPage() {
 
                     <input
                       type="time"
-                      className="w-full border rounded-xl p-3"
-                      value={blockEndTime}
-                      onChange={(event) =>
+                      className="w-full border border-emerald-200 rounded-xl p-3 bg-emerald-50"
+                      value={
+                        blockEndTime
+                      }
+                      onChange={(
+                        event
+                      ) =>
                         setBlockEndTime(
-                          event.target.value
+                          event.target
+                            .value
                         )
                       }
                     />
@@ -1378,31 +1713,37 @@ export default function CalendarPage() {
                   </label>
 
                   <div className="flex flex-wrap gap-2">
-                    {RECURRING_DAYS.map((day) => {
-                      const selected =
-                        recurringDays.includes(
-                          day.value
-                        );
+                    {RECURRING_DAYS.map(
+                      (day) => {
+                        const selected =
+                          recurringDays.includes(
+                            day.value
+                          );
 
-                      return (
-                        <button
-                          key={day.value}
-                          type="button"
-                          onClick={() =>
-                            toggleRecurringDay(
+                        return (
+                          <button
+                            key={
                               day.value
-                            )
-                          }
-                          className={`px-4 py-3 rounded-xl font-bold border ${
-                            selected
-                              ? "bg-black text-white"
-                              : "bg-white text-black"
-                          }`}
-                        >
-                          {day.label}
-                        </button>
-                      );
-                    })}
+                            }
+                            type="button"
+                            onClick={() =>
+                              toggleRecurringDay(
+                                day.value
+                              )
+                            }
+                            className={`px-4 py-3 rounded-xl font-bold border ${
+                              selected
+                                ? "bg-emerald-700 text-white border-emerald-700"
+                                : "bg-white text-black border-emerald-200"
+                            }`}
+                          >
+                            {
+                              day.label
+                            }
+                          </button>
+                        );
+                      }
+                    )}
                   </div>
                 </div>
 
@@ -1414,11 +1755,16 @@ export default function CalendarPage() {
 
                     <input
                       type="date"
-                      className="w-full border rounded-xl p-3"
-                      value={recurringStartDate}
-                      onChange={(event) =>
+                      className="w-full border border-emerald-200 rounded-xl p-3 bg-emerald-50"
+                      value={
+                        recurringStartDate
+                      }
+                      onChange={(
+                        event
+                      ) =>
                         handleRecurringStartDateChange(
-                          event.target.value
+                          event.target
+                            .value
                         )
                       }
                     />
@@ -1431,11 +1777,16 @@ export default function CalendarPage() {
 
                     <input
                       type="date"
-                      className="w-full border rounded-xl p-3"
-                      value={recurringEndDate}
-                      onChange={(event) =>
+                      className="w-full border border-emerald-200 rounded-xl p-3 bg-emerald-50"
+                      value={
+                        recurringEndDate
+                      }
+                      onChange={(
+                        event
+                      ) =>
                         setRecurringEndDate(
-                          event.target.value
+                          event.target
+                            .value
                         )
                       }
                     />
@@ -1450,11 +1801,16 @@ export default function CalendarPage() {
 
                     <input
                       type="time"
-                      className="w-full border rounded-xl p-3"
-                      value={blockStartTime}
-                      onChange={(event) =>
+                      className="w-full border border-emerald-200 rounded-xl p-3 bg-emerald-50"
+                      value={
+                        blockStartTime
+                      }
+                      onChange={(
+                        event
+                      ) =>
                         setBlockStartTime(
-                          event.target.value
+                          event.target
+                            .value
                         )
                       }
                     />
@@ -1467,11 +1823,16 @@ export default function CalendarPage() {
 
                     <input
                       type="time"
-                      className="w-full border rounded-xl p-3"
-                      value={blockEndTime}
-                      onChange={(event) =>
+                      className="w-full border border-emerald-200 rounded-xl p-3 bg-emerald-50"
+                      value={
+                        blockEndTime
+                      }
+                      onChange={(
+                        event
+                      ) =>
                         setBlockEndTime(
-                          event.target.value
+                          event.target
+                            .value
                         )
                       }
                     />
@@ -1483,20 +1844,25 @@ export default function CalendarPage() {
             <div className="flex flex-wrap gap-3 mt-6">
               <button
                 type="button"
-                onClick={saveBlockedTime}
+                onClick={
+                  saveBlockedTime
+                }
                 disabled={savingBlock}
-                className="bg-black text-white rounded-xl px-5 py-3 font-bold disabled:opacity-60"
+                className="bg-emerald-700 text-white rounded-xl px-5 py-3 font-bold disabled:opacity-60"
               >
                 {savingBlock
                   ? "Saving..."
-                  : blockMode === "recurring"
+                  : blockMode ===
+                      "recurring"
                     ? "Save Recurring Block"
                     : "Save Blocked Time"}
               </button>
 
               <button
                 type="button"
-                onClick={closeBlockForm}
+                onClick={
+                  closeBlockForm
+                }
                 disabled={savingBlock}
                 className="bg-gray-400 text-white rounded-xl px-5 py-3 font-bold disabled:opacity-60"
               >
@@ -1506,8 +1872,8 @@ export default function CalendarPage() {
           </section>
         ) : null}
 
-        <section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-gray-200">
-          <h2 className="text-3xl font-bold mb-6">
+        <section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-emerald-200">
+          <h2 className="text-3xl font-bold mb-6 text-emerald-950">
             Filters
           </h2>
 
@@ -1518,14 +1884,21 @@ export default function CalendarPage() {
               </label>
 
               <select
-                className="w-full border rounded-xl p-3"
+                className="w-full border border-emerald-200 rounded-xl p-3 bg-emerald-50"
                 value={viewMode}
                 onChange={(event) =>
-                  setViewMode(event.target.value)
+                  setViewMode(
+                    event.target.value
+                  )
                 }
               >
-                <option value="day">Day</option>
-                <option value="week">Week</option>
+                <option value="day">
+                  Day
+                </option>
+
+                <option value="week">
+                  Week
+                </option>
               </select>
             </div>
 
@@ -1536,8 +1909,10 @@ export default function CalendarPage() {
 
               <input
                 type="date"
-                className="w-full border rounded-xl p-3"
-                value={selectedDate}
+                className="w-full border border-emerald-200 rounded-xl p-3 bg-emerald-50"
+                value={
+                  selectedDate
+                }
                 onChange={(event) =>
                   setSelectedDate(
                     event.target.value
@@ -1552,78 +1927,100 @@ export default function CalendarPage() {
               </label>
 
               <select
-                className="w-full border rounded-xl p-3"
-                value={selectedBarberId}
+                className="w-full border border-emerald-200 rounded-xl p-3 bg-emerald-50"
+                value={
+                  selectedBarberId
+                }
                 onChange={(event) =>
                   setSelectedBarberId(
                     event.target.value
                   )
                 }
               >
-                {barbers.map((barber) => (
-                  <option
-                    key={barber.id}
-                    value={barber.id}
-                  >
-                    {barber.name}
-                  </option>
-                ))}
+                {barbers.map(
+                  (barber) => (
+                    <option
+                      key={
+                        barber.id
+                      }
+                      value={
+                        barber.id
+                      }
+                    >
+                      {
+                        barber.name
+                      }
+                    </option>
+                  )
+                )}
               </select>
             </div>
           </div>
         </section>
 
         {loading ? (
-          <section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-gray-200">
+          <section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-emerald-200">
             <p className="text-2xl font-bold">
               Loading calendar...
             </p>
           </section>
         ) : null}
 
-        {!loading && viewMode === "day" ? (
-          <section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-gray-200">
-            <h2 className="text-3xl font-bold mb-6">
+        {!loading &&
+        viewMode === "day" ? (
+          <section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-emerald-200">
+            <h2 className="text-3xl font-bold mb-6 text-emerald-950">
               Day View —{" "}
-              {selectedBarber?.name || "Staff"} —{" "}
-              {selectedDate}
+              {selectedBarber?.name ||
+                "Staff"}{" "}
+              — {selectedDate}
             </h2>
 
             <div className="grid gap-3">
               {HOURS.map((hour) => {
                 const appointmentsForHour =
-                  appointmentItemsForHour(hour);
+                  appointmentItemsForHour(
+                    hour
+                  );
 
                 const blockedForHour =
-                  blockedItemsForHour(hour);
+                  blockedItemsForHour(
+                    hour
+                  );
 
                 return (
                   <div
                     key={hour}
-                    className="border rounded-xl p-4"
+                    className="border border-emerald-100 rounded-2xl p-4 bg-emerald-50/50"
                   >
-                    <p className="font-bold mb-3">
+                    <p className="font-bold mb-3 text-emerald-950">
                       {hour}
                     </p>
 
                     {appointmentsForHour.length ===
                       0 &&
-                    blockedForHour.length === 0 ? (
-                      <p className="text-gray-900">
+                    blockedForHour.length ===
+                      0 ? (
+                      <p className="text-gray-600">
                         Open
                       </p>
                     ) : null}
 
                     <div className="grid gap-2">
                       {appointmentsForHour.map(
-                        (appointment) =>
+                        (
+                          appointment
+                        ) =>
                           appointmentCard(
                             appointment
                           )
                       )}
 
-                      {blockedForHour.map((block) =>
-                        blockedTimeCard(block)
+                      {blockedForHour.map(
+                        (block) =>
+                          blockedTimeCard(
+                            block
+                          )
                       )}
                     </div>
                   </div>
@@ -1633,49 +2030,59 @@ export default function CalendarPage() {
           </section>
         ) : null}
 
-        {!loading && viewMode === "week" ? (
-          <section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-gray-200">
-            <h2 className="text-3xl font-bold mb-6">
+        {!loading &&
+        viewMode === "week" ? (
+          <section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-emerald-200">
+            <h2 className="text-3xl font-bold mb-6 text-emerald-950">
               Week View —{" "}
-              {selectedBarber?.name || "Staff"}
+              {selectedBarber?.name ||
+                "Staff"}
             </h2>
 
             <div className="grid gap-4">
-              {weekDates.map((date, index) => {
-                const items =
-                  weekItemsForDate(date);
+              {weekDates.map(
+                (date, index) => {
+                  const items =
+                    weekItemsForDate(
+                      date
+                    );
 
-                return (
-                  <div
-                    key={date}
-                    className="border rounded-xl p-4"
-                  >
-                    <h3 className="text-xl font-bold mb-3">
-                      {DAYS[index]} — {date}
-                    </h3>
+                  return (
+                    <div
+                      key={date}
+                      className="border border-emerald-100 rounded-2xl p-4 bg-emerald-50/50"
+                    >
+                      <h3 className="text-xl font-bold mb-3 text-emerald-950">
+                        {DAYS[index]} —{" "}
+                        {date}
+                      </h3>
 
-                    {items.length === 0 ? (
-                      <p className="text-gray-900">
-                        No appointments or blocked
-                        time.
-                      </p>
-                    ) : null}
+                      {items.length ===
+                      0 ? (
+                        <p className="text-gray-600">
+                          No appointments
+                          or blocked
+                          time.
+                        </p>
+                      ) : null}
 
-                    <div className="grid gap-2">
-                      {items.map((item) =>
-                        item.type ===
-                        "appointment"
-                          ? appointmentCard(
-                              item.data
-                            )
-                          : blockedTimeCard(
-                              item.data
-                            )
-                      )}
+                      <div className="grid gap-2">
+                        {items.map(
+                          (item) =>
+                            item.type ===
+                            "appointment"
+                              ? appointmentCard(
+                                  item.data
+                                )
+                              : blockedTimeCard(
+                                  item.data
+                                )
+                        )}
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                }
+              )}
             </div>
           </section>
         ) : null}
