@@ -93,6 +93,7 @@ export default function SetupPage() {
   const [shopClosureDate, setShopClosureDate] = useState(
     new Date().toISOString().slice(0, 10)
   );
+
   const [shopClosureReason, setShopClosureReason] =
     useState("Closed");
 
@@ -100,15 +101,21 @@ export default function SetupPage() {
    * Recurring shop-wide block
    */
   const [recurringReason, setRecurringReason] = useState("Lunch");
+
   const [recurringStartDate, setRecurringStartDate] = useState(
     new Date().toISOString().slice(0, 10)
   );
+
   const [recurringEndDate, setRecurringEndDate] = useState(
     new Date().toISOString().slice(0, 10)
   );
+
   const [recurringStartTime, setRecurringStartTime] =
     useState("12:00");
-  const [recurringEndTime, setRecurringEndTime] = useState("13:00");
+
+  const [recurringEndTime, setRecurringEndTime] =
+    useState("13:00");
+
   const [recurringWeekdays, setRecurringWeekdays] = useState([
     0,
     1,
@@ -1282,7 +1289,11 @@ export default function SetupPage() {
   const groupedShopHours = useMemo(() => {
     const grouped = {};
 
-    for (let weekday = 0; weekday <= 6; weekday++) {
+    for (
+      let weekday = 0;
+      weekday <= 6;
+      weekday++
+    ) {
       grouped[weekday] = [];
     }
 
@@ -1316,11 +1327,32 @@ export default function SetupPage() {
     }, [shopBlockedTimes]);
 
   return (
-    <main className="min-h-screen bg-gray-100 p-6">
+    <main className="min-h-screen bg-indigo-50 p-6">
       <div className="max-w-5xl mx-auto space-y-6">
-        <h1 className="text-4xl font-bold">
-          {shopSlug} Shop Setup
-        </h1>
+        <section className="rounded-3xl shadow-lg p-6 border border-indigo-200 bg-gradient-to-r from-indigo-100 via-violet-50 to-white">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-sm font-extrabold uppercase tracking-widest text-indigo-700 mb-2">
+                {shopSlug}
+              </p>
+
+              <h1 className="text-5xl font-extrabold tracking-tight text-gray-950">
+                Shop Setup
+              </h1>
+
+              <p className="mt-2 text-lg text-gray-700">
+                Manage shop hours, closures, staff schedules, and services.
+              </p>
+            </div>
+
+            <a
+              href={`/${shopSlug}/admin`}
+              className="inline-flex items-center justify-center bg-blue-600 text-white px-5 py-3 rounded-xl font-bold shadow hover:bg-blue-700"
+            >
+              Admin Home
+            </a>
+          </div>
+        </section>
 
         {message && (
           <div className="bg-green-100 p-3 rounded-xl font-bold">
@@ -1330,7 +1362,7 @@ export default function SetupPage() {
 
         {/* SHOP-WIDE SETTINGS */}
 
-        <div className="bg-white p-6 rounded-2xl shadow space-y-5">
+        <div className="bg-white p-6 rounded-2xl shadow-lg border border-indigo-200 space-y-5">
           <div>
             <h2 className="text-2xl font-bold">
               Shop Hours
@@ -1482,7 +1514,7 @@ export default function SetupPage() {
           </div>
         </div>
 
-        <div className="bg-white p-6 rounded-2xl shadow space-y-5">
+        <div className="bg-white p-6 rounded-2xl shadow-lg border border-indigo-200 space-y-5">
           <div>
             <h2 className="text-2xl font-bold">
               Shop Closures & Breaks
@@ -1842,7 +1874,7 @@ export default function SetupPage() {
 
         {/* INDIVIDUAL STAFF SETTINGS */}
 
-        <div className="bg-white p-6 rounded-2xl shadow space-y-4">
+        <div className="bg-white p-6 rounded-2xl shadow-lg border border-indigo-200 space-y-4">
           <h2 className="text-2xl font-bold">
             Staff Member
           </h2>
@@ -1890,7 +1922,7 @@ export default function SetupPage() {
 
         {selectedBarber && (
           <>
-            <div className="bg-white p-6 rounded-2xl shadow space-y-4">
+            <div className="bg-white p-6 rounded-2xl shadow-lg border border-indigo-200 space-y-4">
               <h2 className="text-2xl font-bold">
                 Services
               </h2>
@@ -2143,7 +2175,7 @@ export default function SetupPage() {
               </div>
             </div>
 
-            <div className="bg-white p-6 rounded-2xl shadow space-y-4">
+            <div className="bg-white p-6 rounded-2xl shadow-lg border border-indigo-200 space-y-4">
               <h2 className="text-2xl font-bold">
                 Weekly Availability
               </h2>
@@ -2254,7 +2286,7 @@ export default function SetupPage() {
               </div>
             </div>
 
-            <div className="bg-white p-6 rounded-2xl shadow space-y-4">
+            <div className="bg-white p-6 rounded-2xl shadow-lg border border-indigo-200 space-y-4">
               <h2 className="text-2xl font-bold">
                 Quick Block Time
               </h2>
@@ -2308,7 +2340,7 @@ export default function SetupPage() {
               </button>
             </div>
 
-            <div className="bg-white p-6 rounded-2xl shadow space-y-4">
+            <div className="bg-white p-6 rounded-2xl shadow-lg border border-indigo-200 space-y-4">
               <h2 className="text-2xl font-bold">
                 Full Day Block
               </h2>
@@ -2404,9 +2436,9 @@ export default function SetupPage() {
 
         <a
           href={`/${shopSlug}/admin`}
-          className="inline-block font-bold underline"
+          className="inline-flex items-center justify-center bg-blue-600 text-white px-5 py-3 rounded-xl font-bold shadow hover:bg-blue-700"
         >
-          Back to Admin
+          Admin Home
         </a>
       </div>
     </main>
