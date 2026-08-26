@@ -106,6 +106,21 @@ function defaultRecurringEndDate() {
   return localDateValue(date);
 }
 
+function weekdayValueForDate(dateString) {
+  if (!dateString) {
+    return new Date().getDay() === 0
+      ? 6
+      : new Date().getDay() - 1;
+  }
+
+  const date = new Date(`${dateString}T12:00:00`);
+  const javascriptDay = date.getDay();
+
+  return javascriptDay === 0
+    ? 6
+    : javascriptDay - 1;
+}
+
 export default function CalendarPage() {
   const params = useParams();
   const router = useRouter();
@@ -156,11 +171,7 @@ export default function CalendarPage() {
   const [recurringEndDate, setRecurringEndDate] =
     useState(defaultRecurringEndDate());
   const [recurringDays, setRecurringDays] = useState([
-    0,
-    1,
-    2,
-    3,
-    4,
+    weekdayValueForDate(localDateValue()),
   ]);
 
   const [savingBlock, setSavingBlock] =
@@ -458,7 +469,10 @@ export default function CalendarPage() {
     setBlockEndTime("12:30");
     setBlockReason("Lunch");
     setCustomBlockReason("");
-    setRecurringDays([0, 1, 2, 3, 4]);
+
+    setRecurringDays([
+      weekdayValueForDate(selectedDate),
+    ]);
 
     setShowBlockForm(true);
     setMessage("");
@@ -483,6 +497,18 @@ export default function CalendarPage() {
         ...currentDays,
         dayValue,
       ].sort((a, b) => a - b);
+    });
+  }
+
+  function handleRecurringStartDateChange(nextDate) {
+    setRecurringStartDate(nextDate);
+
+    setRecurringDays((currentDays) => {
+      if (currentDays.length <= 1) {
+        return [weekdayValueForDate(nextDate)];
+      }
+
+      return currentDays;
     });
   }
 
@@ -1272,9 +1298,14 @@ export default function CalendarPage() {
 
                 <button
                   type="button"
-                  onClick={() =>
-                    setBlockMode("recurring")
-                  }
+                  onClick={() => {
+                    setBlockMode("recurring");
+                    setRecurringDays([
+                      weekdayValueForDate(
+                        recurringStartDate
+                      ),
+                    ]);
+                  }}
                   className={`px-4 py-3 rounded-xl font-bold border ${
                     blockMode === "recurring"
                       ? "bg-black text-white"
@@ -1386,7 +1417,7 @@ export default function CalendarPage() {
                       className="w-full border rounded-xl p-3"
                       value={recurringStartDate}
                       onChange={(event) =>
-                        setRecurringStartDate(
+                        handleRecurringStartDateChange(
                           event.target.value
                         )
                       }
