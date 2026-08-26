@@ -497,7 +497,7 @@ export default function CalendarPage() {
 
     if (!reason) {
       setError("Please enter a reason.");
-      return;
+      return false;
     }
 
     const startDatetime =
@@ -908,7 +908,20 @@ export default function CalendarPage() {
               {formatTime(
                 appointment.start_datetime
               )}{" "}
-              · {appointment.customer_name}
+              ·{" "}
+              <button
+                type="button"
+                onClick={() =>
+                  router.push(
+                    `/${shopSlug}/admin/customers?phone=${encodeURIComponent(
+                      appointment.customer_phone
+                    )}`
+                  )
+                }
+                className="font-bold text-blue-700 underline hover:text-blue-900"
+              >
+                {appointment.customer_name}
+              </button>
             </p>
 
             <p className="text-gray-900">
