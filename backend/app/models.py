@@ -52,6 +52,51 @@ class Shop(Base):
         default="America/New_York",
     )
 
+    # ChairTime subscription billing
+    stripe_customer_id = Column(
+        String,
+        nullable=True,
+        unique=True,
+        index=True,
+    )
+    stripe_subscription_id = Column(
+        String,
+        nullable=True,
+        unique=True,
+        index=True,
+    )
+    subscription_status = Column(
+        String,
+        nullable=True,
+    )
+    trial_ends_at = Column(
+        DateTime,
+        nullable=True,
+    )
+
+    # Optional AI Phone Receptionist
+    ai_voice_enabled = Column(
+        Boolean,
+        nullable=False,
+        default=False,
+    )
+    highlevel_location_id = Column(
+        String,
+        nullable=True,
+    )
+    highlevel_phone_number = Column(
+        String,
+        nullable=True,
+    )
+
+    # Future shop payment processing through Stripe Connect
+    stripe_connect_account_id = Column(
+        String,
+        nullable=True,
+        unique=True,
+        index=True,
+    )
+
 
 class User(Base):
     __tablename__ = "users"
