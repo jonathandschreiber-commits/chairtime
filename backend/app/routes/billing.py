@@ -99,10 +99,6 @@ def create_checkout_session(
     )
 
     try:
-        #
-        # Create one Stripe Customer for the shop the first
-        # time the owner enters the billing flow.
-        #
         if not shop.stripe_customer_id:
             customer = stripe.Customer.create(
                 name=shop.name,
@@ -119,12 +115,6 @@ def create_checkout_session(
             db.commit()
             db.refresh(shop)
 
-        #
-        # Create Stripe Checkout.
-        #
-        # The card is collected now, but Stripe does not charge
-        # the customer until the 30-day trial ends.
-        #
         checkout_session = stripe.checkout.Session.create(
             mode="subscription",
             customer=shop.stripe_customer_id,
@@ -152,25 +142,28 @@ def create_checkout_session(
             success_url=(
                 f"{frontend_url}/signup/payment-success"
                 "?session_id={CHECKOUT_SESSION_ID}"
+            ).replace(
+                "{CHECKOUT_SESSION_ID}",
+                "{CHECKOUT_SESSION_ID}",
             ),
             cancel_url=f"{frontend_url}/signup/payment",
         )
 
-    except stripe.StripeError as exc:
+    except Exception as exc:
         db.rollback()
 
-        message = "Stripe could not start the checkout process."
+        stripe_error = getattr(stripe, "StripeError", None)
 
-        if getattr(exc, "user_message", None):
-            message = exc.user_message
+        if stripe_error and isinstance(exc, stripe_error):
+            message = (
+                getattr(exc, "user_message", None)
+                or "Stripe could not start the checkout process."
+            )
 
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=message,
-        )
-
-    except Exception:
-        db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=message,
+            )
 
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
