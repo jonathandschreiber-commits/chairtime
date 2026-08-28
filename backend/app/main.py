@@ -22,6 +22,32 @@ from app.routes.shops import router as shops_router
 from app.routes.voice import router as voice_router
 
 
+def add_sqlite_column_if_missing(
+    conn,
+    table_name,
+    column_name,
+    column_definition,
+):
+    existing_columns = conn.execute(
+        text(f"PRAGMA table_info({table_name})")
+    ).fetchall()
+
+    column_names = {
+        row[1]
+        for row in existing_columns
+    }
+
+    if column_name not in column_names:
+        conn.execute(
+            text(
+                f"""
+                ALTER TABLE {table_name}
+                ADD COLUMN {column_name} {column_definition}
+                """
+            )
+        )
+
+
 def run_startup_migrations():
     with engine.begin() as conn:
         dialect_name = engine.dialect.name
@@ -45,33 +71,214 @@ def run_startup_migrations():
                 )
             )
 
-        elif dialect_name == "sqlite":
-            existing_columns = conn.execute(
+            conn.execute(
                 text(
-                    "PRAGMA table_info(blocked_times)"
+                    """
+                    ALTER TABLE shops
+                    ADD COLUMN IF NOT EXISTS stripe_customer_id VARCHAR
+                    """
                 )
-            ).fetchall()
+            )
 
-            column_names = {
-                row[1]
-                for row in existing_columns
-            }
-
-            if "series_id" not in column_names:
-                conn.execute(
-                    text(
-                        """
-                        ALTER TABLE blocked_times
-                        ADD COLUMN series_id VARCHAR
-                        """
-                    )
+            conn.execute(
+                text(
+                    """
+                    ALTER TABLE shops
+                    ADD COLUMN IF NOT EXISTS stripe_subscription_id VARCHAR
+                    """
                 )
+            )
+
+            conn.execute(
+                text(
+                    """
+                    ALTER TABLE shops
+                    ADD COLUMN IF NOT EXISTS subscription_status VARCHAR
+                    """
+                )
+            )
+
+            conn.execute(
+                text(
+                    """
+                    ALTER TABLE shops
+                    ADD COLUMN IF NOT EXISTS trial_ends_at TIMESTAMP
+                    """
+                )
+            )
+
+            conn.execute(
+                text(
+                    """
+                    ALTER TABLE shops
+                    ADD COLUMN IF NOT EXISTS ai_voice_enabled BOOLEAN
+                    NOT NULL DEFAULT FALSE
+                    """
+                )
+            )
+
+            conn.execute(
+                text(
+                    """
+                    ALTER TABLE shops
+                    ADD COLUMN IF NOT EXISTS highlevel_location_id VARCHAR
+                    """
+                )
+            )
+
+            conn.execute(
+                text(
+                    """
+                    ALTER TABLE shops
+                    ADD COLUMN IF NOT EXISTS highlevel_phone_number VARCHAR
+                    """
+                )
+            )
+
+            conn.execute(
+                text(
+                    """
+                    ALTER TABLE shops
+                    ADD COLUMN IF NOT EXISTS stripe_connect_account_id VARCHAR
+                    """
+                )
+            )
+
+            conn.execute(
+                text(
+                    """
+                    CREATE UNIQUE INDEX IF NOT EXISTS
+                    ix_shops_stripe_customer_id
+                    ON shops (stripe_customer_id)
+                    WHERE stripe_customer_id IS NOT NULL
+                    """
+                )
+            )
+
+            conn.execute(
+                text(
+                    """
+                    CREATE UNIQUE INDEX IF NOT EXISTS
+                    ix_shops_stripe_subscription_id
+                    ON shops (stripe_subscription_id)
+                    WHERE stripe_subscription_id IS NOT NULL
+                    """
+                )
+            )
+
+            conn.execute(
+                text(
+                    """
+                    CREATE UNIQUE INDEX IF NOT EXISTS
+                    ix_shops_stripe_connect_account_id
+                    ON shops (stripe_connect_account_id)
+                    WHERE stripe_connect_account_id IS NOT NULL
+                    """
+                )
+            )
+
+        elif dialect_name == "sqlite":
+            add_sqlite_column_if_missing(
+                conn,
+                "blocked_times",
+                "series_id",
+                "VARCHAR",
+            )
 
             conn.execute(
                 text(
                     """
                     CREATE INDEX IF NOT EXISTS ix_blocked_times_series_id
                     ON blocked_times (series_id)
+                    """
+                )
+            )
+
+            add_sqlite_column_if_missing(
+                conn,
+                "shops",
+                "stripe_customer_id",
+                "VARCHAR",
+            )
+
+            add_sqlite_column_if_missing(
+                conn,
+                "shops",
+                "stripe_subscription_id",
+                "VARCHAR",
+            )
+
+            add_sqlite_column_if_missing(
+                conn,
+                "shops",
+                "subscription_status",
+                "VARCHAR",
+            )
+
+            add_sqlite_column_if_missing(
+                conn,
+                "shops",
+                "trial_ends_at",
+                "DATETIME",
+            )
+
+            add_sqlite_column_if_missing(
+                conn,
+                "shops",
+                "ai_voice_enabled",
+                "BOOLEAN NOT NULL DEFAULT 0",
+            )
+
+            add_sqlite_column_if_missing(
+                conn,
+                "shops",
+                "highlevel_location_id",
+                "VARCHAR",
+            )
+
+            add_sqlite_column_if_missing(
+                conn,
+                "shops",
+                "highlevel_phone_number",
+                "VARCHAR",
+            )
+
+            add_sqlite_column_if_missing(
+                conn,
+                "shops",
+                "stripe_connect_account_id",
+                "VARCHAR",
+            )
+
+            conn.execute(
+                text(
+                    """
+                    CREATE UNIQUE INDEX IF NOT EXISTS
+                    ix_shops_stripe_customer_id
+                    ON shops (stripe_customer_id)
+                    WHERE stripe_customer_id IS NOT NULL
+                    """
+                )
+            )
+
+            conn.execute(
+                text(
+                    """
+                    CREATE UNIQUE INDEX IF NOT EXISTS
+                    ix_shops_stripe_subscription_id
+                    ON shops (stripe_subscription_id)
+                    WHERE stripe_subscription_id IS NOT NULL
+                    """
+                )
+            )
+
+            conn.execute(
+                text(
+                    """
+                    CREATE UNIQUE INDEX IF NOT EXISTS
+                    ix_shops_stripe_connect_account_id
+                    ON shops (stripe_connect_account_id)
+                    WHERE stripe_connect_account_id IS NOT NULL
                     """
                 )
             )
