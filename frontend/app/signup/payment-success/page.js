@@ -1,12 +1,6 @@
-"use client";
-
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
 
 export default function PaymentSuccessPage() {
-  const searchParams = useSearchParams();
-  const sessionId = searchParams.get("session_id");
-
   return (
     <main
       style={{
@@ -105,18 +99,15 @@ export default function PaymentSuccessPage() {
           Continue to Setup
         </Link>
 
-        {sessionId ? (
-          <p
-            style={{
-              margin: "18px 0 0",
-              color: "#9ca3af",
-              fontSize: "11px",
-              wordBreak: "break-all",
-            }}
-          >
-            Checkout confirmed.
-          </p>
-        ) : null}
+        <p
+          style={{
+            margin: "18px 0 0",
+            color: "#9ca3af",
+            fontSize: "12px",
+          }}
+        >
+          Checkout confirmed.
+        </p>
       </section>
     </main>
   );
