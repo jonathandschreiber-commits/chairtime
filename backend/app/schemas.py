@@ -12,6 +12,16 @@ class ShopCreate(BaseModel):
     timezone: str = "America/New_York"
 
 
+class SignupCreate(BaseModel):
+    business_name: str
+    business_type: str = "service_business"
+    phone: Optional[str] = None
+    timezone: str = "America/New_York"
+    owner_name: str
+    email: str
+    password: str
+
+
 class UserCreate(BaseModel):
     shop_id: Optional[str] = None
     shop_slug: Optional[str] = None
