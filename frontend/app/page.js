@@ -1,407 +1,197 @@
-"use client";
-
-import { useEffect, useMemo, useState } from "react";
-
-const API_BASE = "https://chairtime-production-94da.up.railway.app";
-const SHOP_SLUG = "joebarber";
+import Link from "next/link";
 
 export default function HomePage() {
-  const today = new Date().toISOString().slice(0, 10);
-
-  const [barbers, setBarbers] = useState([]);
-  const [services, setServices] = useState([]);
-  const [appointments, setAppointments] = useState([]);
-  const [availableSlots, setAvailableSlots] = useState([]);
-
-  const [customerName, setCustomerName] = useState("");
-  const [customerPhone, setCustomerPhone] = useState("");
-  const [notes, setNotes] = useState("");
-
-  const [selectedBarberId, setSelectedBarberId] = useState("");
-  const [selectedServiceId, setSelectedServiceId] = useState("");
-  const [selectedDate, setSelectedDate] = useState(today);
-  const [selectedSlot, setSelectedSlot] = useState("");
-
-  const [message, setMessage] = useState("");
-  const [booking, setBooking] = useState(false);
-
-  async function loadData() {
-    try {
-      const query = `?shop_slug=${encodeURIComponent(SHOP_SLUG)}`;
-
-      const [barbersRes, servicesRes, appointmentsRes] =
-        await Promise.all([
-          fetch(`${API_BASE}/api/barbers${query}`),
-          fetch(`${API_BASE}/api/services${query}`),
-          fetch(`${API_BASE}/api/appointments${query}`),
-        ]);
-
-      if (barbersRes.ok) {
-        setBarbers(await barbersRes.json());
-      }
-
-      if (servicesRes.ok) {
-        setServices(await servicesRes.json());
-      }
-
-      if (appointmentsRes.ok) {
-        setAppointments(await appointmentsRes.json());
-      }
-    } catch (error) {
-      console.error("Could not load booking data:", error);
-    }
-  }
-
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  function cleanPhone(phone) {
-    return String(phone || "").replace(/\D/g, "");
-  }
-
-  const recognizedCustomer = useMemo(() => {
-    const phone = cleanPhone(customerPhone);
-
-    if (!phone) {
-      return null;
-    }
-
-    return (
-      appointments
-        .filter(
-          (appointment) =>
-            appointment.shop_slug === SHOP_SLUG &&
-            cleanPhone(appointment.customer_phone) === phone
-        )
-        .sort(
-          (a, b) =>
-            new Date(b.start_datetime) -
-            new Date(a.start_datetime)
-        )[0] || null
-    );
-  }, [appointments, customerPhone]);
-
-  useEffect(() => {
-    if (!recognizedCustomer) {
-      return;
-    }
-
-    if (!customerName) {
-      setCustomerName(recognizedCustomer.customer_name);
-    }
-
-    if (recognizedCustomer.barber_id) {
-      setSelectedBarberId(recognizedCustomer.barber_id);
-    }
-
-    if (recognizedCustomer.service_id) {
-      setSelectedServiceId(recognizedCustomer.service_id);
-    }
-  }, [recognizedCustomer, customerName]);
-
-  useEffect(() => {
-    if (!selectedBarberId || !selectedServiceId || !selectedDate) {
-      setAvailableSlots([]);
-      setSelectedSlot("");
-      return;
-    }
-
-    async function loadAvailability() {
-      setSelectedSlot("");
-
-      try {
-        const params = new URLSearchParams({
-          shop_slug: SHOP_SLUG,
-          barber_id: selectedBarberId,
-          service_id: selectedServiceId,
-          target_date: selectedDate,
-        });
-
-        const response = await fetch(
-          `${API_BASE}/api/availability?${params.toString()}`
-        );
-
-        if (!response.ok) {
-          setAvailableSlots([]);
-          return;
-        }
-
-        const data = await response.json();
-
-        setAvailableSlots(data.slots || []);
-      } catch (error) {
-        console.error("Could not load availability:", error);
-        setAvailableSlots([]);
-      }
-    }
-
-    loadAvailability();
-  }, [selectedBarberId, selectedServiceId, selectedDate]);
-
-  function formatTime(value) {
-    return new Date(value).toLocaleTimeString([], {
-      hour: "numeric",
-      minute: "2-digit",
-    });
-  }
-
-  function barberName(id) {
-    return barbers.find((barber) => barber.id === id)?.name || "barber";
-  }
-
-  function serviceName(id) {
-    return services.find((service) => service.id === id)?.name || "service";
-  }
-
-  async function createAppointment() {
-    if (
-      !customerName.trim() ||
-      !customerPhone.trim() ||
-      !selectedBarberId ||
-      !selectedServiceId ||
-      !selectedSlot
-    ) {
-      setMessage("Please complete all fields.");
-      return;
-    }
-
-    setBooking(true);
-    setMessage("");
-
-    try {
-      const response = await fetch(`${API_BASE}/api/appointments`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          shop_slug: SHOP_SLUG,
-          barber_id: selectedBarberId,
-          service_id: selectedServiceId,
-          customer_name: customerName.trim(),
-          customer_phone: customerPhone.trim(),
-          notes: notes.trim() || null,
-          start_datetime: selectedSlot,
-        }),
-      });
-
-      if (response.ok) {
-        setMessage("Appointment booked successfully.");
-        setSelectedSlot("");
-        setNotes("");
-        await loadData();
-      } else {
-        let detail = "";
-
-        try {
-          const errorData = await response.json();
-          detail =
-            typeof errorData.detail === "string"
-              ? errorData.detail
-              : "";
-        } catch {
-          // Keep the simple customer-facing message below.
-        }
-
-        console.error(
-          "Appointment creation failed:",
-          response.status,
-          detail
-        );
-
-        setMessage(
-          detail || "Could not create appointment."
-        );
-      }
-    } catch (error) {
-      console.error("Could not create appointment:", error);
-      setMessage("Could not create appointment.");
-    } finally {
-      setBooking(false);
-    }
-  }
-
   return (
-    <main className="min-h-screen bg-gray-100 p-4 sm:p-10">
-      <div className="max-w-2xl mx-auto space-y-6">
-        <section className="bg-white rounded-3xl shadow-lg p-6 border border-gray-200">
-          <h1 className="text-5xl font-extrabold tracking-tight">
+    <main className="min-h-screen bg-white text-gray-950">
+      <header className="border-b border-gray-200">
+        <div className="max-w-6xl mx-auto px-6 py-5 flex items-center justify-between">
+          <div className="text-2xl font-extrabold tracking-tight">
             ChairTime
-          </h1>
+          </div>
 
-          <p className="mt-2 text-gray-900">
-            Book your appointment.
-          </p>
+          <Link
+            href="/login"
+            className="font-bold hover:underline"
+          >
+            Sign In
+          </Link>
+        </div>
+      </header>
 
-          {message && (
-            <p
-              className={`mt-4 font-bold ${
-                message === "Appointment booked successfully."
-                  ? "text-green-700"
-                  : "text-red-700"
-              }`}
-            >
-              {message}
+      <section className="bg-gray-50">
+        <div className="max-w-6xl mx-auto px-6 py-20 sm:py-28">
+          <div className="max-w-4xl">
+            <p className="font-bold text-lg mb-4">
+              Simple scheduling for busy businesses
             </p>
-          )}
-        </section>
 
-        <section className="bg-white rounded-3xl shadow-lg p-6 border border-gray-200 space-y-5">
-          <div>
-            <label className="block font-bold mb-2">
-              Phone Number
-            </label>
+            <h1 className="text-5xl sm:text-7xl font-extrabold tracking-tight leading-tight">
+              Run your shop.
+              <br />
+              We&apos;ll handle the scheduling.
+            </h1>
 
-            <input
-              className="w-full border rounded-2xl p-5 text-xl"
-              value={customerPhone}
-              onChange={(event) =>
-                setCustomerPhone(event.target.value)
-              }
-              placeholder="240-555-1234"
-            />
+            <p className="mt-7 text-xl sm:text-2xl leading-relaxed text-gray-700 max-w-3xl">
+              ChairTime keeps appointments, customers, reminders,
+              and booking in one simple place — so you can spend less
+              time managing the schedule and more time with your customers.
+            </p>
 
-            {recognizedCustomer && (
-              <p className="mt-2 text-green-700 font-bold">
-                Welcome back, {recognizedCustomer.customer_name}. We selected{" "}
-                {barberName(recognizedCustomer.barber_id)} and{" "}
-                {serviceName(recognizedCustomer.service_id)} from your last visit.
-              </p>
-            )}
-          </div>
+            <div className="mt-10 flex flex-col sm:flex-row gap-4">
+              <Link
+                href="/signup"
+                className="inline-flex justify-center items-center bg-black text-white rounded-2xl px-8 py-5 text-xl font-bold"
+              >
+                Start My Free Month
+              </Link>
 
-          <div>
-            <label className="block font-bold mb-2">
-              Name
-            </label>
-
-            <input
-              className="w-full border rounded-2xl p-5 text-xl"
-              value={customerName}
-              onChange={(event) =>
-                setCustomerName(event.target.value)
-              }
-              placeholder="Your name"
-            />
-          </div>
-
-          <div>
-            <label className="block font-bold mb-2">
-              Barber
-            </label>
-
-            <select
-              className="w-full border rounded-2xl p-5 text-xl"
-              value={selectedBarberId}
-              onChange={(event) => {
-                setSelectedBarberId(event.target.value);
-                setSelectedSlot("");
-              }}
-            >
-              <option value="">Select barber</option>
-
-              {barbers.map((barber) => (
-                <option key={barber.id} value={barber.id}>
-                  {barber.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="block font-bold mb-2">
-              Service
-            </label>
-
-            <select
-              className="w-full border rounded-2xl p-5 text-xl"
-              value={selectedServiceId}
-              onChange={(event) => {
-                setSelectedServiceId(event.target.value);
-                setSelectedSlot("");
-              }}
-            >
-              <option value="">Select service</option>
-
-              {services.map((service) => (
-                <option key={service.id} value={service.id}>
-                  {service.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="block font-bold mb-2">
-              Date
-            </label>
-
-            <input
-              type="date"
-              className="w-full border rounded-2xl p-5 text-xl"
-              value={selectedDate}
-              onChange={(event) => {
-                setSelectedDate(event.target.value);
-                setSelectedSlot("");
-              }}
-            />
-          </div>
-
-          <div>
-            <label className="block font-bold mb-2">
-              Available Times
-            </label>
-
-            <div className="grid grid-cols-2 gap-3">
-              {availableSlots.map((slot) => (
-                <button
-                  key={slot}
-                  type="button"
-                  onClick={() => setSelectedSlot(slot)}
-                  className={`rounded-2xl p-4 font-bold border ${
-                    selectedSlot === slot
-                      ? "bg-black text-white"
-                      : "bg-white"
-                  }`}
-                >
-                  {formatTime(slot)}
-                </button>
-              ))}
+              <Link
+                href="/login"
+                className="inline-flex justify-center items-center border-2 border-gray-300 rounded-2xl px-8 py-5 text-xl font-bold bg-white"
+              >
+                I Already Have an Account
+              </Link>
             </div>
 
-            {availableSlots.length === 0 && (
-              <p className="mt-3 text-gray-900">
-                Choose a barber, service, and date to see times.
+            <p className="mt-4 text-gray-600 font-medium">
+              Free for 30 days. No charge today. Cancel anytime.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section className="max-w-6xl mx-auto px-6 py-20">
+        <div className="text-center max-w-3xl mx-auto">
+          <h2 className="text-4xl sm:text-5xl font-extrabold tracking-tight">
+            Never miss a customer because you&apos;re too busy to answer the phone.
+          </h2>
+
+          <p className="mt-6 text-xl text-gray-700 leading-relaxed">
+            You&apos;re working with a customer. The phone rings.
+            Instead of stopping what you&apos;re doing — or losing the
+            appointment — ChairTime lets customers book online or by phone.
+            Their appointment goes directly onto your schedule.
+          </p>
+        </div>
+
+        <div className="grid md:grid-cols-3 gap-6 mt-14">
+          <div className="border border-gray-200 rounded-3xl p-8">
+            <div className="text-3xl mb-4">☎️</div>
+
+            <h3 className="text-2xl font-extrabold">
+              Never miss a booking
+            </h3>
+
+            <p className="mt-3 text-lg text-gray-700 leading-relaxed">
+              Customers can book even when you&apos;re busy, with another
+              customer, or unable to answer the phone.
+            </p>
+          </div>
+
+          <div className="border border-gray-200 rounded-3xl p-8">
+            <div className="text-3xl mb-4">📅</div>
+
+            <h3 className="text-2xl font-extrabold">
+              Keep everything organized
+            </h3>
+
+            <p className="mt-3 text-lg text-gray-700 leading-relaxed">
+              Your appointments, customer information, notes, schedules,
+              confirmations, and reminders stay together.
+            </p>
+          </div>
+
+          <div className="border border-gray-200 rounded-3xl p-8">
+            <div className="text-3xl mb-4">✓</div>
+
+            <h3 className="text-2xl font-extrabold">
+              Keep it simple
+            </h3>
+
+            <p className="mt-3 text-lg text-gray-700 leading-relaxed">
+              ChairTime is designed to be easy for owners, staff,
+              and customers without complicated software to learn.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section className="bg-gray-950 text-white">
+        <div className="max-w-6xl mx-auto px-6 py-20">
+          <div className="grid md:grid-cols-2 gap-14">
+            <div>
+              <p className="font-bold text-gray-300 mb-3">
+                FOR YOUR BUSINESS
               </p>
-            )}
+
+              <h2 className="text-4xl font-extrabold tracking-tight">
+                Less scheduling work.
+                <br />
+                More time for customers.
+              </h2>
+
+              <div className="mt-8 space-y-5 text-xl">
+                <p>✓ See today&apos;s schedule at a glance.</p>
+                <p>✓ Keep customer history and notes organized.</p>
+                <p>✓ Move or cancel appointments quickly.</p>
+                <p>✓ Send confirmations and reminders automatically.</p>
+                <p>✓ Let customers book without interrupting your day.</p>
+              </div>
+            </div>
+
+            <div>
+              <p className="font-bold text-gray-300 mb-3">
+                FOR YOUR CUSTOMERS
+              </p>
+
+              <h2 className="text-4xl font-extrabold tracking-tight">
+                Booking should be easy for them, too.
+              </h2>
+
+              <div className="mt-8 space-y-5 text-xl">
+                <p>✓ Book when it&apos;s convenient.</p>
+                <p>✓ Book online or by phone.</p>
+                <p>✓ Choose from available appointment times.</p>
+                <p>✓ Receive automatic confirmation texts.</p>
+                <p>✓ Receive reminders before appointments.</p>
+              </div>
+            </div>
           </div>
+        </div>
+      </section>
 
-          <div>
-            <label className="block font-bold mb-2">
-              Notes
-            </label>
+      <section className="max-w-5xl mx-auto px-6 py-20 text-center">
+        <h2 className="text-4xl sm:text-5xl font-extrabold tracking-tight">
+          Set up your shop in minutes.
+        </h2>
 
-            <textarea
-              className="w-full border rounded-2xl p-5 min-h-28"
-              value={notes}
-              onChange={(event) =>
-                setNotes(event.target.value)
-              }
-              placeholder="Optional notes"
-            />
-          </div>
+        <p className="mt-5 text-xl text-gray-700 max-w-2xl mx-auto">
+          Add your staff, services, and hours. ChairTime gives your
+          business its own booking page and keeps everything organized
+          from there.
+        </p>
 
-          <button
-            type="button"
-            onClick={createAppointment}
-            disabled={booking}
-            className="w-full bg-black text-white rounded-2xl p-5 text-xl font-bold disabled:opacity-50"
-          >
-            {booking ? "Booking..." : "Book Appointment"}
-          </button>
-        </section>
-      </div>
+        <Link
+          href="/signup"
+          className="mt-9 inline-flex justify-center items-center bg-black text-white rounded-2xl px-10 py-5 text-xl font-bold"
+        >
+          Start My Free Month
+        </Link>
+
+        <p className="mt-4 text-gray-600">
+          Free for 30 days. No charge today.
+        </p>
+      </section>
+
+      <footer className="border-t border-gray-200">
+        <div className="max-w-6xl mx-auto px-6 py-8 flex flex-col sm:flex-row gap-3 justify-between text-gray-600">
+          <p>© 2026 ChairTime</p>
+
+          <Link href="/login" className="font-bold text-gray-900">
+            Shop Owner Sign In
+          </Link>
+        </div>
+      </footer>
     </main>
   );
 }
