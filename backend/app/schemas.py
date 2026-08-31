@@ -1,5 +1,5 @@
 from datetime import date, datetime, time
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -10,6 +10,14 @@ class ShopCreate(BaseModel):
     business_type: str = "service_business"
     phone: Optional[str] = None
     timezone: str = "America/New_York"
+
+
+class ShopPaymentPolicyUpdate(BaseModel):
+    payment_policy: Literal[
+        "none",
+        "accept_cards",
+        "card_required",
+    ]
 
 
 class SignupCreate(BaseModel):
