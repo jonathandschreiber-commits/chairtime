@@ -978,7 +978,7 @@ export default function OnboardingPage() {
           staffServiceForm[service.id]
             ?.selected
       );
-
+    
     if (
       selectedCatalogServices.length === 0
     ) {
@@ -1967,6 +1967,7 @@ function ServicesStep({
   continueFromServices,
   goBack,
   message,
+
 }) {
   return (
     <section
@@ -2776,7 +2777,7 @@ function ReviewStep({
           display: "grid",
 
           gridTemplateColumns:
-            "repeat(3, minmax(0, 1fr))",
+            "repeat(2, minmax(0, 1fr))",
 
           gap: "12px",
           marginBottom: "22px",
@@ -2800,11 +2801,6 @@ function ReviewStep({
               ? "Service"
               : "Services"
           }
-        />
-
-        <SummaryBox
-          value={assignedServices.length}
-          label="Staff-service setups"
         />
       </div>
 
