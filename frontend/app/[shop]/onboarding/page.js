@@ -63,6 +63,25 @@ export default function OnboardingPage() {
 
   const [message, setMessage] = useState("");
 
+  const [assignedServices, setAssignedServices] =
+    useState([]);
+
+  const [availabilityRules, setAvailabilityRules] =
+    useState([]);
+
+  const [currentStaffIndex, setCurrentStaffIndex] =
+    useState(0);
+
+  const [staffServiceForm, setStaffServiceForm] =
+    useState({});
+
+  const [staffHours, setStaffHours] = useState(
+    makeDefaultHours()
+  );
+
+  const [savingStaffSetup, setSavingStaffSetup] =
+    useState(false);
+
   const openDayCount = useMemo(() => {
     return hours.filter((day) => day.open).length;
   }, [hours]);
@@ -86,6 +105,8 @@ export default function OnboardingPage() {
         hoursResponse,
         staffResponse,
         servicesResponse,
+        assignedServicesResponse,
+        availabilityResponse,
       ] = await Promise.all([
         fetch(
           `${API_BASE}/api/shop-availability-rules${query}`,
@@ -101,6 +122,18 @@ export default function OnboardingPage() {
         ),
         fetch(
           `${API_BASE}/api/service-catalog${query}`,
+          {
+            cache: "no-store",
+          }
+        ),
+        fetch(
+          `${API_BASE}/api/services${query}`,
+          {
+            cache: "no-store",
+          }
+        ),
+        fetch(
+          `${API_BASE}/api/availability-rules${query}`,
           {
             cache: "no-store",
           }
@@ -125,6 +158,18 @@ export default function OnboardingPage() {
         );
       }
 
+      if (!assignedServicesResponse.ok) {
+        throw new Error(
+          "Could not load staff services."
+        );
+      }
+
+      if (!availabilityResponse.ok) {
+        throw new Error(
+          "Could not load staff schedules."
+        );
+      }
+
       const hoursData =
         await hoursResponse.json();
 
@@ -134,44 +179,56 @@ export default function OnboardingPage() {
       const servicesData =
         await servicesResponse.json();
 
+      const assignedServicesData =
+        await assignedServicesResponse.json();
+
+      const availabilityData =
+        await availabilityResponse.json();
+
       setExistingRules(hoursData);
       setStaff(staffData);
       setServices(servicesData);
+      setAssignedServices(
+        assignedServicesData
+      );
+      setAvailabilityRules(
+        availabilityData
+      );
 
-      if (hoursData.length > 0) {
-        setHours(
-          DAYS.map((day) => {
-            const rule = hoursData.find(
-              (item) =>
-                item.weekday === day.weekday
-            );
+      const normalizedHours =
+        hoursData.length > 0
+          ? DAYS.map((day) => {
+              const rule =
+                hoursData.find(
+                  (item) =>
+                    item.weekday ===
+                    day.weekday
+                );
 
-            if (!rule) {
+              if (!rule) {
+                return {
+                  ...day,
+                  open: false,
+                  start: "09:00",
+                  end: "17:00",
+                };
+              }
+
               return {
                 ...day,
-                open: false,
-                start: "09:00",
-                end: "17:00",
+                open: true,
+                start: String(
+                  rule.start_time
+                ).slice(0, 5),
+                end: String(
+                  rule.end_time
+                ).slice(0, 5),
               };
-            }
+            })
+          : makeDefaultHours();
 
-            return {
-              ...day,
-              open: true,
-              start: String(
-                rule.start_time
-              ).slice(0, 5),
-              end: String(
-                rule.end_time
-              ).slice(0, 5),
-            };
-          })
-        );
-      }
+      setHours(normalizedHours);
 
-      /*
-       * Resume onboarding automatically.
-       */
       if (hoursData.length === 0) {
         setCurrentStep(1);
       } else if (staffData.length === 0) {
@@ -179,7 +236,44 @@ export default function OnboardingPage() {
       } else if (servicesData.length === 0) {
         setCurrentStep(3);
       } else {
-        setCurrentStep(4);
+        const firstIncompleteIndex =
+          staffData.findIndex(
+            (person) => {
+              const hasService =
+                assignedServicesData.some(
+                  (service) =>
+                    service.barber_id ===
+                    person.id
+                );
+
+              const hasHours =
+                availabilityData.some(
+                  (rule) =>
+                    rule.barber_id ===
+                    person.id
+                );
+
+              return !hasService || !hasHours;
+            }
+          );
+
+        if (firstIncompleteIndex === -1) {
+          setCurrentStep(5);
+        } else {
+          setCurrentStep(4);
+
+          setCurrentStaffIndex(
+            firstIncompleteIndex
+          );
+
+          prepareStaffEditor(
+            staffData[firstIncompleteIndex],
+            servicesData,
+            assignedServicesData,
+            availabilityData,
+            normalizedHours
+          );
+        }
       }
     } catch (error) {
       console.error(error);
@@ -191,6 +285,98 @@ export default function OnboardingPage() {
       );
     } finally {
       setLoading(false);
+    }
+  }
+
+  function prepareStaffEditor(
+    person,
+    catalogServices = services,
+    currentAssignments = assignedServices,
+    currentAvailability = availabilityRules,
+    shopHours = hours
+  ) {
+    if (!person) return;
+
+    const nextServiceForm = {};
+
+    for (const catalogService of catalogServices) {
+      const existing =
+        currentAssignments.find(
+          (service) =>
+            service.barber_id ===
+              person.id &&
+            String(service.name)
+              .trim()
+              .toLowerCase() ===
+              String(catalogService.name)
+                .trim()
+                .toLowerCase()
+        );
+
+      nextServiceForm[
+        catalogService.id
+      ] = {
+        selected: Boolean(existing),
+
+        duration: String(
+          existing?.duration_minutes ?? 30
+        ),
+
+        price:
+          existing?.price === undefined ||
+          existing?.price === null
+            ? ""
+            : String(existing.price),
+      };
+    }
+
+    setStaffServiceForm(
+      nextServiceForm
+    );
+
+    const personRules =
+      currentAvailability.filter(
+        (rule) =>
+          rule.barber_id === person.id
+      );
+
+    if (personRules.length > 0) {
+      setStaffHours(
+        DAYS.map((day) => {
+          const rule = personRules.find(
+            (item) =>
+              item.weekday === day.weekday
+          );
+
+          if (!rule) {
+            return {
+              ...day,
+              open: false,
+              start: "09:00",
+              end: "17:00",
+            };
+          }
+
+          return {
+            ...day,
+            open: true,
+
+            start: String(
+              rule.start_time
+            ).slice(0, 5),
+
+            end: String(
+              rule.end_time
+            ).slice(0, 5),
+          };
+        })
+      );
+    } else {
+      setStaffHours(
+        shopHours.map((day) => ({
+          ...day,
+        }))
+      );
     }
   }
 
@@ -268,10 +454,12 @@ export default function OnboardingPage() {
           `${API_BASE}/api/shop-availability-rules`,
           {
             method: "POST",
+
             headers: {
               "Content-Type":
                 "application/json",
             },
+
             body: JSON.stringify({
               shop_slug: shopSlug,
               weekday: day.weekday,
@@ -352,19 +540,25 @@ export default function OnboardingPage() {
         `${API_BASE}/api/barbers`,
         {
           method: "POST",
+
           headers: {
             "Content-Type":
               "application/json",
           },
+
           body: JSON.stringify({
             name: cleanName,
+
             shop_name:
               existingStaff?.shop_name ||
               shopSlug,
+
             phone: "",
+
             timezone:
               existingStaff?.timezone ||
               "America/New_York",
+
             shop_slug: shopSlug,
           }),
         }
@@ -509,10 +703,12 @@ export default function OnboardingPage() {
         `${API_BASE}/api/service-catalog`,
         {
           method: "POST",
+
           headers: {
             "Content-Type":
               "application/json",
           },
+
           body: JSON.stringify({
             shop_slug: shopSlug,
             name: cleanName,
@@ -650,6 +846,16 @@ export default function OnboardingPage() {
     }
 
     setMessage("");
+    setCurrentStaffIndex(0);
+
+    prepareStaffEditor(
+      staff[0],
+      services,
+      assignedServices,
+      availabilityRules,
+      hours
+    );
+
     setCurrentStep(4);
   }
 
@@ -658,9 +864,467 @@ export default function OnboardingPage() {
     setCurrentStep(step);
   }
 
-  function openExistingScheduleSetup() {
+  function updateStaffService(
+    catalogServiceId,
+    field,
+    value
+  ) {
+    setStaffServiceForm(
+      (current) => ({
+        ...current,
+
+        [catalogServiceId]: {
+          ...current[
+            catalogServiceId
+          ],
+
+          [field]: value,
+        },
+      })
+    );
+
+    setMessage("");
+  }
+
+  function updateStaffHours(
+    weekday,
+    field,
+    value
+  ) {
+    setStaffHours((current) =>
+      current.map((day) =>
+        day.weekday === weekday
+          ? {
+              ...day,
+              [field]: value,
+            }
+          : day
+      )
+    );
+
+    setMessage("");
+  }
+
+  async function refreshStaffSetupData() {
+    const query =
+      "?shop_slug=" +
+      encodeURIComponent(shopSlug);
+
+    const [
+      servicesResponse,
+      availabilityResponse,
+    ] = await Promise.all([
+      fetch(
+        `${API_BASE}/api/services${query}`,
+        {
+          cache: "no-store",
+        }
+      ),
+
+      fetch(
+        `${API_BASE}/api/availability-rules${query}`,
+        {
+          cache: "no-store",
+        }
+      ),
+    ]);
+
+    if (
+      !servicesResponse.ok ||
+      !availabilityResponse.ok
+    ) {
+      throw new Error(
+        "Could not reload staff setup."
+      );
+    }
+
+    const nextAssignedServices =
+      await servicesResponse.json();
+
+    const nextAvailabilityRules =
+      await availabilityResponse.json();
+
+    setAssignedServices(
+      nextAssignedServices
+    );
+
+    setAvailabilityRules(
+      nextAvailabilityRules
+    );
+
+    return {
+      nextAssignedServices,
+      nextAvailabilityRules,
+    };
+  }
+
+  async function saveCurrentStaffSetup() {
+    if (savingStaffSetup) return;
+
+    const person =
+      staff[currentStaffIndex];
+
+    if (!person) {
+      setMessage(
+        "Could not identify the staff member."
+      );
+
+      return;
+    }
+
+    const selectedCatalogServices =
+      services.filter(
+        (service) =>
+          staffServiceForm[service.id]
+            ?.selected
+      );
+
+    if (
+      selectedCatalogServices.length === 0
+    ) {
+      setMessage(
+        `Choose at least one service for ${person.name}.`
+      );
+
+      return;
+    }
+
+    for (
+      const catalogService
+      of selectedCatalogServices
+    ) {
+      const form =
+        staffServiceForm[
+          catalogService.id
+        ];
+
+      const duration =
+        Number(form?.duration);
+
+      const price =
+        Number(form?.price);
+
+      if (
+        !duration ||
+        duration <= 0
+      ) {
+        setMessage(
+          `Enter a valid duration for ${catalogService.name}.`
+        );
+
+        return;
+      }
+
+      if (
+        form?.price === "" ||
+        Number.isNaN(price) ||
+        price < 0
+      ) {
+        setMessage(
+          `Enter a valid price for ${catalogService.name}.`
+        );
+
+        return;
+      }
+    }
+
+    const invalidDay =
+      staffHours.find(
+        (day) =>
+          day.open &&
+          (!day.start ||
+            !day.end ||
+            day.start >= day.end)
+      );
+
+    if (invalidDay) {
+      setMessage(
+        `${person.name} — ${invalidDay.name}: closing time must be later than opening time.`
+      );
+
+      return;
+    }
+
+    if (
+      !staffHours.some(
+        (day) => day.open
+      )
+    ) {
+      setMessage(
+        `Choose at least one working day for ${person.name}.`
+      );
+
+      return;
+    }
+
+    setSavingStaffSetup(true);
+    setMessage("");
+
+    try {
+      for (const catalogService of services) {
+        const form =
+          staffServiceForm[
+            catalogService.id
+          ] || {
+            selected: false,
+            duration: "30",
+            price: "",
+          };
+
+        const existing =
+          assignedServices.find(
+            (service) =>
+              service.barber_id ===
+                person.id &&
+              String(service.name)
+                .trim()
+                .toLowerCase() ===
+                String(
+                  catalogService.name
+                )
+                  .trim()
+                  .toLowerCase()
+          );
+
+        if (form.selected) {
+          const payload = {
+            name: catalogService.name,
+
+            duration_minutes: Number(
+              form.duration
+            ),
+
+            price: Number(
+              form.price
+            ),
+          };
+
+          if (existing) {
+            const response =
+              await fetch(
+                `${API_BASE}/api/services/${encodeURIComponent(
+                  existing.id
+                )}`,
+                {
+                  method: "PATCH",
+
+                  headers: {
+                    "Content-Type":
+                      "application/json",
+                  },
+
+                  body: JSON.stringify(
+                    payload
+                  ),
+                }
+              );
+
+            if (!response.ok) {
+              throw new Error(
+                `Could not update ${catalogService.name} for ${person.name}.`
+              );
+            }
+          } else {
+            const response =
+              await fetch(
+                `${API_BASE}/api/services`,
+                {
+                  method: "POST",
+
+                  headers: {
+                    "Content-Type":
+                      "application/json",
+                  },
+
+                  body: JSON.stringify({
+                    shop_slug: shopSlug,
+                    barber_id: person.id,
+                    ...payload,
+                  }),
+                }
+              );
+
+            if (!response.ok) {
+              const error =
+                await response
+                  .json()
+                  .catch(() => ({}));
+
+              throw new Error(
+                typeof error.detail ===
+                  "string"
+                  ? error.detail
+                  : `Could not assign ${catalogService.name} to ${person.name}.`
+              );
+            }
+          }
+        } else if (existing) {
+          const response =
+            await fetch(
+              `${API_BASE}/api/services/${encodeURIComponent(
+                existing.id
+              )}`,
+              {
+                method: "DELETE",
+              }
+            );
+
+          if (!response.ok) {
+            throw new Error(
+              `Could not remove ${catalogService.name} from ${person.name}.`
+            );
+          }
+        }
+      }
+
+      const existingPersonRules =
+        availabilityRules.filter(
+          (rule) =>
+            rule.barber_id ===
+            person.id
+        );
+
+      for (
+        const rule
+        of existingPersonRules
+      ) {
+        const response =
+          await fetch(
+            `${API_BASE}/api/availability-rules/${encodeURIComponent(
+              rule.id
+            )}`,
+            {
+              method: "DELETE",
+            }
+          );
+
+        if (!response.ok) {
+          throw new Error(
+            `Could not update ${person.name}'s schedule.`
+          );
+        }
+      }
+
+      for (const day of staffHours) {
+        if (!day.open) continue;
+
+        const response =
+          await fetch(
+            `${API_BASE}/api/availability-rules`,
+            {
+              method: "POST",
+
+              headers: {
+                "Content-Type":
+                  "application/json",
+              },
+
+              body: JSON.stringify({
+                shop_slug: shopSlug,
+                barber_id: person.id,
+                weekday: day.weekday,
+
+                start_time:
+                  `${day.start}:00`,
+
+                end_time:
+                  `${day.end}:00`,
+              }),
+            }
+          );
+
+        if (!response.ok) {
+          const error =
+            await response
+              .json()
+              .catch(() => ({}));
+
+          throw new Error(
+            typeof error.detail ===
+              "string"
+              ? error.detail
+              : `Could not save ${person.name}'s ${day.name} hours.`
+          );
+        }
+      }
+
+      const {
+        nextAssignedServices,
+        nextAvailabilityRules,
+      } =
+        await refreshStaffSetupData();
+
+      const nextIndex =
+        currentStaffIndex + 1;
+
+      if (nextIndex < staff.length) {
+        setCurrentStaffIndex(
+          nextIndex
+        );
+
+        prepareStaffEditor(
+          staff[nextIndex],
+          services,
+          nextAssignedServices,
+          nextAvailabilityRules,
+          hours
+        );
+
+        setMessage(
+          `${person.name} is ready. Now set up ${staff[nextIndex].name}.`
+        );
+      } else {
+        setMessage("");
+        setCurrentStep(5);
+      }
+    } catch (error) {
+      console.error(error);
+
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Could not save this staff setup."
+      );
+    } finally {
+      setSavingStaffSetup(false);
+    }
+  }
+
+  function goBackFromStaffSetup() {
+    if (currentStaffIndex === 0) {
+      goToStep(3);
+      return;
+    }
+
+    const previousIndex =
+      currentStaffIndex - 1;
+
+    setCurrentStaffIndex(
+      previousIndex
+    );
+
+    prepareStaffEditor(
+      staff[previousIndex],
+      services,
+      assignedServices,
+      availabilityRules,
+      hours
+    );
+
+    setMessage("");
+  }
+
+  function openBookingPage() {
+    window.open(
+      `/${shopSlug}`,
+      "_blank",
+      "noopener,noreferrer"
+    );
+  }
+
+  function finishOnboarding() {
     router.push(
-      `/${shopSlug}/admin/setup`
+      `/${shopSlug}/admin`
     );
   }
 
@@ -761,13 +1425,70 @@ export default function OnboardingPage() {
         )}
 
         {currentStep === 4 && (
-          <ScheduleBridge
-            goBack={() =>
-              goToStep(3)
+          <ScheduleStep
+            staff={staff}
+            services={services}
+            currentStaffIndex={
+              currentStaffIndex
             }
-            openExistingScheduleSetup={
-              openExistingScheduleSetup
+            staffServiceForm={
+              staffServiceForm
             }
+            updateStaffService={
+              updateStaffService
+            }
+            staffHours={staffHours}
+            updateStaffHours={
+              updateStaffHours
+            }
+            savingStaffSetup={
+              savingStaffSetup
+            }
+            saveCurrentStaffSetup={
+              saveCurrentStaffSetup
+            }
+            goBack={
+              goBackFromStaffSetup
+            }
+            message={message}
+          />
+        )}
+
+        {currentStep === 5 && (
+          <ReviewStep
+            shopSlug={shopSlug}
+            staff={staff}
+            services={services}
+            assignedServices={
+              assignedServices
+            }
+            openBookingPage={
+              openBookingPage
+            }
+            finishOnboarding={
+              finishOnboarding
+            }
+            goBack={() => {
+              const lastIndex =
+                Math.max(
+                  staff.length - 1,
+                  0
+                );
+
+              setCurrentStaffIndex(
+                lastIndex
+              );
+
+              prepareStaffEditor(
+                staff[lastIndex],
+                services,
+                assignedServices,
+                availabilityRules,
+                hours
+              );
+
+              goToStep(4);
+            }}
           />
         )}
 
@@ -813,9 +1534,11 @@ function Progress({
             <div
               className={[
                 styles.progressStep,
+
                 isActive
                   ? styles.progressActive
                   : "",
+
                 isDone
                   ? styles.progressDone
                   : "",
@@ -837,6 +1560,7 @@ function Progress({
               <div
                 className={[
                   styles.progressLine,
+
                   isDone
                     ? styles.progressLineDone
                     : "",
@@ -1080,11 +1804,13 @@ function StaffStep({
             id="staffName"
             type="text"
             value={newStaffName}
+
             onChange={(event) =>
               setNewStaffName(
                 event.target.value
               )
             }
+
             placeholder="Example: Maria"
             className={styles.textInput}
             disabled={addingStaff}
@@ -1292,11 +2018,13 @@ function ServicesStep({
             id="serviceName"
             type="text"
             value={newServiceName}
+
             onChange={(event) =>
               setNewServiceName(
                 event.target.value
               )
             }
+
             placeholder="Example: Haircut"
             className={styles.textInput}
             disabled={addingService}
@@ -1443,10 +2171,33 @@ function ServicesStep({
   );
 }
 
-function ScheduleBridge({
+function ScheduleStep({
+  staff,
+  services,
+  currentStaffIndex,
+  staffServiceForm,
+  updateStaffService,
+  staffHours,
+  updateStaffHours,
+  savingStaffSetup,
+  saveCurrentStaffSetup,
   goBack,
-  openExistingScheduleSetup,
+  message,
 }) {
+  const person =
+    staff[currentStaffIndex];
+
+  if (!person) {
+    return null;
+  }
+
+  const selectedCount =
+    services.filter(
+      (service) =>
+        staffServiceForm[service.id]
+          ?.selected
+    ).length;
+
   return (
     <section
       className={`${styles.mainCard} ${styles.scheduleCard}`}
@@ -1466,41 +2217,656 @@ function ScheduleBridge({
           </p>
 
           <h2 className={styles.cardTitle}>
-            Set up each person&apos;s schedule
+            Set up {person.name}
           </h2>
 
           <p className={styles.cardText}>
-            Next we&apos;ll connect services,
-            prices, durations, and working
-            hours to each staff member.
+            Choose what {person.name} does,
+            what each service costs, and when
+            customers can book them.
           </p>
         </div>
       </div>
 
       <div
-        className={
-          styles.nextStepPanel
-        }
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: "16px",
+          marginBottom: "20px",
+          padding: "14px 16px",
+
+          background:
+            "linear-gradient(135deg, #eef2ff, #eff6ff)",
+
+          border:
+            "1px solid #c7d2fe",
+
+          borderRadius: "14px",
+        }}
+      >
+        <div>
+          <strong
+            style={{
+              color: "#312e81",
+              fontSize: "15px",
+            }}
+          >
+            Staff member{" "}
+            {currentStaffIndex + 1} of{" "}
+            {staff.length}
+          </strong>
+
+          <p
+            style={{
+              margin: "4px 0 0",
+              color: "#64748b",
+              fontSize: "12px",
+            }}
+          >
+            We&apos;ll do one person at a
+            time to keep setup simple.
+          </p>
+        </div>
+
+        <div
+          style={{
+            minWidth: "42px",
+            height: "42px",
+
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+
+            color: "#ffffff",
+            fontWeight: "900",
+
+            background:
+              "linear-gradient(135deg, #4f46e5, #2563eb)",
+
+            borderRadius: "50%",
+          }}
+        >
+          {String(person.name)
+            .trim()
+            .slice(0, 1)
+            .toUpperCase()}
+        </div>
+      </div>
+
+      <Message message={message} />
+
+      <div
+        style={{
+          marginBottom: "26px",
+        }}
       >
         <div
+          style={{
+            marginBottom: "12px",
+          }}
+        >
+          <strong
+            style={{
+              color: "#1e293b",
+              fontSize: "18px",
+            }}
+          >
+            Services
+          </strong>
+
+          <p
+            style={{
+              margin: "5px 0 0",
+              color: "#64748b",
+              fontSize: "13px",
+            }}
+          >
+            Select every service{" "}
+            {person.name} performs, then enter
+            the normal duration and price.
+          </p>
+        </div>
+
+        <div
+          style={{
+            display: "grid",
+            gap: "11px",
+          }}
+        >
+          {services.map((service) => {
+            const form =
+              staffServiceForm[
+                service.id
+              ] || {
+                selected: false,
+                duration: "30",
+                price: "",
+              };
+
+            return (
+              <div
+                key={service.id}
+
+                style={{
+                  padding: "16px",
+
+                  background: form.selected
+                    ? "#f5f3ff"
+                    : "#f8fafc",
+
+                  border: form.selected
+                    ? "1px solid #c4b5fd"
+                    : "1px solid #e2e8f0",
+
+                  borderRadius: "14px",
+                }}
+              >
+                <label
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "10px",
+                    cursor: "pointer",
+                  }}
+                >
+                  <input
+                    type="checkbox"
+
+                    checked={
+                      form.selected
+                    }
+
+                    onChange={(event) =>
+                      updateStaffService(
+                        service.id,
+                        "selected",
+                        event.target.checked
+                      )
+                    }
+
+                    style={{
+                      width: "18px",
+                      height: "18px",
+                    }}
+                  />
+
+                  <strong
+                    style={{
+                      color: "#1e293b",
+                      fontSize: "15px",
+                    }}
+                  >
+                    {service.name}
+                  </strong>
+                </label>
+
+                {form.selected && (
+                  <div
+                    style={{
+                      display: "grid",
+
+                      gridTemplateColumns:
+                        "1fr 1fr",
+
+                      gap: "12px",
+                      marginTop: "14px",
+                    }}
+                  >
+                    <label>
+                      <span
+                        style={{
+                          display: "block",
+
+                          marginBottom:
+                            "6px",
+
+                          color: "#475569",
+
+                          fontSize: "12px",
+                          fontWeight: "800",
+                        }}
+                      >
+                        Duration (minutes)
+                      </span>
+
+                      <input
+                        type="number"
+                        min="1"
+                        step="1"
+
+                        value={
+                          form.duration
+                        }
+
+                        onChange={(event) =>
+                          updateStaffService(
+                            service.id,
+                            "duration",
+                            event.target.value
+                          )
+                        }
+
+                        style={{
+                          width: "100%",
+                          minHeight: "44px",
+
+                          padding:
+                            "10px 12px",
+
+                          border:
+                            "1px solid #cbd5e1",
+
+                          borderRadius:
+                            "10px",
+
+                          fontSize: "15px",
+                        }}
+                      />
+                    </label>
+
+                    <label>
+                      <span
+                        style={{
+                          display: "block",
+
+                          marginBottom:
+                            "6px",
+
+                          color: "#475569",
+
+                          fontSize: "12px",
+                          fontWeight: "800",
+                        }}
+                      >
+                        Price ($)
+                      </span>
+
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+
+                        value={
+                          form.price
+                        }
+
+                        onChange={(event) =>
+                          updateStaffService(
+                            service.id,
+                            "price",
+                            event.target.value
+                          )
+                        }
+
+                        placeholder="35"
+
+                        style={{
+                          width: "100%",
+                          minHeight: "44px",
+
+                          padding:
+                            "10px 12px",
+
+                          border:
+                            "1px solid #cbd5e1",
+
+                          borderRadius:
+                            "10px",
+
+                          fontSize: "15px",
+                        }}
+                      />
+                    </label>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        <p
+          style={{
+            margin: "10px 0 0",
+            color: "#64748b",
+            fontSize: "12px",
+          }}
+        >
+          {selectedCount}{" "}
+          {selectedCount === 1
+            ? "service"
+            : "services"}{" "}
+          selected for {person.name}.
+        </p>
+      </div>
+
+      <div>
+        <div
+          style={{
+            marginBottom: "12px",
+          }}
+        >
+          <strong
+            style={{
+              color: "#1e293b",
+              fontSize: "18px",
+            }}
+          >
+            Working hours
+          </strong>
+
+          <p
+            style={{
+              margin: "5px 0 0",
+              color: "#64748b",
+              fontSize: "13px",
+            }}
+          >
+            We started with your normal shop
+            hours. Change only what is
+            different for {person.name}.
+          </p>
+        </div>
+
+        <div className={styles.days}>
+          {staffHours.map((day) => (
+            <div
+              key={day.weekday}
+
+              className={`${styles.dayCard} ${
+                day.open
+                  ? styles.dayOpen
+                  : styles.dayClosed
+              }`}
+            >
+              <div
+                className={styles.dayTop}
+              >
+                <div>
+                  <strong
+                    className={
+                      styles.dayName
+                    }
+                  >
+                    {day.name}
+                  </strong>
+
+                  <p
+                    className={
+                      day.open
+                        ? styles.openText
+                        : styles.closedText
+                    }
+                  >
+                    {day.open
+                      ? "Working"
+                      : "Off"}
+                  </p>
+                </div>
+
+                <label
+                  className={styles.switch}
+                >
+                  <input
+                    type="checkbox"
+
+                    checked={day.open}
+
+                    onChange={(event) =>
+                      updateStaffHours(
+                        day.weekday,
+                        "open",
+                        event.target.checked
+                      )
+                    }
+                  />
+
+                  <span
+                    className={
+                      styles.slider
+                    }
+                  />
+                </label>
+              </div>
+
+              {day.open ? (
+                <div
+                  className={
+                    styles.timeGrid
+                  }
+                >
+                  <label>
+                    <span>Starts</span>
+
+                    <input
+                      type="time"
+
+                      value={day.start}
+
+                      onChange={(event) =>
+                        updateStaffHours(
+                          day.weekday,
+                          "start",
+                          event.target.value
+                        )
+                      }
+                    />
+                  </label>
+
+                  <label>
+                    <span>Ends</span>
+
+                    <input
+                      type="time"
+
+                      value={day.end}
+
+                      onChange={(event) =>
+                        updateStaffHours(
+                          day.weekday,
+                          "end",
+                          event.target.value
+                        )
+                      }
+                    />
+                  </label>
+                </div>
+              ) : (
+                <div
+                  className={
+                    styles.closedMessage
+                  }
+                >
+                  {person.name} will not be
+                  bookable on {day.name}.
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className={styles.footer}>
+        <button
+          type="button"
+          onClick={goBack}
+          disabled={savingStaffSetup}
+          className={styles.backButton}
+        >
+          ← Back
+        </button>
+
+        <button
+          type="button"
+
+          onClick={
+            saveCurrentStaffSetup
+          }
+
+          disabled={savingStaffSetup}
+
           className={
-            styles.nextStepIcon
+            styles.continueButton
           }
         >
-          ✓
+          {savingStaffSetup
+            ? "Saving..."
+            : currentStaffIndex <
+                staff.length - 1
+              ? `Save ${person.name} & Continue →`
+              : "Save & Review →"}
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function ReviewStep({
+  shopSlug,
+  staff,
+  services,
+  assignedServices,
+  openBookingPage,
+  finishOnboarding,
+  goBack,
+}) {
+  return (
+    <section
+      className={`${styles.mainCard} ${styles.scheduleCard}`}
+    >
+      <div className={styles.cardHeading}>
+        <div
+          className={styles.icon}
+
+          style={{
+            background:
+              "linear-gradient(135deg, #d1fae5, #dcfce7)",
+          }}
+        >
+          🎉
         </div>
 
         <div>
-          <strong>
-            Hours, staff, and services are
-            ready.
-          </strong>
+          <p
+            className={styles.stepLabel}
 
-          <p>
-            We&apos;re ready to configure the
-            individual schedules.
+            style={{
+              color: "#047857",
+            }}
+          >
+            STEP 5
+          </p>
+
+          <h2 className={styles.cardTitle}>
+            You&apos;re ready to take
+            appointments
+          </h2>
+
+          <p className={styles.cardText}>
+            Review the basics below, then
+            open your booking page and make
+            sure everything looks right.
           </p>
         </div>
+      </div>
+
+      <div
+        style={{
+          display: "grid",
+
+          gridTemplateColumns:
+            "repeat(3, minmax(0, 1fr))",
+
+          gap: "12px",
+          marginBottom: "22px",
+        }}
+      >
+        <SummaryBox
+          value={staff.length}
+
+          label={
+            staff.length === 1
+              ? "Staff member"
+              : "Staff members"
+          }
+        />
+
+        <SummaryBox
+          value={services.length}
+
+          label={
+            services.length === 1
+              ? "Service"
+              : "Services"
+          }
+        />
+
+        <SummaryBox
+          value={assignedServices.length}
+          label="Staff-service setups"
+        />
+      </div>
+
+      <div
+        style={{
+          padding: "20px",
+
+          background:
+            "linear-gradient(135deg, #ecfdf5, #f0fdf4)",
+
+          border:
+            "1px solid #a7f3d0",
+
+          borderRadius: "16px",
+        }}
+      >
+        <strong
+          style={{
+            display: "block",
+            color: "#065f46",
+            fontSize: "16px",
+          }}
+        >
+          Your public booking page
+        </strong>
+
+        <p
+          style={{
+            margin: "7px 0 0",
+            color: "#047857",
+            fontSize: "14px",
+            wordBreak: "break-word",
+          }}
+        >
+          www.chairtimehq.com/{shopSlug}
+        </p>
+
+        <button
+          type="button"
+          onClick={openBookingPage}
+
+          style={{
+            marginTop: "14px",
+            minHeight: "46px",
+
+            padding: "11px 18px",
+
+            color: "#ffffff",
+
+            fontSize: "14px",
+            fontWeight: "900",
+
+            background: "#059669",
+
+            border: "none",
+            borderRadius: "10px",
+
+            cursor: "pointer",
+          }}
+        >
+          Open My Booking Page ↗
+        </button>
       </div>
 
       <div className={styles.footer}>
@@ -1514,17 +2880,64 @@ function ScheduleBridge({
 
         <button
           type="button"
-          onClick={
-            openExistingScheduleSetup
-          }
+
+          onClick={finishOnboarding}
+
           className={
             styles.continueButton
           }
         >
-          Continue to Schedule Setup →
+          Finish Setup & Go to Admin →
         </button>
       </div>
     </section>
+  );
+}
+
+function SummaryBox({
+  value,
+  label,
+}) {
+  return (
+    <div
+      style={{
+        padding: "18px",
+        textAlign: "center",
+
+        background: "#f8fafc",
+
+        border:
+          "1px solid #e2e8f0",
+
+        borderRadius: "14px",
+      }}
+    >
+      <strong
+        style={{
+          display: "block",
+
+          color: "#1e293b",
+
+          fontSize: "26px",
+        }}
+      >
+        {value}
+      </strong>
+
+      <span
+        style={{
+          display: "block",
+
+          marginTop: "3px",
+
+          color: "#64748b",
+
+          fontSize: "12px",
+        }}
+      >
+        {label}
+      </span>
+    </div>
   );
 }
 
