@@ -91,6 +91,16 @@
   box-shadow: 0 12px 32px rgba(30, 64, 175, 0.07);
 }
 
+.progressGroup {
+  display: flex;
+  align-items: center;
+  flex: 1;
+}
+
+.progressGroup:last-child {
+  flex: 0 0 auto;
+}
+
 .progressStep {
   display: flex;
   align-items: center;
@@ -126,12 +136,25 @@
   box-shadow: 0 5px 14px rgba(79, 70, 229, 0.3);
 }
 
+.progressDone {
+  color: #047857;
+}
+
+.progressDone span {
+  color: #ffffff;
+  background: #10b981;
+}
+
 .progressLine {
   height: 2px;
   flex: 1;
   min-width: 16px;
   margin: 0 10px;
   background: #e2e8f0;
+}
+
+.progressLineDone {
+  background: #6ee7b7;
 }
 
 .mainCard {
@@ -142,6 +165,18 @@
   box-shadow:
     0 25px 60px rgba(30, 64, 175, 0.1),
     0 4px 14px rgba(15, 23, 42, 0.05);
+}
+
+.staffCard {
+  border-color: #ddd6fe;
+}
+
+.servicesCard {
+  border-color: #99f6e4;
+}
+
+.scheduleCard {
+  border-color: #c7d2fe;
 }
 
 .cardHeading {
@@ -167,12 +202,48 @@
   border-radius: 17px;
 }
 
+.staffIcon {
+  background: linear-gradient(
+    135deg,
+    #ede9fe,
+    #fae8ff
+  );
+}
+
+.serviceIcon {
+  background: linear-gradient(
+    135deg,
+    #ccfbf1,
+    #ecfeff
+  );
+}
+
+.scheduleIcon {
+  background: linear-gradient(
+    135deg,
+    #e0e7ff,
+    #dbeafe
+  );
+}
+
 .stepLabel {
   margin: 0 0 5px;
   color: #2563eb;
   font-size: 12px;
   font-weight: 900;
   letter-spacing: 0.13em;
+}
+
+.staffStepLabel {
+  color: #7c3aed;
+}
+
+.serviceStepLabel {
+  color: #0f766e;
+}
+
+.scheduleStepLabel {
+  color: #4338ca;
 }
 
 .cardTitle {
@@ -344,6 +415,263 @@
   transform: translateX(20px);
 }
 
+.addPersonCard,
+.addServiceCard {
+  margin-bottom: 22px;
+  padding: 20px;
+  border-radius: 18px;
+}
+
+.addPersonCard {
+  background: linear-gradient(
+    135deg,
+    #f5f3ff,
+    #faf5ff
+  );
+  border: 1px solid #ddd6fe;
+}
+
+.addServiceCard {
+  background: linear-gradient(
+    135deg,
+    #f0fdfa,
+    #ecfeff
+  );
+  border: 1px solid #99f6e4;
+}
+
+.formLabel {
+  display: block;
+  margin-bottom: 9px;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.addRow {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+}
+
+.textInput {
+  width: 100%;
+  min-height: 50px;
+  padding: 12px 14px;
+  color: #0f172a;
+  font-size: 16px;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 11px;
+  outline: none;
+}
+
+.textInput:focus {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.1);
+}
+
+.staffAddButton,
+.serviceAddButton {
+  min-height: 50px;
+  padding: 12px 20px;
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 900;
+  border: none;
+  border-radius: 11px;
+  cursor: pointer;
+}
+
+.staffAddButton {
+  background: linear-gradient(
+    135deg,
+    #7c3aed,
+    #9333ea
+  );
+}
+
+.serviceAddButton {
+  background: linear-gradient(
+    135deg,
+    #0f766e,
+    #0891b2
+  );
+}
+
+.staffAddButton:disabled,
+.serviceAddButton:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.peopleList,
+.serviceList {
+  display: grid;
+  gap: 11px;
+}
+
+.personRow,
+.serviceRow {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 15px 16px;
+  background: #ffffff;
+  border-radius: 14px;
+}
+
+.personRow {
+  border: 1px solid #ddd6fe;
+}
+
+.serviceRow {
+  border: 1px solid #99f6e4;
+}
+
+.personAvatar {
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  font-weight: 900;
+  background: linear-gradient(
+    135deg,
+    #7c3aed,
+    #a855f7
+  );
+  border-radius: 50%;
+}
+
+.serviceMark {
+  width: 38px;
+  height: 38px;
+  flex: 0 0 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  font-weight: 900;
+  background: linear-gradient(
+    135deg,
+    #0f766e,
+    #14b8a6
+  );
+  border-radius: 50%;
+}
+
+.personInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.personInfo strong {
+  display: block;
+  color: #1e293b;
+  font-size: 16px;
+}
+
+.personInfo span {
+  display: block;
+  margin-top: 3px;
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.readyBadge {
+  padding: 7px 10px;
+  color: #047857;
+  font-size: 12px;
+  font-weight: 900;
+  background: #ecfdf5;
+  border-radius: 999px;
+}
+
+.removeButton {
+  padding: 8px 11px;
+  color: #b91c1c;
+  font-size: 12px;
+  font-weight: 800;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 9px;
+  cursor: pointer;
+}
+
+.emptyState {
+  padding: 32px 20px;
+  color: #64748b;
+  text-align: center;
+  background: #f8fafc;
+  border: 1px dashed #cbd5e1;
+  border-radius: 16px;
+}
+
+.emptyState strong {
+  display: block;
+  margin-top: 8px;
+  color: #334155;
+  font-size: 16px;
+}
+
+.emptyState p {
+  margin: 6px 0 0;
+  font-size: 13px;
+}
+
+.emptyIcon {
+  font-size: 30px;
+}
+
+.serviceExamples {
+  margin-top: 10px;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.nextStepPanel {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  padding: 22px;
+  background: linear-gradient(
+    135deg,
+    #eef2ff,
+    #eff6ff
+  );
+  border: 1px solid #c7d2fe;
+  border-radius: 18px;
+}
+
+.nextStepPanel strong {
+  color: #312e81;
+  font-size: 16px;
+}
+
+.nextStepPanel p {
+  margin: 4px 0 0;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.nextStepIcon {
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  font-size: 20px;
+  font-weight: 900;
+  background: #10b981;
+  border-radius: 50%;
+}
+
 .footer {
   display: flex;
   align-items: center;
@@ -352,6 +680,13 @@
   margin-top: 26px;
   padding-top: 24px;
   border-top: 1px solid #e2e8f0;
+}
+
+.footerRight {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 22px;
 }
 
 .footer strong {
@@ -391,6 +726,18 @@
   cursor: not-allowed;
 }
 
+.backButton {
+  min-height: 48px;
+  padding: 12px 18px;
+  color: #475569;
+  font-size: 14px;
+  font-weight: 800;
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  border-radius: 11px;
+  cursor: pointer;
+}
+
 .helpText {
   margin: 18px 0 0;
   color: #64748b;
@@ -415,8 +762,12 @@
     overflow-x: auto;
   }
 
+  .progressGroup {
+    flex: 0 0 auto;
+  }
+
   .progressLine {
-    min-width: 18px;
+    min-width: 22px;
   }
 
   .mainCard {
@@ -428,12 +779,32 @@
     grid-template-columns: 1fr;
   }
 
+  .addRow {
+    grid-template-columns: 1fr;
+  }
+
+  .personRow,
+  .serviceRow {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .readyBadge {
+    margin-left: 55px;
+  }
+
   .footer {
     align-items: stretch;
     flex-direction: column;
   }
 
-  .continueButton {
+  .footerRight {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .continueButton,
+  .backButton {
     width: 100%;
   }
 }
