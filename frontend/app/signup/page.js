@@ -176,6 +176,17 @@ export default function SignupPage() {
                       Business Name
                     </label>
 
+                    <p
+                      style={{
+                        margin: "-2px 0 7px",
+                        color: "#64748b",
+                        fontSize: "13px",
+                        lineHeight: "1.4",
+                      }}
+                    >
+                      Enter it exactly as you want customers to see it.
+                    </p>
+
                     <input
                       id="businessName"
                       className={styles.input}
