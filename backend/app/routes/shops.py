@@ -6,7 +6,10 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import Shop
-from app.schemas import ShopCreate
+from app.schemas import (
+    ShopCreate,
+    ShopPaymentPolicyUpdate,
+)
 
 
 router = APIRouter()
@@ -78,7 +81,10 @@ def create_shop(
 
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="The business could not be created because one of its values is already in use.",
+            detail=(
+                "The business could not be created because "
+                "one of its values is already in use."
+            ),
         )
 
     except Exception:
@@ -107,3 +113,40 @@ def list_shops(
         )
 
     return query.order_by(Shop.name.asc()).all()
+
+
+@router.patch("/shops/{shop_slug}/payment-policy")
+def update_shop_payment_policy(
+    shop_slug: str,
+    payload: ShopPaymentPolicyUpdate,
+    db: Session = Depends(get_db),
+):
+    clean_slug = normalize_slug(shop_slug)
+
+    shop = (
+        db.query(Shop)
+        .filter(Shop.slug == clean_slug)
+        .first()
+    )
+
+    if not shop:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Business not found.",
+        )
+
+    shop.payment_policy = payload.payment_policy
+
+    try:
+        db.commit()
+        db.refresh(shop)
+
+    except Exception:
+        db.rollback()
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="The payment preference could not be saved.",
+        )
+
+    return shop
