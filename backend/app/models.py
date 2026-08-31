@@ -89,6 +89,13 @@ class Shop(Base):
         nullable=True,
     )
 
+    # Shop payment preferences
+    payment_policy = Column(
+        String,
+        nullable=False,
+        default="none",
+    )
+
     # Future shop payment processing through Stripe Connect
     stripe_connect_account_id = Column(
         String,
