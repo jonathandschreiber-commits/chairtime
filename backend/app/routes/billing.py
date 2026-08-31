@@ -222,6 +222,85 @@ def sync_subscription_to_shop(
     return shop
 
 
+def create_connected_account(
+    shop: Shop,
+    current_user: User,
+    db: Session,
+):
+    stripe.api_key = get_stripe_secret_key()
+
+    if shop.stripe_connect_account_id:
+        return stripe.Account.retrieve(
+            shop.stripe_connect_account_id
+        )
+
+    account = stripe.Account.create(
+        type="express",
+        country="US",
+        email=current_user.email,
+        business_profile={
+            "name": shop.name,
+            "product_description": (
+                "Appointment-based services offered "
+                "by this business."
+            ),
+        },
+        capabilities={
+            "card_payments": {
+                "requested": True,
+            },
+            "transfers": {
+                "requested": True,
+            },
+        },
+        metadata={
+            "shop_id": str(shop.id),
+            "shop_slug": shop.slug,
+            "owner_user_id": str(current_user.id),
+        },
+    )
+
+    shop.stripe_connect_account_id = account.id
+
+    try:
+        db.commit()
+        db.refresh(shop)
+
+    except Exception:
+        db.rollback()
+        raise
+
+    return account
+
+
+def create_connect_onboarding_link(
+    shop: Shop,
+):
+    stripe.api_key = get_stripe_secret_key()
+
+    if not shop.stripe_connect_account_id:
+        raise RuntimeError(
+            "This business does not have a Stripe connected account."
+        )
+
+    frontend_url = get_frontend_url()
+
+    return stripe.AccountLink.create(
+        account=shop.stripe_connect_account_id,
+        refresh_url=(
+            frontend_url
+            + f"/{shop.slug}/onboarding"
+            + "?stripe_connect=refresh"
+        ),
+        return_url=(
+            frontend_url
+            + f"/{shop.slug}/onboarding"
+            + "?stripe_connect=return"
+        ),
+        type="account_onboarding",
+    )
+
+
 @router.post("/create-checkout-session")
 def create_checkout_session(
     current_user: User = Depends(get_current_user),
@@ -321,6 +400,205 @@ def create_checkout_session(
         "success": True,
         "checkout_url": checkout_session.url,
         "checkout_session_id": checkout_session.id,
+    }
+
+
+@router.post("/connect/start")
+def start_connect_onboarding(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    shop = get_current_shop(
+        current_user=current_user,
+        db=db,
+    )
+
+    if shop.payment_policy == "none":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Credit card payments are not enabled "
+                "for this business."
+            ),
+        )
+
+    try:
+        create_connected_account(
+            shop=shop,
+            current_user=current_user,
+            db=db,
+        )
+
+        account_link = create_connect_onboarding_link(
+            shop=shop,
+        )
+
+    except RuntimeError as exc:
+        db.rollback()
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(exc),
+        )
+
+    except stripe.StripeError as exc:
+        db.rollback()
+
+        message = getattr(
+            exc,
+            "user_message",
+            None,
+        )
+
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=(
+                message
+                or "Unable to start Stripe payment setup."
+            ),
+        )
+
+    except Exception:
+        db.rollback()
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to start Stripe payment setup.",
+        )
+
+    return {
+        "success": True,
+        "stripe_connect_account_id": (
+            shop.stripe_connect_account_id
+        ),
+        "onboarding_url": account_link.url,
+    }
+
+
+@router.get("/connect/status")
+def get_connect_status(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    shop = get_current_shop(
+        current_user=current_user,
+        db=db,
+    )
+
+    if not shop.stripe_connect_account_id:
+        return {
+            "connected_account_exists": False,
+            "details_submitted": False,
+            "charges_enabled": False,
+            "payouts_enabled": False,
+            "stripe_connect_account_id": None,
+        }
+
+    try:
+        stripe.api_key = get_stripe_secret_key()
+
+        account = stripe.Account.retrieve(
+            shop.stripe_connect_account_id
+        )
+
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(exc),
+        )
+
+    except stripe.StripeError as exc:
+        message = getattr(
+            exc,
+            "user_message",
+            None,
+        )
+
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=(
+                message
+                or "Unable to check Stripe payment setup."
+            ),
+        )
+
+    return {
+        "connected_account_exists": True,
+        "details_submitted": bool(
+            get_object_value(
+                account,
+                "details_submitted",
+                False,
+            )
+        ),
+        "charges_enabled": bool(
+            get_object_value(
+                account,
+                "charges_enabled",
+                False,
+            )
+        ),
+        "payouts_enabled": bool(
+            get_object_value(
+                account,
+                "payouts_enabled",
+                False,
+            )
+        ),
+        "stripe_connect_account_id": account.id,
+    }
+
+
+@router.post("/connect/dashboard")
+def create_connect_dashboard_link(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    shop = get_current_shop(
+        current_user=current_user,
+        db=db,
+    )
+
+    if not shop.stripe_connect_account_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "This business has not connected "
+                "a Stripe payment account yet."
+            ),
+        )
+
+    try:
+        stripe.api_key = get_stripe_secret_key()
+
+        login_link = stripe.Account.create_login_link(
+            shop.stripe_connect_account_id
+        )
+
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(exc),
+        )
+
+    except stripe.StripeError as exc:
+        message = getattr(
+            exc,
+            "user_message",
+            None,
+        )
+
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=(
+                message
+                or "Unable to open the Stripe dashboard."
+            ),
+        )
+
+    return {
+        "success": True,
+        "dashboard_url": login_link.url,
     }
 
 
