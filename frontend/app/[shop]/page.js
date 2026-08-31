@@ -70,6 +70,20 @@ export default function ShopBookingPage() {
     return String(phone || "").replace(/\D/g, "");
   }
 
+  /*
+   * Each Service record belongs to a particular staff member.
+   * Only show services assigned to the currently selected person.
+   */
+  const availableServices = useMemo(() => {
+    if (!selectedBarberId) {
+      return [];
+    }
+
+    return services.filter(
+      (service) => service.barber_id === selectedBarberId
+    );
+  }, [services, selectedBarberId]);
+
   const recognizedCustomer = useMemo(() => {
     const phone = cleanPhone(customerPhone);
 
@@ -167,11 +181,17 @@ export default function ShopBookingPage() {
   }
 
   function barberName(id) {
-    return barbers.find((barber) => barber.id === id)?.name || "staff member";
+    return (
+      barbers.find((barber) => barber.id === id)?.name ||
+      "staff member"
+    );
   }
 
   function serviceName(id) {
-    return services.find((service) => service.id === id)?.name || "service";
+    return (
+      services.find((service) => service.id === id)?.name ||
+      "service"
+    );
   }
 
   async function createAppointment() {
@@ -317,7 +337,9 @@ export default function ShopBookingPage() {
               value={selectedBarberId}
               onChange={(event) => {
                 setSelectedBarberId(event.target.value);
+                setSelectedServiceId("");
                 setSelectedSlot("");
+                setAvailableSlots([]);
               }}
             >
               <option value="">Select staff member</option>
@@ -338,14 +360,19 @@ export default function ShopBookingPage() {
             <select
               className="w-full border rounded-2xl p-5 text-xl"
               value={selectedServiceId}
+              disabled={!selectedBarberId}
               onChange={(event) => {
                 setSelectedServiceId(event.target.value);
                 setSelectedSlot("");
               }}
             >
-              <option value="">Select service</option>
+              <option value="">
+                {selectedBarberId
+                  ? "Select service"
+                  : "Select staff member first"}
+              </option>
 
-              {services.map((service) => (
+              {availableServices.map((service) => (
                 <option key={service.id} value={service.id}>
                   {service.name}
                 </option>
