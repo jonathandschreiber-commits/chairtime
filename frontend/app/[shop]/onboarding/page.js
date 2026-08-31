@@ -82,6 +82,12 @@ export default function OnboardingPage() {
   const [savingStaffSetup, setSavingStaffSetup] =
     useState(false);
 
+  const [paymentPolicy, setPaymentPolicy] =
+    useState("none");
+
+  const [savingPaymentPolicy, setSavingPaymentPolicy] =
+    useState(false);
+
   const openDayCount = useMemo(() => {
     return hours.filter((day) => day.open).length;
   }, [hours]);
@@ -107,6 +113,7 @@ export default function OnboardingPage() {
         servicesResponse,
         assignedServicesResponse,
         availabilityResponse,
+        shopResponse,
       ] = await Promise.all([
         fetch(
           `${API_BASE}/api/shop-availability-rules${query}`,
@@ -134,6 +141,12 @@ export default function OnboardingPage() {
         ),
         fetch(
           `${API_BASE}/api/availability-rules${query}`,
+          {
+            cache: "no-store",
+          }
+        ),
+        fetch(
+          `${API_BASE}/api/shops${query}`,
           {
             cache: "no-store",
           }
@@ -170,6 +183,12 @@ export default function OnboardingPage() {
         );
       }
 
+      if (!shopResponse.ok) {
+        throw new Error(
+          "Could not load your payment preference."
+        );
+      }
+
       const hoursData =
         await hoursResponse.json();
 
@@ -184,6 +203,18 @@ export default function OnboardingPage() {
 
       const availabilityData =
         await availabilityResponse.json();
+
+      const shopData =
+        await shopResponse.json();
+
+      const currentShop =
+        Array.isArray(shopData) && shopData.length > 0
+          ? shopData[0]
+          : null;
+
+      setPaymentPolicy(
+        currentShop?.payment_policy || "none"
+      );
 
       setExistingRules(hoursData);
       setStaff(staffData);
@@ -665,8 +696,8 @@ export default function OnboardingPage() {
       );
     }
   }
-
-  function continueFromStaff() {
+  
+    function continueFromStaff() {
     if (staff.length === 0) {
       setMessage(
         "Add at least one person who customers can book with."
@@ -978,7 +1009,7 @@ export default function OnboardingPage() {
           staffServiceForm[service.id]
             ?.selected
       );
-    
+
     if (
       selectedCatalogServices.length === 0
     ) {
@@ -1314,6 +1345,57 @@ export default function OnboardingPage() {
     setMessage("");
   }
 
+  async function savePaymentPreference() {
+    if (savingPaymentPolicy) return;
+
+    setSavingPaymentPolicy(true);
+    setMessage("");
+
+    try {
+      const response = await fetch(
+        `${API_BASE}/api/shops/${encodeURIComponent(
+          shopSlug
+        )}/payment-policy`,
+        {
+          method: "PATCH",
+
+          headers: {
+            "Content-Type": "application/json",
+          },
+
+          body: JSON.stringify({
+            payment_policy: paymentPolicy,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        const error = await response
+          .json()
+          .catch(() => ({}));
+
+        throw new Error(
+          typeof error.detail === "string"
+            ? error.detail
+            : "Could not save your payment preference."
+        );
+      }
+
+      setMessage("");
+      setCurrentStep(6);
+    } catch (error) {
+      console.error(error);
+
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Could not save your payment preference."
+      );
+    } finally {
+      setSavingPaymentPolicy(false);
+    }
+  }
+
   function openBookingPage() {
     window.open(
       `/${shopSlug}`,
@@ -1359,7 +1441,7 @@ export default function OnboardingPage() {
           </div>
 
           <div className={styles.stepBadge}>
-            Step {currentStep} of 5
+            Step {currentStep} of 6
           </div>
         </header>
 
@@ -1455,18 +1537,17 @@ export default function OnboardingPage() {
         )}
 
         {currentStep === 5 && (
-          <ReviewStep
-            shopSlug={shopSlug}
-            staff={staff}
-            services={services}
-            assignedServices={
-              assignedServices
+          <PaymentsStep
+            paymentPolicy={paymentPolicy}
+            setPaymentPolicy={(value) => {
+              setPaymentPolicy(value);
+              setMessage("");
+            }}
+            savingPaymentPolicy={
+              savingPaymentPolicy
             }
-            openBookingPage={
-              openBookingPage
-            }
-            finishOnboarding={
-              finishOnboarding
+            savePaymentPreference={
+              savePaymentPreference
             }
             goBack={() => {
               const lastIndex =
@@ -1489,6 +1570,27 @@ export default function OnboardingPage() {
 
               goToStep(4);
             }}
+            message={message}
+          />
+        )}
+
+        {currentStep === 6 && (
+          <ReviewStep
+            shopSlug={shopSlug}
+            staff={staff}
+            services={services}
+            assignedServices={
+              assignedServices
+            }
+            openBookingPage={
+              openBookingPage
+            }
+            finishOnboarding={
+              finishOnboarding
+            }
+            goBack={() =>
+              goToStep(5)
+            }
           />
         )}
 
@@ -1510,6 +1612,7 @@ function Progress({
     "Staff",
     "Services",
     "Schedules",
+    "Payments",
     "Review",
   ];
 
@@ -2716,7 +2819,283 @@ function ScheduleStep({
             : currentStaffIndex <
                 staff.length - 1
               ? `Save ${person.name} & Continue →`
-              : "Save & Review →"}
+              : "Save & Continue to Payments →"}
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function PaymentsStep({
+  paymentPolicy,
+  setPaymentPolicy,
+  savingPaymentPolicy,
+  savePaymentPreference,
+  goBack,
+  message,
+}) {
+  const options = [
+    {
+      value: "none",
+      icon: "📅",
+      title: "No credit cards",
+      description:
+        "Customers can book appointments without providing a credit card.",
+      note:
+        "You can turn card payments on later from your Admin settings.",
+      background:
+        "linear-gradient(135deg, #f8fafc, #f1f5f9)",
+      border: "#cbd5e1",
+      selectedBorder: "#64748b",
+    },
+    {
+      value: "accept_cards",
+      icon: "💳",
+      title: "Accept credit cards",
+      description:
+        "Accept card payments from customers for your services.",
+      note:
+        "We'll help you connect your payment account before card payments go live.",
+      background:
+        "linear-gradient(135deg, #eff6ff, #eef2ff)",
+      border: "#bfdbfe",
+      selectedBorder: "#2563eb",
+    },
+    {
+      value: "card_required",
+      icon: "🛡️",
+      title: "Require a card to reserve",
+      description:
+        "Ask customers for a card when they book to help protect against no-shows.",
+      note:
+        "The customer is not automatically charged just for making the reservation.",
+      background:
+        "linear-gradient(135deg, #f5f3ff, #faf5ff)",
+      border: "#ddd6fe",
+      selectedBorder: "#7c3aed",
+    },
+  ];
+
+  return (
+    <section
+      className={`${styles.mainCard} ${styles.scheduleCard}`}
+    >
+      <div className={styles.cardHeading}>
+        <div
+          className={styles.icon}
+          style={{
+            background:
+              "linear-gradient(135deg, #dbeafe, #ede9fe)",
+          }}
+        >
+          💳
+        </div>
+
+        <div>
+          <p
+            className={styles.stepLabel}
+            style={{
+              color: "#4f46e5",
+            }}
+          >
+            STEP 5
+          </p>
+
+          <h2 className={styles.cardTitle}>
+            Do you want to accept credit cards?
+          </h2>
+
+          <p className={styles.cardText}>
+            This is optional. Choose what works
+            best for your business. You can
+            change it later.
+          </p>
+        </div>
+      </div>
+
+      <Message message={message} />
+
+      <div
+        style={{
+          display: "grid",
+          gap: "14px",
+        }}
+      >
+        {options.map((option) => {
+          const selected =
+            paymentPolicy === option.value;
+
+          return (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() =>
+                setPaymentPolicy(option.value)
+              }
+              disabled={savingPaymentPolicy}
+              style={{
+                width: "100%",
+                padding: "18px",
+                textAlign: "left",
+                background: option.background,
+                border: selected
+                  ? `3px solid ${option.selectedBorder}`
+                  : `1px solid ${option.border}`,
+                borderRadius: "16px",
+                cursor: savingPaymentPolicy
+                  ? "default"
+                  : "pointer",
+                boxShadow: selected
+                  ? "0 4px 14px rgba(15, 23, 42, 0.08)"
+                  : "none",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "flex-start",
+                  gap: "14px",
+                }}
+              >
+                <div
+                  style={{
+                    width: "46px",
+                    height: "46px",
+                    flexShrink: 0,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: "23px",
+                    background: "#ffffff",
+                    border: `1px solid ${option.border}`,
+                    borderRadius: "12px",
+                  }}
+                >
+                  {option.icon}
+                </div>
+
+                <div
+                  style={{
+                    flex: 1,
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent:
+                        "space-between",
+                      gap: "12px",
+                    }}
+                  >
+                    <strong
+                      style={{
+                        color: "#0f172a",
+                        fontSize: "17px",
+                      }}
+                    >
+                      {option.title}
+                    </strong>
+
+                    <span
+                      style={{
+                        width: "24px",
+                        height: "24px",
+                        flexShrink: 0,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent:
+                          "center",
+                        color: selected
+                          ? "#ffffff"
+                          : "#94a3b8",
+                        fontSize: "13px",
+                        fontWeight: "900",
+                        background: selected
+                          ? option.selectedBorder
+                          : "#ffffff",
+                        border: `2px solid ${
+                          selected
+                            ? option.selectedBorder
+                            : "#cbd5e1"
+                        }`,
+                        borderRadius: "50%",
+                      }}
+                    >
+                      {selected ? "✓" : ""}
+                    </span>
+                  </div>
+
+                  <p
+                    style={{
+                      margin: "6px 0 0",
+                      color: "#475569",
+                      fontSize: "14px",
+                      lineHeight: "1.5",
+                    }}
+                  >
+                    {option.description}
+                  </p>
+
+                  <p
+                    style={{
+                      margin: "7px 0 0",
+                      color: "#64748b",
+                      fontSize: "12px",
+                      lineHeight: "1.45",
+                    }}
+                  >
+                    {option.note}
+                  </p>
+                </div>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+
+      {paymentPolicy !== "none" && (
+        <div
+          style={{
+            marginTop: "18px",
+            padding: "14px 16px",
+            color: "#1e40af",
+            fontSize: "13px",
+            lineHeight: "1.5",
+            background:
+              "linear-gradient(135deg, #eff6ff, #eef2ff)",
+            border: "1px solid #bfdbfe",
+            borderRadius: "13px",
+          }}
+        >
+          <strong>
+            Payment account setup comes next.
+          </strong>{" "}
+          We&apos;ll securely connect your
+          business to Stripe before customers
+          can use credit cards.
+        </div>
+      )}
+
+      <div className={styles.footer}>
+        <button
+          type="button"
+          onClick={goBack}
+          disabled={savingPaymentPolicy}
+          className={styles.backButton}
+        >
+          ← Back
+        </button>
+
+        <button
+          type="button"
+          onClick={savePaymentPreference}
+          disabled={savingPaymentPolicy}
+          className={styles.continueButton}
+        >
+          {savingPaymentPolicy
+            ? "Saving..."
+            : "Save & Continue to Review →"}
         </button>
       </div>
     </section>
@@ -2756,7 +3135,7 @@ function ReviewStep({
               color: "#047857",
             }}
           >
-            STEP 5
+            STEP 6
           </p>
 
           <h2 className={styles.cardTitle}>
