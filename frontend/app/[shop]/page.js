@@ -14,6 +14,7 @@ export default function ShopBookingPage() {
 
   const today = new Date().toISOString().slice(0, 10);
 
+  const [shopName, setShopName] = useState("");
   const [barbers, setBarbers] = useState([]);
   const [services, setServices] = useState([]);
   const [appointments, setAppointments] = useState([]);
@@ -39,12 +40,29 @@ export default function ShopBookingPage() {
     try {
       const query = `?shop_slug=${encodeURIComponent(SHOP_SLUG)}`;
 
-      const [barbersRes, servicesRes, appointmentsRes] =
-        await Promise.all([
-          fetch(`${API_BASE}/api/barbers${query}`),
-          fetch(`${API_BASE}/api/services${query}`),
-          fetch(`${API_BASE}/api/appointments${query}`),
-        ]);
+      const [
+        shopRes,
+        barbersRes,
+        servicesRes,
+        appointmentsRes,
+      ] = await Promise.all([
+        fetch(`${API_BASE}/api/shops${query}`),
+        fetch(`${API_BASE}/api/barbers${query}`),
+        fetch(`${API_BASE}/api/services${query}`),
+        fetch(`${API_BASE}/api/appointments${query}`),
+      ]);
+
+      if (shopRes.ok) {
+        const shops = await shopRes.json();
+
+        if (
+          Array.isArray(shops) &&
+          shops.length > 0 &&
+          shops[0]?.name
+        ) {
+          setShopName(shops[0].name);
+        }
+      }
 
       if (barbersRes.ok) {
         setBarbers(await barbersRes.json());
@@ -264,14 +282,20 @@ export default function ShopBookingPage() {
   }
 
   return (
-    <main className="min-h-screen bg-gray-100 p-4 sm:p-10">
+    <main className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-sky-50 p-4 sm:p-10">
       <div className="max-w-2xl mx-auto space-y-6">
-        <section className="bg-white rounded-3xl shadow-lg p-6 border border-gray-200">
-          <h1 className="text-5xl font-extrabold tracking-tight">
+        <section className="bg-white rounded-3xl shadow-lg p-6 border border-indigo-100">
+          {shopName ? (
+            <p className="text-sm font-extrabold tracking-wider text-indigo-600 uppercase mb-2">
+              {shopName}
+            </p>
+          ) : null}
+
+          <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight text-slate-900">
             Book an Appointment
           </h1>
 
-          <p className="mt-2 text-gray-900">
+          <p className="mt-2 text-gray-700">
             Choose your service, staff member, date, and time.
           </p>
 
