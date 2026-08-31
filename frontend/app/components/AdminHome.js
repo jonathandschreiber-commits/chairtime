@@ -1,6 +1,49 @@
-export default function AdminHome({ shop = "" }) {
+export default async function AdminHome({ shop = "" }) {
   const basePath = shop ? "/" + shop + "/admin" : "/admin";
-  const title = shop ? shop + " Admin" : "ChairTime Admin";
+
+  let businessName = "";
+
+  if (shop) {
+    try {
+      const apiUrl = process.env.CHAIRTIME_API_URL;
+
+      if (apiUrl) {
+        const response = await fetch(
+          `${apiUrl}/api/shops?shop_slug=${encodeURIComponent(shop)}`,
+          {
+            cache: "no-store",
+          }
+        );
+
+        if (response.ok) {
+          const shops = await response.json();
+
+          if (
+            Array.isArray(shops) &&
+            shops.length > 0 &&
+            shops[0]?.name
+          ) {
+            businessName = shops[0].name;
+          }
+        }
+      }
+    } catch (error) {
+      console.error("Unable to load business name:", error);
+    }
+  }
+
+  if (!businessName && shop) {
+    businessName = shop
+      .split("-")
+      .filter(Boolean)
+      .map(
+        (word) =>
+          word.charAt(0).toUpperCase() + word.slice(1)
+      )
+      .join(" ");
+  }
+
+  const title = businessName || "ChairTime";
 
   const buttons = [
     {
