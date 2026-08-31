@@ -140,6 +140,16 @@ def run_startup_migrations():
                 text(
                     """
                     ALTER TABLE shops
+                    ADD COLUMN IF NOT EXISTS payment_policy VARCHAR
+                    NOT NULL DEFAULT 'none'
+                    """
+                )
+            )
+
+            conn.execute(
+                text(
+                    """
+                    ALTER TABLE shops
                     ADD COLUMN IF NOT EXISTS stripe_connect_account_id VARCHAR
                     """
                 )
@@ -242,6 +252,13 @@ def run_startup_migrations():
                 "shops",
                 "highlevel_phone_number",
                 "VARCHAR",
+            )
+
+            add_sqlite_column_if_missing(
+                conn,
+                "shops",
+                "payment_policy",
+                "VARCHAR NOT NULL DEFAULT 'none'",
             )
 
             add_sqlite_column_if_missing(
