@@ -155,6 +155,25 @@ def run_startup_migrations():
                 )
             )
 
+            # Stripe card-on-file information for appointments.
+            conn.execute(
+                text(
+                    """
+                    ALTER TABLE appointments
+                    ADD COLUMN IF NOT EXISTS stripe_setup_intent_id VARCHAR
+                    """
+                )
+            )
+
+            conn.execute(
+                text(
+                    """
+                    ALTER TABLE appointments
+                    ADD COLUMN IF NOT EXISTS stripe_payment_method_id VARCHAR
+                    """
+                )
+            )
+
             conn.execute(
                 text(
                     """
@@ -184,6 +203,16 @@ def run_startup_migrations():
                     ix_shops_stripe_connect_account_id
                     ON shops (stripe_connect_account_id)
                     WHERE stripe_connect_account_id IS NOT NULL
+                    """
+                )
+            )
+
+            conn.execute(
+                text(
+                    """
+                    CREATE INDEX IF NOT EXISTS
+                    ix_appointments_stripe_setup_intent_id
+                    ON appointments (stripe_setup_intent_id)
                     """
                 )
             )
@@ -268,6 +297,21 @@ def run_startup_migrations():
                 "VARCHAR",
             )
 
+            # Stripe card-on-file information for appointments.
+            add_sqlite_column_if_missing(
+                conn,
+                "appointments",
+                "stripe_setup_intent_id",
+                "VARCHAR",
+            )
+
+            add_sqlite_column_if_missing(
+                conn,
+                "appointments",
+                "stripe_payment_method_id",
+                "VARCHAR",
+            )
+
             conn.execute(
                 text(
                     """
@@ -297,6 +341,16 @@ def run_startup_migrations():
                     ix_shops_stripe_connect_account_id
                     ON shops (stripe_connect_account_id)
                     WHERE stripe_connect_account_id IS NOT NULL
+                    """
+                )
+            )
+
+            conn.execute(
+                text(
+                    """
+                    CREATE INDEX IF NOT EXISTS
+                    ix_appointments_stripe_setup_intent_id
+                    ON appointments (stripe_setup_intent_id)
                     """
                 )
             )
