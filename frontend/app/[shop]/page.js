@@ -37,9 +37,15 @@ function loadStripeScript() {
         );
 
       if (existingScript) {
+        if (window.Stripe) {
+          resolve();
+          return;
+        }
+
         existingScript.addEventListener(
           "load",
-          () => resolve()
+          () => resolve(),
+          { once: true }
         );
 
         existingScript.addEventListener(
@@ -49,7 +55,8 @@ function loadStripeScript() {
               new Error(
                 "Stripe could not be loaded."
               )
-            )
+            ),
+          { once: true }
         );
 
         return;
@@ -157,8 +164,18 @@ export default function ShopBookingPage() {
   ] = useState(false);
 
   const [
-    cardFormReady,
-    setCardFormReady,
+    cardFormVisible,
+    setCardFormVisible,
+  ] = useState(false);
+
+  const [
+    cardElementReady,
+    setCardElementReady,
+  ] = useState(false);
+
+  const [
+    cardComplete,
+    setCardComplete,
   ] = useState(false);
 
   const [
@@ -168,7 +185,10 @@ export default function ShopBookingPage() {
 
   const stripeRef = useRef(null);
   const elementsRef = useRef(null);
-  const paymentElementRef = useRef(null);
+  const cardElementRef = useRef(null);
+
+  const setupIntentClientSecretRef =
+    useRef("");
 
   const paymentElementContainerRef =
     useRef(null);
@@ -437,33 +457,16 @@ export default function ShopBookingPage() {
   ]);
 
   useEffect(() => {
-    if (!cardFormReady) {
-      return;
-    }
-
-    const paymentElement =
-      paymentElementRef.current;
-
-    const container =
-      paymentElementContainerRef.current;
-
-    if (!paymentElement || !container) {
-      return;
-    }
-
-    try {
-      paymentElement.mount(container);
-    } catch (error) {
-      console.error(
-        "Could not mount Stripe Payment Element:",
-        error
-      );
-
-      setCardError(
-        "Secure card entry could not be opened. Please try again."
-      );
-    }
-  }, [cardFormReady]);
+    return () => {
+      try {
+        if (cardElementRef.current) {
+          cardElementRef.current.destroy();
+        }
+      } catch {
+        // Nothing else is needed here.
+      }
+    };
+  }, []);
 
   function formatTime(value) {
     return new Date(
@@ -494,22 +497,23 @@ export default function ShopBookingPage() {
 
   function resetCardForm() {
     try {
-      if (
-        paymentElementRef.current
-      ) {
-        paymentElementRef.current.destroy();
+      if (cardElementRef.current) {
+        cardElementRef.current.destroy();
       }
     } catch {
       // Nothing else is needed here.
     }
 
-    paymentElementRef.current =
-      null;
-
+    cardElementRef.current = null;
     elementsRef.current = null;
     stripeRef.current = null;
 
-    setCardFormReady(false);
+    setupIntentClientSecretRef.current =
+      "";
+
+    setCardFormVisible(false);
+    setCardElementReady(false);
+    setCardComplete(false);
     setCardError("");
   }
 
@@ -529,6 +533,28 @@ export default function ShopBookingPage() {
     }
 
     return true;
+  }
+
+  async function waitForCardContainer() {
+    for (
+      let attempt = 0;
+      attempt < 50;
+      attempt += 1
+    ) {
+      if (
+        paymentElementContainerRef.current
+      ) {
+        return paymentElementContainerRef.current;
+      }
+
+      await new Promise((resolve) =>
+        setTimeout(resolve, 20)
+      );
+    }
+
+    throw new Error(
+      "Secure card entry could not be opened. Please try again."
+    );
   }
 
   async function prepareCardForm() {
@@ -551,6 +577,8 @@ export default function ShopBookingPage() {
     setPreparingCard(true);
     setMessage("");
     setCardError("");
+    setCardElementReady(false);
+    setCardComplete(false);
 
     try {
       const response = await fetch(
@@ -609,46 +637,86 @@ export default function ShopBookingPage() {
         );
 
       const elements =
-        stripe.elements({
-          clientSecret:
-            data.client_secret,
+        stripe.elements();
 
-          appearance: {
-            theme: "stripe",
+      const cardElement =
+        elements.create("card", {
+          hidePostalCode: false,
 
-            variables: {
-              borderRadius: "12px",
-              fontSizeBase: "16px",
+          style: {
+            base: {
+              fontSize: "16px",
+              color: "#0f172a",
+              fontFamily:
+                "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+
+              "::placeholder": {
+                color: "#94a3b8",
+              },
+            },
+
+            invalid: {
+              color: "#b91c1c",
             },
           },
-        });
-
-      const paymentElement =
-        elements.create("payment", {
-          layout: "tabs",
         });
 
       stripeRef.current = stripe;
       elementsRef.current =
         elements;
 
-      paymentElementRef.current =
-        paymentElement;
+      cardElementRef.current =
+        cardElement;
 
-      setCardFormReady(true);
+      setupIntentClientSecretRef.current =
+        data.client_secret;
+
+      cardElement.on(
+        "ready",
+        () => {
+          setCardElementReady(true);
+          setCardError("");
+        }
+      );
+
+      cardElement.on(
+        "change",
+        (event) => {
+          setCardComplete(
+            Boolean(event.complete)
+          );
+
+          if (event.error) {
+            setCardError(
+              event.error.message ||
+                "Please check your card information."
+            );
+          } else {
+            setCardError("");
+          }
+        }
+      );
+
+      setCardFormVisible(true);
+
+      const container =
+        await waitForCardContainer();
+
+      cardElement.mount(container);
     } catch (error) {
       console.error(
         "Could not prepare card entry:",
         error
       );
 
-      setCardError(
+      const errorMessage =
         error instanceof Error
           ? error.message
-          : "Could not prepare secure card entry."
-      );
+          : "Could not prepare secure card entry.";
 
       resetCardForm();
+
+      setCardError(errorMessage);
     } finally {
       setPreparingCard(false);
     }
@@ -724,7 +792,7 @@ export default function ShopBookingPage() {
       paymentPolicy ===
       "card_required"
     ) {
-      if (!cardFormReady) {
+      if (!cardFormVisible) {
         await prepareCardForm();
         return;
       }
@@ -774,10 +842,27 @@ export default function ShopBookingPage() {
 
     if (
       !stripeRef.current ||
-      !elementsRef.current
+      !cardElementRef.current ||
+      !setupIntentClientSecretRef.current
     ) {
       setCardError(
         "Secure card entry is not ready. Please try again."
+      );
+
+      return;
+    }
+
+    if (!cardElementReady) {
+      setCardError(
+        "Secure card entry is still loading. Please wait a moment."
+      );
+
+      return;
+    }
+
+    if (!cardComplete) {
+      setCardError(
+        "Please enter your complete card information."
       );
 
       return;
@@ -792,13 +877,20 @@ export default function ShopBookingPage() {
         error,
         setupIntent,
       } =
-        await stripeRef.current.confirmSetup(
+        await stripeRef.current.confirmCardSetup(
+          setupIntentClientSecretRef.current,
           {
-            elements:
-              elementsRef.current,
+            payment_method: {
+              card:
+                cardElementRef.current,
 
-            redirect:
-              "if_required",
+              billing_details: {
+                name:
+                  customerName.trim(),
+                phone:
+                  customerPhone.trim(),
+              },
+            },
           }
         );
 
@@ -1152,17 +1244,29 @@ export default function ShopBookingPage() {
                 </div>
               </div>
 
-              {cardFormReady && (
+              {cardFormVisible && (
                 <div className="mt-5 rounded-xl bg-white border border-violet-200 p-4">
                   <p className="font-bold mb-3 text-slate-900">
                     Card information
                   </p>
 
-                  <div
-                    ref={
-                      paymentElementContainerRef
-                    }
-                  />
+                  <div className="rounded-xl border border-gray-300 bg-white px-4 py-4">
+                    <div
+                      ref={
+                        paymentElementContainerRef
+                      }
+                      style={{
+                        minHeight: "24px",
+                      }}
+                    />
+                  </div>
+
+                  {!cardElementReady && (
+                    <p className="mt-3 text-sm text-gray-500">
+                      Loading secure card
+                      entry...
+                    </p>
+                  )}
                 </div>
               )}
 
@@ -1192,7 +1296,7 @@ export default function ShopBookingPage() {
               : preparingCard
                 ? "Opening Secure Card Entry..."
                 : cardRequired &&
-                    !cardFormReady
+                    !cardFormVisible
                   ? "Continue to Card"
                   : cardRequired
                     ? "Reserve Appointment"
