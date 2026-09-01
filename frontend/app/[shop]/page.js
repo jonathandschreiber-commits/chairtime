@@ -436,6 +436,35 @@ export default function ShopBookingPage() {
     selectedSlot,
   ]);
 
+  useEffect(() => {
+    if (!cardFormReady) {
+      return;
+    }
+
+    const paymentElement =
+      paymentElementRef.current;
+
+    const container =
+      paymentElementContainerRef.current;
+
+    if (!paymentElement || !container) {
+      return;
+    }
+
+    try {
+      paymentElement.mount(container);
+    } catch (error) {
+      console.error(
+        "Could not mount Stripe Payment Element:",
+        error
+      );
+
+      setCardError(
+        "Secure card entry could not be opened. Please try again."
+      );
+    }
+  }, [cardFormReady]);
+
   function formatTime(value) {
     return new Date(
       value
@@ -607,16 +636,6 @@ export default function ShopBookingPage() {
         paymentElement;
 
       setCardFormReady(true);
-
-      setTimeout(() => {
-        if (
-          paymentElementContainerRef.current
-        ) {
-          paymentElement.mount(
-            paymentElementContainerRef.current
-          );
-        }
-      }, 0);
     } catch (error) {
       console.error(
         "Could not prepare card entry:",
