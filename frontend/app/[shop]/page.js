@@ -44,8 +44,7 @@ function loadStripeScript() {
 
         existingScript.addEventListener(
           "load",
-          () => resolve(),
-          { once: true }
+          () => resolve()
         );
 
         existingScript.addEventListener(
@@ -55,8 +54,7 @@ function loadStripeScript() {
               new Error(
                 "Stripe could not be loaded."
               )
-            ),
-          { once: true }
+            )
         );
 
         return;
@@ -86,6 +84,7 @@ function loadStripeScript() {
   return stripeScriptPromise;
 }
 
+
 export default function ShopBookingPage() {
   const params = useParams();
 
@@ -102,8 +101,10 @@ export default function ShopBookingPage() {
   const [shopName, setShopName] =
     useState("");
 
-  const [paymentPolicy, setPaymentPolicy] =
-    useState("none");
+  const [
+    paymentPolicy,
+    setPaymentPolicy,
+  ] = useState("none");
 
   const [barbers, setBarbers] =
     useState([]);
@@ -111,8 +112,10 @@ export default function ShopBookingPage() {
   const [services, setServices] =
     useState([]);
 
-  const [appointments, setAppointments] =
-    useState([]);
+  const [
+    appointments,
+    setAppointments,
+  ] = useState([]);
 
   const [
     availableSlots,
@@ -164,8 +167,8 @@ export default function ShopBookingPage() {
   ] = useState(false);
 
   const [
-    cardFormVisible,
-    setCardFormVisible,
+    cardFormReady,
+    setCardFormReady,
   ] = useState(false);
 
   const [
@@ -178,20 +181,21 @@ export default function ShopBookingPage() {
     setCardComplete,
   ] = useState(false);
 
-  const [
-    cardError,
-    setCardError,
-  ] = useState("");
+  const [cardError, setCardError] =
+    useState("");
 
   const stripeRef = useRef(null);
   const elementsRef = useRef(null);
-  const cardElementRef = useRef(null);
+
+  const cardElementRef =
+    useRef(null);
+
+  const cardElementContainerRef =
+    useRef(null);
 
   const setupIntentClientSecretRef =
-    useRef("");
-
-  const paymentElementContainerRef =
     useRef(null);
+
 
   async function loadData() {
     if (!SHOP_SLUG) {
@@ -273,9 +277,11 @@ export default function ShopBookingPage() {
     }
   }
 
+
   useEffect(() => {
     loadData();
   }, [SHOP_SLUG]);
+
 
   function cleanPhone(phone) {
     return String(phone || "").replace(
@@ -284,12 +290,7 @@ export default function ShopBookingPage() {
     );
   }
 
-  /*
-   * Each Service record belongs to a
-   * particular staff member.
-   * Only show services assigned to the
-   * currently selected person.
-   */
+
   const availableServices =
     useMemo(() => {
       if (!selectedBarberId) {
@@ -306,6 +307,7 @@ export default function ShopBookingPage() {
       selectedBarberId,
     ]);
 
+
   const selectedService =
     useMemo(() => {
       return (
@@ -319,6 +321,7 @@ export default function ShopBookingPage() {
       services,
       selectedServiceId,
     ]);
+
 
   const recognizedCustomer =
     useMemo(() => {
@@ -355,6 +358,7 @@ export default function ShopBookingPage() {
       SHOP_SLUG,
     ]);
 
+
   useEffect(() => {
     if (!recognizedCustomer) {
       return;
@@ -386,6 +390,7 @@ export default function ShopBookingPage() {
     customerName,
   ]);
 
+
   useEffect(() => {
     if (
       !SHOP_SLUG ||
@@ -405,10 +410,13 @@ export default function ShopBookingPage() {
         const searchParams =
           new URLSearchParams({
             shop_slug: SHOP_SLUG,
+
             barber_id:
               selectedBarberId,
+
             service_id:
               selectedServiceId,
+
             target_date:
               selectedDate,
           });
@@ -447,6 +455,7 @@ export default function ShopBookingPage() {
     selectedDate,
   ]);
 
+
   useEffect(() => {
     resetCardForm();
   }, [
@@ -456,17 +465,32 @@ export default function ShopBookingPage() {
     selectedSlot,
   ]);
 
+
   useEffect(() => {
-    return () => {
-      try {
-        if (cardElementRef.current) {
-          cardElementRef.current.destroy();
-        }
-      } catch {
-        // Nothing else is needed here.
-      }
-    };
-  }, []);
+    if (
+      !cardFormReady ||
+      !cardElementRef.current ||
+      !cardElementContainerRef.current
+    ) {
+      return;
+    }
+
+    try {
+      cardElementRef.current.mount(
+        cardElementContainerRef.current
+      );
+    } catch (error) {
+      console.error(
+        "Could not mount Stripe card entry:",
+        error
+      );
+
+      setCardError(
+        "Secure card entry could not be opened. Please try again."
+      );
+    }
+  }, [cardFormReady]);
+
 
   function formatTime(value) {
     return new Date(
@@ -477,6 +501,7 @@ export default function ShopBookingPage() {
     });
   }
 
+
   function barberName(id) {
     return (
       barbers.find(
@@ -486,6 +511,7 @@ export default function ShopBookingPage() {
     );
   }
 
+
   function serviceName(id) {
     return (
       services.find(
@@ -494,6 +520,7 @@ export default function ShopBookingPage() {
       )?.name || "service"
     );
   }
+
 
   function resetCardForm() {
     try {
@@ -509,13 +536,14 @@ export default function ShopBookingPage() {
     stripeRef.current = null;
 
     setupIntentClientSecretRef.current =
-      "";
+      null;
 
-    setCardFormVisible(false);
+    setCardFormReady(false);
     setCardElementReady(false);
     setCardComplete(false);
     setCardError("");
   }
+
 
   function validateBookingFields() {
     if (
@@ -535,27 +563,6 @@ export default function ShopBookingPage() {
     return true;
   }
 
-  async function waitForCardContainer() {
-    for (
-      let attempt = 0;
-      attempt < 50;
-      attempt += 1
-    ) {
-      if (
-        paymentElementContainerRef.current
-      ) {
-        return paymentElementContainerRef.current;
-      }
-
-      await new Promise((resolve) =>
-        setTimeout(resolve, 20)
-      );
-    }
-
-    throw new Error(
-      "Secure card entry could not be opened. Please try again."
-    );
-  }
 
   async function prepareCardForm() {
     if (preparingCard) {
@@ -577,8 +584,8 @@ export default function ShopBookingPage() {
     setPreparingCard(true);
     setMessage("");
     setCardError("");
-    setCardElementReady(false);
     setCardComplete(false);
+    setCardElementReady(false);
 
     try {
       const response = await fetch(
@@ -646,12 +653,10 @@ export default function ShopBookingPage() {
           style: {
             base: {
               fontSize: "16px",
-              color: "#0f172a",
-              fontFamily:
-                "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+              color: "#111827",
 
               "::placeholder": {
-                color: "#94a3b8",
+                color: "#9ca3af",
               },
             },
 
@@ -662,6 +667,7 @@ export default function ShopBookingPage() {
         });
 
       stripeRef.current = stripe;
+
       elementsRef.current =
         elements;
 
@@ -675,7 +681,6 @@ export default function ShopBookingPage() {
         "ready",
         () => {
           setCardElementReady(true);
-          setCardError("");
         }
       );
 
@@ -697,32 +702,29 @@ export default function ShopBookingPage() {
         }
       );
 
-      setCardFormVisible(true);
-
-      const container =
-        await waitForCardContainer();
-
-      cardElement.mount(container);
+      setCardFormReady(true);
     } catch (error) {
       console.error(
         "Could not prepare card entry:",
         error
       );
 
-      const errorMessage =
-        error instanceof Error
-          ? error.message
-          : "Could not prepare secure card entry.";
-
       resetCardForm();
 
-      setCardError(errorMessage);
+      setCardError(
+        error instanceof Error
+          ? error.message
+          : "Could not prepare secure card entry."
+      );
     } finally {
       setPreparingCard(false);
     }
   }
 
-  async function submitAppointment() {
+
+  async function submitAppointment(
+    stripeSetupIntentId = null
+  ) {
     const response = await fetch(
       `${API_BASE}/api/appointments`,
       {
@@ -735,18 +737,27 @@ export default function ShopBookingPage() {
 
         body: JSON.stringify({
           shop_slug: SHOP_SLUG,
+
           barber_id:
             selectedBarberId,
+
           service_id:
             selectedServiceId,
+
           customer_name:
             customerName.trim(),
+
           customer_phone:
             customerPhone.trim(),
+
           notes:
             notes.trim() || null,
+
           start_datetime:
             selectedSlot,
+
+          stripe_setup_intent_id:
+            stripeSetupIntentId,
         }),
       }
     );
@@ -767,8 +778,7 @@ export default function ShopBookingPage() {
           ? errorData.detail
           : "";
     } catch {
-      // Keep the simple
-      // customer-facing message.
+      // Use the simple message below.
     }
 
     console.error(
@@ -783,6 +793,7 @@ export default function ShopBookingPage() {
     );
   }
 
+
   async function createAppointment() {
     if (!validateBookingFields()) {
       return;
@@ -792,7 +803,7 @@ export default function ShopBookingPage() {
       paymentPolicy ===
       "card_required"
     ) {
-      if (!cardFormVisible) {
+      if (!cardFormReady) {
         await prepareCardForm();
         return;
       }
@@ -835,6 +846,7 @@ export default function ShopBookingPage() {
     }
   }
 
+
   async function confirmCardAndBook() {
     if (booking) {
       return;
@@ -854,7 +866,7 @@ export default function ShopBookingPage() {
 
     if (!cardElementReady) {
       setCardError(
-        "Secure card entry is still loading. Please wait a moment."
+        "Secure card entry is still loading. Please try again."
       );
 
       return;
@@ -887,6 +899,7 @@ export default function ShopBookingPage() {
               billing_details: {
                 name:
                   customerName.trim(),
+
                 phone:
                   customerPhone.trim(),
               },
@@ -911,7 +924,9 @@ export default function ShopBookingPage() {
         );
       }
 
-      await submitAppointment();
+      await submitAppointment(
+        setupIntent.id
+      );
 
       setMessage(
         "Appointment booked successfully."
@@ -939,8 +954,11 @@ export default function ShopBookingPage() {
     }
   }
 
+
   const cardRequired =
     paymentPolicy ===
+
+    
     "card_required";
 
   return (
@@ -1124,6 +1142,7 @@ export default function ShopBookingPage() {
                 {selectedService.duration_minutes
                   ? `${selectedService.duration_minutes} minutes`
                   : ""}
+
                 {selectedService.duration_minutes &&
                 selectedService.price !==
                   undefined &&
@@ -1131,6 +1150,7 @@ export default function ShopBookingPage() {
                   null
                   ? " • "
                   : ""}
+
                 {selectedService.price !==
                   undefined &&
                 selectedService.price !==
@@ -1244,22 +1264,18 @@ export default function ShopBookingPage() {
                 </div>
               </div>
 
-              {cardFormVisible && (
+              {cardFormReady && (
                 <div className="mt-5 rounded-xl bg-white border border-violet-200 p-4">
                   <p className="font-bold mb-3 text-slate-900">
                     Card information
                   </p>
 
-                  <div className="rounded-xl border border-gray-300 bg-white px-4 py-4">
-                    <div
-                      ref={
-                        paymentElementContainerRef
-                      }
-                      style={{
-                        minHeight: "24px",
-                      }}
-                    />
-                  </div>
+                  <div
+                    ref={
+                      cardElementContainerRef
+                    }
+                    className="min-h-10 py-2"
+                  />
 
                   {!cardElementReady && (
                     <p className="mt-3 text-sm text-gray-500">
@@ -1296,7 +1312,7 @@ export default function ShopBookingPage() {
               : preparingCard
                 ? "Opening Secure Card Entry..."
                 : cardRequired &&
-                    !cardFormVisible
+                    !cardFormReady
                   ? "Continue to Card"
                   : cardRequired
                     ? "Reserve Appointment"
