@@ -1,10 +1,18 @@
 from datetime import datetime, timedelta
 
+import stripe
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Appointment, Barber, BlockedTime, Service, User
+from app.models import (
+    Appointment,
+    Barber,
+    BlockedTime,
+    Service,
+    Shop,
+    User,
+)
 from app.routes.auth import get_current_user
 from app.routes.reminders import send_highlevel_sms
 from app.schemas import AppointmentCreate
@@ -22,12 +30,17 @@ ALLOWED_APPOINTMENT_STATUSES = {
 
 
 def require_user_shop_slug(current_user: User) -> str:
-    shop_slug = str(current_user.shop_slug or "").strip().lower()
+    shop_slug = str(
+        current_user.shop_slug or ""
+    ).strip().lower()
 
     if not shop_slug:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Your account is not assigned to a business.",
+            detail=(
+                "Your account is not assigned "
+                "to a business."
+            ),
         )
 
     return shop_slug
@@ -86,7 +99,8 @@ def verify_no_reschedule_conflict(
         db.query(Appointment)
         .filter(
             Appointment.shop_slug == shop_slug,
-            Appointment.barber_id == appointment.barber_id,
+            Appointment.barber_id
+            == appointment.barber_id,
             Appointment.id != appointment.id,
             Appointment.status != "canceled",
             Appointment.start_datetime < new_end,
@@ -105,7 +119,8 @@ def verify_no_reschedule_conflict(
         db.query(BlockedTime)
         .filter(
             BlockedTime.shop_slug == shop_slug,
-            BlockedTime.barber_id == appointment.barber_id,
+            BlockedTime.barber_id
+            == appointment.barber_id,
             BlockedTime.start_datetime < new_end,
             BlockedTime.end_datetime > new_start,
         )
@@ -138,11 +153,123 @@ def apply_reschedule(
         db.rollback()
 
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="The appointment could not be moved.",
+            status_code=(
+                status.HTTP_500_INTERNAL_SERVER_ERROR
+            ),
+            detail=(
+                "The appointment could not be moved."
+            ),
         )
 
     return appointment
+
+
+def verify_booking_setup_intent(
+    shop: Shop,
+    setup_intent_id: str | None,
+) -> tuple[str | None, str | None]:
+    """
+    Verify the Stripe SetupIntent for a shop that
+    requires a card to reserve an appointment.
+
+    The payment method ID is obtained directly from
+    Stripe rather than trusted from the browser.
+    """
+
+    if shop.payment_policy != "card_required":
+        return None, None
+
+    clean_setup_intent_id = str(
+        setup_intent_id or ""
+    ).strip()
+
+    if not clean_setup_intent_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "A verified card is required "
+                "to reserve this appointment."
+            ),
+        )
+
+    if not shop.stripe_connect_account_id:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "This business cannot accept "
+                "card reservations right now."
+            ),
+        )
+
+    try:
+        setup_intent = stripe.SetupIntent.retrieve(
+            clean_setup_intent_id,
+            stripe_account=(
+                shop.stripe_connect_account_id
+            ),
+        )
+    except stripe.StripeError as error:
+        print(
+            "Stripe SetupIntent retrieval failed:",
+            error,
+        )
+
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "The card verification could "
+                "not be confirmed."
+            ),
+        )
+
+    if setup_intent.status != "succeeded":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "The card has not been "
+                "successfully verified."
+            ),
+        )
+
+    metadata = setup_intent.metadata or {}
+
+    metadata_shop_id = str(
+        metadata.get("shop_id") or ""
+    ).strip()
+
+    metadata_shop_slug = str(
+        metadata.get("shop_slug") or ""
+    ).strip().lower()
+
+    if (
+        metadata_shop_id != str(shop.id)
+        or metadata_shop_slug != shop.slug.lower()
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "The card verification does not "
+                "belong to this business."
+            ),
+        )
+
+    payment_method_id = str(
+        setup_intent.payment_method or ""
+    ).strip()
+
+    if not payment_method_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "No verified payment method "
+                "was found."
+            ),
+        )
+
+    return (
+        clean_setup_intent_id,
+        payment_method_id,
+    )
 
 
 @router.post("/appointments")
@@ -150,12 +277,26 @@ def create_appointment(
     payload: AppointmentCreate,
     db: Session = Depends(get_db),
 ):
-    shop_slug = str(payload.shop_slug or "").strip().lower()
+    shop_slug = str(
+        payload.shop_slug or ""
+    ).strip().lower()
 
     if not shop_slug:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Business is required.",
+        )
+
+    shop = (
+        db.query(Shop)
+        .filter(Shop.slug == shop_slug)
+        .first()
+    )
+
+    if not shop:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Business not found.",
         )
 
     service = (
@@ -210,9 +351,12 @@ def create_appointment(
         db.query(BlockedTime)
         .filter(
             BlockedTime.shop_slug == shop_slug,
-            BlockedTime.barber_id == payload.barber_id,
-            BlockedTime.start_datetime < end_datetime,
-            BlockedTime.end_datetime > payload.start_datetime,
+            BlockedTime.barber_id
+            == payload.barber_id,
+            BlockedTime.start_datetime
+            < end_datetime,
+            BlockedTime.end_datetime
+            > payload.start_datetime,
         )
         .first()
     )
@@ -223,17 +367,33 @@ def create_appointment(
             detail="That time is blocked.",
         )
 
+    (
+        stripe_setup_intent_id,
+        stripe_payment_method_id,
+    ) = verify_booking_setup_intent(
+        shop,
+        payload.stripe_setup_intent_id,
+    )
+
     appointment = Appointment(
         shop_slug=shop_slug,
         barber_id=payload.barber_id,
         service_id=payload.service_id,
         customer_name=payload.customer_name.strip(),
-        customer_phone=payload.customer_phone.strip(),
+        customer_phone=(
+            payload.customer_phone.strip()
+        ),
         customer_tags=payload.customer_tags,
         customer_notes=payload.customer_notes,
         notes=payload.notes,
         start_datetime=payload.start_datetime,
         end_datetime=end_datetime,
+        stripe_setup_intent_id=(
+            stripe_setup_intent_id
+        ),
+        stripe_payment_method_id=(
+            stripe_payment_method_id
+        ),
     )
 
     db.add(appointment)
@@ -245,13 +405,19 @@ def create_appointment(
         db.rollback()
 
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="The appointment could not be created.",
+            status_code=(
+                status.HTTP_500_INTERNAL_SERVER_ERROR
+            ),
+            detail=(
+                "The appointment could not "
+                "be created."
+            ),
         )
 
     confirmation_message = (
         f"You're booked with {barber.name} "
-        f"on {appointment.start_datetime.strftime('%A, %B %d at %I:%M %p')}. "
+        f"on "
+        f"{appointment.start_datetime.strftime('%A, %B %d at %I:%M %p')}. "
         "Reply STOP to unsubscribe."
     )
 
@@ -288,10 +454,13 @@ def list_appointments(
     query = db.query(Appointment)
 
     if shop_slug:
-        clean_shop_slug = shop_slug.strip().lower()
+        clean_shop_slug = (
+            shop_slug.strip().lower()
+        )
 
         query = query.filter(
-            Appointment.shop_slug == clean_shop_slug
+            Appointment.shop_slug
+            == clean_shop_slug
         )
 
     return query.order_by(
@@ -304,24 +473,34 @@ def list_admin_appointments(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    shop_slug = require_user_shop_slug(current_user)
+    shop_slug = require_user_shop_slug(
+        current_user
+    )
 
     return (
         db.query(Appointment)
-        .filter(Appointment.shop_slug == shop_slug)
-        .order_by(Appointment.start_datetime.asc())
+        .filter(
+            Appointment.shop_slug == shop_slug
+        )
+        .order_by(
+            Appointment.start_datetime.asc()
+        )
         .all()
     )
 
 
-@router.patch("/appointments/{appointment_id}/cancel")
+@router.patch(
+    "/appointments/{appointment_id}/cancel"
+)
 def cancel_appointment(
     appointment_id: str,
     db: Session = Depends(get_db),
 ):
     appointment = (
         db.query(Appointment)
-        .filter(Appointment.id == appointment_id)
+        .filter(
+            Appointment.id == appointment_id
+        )
         .first()
     )
 
@@ -339,13 +518,18 @@ def cancel_appointment(
     return appointment
 
 
-@router.patch("/appointments/{appointment_id}/status")
+@router.patch(
+    "/appointments/{appointment_id}/status"
+)
 def update_appointment_status(
     appointment_id: str,
     status_value: str,
     db: Session = Depends(get_db),
 ):
-    if status_value not in ALLOWED_APPOINTMENT_STATUSES:
+    if (
+        status_value
+        not in ALLOWED_APPOINTMENT_STATUSES
+    ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid appointment status.",
@@ -353,7 +537,9 @@ def update_appointment_status(
 
     appointment = (
         db.query(Appointment)
-        .filter(Appointment.id == appointment_id)
+        .filter(
+            Appointment.id == appointment_id
+        )
         .first()
     )
 
@@ -371,20 +557,27 @@ def update_appointment_status(
     return appointment
 
 
-@router.patch("/admin/appointments/{appointment_id}/status")
+@router.patch(
+    "/admin/appointments/{appointment_id}/status"
+)
 def update_admin_appointment_status(
     appointment_id: str,
     appointment_status: str,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    if appointment_status not in ALLOWED_APPOINTMENT_STATUSES:
+    if (
+        appointment_status
+        not in ALLOWED_APPOINTMENT_STATUSES
+    ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid appointment status.",
         )
 
-    shop_slug = require_user_shop_slug(current_user)
+    shop_slug = require_user_shop_slug(
+        current_user
+    )
 
     appointment = find_shop_appointment(
         db,
@@ -401,14 +594,21 @@ def update_admin_appointment_status(
         db.rollback()
 
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="The appointment status could not be updated.",
+            status_code=(
+                status.HTTP_500_INTERNAL_SERVER_ERROR
+            ),
+            detail=(
+                "The appointment status could "
+                "not be updated."
+            ),
         )
 
     return appointment
 
 
-@router.patch("/appointments/{appointment_id}/reschedule")
+@router.patch(
+    "/appointments/{appointment_id}/reschedule"
+)
 def reschedule_appointment(
     appointment_id: str,
     new_start_datetime: str,
@@ -416,7 +616,9 @@ def reschedule_appointment(
 ):
     appointment = (
         db.query(Appointment)
-        .filter(Appointment.id == appointment_id)
+        .filter(
+            Appointment.id == appointment_id
+        )
         .first()
     )
 
@@ -428,7 +630,9 @@ def reschedule_appointment(
 
     service = (
         db.query(Service)
-        .filter(Service.id == appointment.service_id)
+        .filter(
+            Service.id == appointment.service_id
+        )
         .first()
     )
 
@@ -438,8 +642,14 @@ def reschedule_appointment(
             detail="Service not found.",
         )
 
-    new_start = parse_datetime(new_start_datetime)
-    new_end = calculate_appointment_end(new_start, service)
+    new_start = parse_datetime(
+        new_start_datetime
+    )
+
+    new_end = calculate_appointment_end(
+        new_start,
+        service,
+    )
 
     verify_no_reschedule_conflict(
         db,
@@ -457,14 +667,18 @@ def reschedule_appointment(
     )
 
 
-@router.patch("/admin/appointments/{appointment_id}/reschedule")
+@router.patch(
+    "/admin/appointments/{appointment_id}/reschedule"
+)
 def reschedule_admin_appointment(
     appointment_id: str,
     new_start_datetime: str,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    shop_slug = require_user_shop_slug(current_user)
+    shop_slug = require_user_shop_slug(
+        current_user
+    )
 
     appointment = find_shop_appointment(
         db,
@@ -487,8 +701,14 @@ def reschedule_admin_appointment(
             detail="Service not found.",
         )
 
-    new_start = parse_datetime(new_start_datetime)
-    new_end = calculate_appointment_end(new_start, service)
+    new_start = parse_datetime(
+        new_start_datetime
+    )
+
+    new_end = calculate_appointment_end(
+        new_start,
+        service,
+    )
 
     verify_no_reschedule_conflict(
         db,
@@ -506,7 +726,9 @@ def reschedule_admin_appointment(
     )
 
 
-@router.patch("/appointments/{appointment_id}/notes")
+@router.patch(
+    "/appointments/{appointment_id}/notes"
+)
 def update_appointment_notes(
     appointment_id: str,
     notes: str,
@@ -514,7 +736,9 @@ def update_appointment_notes(
 ):
     appointment = (
         db.query(Appointment)
-        .filter(Appointment.id == appointment_id)
+        .filter(
+            Appointment.id == appointment_id
+        )
         .first()
     )
 
