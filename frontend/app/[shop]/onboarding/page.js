@@ -1,6 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { useParams, useRouter } from "next/navigation";
 import styles from "./onboarding.module.css";
 
@@ -88,9 +93,90 @@ export default function OnboardingPage() {
   const [savingPaymentPolicy, setSavingPaymentPolicy] =
     useState(false);
 
+  const [connectStatus, setConnectStatus] =
+    useState(null);
+
+  const [
+    loadingConnectStatus,
+    setLoadingConnectStatus,
+  ] = useState(false);
+
+  const [
+    connectStatusError,
+    setConnectStatusError,
+  ] = useState("");
+
   const openDayCount = useMemo(() => {
     return hours.filter((day) => day.open).length;
   }, [hours]);
+
+  const loadConnectStatus = useCallback(
+    async () => {
+      if (
+        !shopSlug ||
+        paymentPolicy === "none"
+      ) {
+        setConnectStatus(null);
+        setConnectStatusError("");
+        return;
+      }
+
+      setLoadingConnectStatus(true);
+      setConnectStatusError("");
+
+      try {
+        const response = await fetch(
+          "/api/billing/connect/status",
+          {
+            method: "GET",
+            headers: {
+              Accept: "application/json",
+            },
+            cache: "no-store",
+          }
+        );
+
+        const data = await response
+          .json()
+          .catch(() => ({}));
+
+        if (response.status === 401) {
+          router.replace(
+            `/login?next=${encodeURIComponent(
+              `/${shopSlug}/onboarding`
+            )}`
+          );
+
+          return;
+        }
+
+        if (!response.ok) {
+          throw new Error(
+            data.error ||
+              data.detail ||
+              "Could not check your payment account."
+          );
+        }
+
+        setConnectStatus(data);
+      } catch (error) {
+        console.error(error);
+
+        setConnectStatusError(
+          error instanceof Error
+            ? error.message
+            : "Could not check your payment account."
+        );
+      } finally {
+        setLoadingConnectStatus(false);
+      }
+    },
+    [
+      paymentPolicy,
+      router,
+      shopSlug,
+    ]
+  );
 
   useEffect(() => {
     if (!shopSlug) return;
@@ -98,10 +184,24 @@ export default function OnboardingPage() {
     loadOnboardingData();
   }, [shopSlug]);
 
-  async function loadOnboardingData() {
-    setLoading(true);
-    setMessage("");
+  useEffect(() => {
+    if (
+      !shopSlug ||
+      currentStep !== 5 ||
+      paymentPolicy === "none"
+    ) {
+      return;
+    }
 
+    loadConnectStatus();
+  }, [
+    currentStep,
+    loadConnectStatus,
+    paymentPolicy,
+    shopSlug,
+  ]);
+
+  async function loadOnboardingData() {
     try {
       const query =
         "?shop_slug=" +
@@ -219,9 +319,11 @@ export default function OnboardingPage() {
       setExistingRules(hoursData);
       setStaff(staffData);
       setServices(servicesData);
+
       setAssignedServices(
         assignedServicesData
       );
+
       setAvailabilityRules(
         availabilityData
       );
@@ -248,9 +350,11 @@ export default function OnboardingPage() {
               return {
                 ...day,
                 open: true,
+
                 start: String(
                   rule.start_time
                 ).slice(0, 5),
+
                 end: String(
                   rule.end_time
                 ).slice(0, 5),
@@ -696,8 +800,8 @@ export default function OnboardingPage() {
       );
     }
   }
-  
-    function continueFromStaff() {
+
+  function continueFromStaff() {
     if (staff.length === 0) {
       setMessage(
         "Add at least one person who customers can book with."
@@ -1345,8 +1449,10 @@ export default function OnboardingPage() {
     setMessage("");
   }
 
-  async function savePaymentPreference() {
-    if (savingPaymentPolicy) return;
+  async function savePaymentPreference(
+    continueToReview = true
+  ) {
+    if (savingPaymentPolicy) return false;
 
     setSavingPaymentPolicy(true);
     setMessage("");
@@ -1382,7 +1488,12 @@ export default function OnboardingPage() {
       }
 
       setMessage("");
-      setCurrentStep(6);
+
+      if (continueToReview) {
+        setCurrentStep(6);
+      }
+
+      return true;
     } catch (error) {
       console.error(error);
 
@@ -1391,6 +1502,8 @@ export default function OnboardingPage() {
           ? error.message
           : "Could not save your payment preference."
       );
+
+      return false;
     } finally {
       setSavingPaymentPolicy(false);
     }
@@ -1545,6 +1658,16 @@ export default function OnboardingPage() {
             }}
             savingPaymentPolicy={
               savingPaymentPolicy
+            }
+            connectStatus={connectStatus}
+            loadingConnectStatus={
+              loadingConnectStatus
+            }
+            connectStatusError={
+              connectStatusError
+            }
+            refreshConnectStatus={
+              loadConnectStatus
             }
             savePaymentPreference={
               savePaymentPreference
@@ -2070,7 +2193,6 @@ function ServicesStep({
   continueFromServices,
   goBack,
   message,
-
 }) {
   return (
     <section
@@ -2830,10 +2952,90 @@ function PaymentsStep({
   paymentPolicy,
   setPaymentPolicy,
   savingPaymentPolicy,
+  connectStatus,
+  loadingConnectStatus,
+  connectStatusError,
+  refreshConnectStatus,
   savePaymentPreference,
   goBack,
   message,
 }) {
+  const [startingConnect, setStartingConnect] =
+    useState(false);
+
+  const [
+    connectActionError,
+    setConnectActionError,
+  ] = useState("");
+
+  async function startStripeSetup() {
+    if (
+      startingConnect ||
+      savingPaymentPolicy
+    ) {
+      return;
+    }
+
+    setStartingConnect(true);
+    setConnectActionError("");
+
+    try {
+      const saved =
+        await savePaymentPreference(false);
+
+      if (!saved) {
+        return;
+      }
+
+      const response = await fetch(
+        "/api/billing/connect/start",
+        {
+          method: "POST",
+          headers: {
+            Accept: "application/json",
+          },
+        }
+      );
+
+      const data = await response
+        .json()
+        .catch(() => ({}));
+
+      if (response.status === 401) {
+        throw new Error(
+          "Your login has expired. Please sign in again."
+        );
+      }
+
+      if (!response.ok) {
+        throw new Error(
+          data.error ||
+            data.detail ||
+            "Could not start Stripe setup."
+        );
+      }
+
+      if (!data.onboarding_url) {
+        throw new Error(
+          "Stripe did not return a setup link."
+        );
+      }
+
+      window.location.href =
+        data.onboarding_url;
+    } catch (error) {
+      console.error(error);
+
+      setConnectActionError(
+        error instanceof Error
+          ? error.message
+          : "Could not start Stripe setup."
+      );
+    } finally {
+      setStartingConnect(false);
+    }
+  }
+
   const options = [
     {
       value: "none",
@@ -2876,11 +3078,225 @@ function PaymentsStep({
     },
   ];
 
+  const hasConnectedAccount =
+    Boolean(
+      connectStatus
+        ?.connected_account_exists
+    );
+
+  const detailsSubmitted =
+    Boolean(
+      connectStatus?.details_submitted
+    );
+
+  const chargesEnabled =
+    Boolean(
+      connectStatus?.charges_enabled
+    );
+
+  const payoutsEnabled =
+    Boolean(
+      connectStatus?.payouts_enabled
+    );
+
+  const paymentAccountReady =
+    hasConnectedAccount &&
+    detailsSubmitted &&
+    chargesEnabled &&
+    payoutsEnabled;
+
+  const paymentAccountInReview =
+    hasConnectedAccount &&
+    detailsSubmitted &&
+    !paymentAccountReady;
+
+  function renderConnectStatus() {
+    if (paymentPolicy === "none") {
+      return null;
+    }
+
+    if (loadingConnectStatus) {
+      return (
+        <div
+          style={{
+            marginTop: "18px",
+            padding: "14px 16px",
+            color: "#475569",
+            fontSize: "13px",
+            lineHeight: "1.5",
+            background: "#f8fafc",
+            border:
+              "1px solid #e2e8f0",
+            borderRadius: "13px",
+          }}
+        >
+          Checking your payment
+          account...
+        </div>
+      );
+    }
+
+    if (connectStatusError) {
+      return (
+        <div
+          style={{
+            marginTop: "18px",
+            padding: "14px 16px",
+            color: "#991b1b",
+            fontSize: "13px",
+            lineHeight: "1.5",
+            background: "#fef2f2",
+            border:
+              "1px solid #fecaca",
+            borderRadius: "13px",
+          }}
+        >
+          <strong>
+            We could not check your
+            payment account.
+          </strong>{" "}
+          {connectStatusError}
+
+          <div
+            style={{
+              marginTop: "10px",
+            }}
+          >
+            <button
+              type="button"
+              onClick={
+                refreshConnectStatus
+              }
+              style={{
+                padding: "8px 12px",
+                color: "#991b1b",
+                fontWeight: "800",
+                background: "#ffffff",
+                border:
+                  "1px solid #fecaca",
+                borderRadius: "9px",
+                cursor: "pointer",
+              }}
+            >
+              Try Again
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    if (paymentAccountReady) {
+      return (
+        <div
+          style={{
+            marginTop: "18px",
+            padding: "14px 16px",
+            color: "#047857",
+            fontSize: "13px",
+            lineHeight: "1.5",
+            background:
+              "linear-gradient(135deg, #ecfdf5, #f0fdf4)",
+            border:
+              "1px solid #a7f3d0",
+            borderRadius: "13px",
+          }}
+        >
+          <strong>
+            Payment account connected ✓
+          </strong>{" "}
+          Your Stripe account is ready
+          to accept customer card
+          payments and receive payouts.
+        </div>
+      );
+    }
+
+    if (paymentAccountInReview) {
+      return (
+        <div
+          style={{
+            marginTop: "18px",
+            padding: "14px 16px",
+            color: "#92400e",
+            fontSize: "13px",
+            lineHeight: "1.5",
+            background:
+              "linear-gradient(135deg, #fffbeb, #fefce8)",
+            border:
+              "1px solid #fde68a",
+            borderRadius: "13px",
+          }}
+        >
+          <strong>
+            Payment account submitted —
+            verification in progress.
+          </strong>{" "}
+          Stripe has your information.
+          Card payments and payouts will
+          become available after Stripe
+          finishes its review.
+
+          <div
+            style={{
+              marginTop: "10px",
+            }}
+          >
+            <button
+              type="button"
+              onClick={
+                refreshConnectStatus
+              }
+              style={{
+                padding: "8px 12px",
+                color: "#92400e",
+                fontWeight: "800",
+                background: "#ffffff",
+                border:
+                  "1px solid #fde68a",
+                borderRadius: "9px",
+                cursor: "pointer",
+              }}
+            >
+              Check Again
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div
+        style={{
+          marginTop: "18px",
+          padding: "14px 16px",
+          color: "#1e40af",
+          fontSize: "13px",
+          lineHeight: "1.5",
+          background:
+            "linear-gradient(135deg, #eff6ff, #eef2ff)",
+          border:
+            "1px solid #bfdbfe",
+          borderRadius: "13px",
+        }}
+      >
+        <strong>
+          Payment account setup is
+          required.
+        </strong>{" "}
+        Connect your business to Stripe
+        before customers can use credit
+        cards.
+      </div>
+    );
+  }
+
   return (
     <section
       className={`${styles.mainCard} ${styles.scheduleCard}`}
     >
-      <div className={styles.cardHeading}>
+      <div
+        className={styles.cardHeading}
+      >
         <div
           className={styles.icon}
           style={{
@@ -2893,7 +3309,9 @@ function PaymentsStep({
 
         <div>
           <p
-            className={styles.stepLabel}
+            className={
+              styles.stepLabel
+            }
             style={{
               color: "#4f46e5",
             }}
@@ -2901,14 +3319,24 @@ function PaymentsStep({
             STEP 5
           </p>
 
-          <h2 className={styles.cardTitle}>
-            Do you want to accept credit cards?
+          <h2
+            className={
+              styles.cardTitle
+            }
+          >
+            Do you want to accept
+            credit cards?
           </h2>
 
-          <p className={styles.cardText}>
-            This is optional. Choose what works
-            best for your business. You can
-            change it later.
+          <p
+            className={
+              styles.cardText
+            }
+          >
+            This is optional. Choose
+            what works best for your
+            business. You can change it
+            later.
           </p>
         </div>
       </div>
@@ -2923,28 +3351,35 @@ function PaymentsStep({
       >
         {options.map((option) => {
           const selected =
-            paymentPolicy === option.value;
+            paymentPolicy ===
+            option.value;
 
           return (
             <button
               key={option.value}
               type="button"
               onClick={() =>
-                setPaymentPolicy(option.value)
+                setPaymentPolicy(
+                  option.value
+                )
               }
-              disabled={savingPaymentPolicy}
+              disabled={
+                savingPaymentPolicy
+              }
               style={{
                 width: "100%",
                 padding: "18px",
                 textAlign: "left",
-                background: option.background,
+                background:
+                  option.background,
                 border: selected
                   ? `3px solid ${option.selectedBorder}`
                   : `1px solid ${option.border}`,
                 borderRadius: "16px",
-                cursor: savingPaymentPolicy
-                  ? "default"
-                  : "pointer",
+                cursor:
+                  savingPaymentPolicy
+                    ? "default"
+                    : "pointer",
                 boxShadow: selected
                   ? "0 4px 14px rgba(15, 23, 42, 0.08)"
                   : "none",
@@ -2953,7 +3388,8 @@ function PaymentsStep({
               <div
                 style={{
                   display: "flex",
-                  alignItems: "flex-start",
+                  alignItems:
+                    "flex-start",
                   gap: "14px",
                 }}
               >
@@ -2963,12 +3399,17 @@ function PaymentsStep({
                     height: "46px",
                     flexShrink: 0,
                     display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
+                    alignItems:
+                      "center",
+                    justifyContent:
+                      "center",
                     fontSize: "23px",
-                    background: "#ffffff",
-                    border: `1px solid ${option.border}`,
-                    borderRadius: "12px",
+                    background:
+                      "#ffffff",
+                    border:
+                      `1px solid ${option.border}`,
+                    borderRadius:
+                      "12px",
                   }}
                 >
                   {option.icon}
@@ -2982,7 +3423,8 @@ function PaymentsStep({
                   <div
                     style={{
                       display: "flex",
-                      alignItems: "center",
+                      alignItems:
+                        "center",
                       justifyContent:
                         "space-between",
                       gap: "12px",
@@ -2990,8 +3432,10 @@ function PaymentsStep({
                   >
                     <strong
                       style={{
-                        color: "#0f172a",
-                        fontSize: "17px",
+                        color:
+                          "#0f172a",
+                        fontSize:
+                          "17px",
                       }}
                     >
                       {option.title}
@@ -3003,46 +3447,64 @@ function PaymentsStep({
                         height: "24px",
                         flexShrink: 0,
                         display: "flex",
-                        alignItems: "center",
+                        alignItems:
+                          "center",
                         justifyContent:
                           "center",
                         color: selected
                           ? "#ffffff"
                           : "#94a3b8",
-                        fontSize: "13px",
-                        fontWeight: "900",
-                        background: selected
-                          ? option.selectedBorder
-                          : "#ffffff",
-                        border: `2px solid ${
+                        fontSize:
+                          "13px",
+                        fontWeight:
+                          "900",
+                        background:
                           selected
                             ? option.selectedBorder
-                            : "#cbd5e1"
-                        }`,
-                        borderRadius: "50%",
+                            : "#ffffff",
+                        border:
+                          `2px solid ${
+                            selected
+                              ? option.selectedBorder
+                              : "#cbd5e1"
+                          }`,
+                        borderRadius:
+                          "50%",
                       }}
                     >
-                      {selected ? "✓" : ""}
+                      {selected
+                        ? "✓"
+                        : ""}
                     </span>
                   </div>
 
                   <p
                     style={{
-                      margin: "6px 0 0",
-                      color: "#475569",
-                      fontSize: "14px",
-                      lineHeight: "1.5",
+                      margin:
+                        "6px 0 0",
+                      color:
+                        "#475569",
+                      fontSize:
+                        "14px",
+                      lineHeight:
+                        "1.5",
                     }}
                   >
-                    {option.description}
+                    {
+                      option.description
+                    }
                   </p>
 
                   <p
                     style={{
-                      margin: "7px 0 0",
-                      color: "#64748b",
-                      fontSize: "12px",
-                      lineHeight: "1.45",
+                      margin:
+                        "7px 0 0",
+                      color:
+                        "#64748b",
+                      fontSize:
+                        "12px",
+                      lineHeight:
+                        "1.45",
                     }}
                   >
                     {option.note}
@@ -3054,48 +3516,77 @@ function PaymentsStep({
         })}
       </div>
 
-      {paymentPolicy !== "none" && (
+      {renderConnectStatus()}
+
+      {connectActionError && (
         <div
           style={{
-            marginTop: "18px",
-            padding: "14px 16px",
-            color: "#1e40af",
+            marginTop: "14px",
+            padding: "12px 14px",
+            color: "#991b1b",
             fontSize: "13px",
             lineHeight: "1.5",
-            background:
-              "linear-gradient(135deg, #eff6ff, #eef2ff)",
-            border: "1px solid #bfdbfe",
-            borderRadius: "13px",
+            background: "#fef2f2",
+            border: "1px solid #fecaca",
+            borderRadius: "12px",
           }}
         >
-          <strong>
-            Payment account setup comes next.
-          </strong>{" "}
-          We&apos;ll securely connect your
-          business to Stripe before customers
-          can use credit cards.
+          {connectActionError}
         </div>
       )}
 
-      <div className={styles.footer}>
+      <div
+        className={styles.footer}
+      >
         <button
           type="button"
           onClick={goBack}
-          disabled={savingPaymentPolicy}
-          className={styles.backButton}
+          disabled={
+            savingPaymentPolicy ||
+            startingConnect
+          }
+          className={
+            styles.backButton
+          }
         >
           ← Back
         </button>
 
         <button
           type="button"
-          onClick={savePaymentPreference}
-          disabled={savingPaymentPolicy}
-          className={styles.continueButton}
+          onClick={() => {
+            if (
+              paymentPolicy !== "none" &&
+              !detailsSubmitted
+            ) {
+              startStripeSetup();
+              return;
+            }
+
+            savePaymentPreference();
+          }}
+          disabled={
+            savingPaymentPolicy ||
+            startingConnect ||
+            loadingConnectStatus
+          }
+          className={
+            styles.continueButton
+          }
         >
-          {savingPaymentPolicy
-            ? "Saving..."
-            : "Save & Continue to Review →"}
+          {startingConnect
+            ? "Opening Stripe..."
+            : savingPaymentPolicy
+              ? "Saving..."
+              : loadingConnectStatus &&
+                  paymentPolicy !== "none"
+                ? "Checking Stripe..."
+                : paymentPolicy !== "none" &&
+                    !detailsSubmitted
+                  ? hasConnectedAccount
+                    ? "Continue Stripe Setup →"
+                    : "Connect Stripe to Continue →"
+                  : "Save & Continue to Review →"}
         </button>
       </div>
     </section>
@@ -3118,7 +3609,6 @@ function ReviewStep({
       <div className={styles.cardHeading}>
         <div
           className={styles.icon}
-
           style={{
             background:
               "linear-gradient(135deg, #d1fae5, #dcfce7)",
@@ -3130,7 +3620,6 @@ function ReviewStep({
         <div>
           <p
             className={styles.stepLabel}
-
             style={{
               color: "#047857",
             }}
@@ -3164,7 +3653,6 @@ function ReviewStep({
       >
         <SummaryBox
           value={staff.length}
-
           label={
             staff.length === 1
               ? "Staff member"
@@ -3174,7 +3662,6 @@ function ReviewStep({
 
         <SummaryBox
           value={services.length}
-
           label={
             services.length === 1
               ? "Service"
@@ -3220,7 +3707,6 @@ function ReviewStep({
         <button
           type="button"
           onClick={openBookingPage}
-
           style={{
             marginTop: "14px",
             minHeight: "46px",
@@ -3255,9 +3741,7 @@ function ReviewStep({
 
         <button
           type="button"
-
           onClick={finishOnboarding}
-
           className={
             styles.continueButton
           }
