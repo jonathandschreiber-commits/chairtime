@@ -96,7 +96,7 @@ class Shop(Base):
         default="none",
     )
 
-    # Future shop payment processing through Stripe Connect
+    # Shop payment processing through Stripe Connect
     stripe_connect_account_id = Column(
         String,
         nullable=True,
@@ -416,6 +416,23 @@ class Appointment(Base):
         DateTime,
         nullable=True,
     )
+
+    # Stripe card-on-file information for this reservation.
+    #
+    # These values are populated when a shop requires a card
+    # to reserve an appointment. They allow ChairTime to prove
+    # which Stripe SetupIntent/payment method was associated
+    # with this particular reservation.
+    stripe_setup_intent_id = Column(
+        String,
+        nullable=True,
+        index=True,
+    )
+    stripe_payment_method_id = Column(
+        String,
+        nullable=True,
+    )
+
     created_at = Column(
         DateTime,
         server_default=func.now(),
