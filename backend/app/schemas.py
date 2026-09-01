@@ -170,6 +170,10 @@ class AppointmentCreate(BaseModel):
     notes: Optional[str] = None
     start_datetime: datetime
 
+    # Required by the backend only when the shop's
+    # payment_policy is "card_required".
+    stripe_setup_intent_id: Optional[str] = None
+
 
 class AppointmentUpdate(BaseModel):
     shop_slug: Optional[str] = None
