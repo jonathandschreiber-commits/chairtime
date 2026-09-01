@@ -1,36 +1,177 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useParams } from "next/navigation";
 
-const API_BASE = "https://chairtime-production-94da.up.railway.app";
+const API_BASE =
+  "https://chairtime-production-94da.up.railway.app";
+
+const STRIPE_PUBLISHABLE_KEY =
+  process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY ||
+  "";
+
+let stripeScriptPromise = null;
+
+function loadStripeScript() {
+  if (
+    typeof window !== "undefined" &&
+    window.Stripe
+  ) {
+    return Promise.resolve();
+  }
+
+  if (stripeScriptPromise) {
+    return stripeScriptPromise;
+  }
+
+  stripeScriptPromise = new Promise(
+    (resolve, reject) => {
+      const existingScript =
+        document.querySelector(
+          'script[src="https://js.stripe.com/v3/"]'
+        );
+
+      if (existingScript) {
+        existingScript.addEventListener(
+          "load",
+          () => resolve()
+        );
+
+        existingScript.addEventListener(
+          "error",
+          () =>
+            reject(
+              new Error(
+                "Stripe could not be loaded."
+              )
+            )
+        );
+
+        return;
+      }
+
+      const script =
+        document.createElement("script");
+
+      script.src =
+        "https://js.stripe.com/v3/";
+
+      script.async = true;
+
+      script.onload = () => resolve();
+
+      script.onerror = () =>
+        reject(
+          new Error(
+            "Stripe could not be loaded."
+          )
+        );
+
+      document.head.appendChild(script);
+    }
+  );
+
+  return stripeScriptPromise;
+}
 
 export default function ShopBookingPage() {
   const params = useParams();
 
-  const SHOP_SLUG = Array.isArray(params?.shop)
+  const SHOP_SLUG = Array.isArray(
+    params?.shop
+  )
     ? params.shop[0]
     : params?.shop || "";
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = new Date()
+    .toISOString()
+    .slice(0, 10);
 
-  const [shopName, setShopName] = useState("");
-  const [barbers, setBarbers] = useState([]);
-  const [services, setServices] = useState([]);
-  const [appointments, setAppointments] = useState([]);
-  const [availableSlots, setAvailableSlots] = useState([]);
+  const [shopName, setShopName] =
+    useState("");
 
-  const [customerName, setCustomerName] = useState("");
-  const [customerPhone, setCustomerPhone] = useState("");
-  const [notes, setNotes] = useState("");
+  const [paymentPolicy, setPaymentPolicy] =
+    useState("none");
 
-  const [selectedBarberId, setSelectedBarberId] = useState("");
-  const [selectedServiceId, setSelectedServiceId] = useState("");
-  const [selectedDate, setSelectedDate] = useState(today);
-  const [selectedSlot, setSelectedSlot] = useState("");
+  const [barbers, setBarbers] =
+    useState([]);
 
-  const [message, setMessage] = useState("");
-  const [booking, setBooking] = useState(false);
+  const [services, setServices] =
+    useState([]);
+
+  const [appointments, setAppointments] =
+    useState([]);
+
+  const [
+    availableSlots,
+    setAvailableSlots,
+  ] = useState([]);
+
+  const [
+    customerName,
+    setCustomerName,
+  ] = useState("");
+
+  const [
+    customerPhone,
+    setCustomerPhone,
+  ] = useState("");
+
+  const [notes, setNotes] =
+    useState("");
+
+  const [
+    selectedBarberId,
+    setSelectedBarberId,
+  ] = useState("");
+
+  const [
+    selectedServiceId,
+    setSelectedServiceId,
+  ] = useState("");
+
+  const [
+    selectedDate,
+    setSelectedDate,
+  ] = useState(today);
+
+  const [
+    selectedSlot,
+    setSelectedSlot,
+  ] = useState("");
+
+  const [message, setMessage] =
+    useState("");
+
+  const [booking, setBooking] =
+    useState(false);
+
+  const [
+    preparingCard,
+    setPreparingCard,
+  ] = useState(false);
+
+  const [
+    cardFormReady,
+    setCardFormReady,
+  ] = useState(false);
+
+  const [
+    cardError,
+    setCardError,
+  ] = useState("");
+
+  const stripeRef = useRef(null);
+  const elementsRef = useRef(null);
+  const paymentElementRef = useRef(null);
+
+  const paymentElementContainerRef =
+    useRef(null);
 
   async function loadData() {
     if (!SHOP_SLUG) {
@@ -38,7 +179,10 @@ export default function ShopBookingPage() {
     }
 
     try {
-      const query = `?shop_slug=${encodeURIComponent(SHOP_SLUG)}`;
+      const query =
+        `?shop_slug=${encodeURIComponent(
+          SHOP_SLUG
+        )}`;
 
       const [
         shopRes,
@@ -46,37 +190,66 @@ export default function ShopBookingPage() {
         servicesRes,
         appointmentsRes,
       ] = await Promise.all([
-        fetch(`${API_BASE}/api/shops${query}`),
-        fetch(`${API_BASE}/api/barbers${query}`),
-        fetch(`${API_BASE}/api/services${query}`),
-        fetch(`${API_BASE}/api/appointments${query}`),
+        fetch(
+          `${API_BASE}/api/shops${query}`
+        ),
+
+        fetch(
+          `${API_BASE}/api/barbers${query}`
+        ),
+
+        fetch(
+          `${API_BASE}/api/services${query}`
+        ),
+
+        fetch(
+          `${API_BASE}/api/appointments${query}`
+        ),
       ]);
 
       if (shopRes.ok) {
-        const shops = await shopRes.json();
+        const shops =
+          await shopRes.json();
 
         if (
           Array.isArray(shops) &&
-          shops.length > 0 &&
-          shops[0]?.name
+          shops.length > 0
         ) {
-          setShopName(shops[0].name);
+          const shop = shops[0];
+
+          if (shop?.name) {
+            setShopName(shop.name);
+          }
+
+          setPaymentPolicy(
+            shop?.payment_policy ||
+              "none"
+          );
         }
       }
 
       if (barbersRes.ok) {
-        setBarbers(await barbersRes.json());
+        setBarbers(
+          await barbersRes.json()
+        );
       }
 
       if (servicesRes.ok) {
-        setServices(await servicesRes.json());
+        setServices(
+          await servicesRes.json()
+        );
       }
 
       if (appointmentsRes.ok) {
-        setAppointments(await appointmentsRes.json());
+        setAppointments(
+          await appointmentsRes.json()
+        );
       }
     } catch (error) {
-      console.error("Could not load booking data:", error);
+      console.error(
+        "Could not load booking data:",
+        error
+      );
     }
   }
 
@@ -85,44 +258,82 @@ export default function ShopBookingPage() {
   }, [SHOP_SLUG]);
 
   function cleanPhone(phone) {
-    return String(phone || "").replace(/\D/g, "");
+    return String(phone || "").replace(
+      /\D/g,
+      ""
+    );
   }
 
   /*
-   * Each Service record belongs to a particular staff member.
-   * Only show services assigned to the currently selected person.
+   * Each Service record belongs to a
+   * particular staff member.
+   * Only show services assigned to the
+   * currently selected person.
    */
-  const availableServices = useMemo(() => {
-    if (!selectedBarberId) {
-      return [];
-    }
+  const availableServices =
+    useMemo(() => {
+      if (!selectedBarberId) {
+        return [];
+      }
 
-    return services.filter(
-      (service) => service.barber_id === selectedBarberId
-    );
-  }, [services, selectedBarberId]);
+      return services.filter(
+        (service) =>
+          service.barber_id ===
+          selectedBarberId
+      );
+    }, [
+      services,
+      selectedBarberId,
+    ]);
 
-  const recognizedCustomer = useMemo(() => {
-    const phone = cleanPhone(customerPhone);
+  const selectedService =
+    useMemo(() => {
+      return (
+        services.find(
+          (service) =>
+            service.id ===
+            selectedServiceId
+        ) || null
+      );
+    }, [
+      services,
+      selectedServiceId,
+    ]);
 
-    if (!phone || !SHOP_SLUG) {
-      return null;
-    }
+  const recognizedCustomer =
+    useMemo(() => {
+      const phone =
+        cleanPhone(customerPhone);
 
-    return (
-      appointments
-        .filter(
-          (appointment) =>
-            appointment.shop_slug === SHOP_SLUG &&
-            cleanPhone(appointment.customer_phone) === phone
-        )
-        .sort(
-          (a, b) =>
-            new Date(b.start_datetime) -
-            new Date(a.start_datetime)
-        )[0] || null
-    );
-  }, [appointments, customerPhone, SHOP_SLUG]);
+      if (!phone || !SHOP_SLUG) {
+        return null;
+      }
+
+      return (
+        appointments
+          .filter(
+            (appointment) =>
+              appointment.shop_slug ===
+                SHOP_SLUG &&
+              cleanPhone(
+                appointment.customer_phone
+              ) === phone
+          )
+          .sort(
+            (a, b) =>
+              new Date(
+                b.start_datetime
+              ) -
+              new Date(
+                a.start_datetime
+              )
+          )[0] || null
+      );
+    }, [
+      appointments,
+      customerPhone,
+      SHOP_SLUG,
+    ]);
 
   useEffect(() => {
     if (!recognizedCustomer) {
@@ -130,17 +341,30 @@ export default function ShopBookingPage() {
     }
 
     if (!customerName) {
-      setCustomerName(recognizedCustomer.customer_name);
+      setCustomerName(
+        recognizedCustomer.customer_name
+      );
     }
 
-    if (recognizedCustomer.barber_id) {
-      setSelectedBarberId(recognizedCustomer.barber_id);
+    if (
+      recognizedCustomer.barber_id
+    ) {
+      setSelectedBarberId(
+        recognizedCustomer.barber_id
+      );
     }
 
-    if (recognizedCustomer.service_id) {
-      setSelectedServiceId(recognizedCustomer.service_id);
+    if (
+      recognizedCustomer.service_id
+    ) {
+      setSelectedServiceId(
+        recognizedCustomer.service_id
+      );
     }
-  }, [recognizedCustomer, customerName]);
+  }, [
+    recognizedCustomer,
+    customerName,
+  ]);
 
   useEffect(() => {
     if (
@@ -158,27 +382,39 @@ export default function ShopBookingPage() {
       setSelectedSlot("");
 
       try {
-        const params = new URLSearchParams({
-          shop_slug: SHOP_SLUG,
-          barber_id: selectedBarberId,
-          service_id: selectedServiceId,
-          target_date: selectedDate,
-        });
+        const searchParams =
+          new URLSearchParams({
+            shop_slug: SHOP_SLUG,
+            barber_id:
+              selectedBarberId,
+            service_id:
+              selectedServiceId,
+            target_date:
+              selectedDate,
+          });
 
-        const response = await fetch(
-          `${API_BASE}/api/availability?${params.toString()}`
-        );
+        const response =
+          await fetch(
+            `${API_BASE}/api/availability?${searchParams.toString()}`
+          );
 
         if (!response.ok) {
           setAvailableSlots([]);
           return;
         }
 
-        const data = await response.json();
+        const data =
+          await response.json();
 
-        setAvailableSlots(data.slots || []);
+        setAvailableSlots(
+          data.slots || []
+        );
       } catch (error) {
-        console.error("Could not load availability:", error);
+        console.error(
+          "Could not load availability:",
+          error
+        );
+
         setAvailableSlots([]);
       }
     }
@@ -191,8 +427,19 @@ export default function ShopBookingPage() {
     selectedDate,
   ]);
 
+  useEffect(() => {
+    resetCardForm();
+  }, [
+    selectedBarberId,
+    selectedServiceId,
+    selectedDate,
+    selectedSlot,
+  ]);
+
   function formatTime(value) {
-    return new Date(value).toLocaleTimeString([], {
+    return new Date(
+      value
+    ).toLocaleTimeString([], {
       hour: "numeric",
       minute: "2-digit",
     });
@@ -200,19 +447,44 @@ export default function ShopBookingPage() {
 
   function barberName(id) {
     return (
-      barbers.find((barber) => barber.id === id)?.name ||
-      "staff member"
+      barbers.find(
+        (barber) =>
+          barber.id === id
+      )?.name || "staff member"
     );
   }
 
   function serviceName(id) {
     return (
-      services.find((service) => service.id === id)?.name ||
-      "service"
+      services.find(
+        (service) =>
+          service.id === id
+      )?.name || "service"
     );
   }
 
-  async function createAppointment() {
+  function resetCardForm() {
+    try {
+      if (
+        paymentElementRef.current
+      ) {
+        paymentElementRef.current.destroy();
+      }
+    } catch {
+      // Nothing else is needed here.
+    }
+
+    paymentElementRef.current =
+      null;
+
+    elementsRef.current = null;
+    stripeRef.current = null;
+
+    setCardFormReady(false);
+    setCardError("");
+  }
+
+  function validateBookingFields() {
     if (
       !customerName.trim() ||
       !customerPhone.trim() ||
@@ -220,7 +492,229 @@ export default function ShopBookingPage() {
       !selectedServiceId ||
       !selectedSlot
     ) {
-      setMessage("Please complete all fields.");
+      setMessage(
+        "Please complete all fields."
+      );
+
+      return false;
+    }
+
+    return true;
+  }
+
+  async function prepareCardForm() {
+    if (preparingCard) {
+      return;
+    }
+
+    if (!validateBookingFields()) {
+      return;
+    }
+
+    if (!STRIPE_PUBLISHABLE_KEY) {
+      setCardError(
+        "Secure card entry is not configured yet."
+      );
+
+      return;
+    }
+
+    setPreparingCard(true);
+    setMessage("");
+    setCardError("");
+
+    try {
+      const response = await fetch(
+        `${API_BASE}/api/billing/booking/setup-intent`,
+        {
+          method: "POST",
+
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+
+          body: JSON.stringify({
+            shop_slug: SHOP_SLUG,
+          }),
+        }
+      );
+
+      const data = await response
+        .json()
+        .catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(
+          typeof data.detail ===
+            "string"
+            ? data.detail
+            : "Could not prepare secure card entry."
+        );
+      }
+
+      if (
+        !data.client_secret ||
+        !data.stripe_connect_account_id
+      ) {
+        throw new Error(
+          "Stripe did not return the information needed for secure card entry."
+        );
+      }
+
+      await loadStripeScript();
+
+      if (!window.Stripe) {
+        throw new Error(
+          "Stripe could not be loaded."
+        );
+      }
+
+      const stripe =
+        window.Stripe(
+          STRIPE_PUBLISHABLE_KEY,
+          {
+            stripeAccount:
+              data.stripe_connect_account_id,
+          }
+        );
+
+      const elements =
+        stripe.elements({
+          clientSecret:
+            data.client_secret,
+
+          appearance: {
+            theme: "stripe",
+
+            variables: {
+              borderRadius: "12px",
+              fontSizeBase: "16px",
+            },
+          },
+        });
+
+      const paymentElement =
+        elements.create("payment", {
+          layout: "tabs",
+        });
+
+      stripeRef.current = stripe;
+      elementsRef.current =
+        elements;
+
+      paymentElementRef.current =
+        paymentElement;
+
+      setCardFormReady(true);
+
+      setTimeout(() => {
+        if (
+          paymentElementContainerRef.current
+        ) {
+          paymentElement.mount(
+            paymentElementContainerRef.current
+          );
+        }
+      }, 0);
+    } catch (error) {
+      console.error(
+        "Could not prepare card entry:",
+        error
+      );
+
+      setCardError(
+        error instanceof Error
+          ? error.message
+          : "Could not prepare secure card entry."
+      );
+
+      resetCardForm();
+    } finally {
+      setPreparingCard(false);
+    }
+  }
+
+  async function submitAppointment() {
+    const response = await fetch(
+      `${API_BASE}/api/appointments`,
+      {
+        method: "POST",
+
+        headers: {
+          "Content-Type":
+            "application/json",
+        },
+
+        body: JSON.stringify({
+          shop_slug: SHOP_SLUG,
+          barber_id:
+            selectedBarberId,
+          service_id:
+            selectedServiceId,
+          customer_name:
+            customerName.trim(),
+          customer_phone:
+            customerPhone.trim(),
+          notes:
+            notes.trim() || null,
+          start_datetime:
+            selectedSlot,
+        }),
+      }
+    );
+
+    if (response.ok) {
+      return true;
+    }
+
+    let detail = "";
+
+    try {
+      const errorData =
+        await response.json();
+
+      detail =
+        typeof errorData.detail ===
+          "string"
+          ? errorData.detail
+          : "";
+    } catch {
+      // Keep the simple
+      // customer-facing message.
+    }
+
+    console.error(
+      "Appointment creation failed:",
+      response.status,
+      detail
+    );
+
+    throw new Error(
+      detail ||
+        "Could not create appointment."
+    );
+  }
+
+  async function createAppointment() {
+    if (!validateBookingFields()) {
+      return;
+    }
+
+    if (
+      paymentPolicy ===
+      "card_required"
+    ) {
+      if (!cardFormReady) {
+        await prepareCardForm();
+        return;
+      }
+
+      await confirmCardAndBook();
+      return;
+    }
+
+    if (booking) {
       return;
     }
 
@@ -228,58 +722,115 @@ export default function ShopBookingPage() {
     setMessage("");
 
     try {
-      const response = await fetch(`${API_BASE}/api/appointments`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          shop_slug: SHOP_SLUG,
-          barber_id: selectedBarberId,
-          service_id: selectedServiceId,
-          customer_name: customerName.trim(),
-          customer_phone: customerPhone.trim(),
-          notes: notes.trim() || null,
-          start_datetime: selectedSlot,
-        }),
-      });
+      await submitAppointment();
 
-      if (response.ok) {
-        setMessage("Appointment booked successfully.");
-        setSelectedSlot("");
-        setNotes("");
-        await loadData();
-      } else {
-        let detail = "";
+      setMessage(
+        "Appointment booked successfully."
+      );
 
-        try {
-          const errorData = await response.json();
+      setSelectedSlot("");
+      setNotes("");
 
-          detail =
-            typeof errorData.detail === "string"
-              ? errorData.detail
-              : "";
-        } catch {
-          // Keep the simple customer-facing message below.
-        }
-
-        console.error(
-          "Appointment creation failed:",
-          response.status,
-          detail
-        );
-
-        setMessage(
-          detail || "Could not create appointment."
-        );
-      }
+      await loadData();
     } catch (error) {
-      console.error("Could not create appointment:", error);
-      setMessage("Could not create appointment.");
+      console.error(
+        "Could not create appointment:",
+        error
+      );
+
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Could not create appointment."
+      );
     } finally {
       setBooking(false);
     }
   }
+
+  async function confirmCardAndBook() {
+    if (booking) {
+      return;
+    }
+
+    if (
+      !stripeRef.current ||
+      !elementsRef.current
+    ) {
+      setCardError(
+        "Secure card entry is not ready. Please try again."
+      );
+
+      return;
+    }
+
+    setBooking(true);
+    setMessage("");
+    setCardError("");
+
+    try {
+      const {
+        error,
+        setupIntent,
+      } =
+        await stripeRef.current.confirmSetup(
+          {
+            elements:
+              elementsRef.current,
+
+            redirect:
+              "if_required",
+          }
+        );
+
+      if (error) {
+        throw new Error(
+          error.message ||
+            "Your card could not be verified."
+        );
+      }
+
+      if (
+        !setupIntent ||
+        setupIntent.status !==
+          "succeeded"
+      ) {
+        throw new Error(
+          "Your card could not be verified."
+        );
+      }
+
+      await submitAppointment();
+
+      setMessage(
+        "Appointment booked successfully."
+      );
+
+      setSelectedSlot("");
+      setNotes("");
+
+      resetCardForm();
+
+      await loadData();
+    } catch (error) {
+      console.error(
+        "Could not verify card and book appointment:",
+        error
+      );
+
+      setCardError(
+        error instanceof Error
+          ? error.message
+          : "Could not verify your card."
+      );
+    } finally {
+      setBooking(false);
+    }
+  }
+
+  const cardRequired =
+    paymentPolicy ===
+    "card_required";
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-sky-50 p-4 sm:p-10">
@@ -296,13 +847,15 @@ export default function ShopBookingPage() {
           </h1>
 
           <p className="mt-2 text-gray-700">
-            Choose your service, staff member, date, and time.
+            Choose your service, staff
+            member, date, and time.
           </p>
 
           {message && (
             <p
               className={`mt-4 font-bold ${
-                message === "Appointment booked successfully."
+                message ===
+                "Appointment booked successfully."
                   ? "text-green-700"
                   : "text-red-700"
               }`}
@@ -322,16 +875,28 @@ export default function ShopBookingPage() {
               className="w-full border rounded-2xl p-5 text-xl"
               value={customerPhone}
               onChange={(event) =>
-                setCustomerPhone(event.target.value)
+                setCustomerPhone(
+                  event.target.value
+                )
               }
               placeholder="240-555-1234"
             />
 
             {recognizedCustomer && (
               <p className="mt-2 text-green-700 font-bold">
-                Welcome back, {recognizedCustomer.customer_name}. We selected{" "}
-                {barberName(recognizedCustomer.barber_id)} and{" "}
-                {serviceName(recognizedCustomer.service_id)} from your last visit.
+                Welcome back,{" "}
+                {
+                  recognizedCustomer.customer_name
+                }
+                . We selected{" "}
+                {barberName(
+                  recognizedCustomer.barber_id
+                )}{" "}
+                and{" "}
+                {serviceName(
+                  recognizedCustomer.service_id
+                )}{" "}
+                from your last visit.
               </p>
             )}
           </div>
@@ -345,7 +910,9 @@ export default function ShopBookingPage() {
               className="w-full border rounded-2xl p-5 text-xl"
               value={customerName}
               onChange={(event) =>
-                setCustomerName(event.target.value)
+                setCustomerName(
+                  event.target.value
+                )
               }
               placeholder="Your name"
             />
@@ -358,21 +925,39 @@ export default function ShopBookingPage() {
 
             <select
               className="w-full border rounded-2xl p-5 text-xl"
-              value={selectedBarberId}
+              value={
+                selectedBarberId
+              }
               onChange={(event) => {
-                setSelectedBarberId(event.target.value);
-                setSelectedServiceId("");
+                setSelectedBarberId(
+                  event.target.value
+                );
+
+                setSelectedServiceId(
+                  ""
+                );
+
                 setSelectedSlot("");
-                setAvailableSlots([]);
+
+                setAvailableSlots(
+                  []
+                );
               }}
             >
-              <option value="">Select staff member</option>
+              <option value="">
+                Select staff member
+              </option>
 
-              {barbers.map((barber) => (
-                <option key={barber.id} value={barber.id}>
-                  {barber.name}
-                </option>
-              ))}
+              {barbers.map(
+                (barber) => (
+                  <option
+                    key={barber.id}
+                    value={barber.id}
+                  >
+                    {barber.name}
+                  </option>
+                )
+              )}
             </select>
           </div>
 
@@ -383,10 +968,17 @@ export default function ShopBookingPage() {
 
             <select
               className="w-full border rounded-2xl p-5 text-xl"
-              value={selectedServiceId}
-              disabled={!selectedBarberId}
+              value={
+                selectedServiceId
+              }
+              disabled={
+                !selectedBarberId
+              }
               onChange={(event) => {
-                setSelectedServiceId(event.target.value);
+                setSelectedServiceId(
+                  event.target.value
+                );
+
                 setSelectedSlot("");
               }}
             >
@@ -396,12 +988,48 @@ export default function ShopBookingPage() {
                   : "Select staff member first"}
               </option>
 
-              {availableServices.map((service) => (
-                <option key={service.id} value={service.id}>
-                  {service.name}
-                </option>
-              ))}
+              {availableServices.map(
+                (service) => (
+                  <option
+                    key={service.id}
+                    value={service.id}
+                  >
+                    {service.name}
+                    {service.price !==
+                      undefined &&
+                    service.price !==
+                      null
+                      ? ` — $${Number(
+                          service.price
+                        ).toFixed(2)}`
+                      : ""}
+                  </option>
+                )
+              )}
             </select>
+
+            {selectedService && (
+              <p className="mt-2 text-sm text-gray-600">
+                {selectedService.duration_minutes
+                  ? `${selectedService.duration_minutes} minutes`
+                  : ""}
+                {selectedService.duration_minutes &&
+                selectedService.price !==
+                  undefined &&
+                selectedService.price !==
+                  null
+                  ? " • "
+                  : ""}
+                {selectedService.price !==
+                  undefined &&
+                selectedService.price !==
+                  null
+                  ? `$${Number(
+                      selectedService.price
+                    ).toFixed(2)}`
+                  : ""}
+              </p>
+            )}
           </div>
 
           <div>
@@ -415,7 +1043,10 @@ export default function ShopBookingPage() {
               className="w-full border rounded-2xl p-5 text-xl"
               value={selectedDate}
               onChange={(event) => {
-                setSelectedDate(event.target.value);
+                setSelectedDate(
+                  event.target.value
+                );
+
                 setSelectedSlot("");
               }}
             />
@@ -427,25 +1058,35 @@ export default function ShopBookingPage() {
             </label>
 
             <div className="grid grid-cols-2 gap-3">
-              {availableSlots.map((slot) => (
-                <button
-                  key={slot}
-                  type="button"
-                  onClick={() => setSelectedSlot(slot)}
-                  className={`rounded-2xl p-4 font-bold border ${
-                    selectedSlot === slot
-                      ? "bg-black text-white"
-                      : "bg-white"
-                  }`}
-                >
-                  {formatTime(slot)}
-                </button>
-              ))}
+              {availableSlots.map(
+                (slot) => (
+                  <button
+                    key={slot}
+                    type="button"
+                    onClick={() =>
+                      setSelectedSlot(
+                        slot
+                      )
+                    }
+                    className={`rounded-2xl p-4 font-bold border ${
+                      selectedSlot ===
+                      slot
+                        ? "bg-black text-white"
+                        : "bg-white"
+                    }`}
+                  >
+                    {formatTime(slot)}
+                  </button>
+                )
+              )}
             </div>
 
-            {availableSlots.length === 0 && (
+            {availableSlots.length ===
+              0 && (
               <p className="mt-3 text-gray-900">
-                Choose a staff member, service, and date to see times.
+                Choose a staff member,
+                service, and date to see
+                times.
               </p>
             )}
           </div>
@@ -459,20 +1100,93 @@ export default function ShopBookingPage() {
               className="w-full border rounded-2xl p-5 min-h-28"
               value={notes}
               onChange={(event) =>
-                setNotes(event.target.value)
+                setNotes(
+                  event.target.value
+                )
               }
               placeholder="Optional notes"
             />
           </div>
 
+          {cardRequired && (
+            <div className="rounded-2xl border border-violet-200 bg-violet-50 p-5">
+              <div className="flex gap-3">
+                <div className="text-2xl">
+                  🛡️
+                </div>
+
+                <div>
+                  <p className="font-extrabold text-slate-900">
+                    Card required to
+                    reserve
+                  </p>
+
+                  <p className="mt-1 text-sm text-slate-700">
+                    This business asks
+                    for a card to help
+                    protect against
+                    no-shows. Your card
+                    is not charged just
+                    for making this
+                    reservation.
+                  </p>
+                </div>
+              </div>
+
+              {cardFormReady && (
+                <div className="mt-5 rounded-xl bg-white border border-violet-200 p-4">
+                  <p className="font-bold mb-3 text-slate-900">
+                    Card information
+                  </p>
+
+                  <div
+                    ref={
+                      paymentElementContainerRef
+                    }
+                  />
+                </div>
+              )}
+
+              {cardError && (
+                <p className="mt-4 font-bold text-red-700">
+                  {cardError}
+                </p>
+              )}
+            </div>
+          )}
+
           <button
             type="button"
-            onClick={createAppointment}
-            disabled={booking}
+            onClick={
+              createAppointment
+            }
+            disabled={
+              booking ||
+              preparingCard
+            }
             className="w-full bg-black text-white rounded-2xl p-5 text-xl font-bold disabled:opacity-50"
           >
-            {booking ? "Booking..." : "Book Appointment"}
+            {booking
+              ? cardRequired
+                ? "Reserving..."
+                : "Booking..."
+              : preparingCard
+                ? "Opening Secure Card Entry..."
+                : cardRequired &&
+                    !cardFormReady
+                  ? "Continue to Card"
+                  : cardRequired
+                    ? "Reserve Appointment"
+                    : "Book Appointment"}
           </button>
+
+          {cardRequired && (
+            <p className="text-center text-xs text-gray-500">
+              Card information is
+              handled securely by
+              Stripe.
+            </p>
+          )}
         </section>
       </div>
     </main>
