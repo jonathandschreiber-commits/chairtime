@@ -231,7 +231,11 @@ def verify_booking_setup_intent(
             ),
         )
 
-    metadata = setup_intent.metadata or {}
+    metadata = (
+        setup_intent.metadata.to_dict()
+        if setup_intent.metadata
+        else {}
+    )
 
     metadata_shop_id = str(
         metadata.get("shop_id") or ""
