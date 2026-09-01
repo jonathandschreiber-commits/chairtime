@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 
 import stripe
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -11,6 +12,10 @@ from app.routes.auth import get_current_user
 
 
 router = APIRouter()
+
+
+class BookingSetupIntentCreate(BaseModel):
+    shop_slug: str
 
 
 def get_stripe_secret_key() -> str:
@@ -599,6 +604,118 @@ def create_connect_dashboard_link(
     return {
         "success": True,
         "dashboard_url": login_link.url,
+    }
+
+
+@router.post("/booking/setup-intent")
+def create_booking_setup_intent(
+    payload: BookingSetupIntentCreate,
+    db: Session = Depends(get_db),
+):
+    clean_slug = payload.shop_slug.strip().lower()
+
+    shop = (
+        db.query(Shop)
+        .filter(Shop.slug == clean_slug)
+        .first()
+    )
+
+    if not shop:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Business not found.",
+        )
+
+    if shop.payment_policy != "card_required":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "This business does not require a card "
+                "to reserve an appointment."
+            ),
+        )
+
+    if not shop.stripe_connect_account_id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "This business has not finished "
+                "setting up card reservations."
+            ),
+        )
+
+    try:
+        stripe.api_key = get_stripe_secret_key()
+
+        account = stripe.Account.retrieve(
+            shop.stripe_connect_account_id
+        )
+
+        charges_enabled = bool(
+            get_object_value(
+                account,
+                "charges_enabled",
+                False,
+            )
+        )
+
+        if not charges_enabled:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "This business is not yet ready "
+                    "to accept customer cards."
+                ),
+            )
+
+        setup_intent = stripe.SetupIntent.create(
+            payment_method_types=["card"],
+            usage="off_session",
+            metadata={
+                "shop_id": str(shop.id),
+                "shop_slug": shop.slug,
+                "purpose": "appointment_reservation",
+            },
+            stripe_account=shop.stripe_connect_account_id,
+        )
+
+    except HTTPException:
+        raise
+
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(exc),
+        )
+
+    except stripe.StripeError as exc:
+        message = getattr(
+            exc,
+            "user_message",
+            None,
+        )
+
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=(
+                message
+                or "Unable to prepare secure card entry."
+            ),
+        )
+
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to prepare secure card entry.",
+        )
+
+    return {
+        "success": True,
+        "client_secret": setup_intent.client_secret,
+        "setup_intent_id": setup_intent.id,
+        "stripe_connect_account_id": (
+            shop.stripe_connect_account_id
+        ),
     }
 
 
