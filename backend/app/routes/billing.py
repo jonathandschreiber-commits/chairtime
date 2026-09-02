@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Shop, User
+from app.models import Appointment, Shop, User
 from app.routes.auth import get_current_user
 
 
@@ -16,6 +16,8 @@ router = APIRouter()
 
 class BookingSetupIntentCreate(BaseModel):
     shop_slug: str
+    customer_name: str | None = None
+    customer_phone: str | None = None
 
 
 def get_stripe_secret_key() -> str:
@@ -124,6 +126,143 @@ def timestamp_to_datetime(timestamp):
         )
         .replace(tzinfo=None)
     )
+
+
+def normalize_customer_phone(phone: str | None) -> str:
+    if not phone:
+        return ""
+
+    return "".join(
+        character
+        for character in str(phone)
+        if character.isdigit()
+    )
+
+
+def find_existing_stripe_customer_id(
+    db: Session,
+    shop_slug: str,
+    customer_phone: str,
+) -> str | None:
+    normalized_phone = normalize_customer_phone(
+        customer_phone
+    )
+
+    if not normalized_phone:
+        return None
+
+    prior_appointments = (
+        db.query(Appointment)
+        .filter(
+            Appointment.shop_slug == shop_slug,
+            Appointment.stripe_customer_id.isnot(None),
+        )
+        .order_by(
+            Appointment.created_at.desc()
+        )
+        .all()
+    )
+
+    for appointment in prior_appointments:
+        appointment_phone = normalize_customer_phone(
+            appointment.customer_phone
+        )
+
+        if (
+            appointment_phone == normalized_phone
+            and appointment.stripe_customer_id
+        ):
+            return str(
+                appointment.stripe_customer_id
+            ).strip()
+
+    return None
+
+
+def get_or_create_booking_customer(
+    db: Session,
+    shop: Shop,
+    customer_name: str,
+    customer_phone: str,
+) -> str:
+    stripe.api_key = get_stripe_secret_key()
+
+    if not shop.stripe_connect_account_id:
+        raise RuntimeError(
+            "This business does not have a Stripe connected account."
+        )
+
+    clean_name = str(
+        customer_name or ""
+    ).strip()
+
+    clean_phone = str(
+        customer_phone or ""
+    ).strip()
+
+    normalized_phone = normalize_customer_phone(
+        clean_phone
+    )
+
+    if not clean_name:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Customer name is required.",
+        )
+
+    if not normalized_phone:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Customer phone number is required.",
+        )
+
+    existing_customer_id = (
+        find_existing_stripe_customer_id(
+            db=db,
+            shop_slug=shop.slug,
+            customer_phone=clean_phone,
+        )
+    )
+
+    if existing_customer_id:
+        try:
+            customer = stripe.Customer.retrieve(
+                existing_customer_id,
+                stripe_account=(
+                    shop.stripe_connect_account_id
+                ),
+            )
+
+            if not bool(
+                get_object_value(
+                    customer,
+                    "deleted",
+                    False,
+                )
+            ):
+                return existing_customer_id
+
+        except stripe.StripeError:
+            # If an old Stripe customer reference is no
+            # longer valid, create a fresh customer below.
+            pass
+
+    customer = stripe.Customer.create(
+        name=clean_name,
+        phone=clean_phone,
+        metadata={
+            "shop_id": str(shop.id),
+            "shop_slug": shop.slug,
+            "chairtime_customer_phone": (
+                normalized_phone
+            ),
+        },
+        stripe_account=(
+            shop.stripe_connect_account_id
+        ),
+    )
+
+    return customer.id
 
 
 def find_shop_for_subscription(
@@ -668,15 +807,59 @@ def create_booking_setup_intent(
                 ),
             )
 
-        setup_intent = stripe.SetupIntent.create(
-            payment_method_types=["card"],
-            usage="off_session",
-            metadata={
+        clean_customer_name = str(
+            payload.customer_name or ""
+        ).strip()
+
+        clean_customer_phone = str(
+            payload.customer_phone or ""
+        ).strip()
+
+        stripe_customer_id = None
+
+        # Backward compatibility:
+        # Until the public booking frontend is updated,
+        # older requests may contain only shop_slug.
+        #
+        # Once name and phone are supplied, ChairTime
+        # creates or reuses a Stripe Customer on this
+        # shop's connected Stripe account.
+        if clean_customer_name and clean_customer_phone:
+            stripe_customer_id = (
+                get_or_create_booking_customer(
+                    db=db,
+                    shop=shop,
+                    customer_name=clean_customer_name,
+                    customer_phone=clean_customer_phone,
+                )
+            )
+
+        setup_intent_parameters = {
+            "payment_method_types": ["card"],
+            "usage": "off_session",
+            "metadata": {
                 "shop_id": str(shop.id),
                 "shop_slug": shop.slug,
                 "purpose": "appointment_reservation",
             },
-            stripe_account=shop.stripe_connect_account_id,
+            "stripe_account": (
+                shop.stripe_connect_account_id
+            ),
+        }
+
+        if stripe_customer_id:
+            setup_intent_parameters[
+                "customer"
+            ] = stripe_customer_id
+
+            setup_intent_parameters[
+                "metadata"
+            ][
+                "stripe_customer_id"
+            ] = stripe_customer_id
+
+        setup_intent = stripe.SetupIntent.create(
+            **setup_intent_parameters
         )
 
     except HTTPException:
@@ -703,7 +886,12 @@ def create_booking_setup_intent(
             ),
         )
 
-    except Exception:
+    except Exception as exc:
+        print(
+            "Booking SetupIntent creation failed:",
+            exc,
+        )
+
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Unable to prepare secure card entry.",
@@ -713,6 +901,7 @@ def create_booking_setup_intent(
         "success": True,
         "client_secret": setup_intent.client_secret,
         "setup_intent_id": setup_intent.id,
+        "stripe_customer_id": stripe_customer_id,
         "stripe_connect_account_id": (
             shop.stripe_connect_account_id
         ),
