@@ -18,6 +18,7 @@ class BookingSetupIntentCreate(BaseModel):
     shop_slug: str
     customer_name: str | None = None
     customer_phone: str | None = None
+    use_saved_card: bool = False
 
 
 def get_stripe_secret_key() -> str:
@@ -175,6 +176,127 @@ def find_existing_stripe_customer_id(
             return str(
                 appointment.stripe_customer_id
             ).strip()
+
+    return None
+
+
+def find_existing_saved_card(
+    db: Session,
+    shop: Shop,
+    customer_phone: str,
+):
+    normalized_phone = normalize_customer_phone(
+        customer_phone
+    )
+
+    if not normalized_phone:
+        return None
+
+    prior_appointments = (
+        db.query(Appointment)
+        .filter(
+            Appointment.shop_slug == shop.slug,
+            Appointment.stripe_customer_id.isnot(None),
+            Appointment.stripe_payment_method_id.isnot(None),
+        )
+        .order_by(
+            Appointment.created_at.desc()
+        )
+        .all()
+    )
+
+    for appointment in prior_appointments:
+        if (
+            normalize_customer_phone(
+                appointment.customer_phone
+            )
+            != normalized_phone
+        ):
+            continue
+
+        stripe_customer_id = str(
+            appointment.stripe_customer_id or ""
+        ).strip()
+
+        payment_method_id = str(
+            appointment.stripe_payment_method_id or ""
+        ).strip()
+
+        if (
+            not stripe_customer_id
+            or not payment_method_id
+        ):
+            continue
+
+        try:
+            stripe.api_key = get_stripe_secret_key()
+
+            customer = stripe.Customer.retrieve(
+                stripe_customer_id,
+                stripe_account=(
+                    shop.stripe_connect_account_id
+                ),
+            )
+
+            if bool(
+                get_object_value(
+                    customer,
+                    "deleted",
+                    False,
+                )
+            ):
+                continue
+
+            payment_method = (
+                stripe.PaymentMethod.retrieve(
+                    payment_method_id,
+                    stripe_account=(
+                        shop.stripe_connect_account_id
+                    ),
+                )
+            )
+
+            payment_method_customer_id = (
+                get_stripe_id(
+                    get_object_value(
+                        payment_method,
+                        "customer",
+                    )
+                )
+            )
+
+            if (
+                payment_method_customer_id
+                != stripe_customer_id
+            ):
+                continue
+
+            card = get_object_value(
+                payment_method,
+                "card",
+            )
+
+            last4 = get_object_value(
+                card,
+                "last4",
+            )
+
+            brand = get_object_value(
+                card,
+                "brand",
+            )
+
+            return {
+                "stripe_customer_id":
+                    stripe_customer_id,
+                "stripe_payment_method_id":
+                    payment_method_id,
+                "last4": last4,
+                "brand": brand,
+            }
+
+        except stripe.StripeError:
+            continue
 
     return None
 
@@ -692,7 +814,6 @@ def get_connect_status(
         "stripe_connect_account_id": account.id,
     }
 
-
 @router.post("/connect/dashboard")
 def create_connect_dashboard_link(
     current_user: User = Depends(get_current_user),
@@ -743,6 +864,65 @@ def create_connect_dashboard_link(
     return {
         "success": True,
         "dashboard_url": login_link.url,
+    }
+
+
+@router.get("/booking/saved-card")
+def get_booking_saved_card(
+    shop_slug: str,
+    customer_phone: str,
+    db: Session = Depends(get_db),
+):
+    clean_slug = str(
+        shop_slug or ""
+    ).strip().lower()
+
+    clean_phone = str(
+        customer_phone or ""
+    ).strip()
+
+    shop = (
+        db.query(Shop)
+        .filter(Shop.slug == clean_slug)
+        .first()
+    )
+
+    if not shop:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Business not found.",
+        )
+
+    if (
+        shop.payment_policy != "card_required"
+        or not shop.stripe_connect_account_id
+    ):
+        return {
+            "has_saved_card": False,
+        }
+
+    try:
+        saved_card = find_existing_saved_card(
+            db=db,
+            shop=shop,
+            customer_phone=clean_phone,
+        )
+
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(exc),
+        )
+
+    if not saved_card:
+        return {
+            "has_saved_card": False,
+        }
+
+    return {
+        "has_saved_card": True,
+        "brand": saved_card.get("brand"),
+        "last4": saved_card.get("last4"),
     }
 
 
@@ -816,15 +996,36 @@ def create_booking_setup_intent(
         ).strip()
 
         stripe_customer_id = None
+        saved_card = None
 
-        # Backward compatibility:
-        # Until the public booking frontend is updated,
-        # older requests may contain only shop_slug.
-        #
-        # Once name and phone are supplied, ChairTime
-        # creates or reuses a Stripe Customer on this
-        # shop's connected Stripe account.
-        if clean_customer_name and clean_customer_phone:
+        if (
+            payload.use_saved_card
+            and clean_customer_phone
+        ):
+            saved_card = find_existing_saved_card(
+                db=db,
+                shop=shop,
+                customer_phone=clean_customer_phone,
+            )
+
+            if not saved_card:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=(
+                        "No saved card is available "
+                        "for this customer."
+                    ),
+                )
+
+            stripe_customer_id = saved_card[
+                "stripe_customer_id"
+            ]
+
+        if (
+            not stripe_customer_id
+            and clean_customer_name
+            and clean_customer_phone
+        ):
             stripe_customer_id = (
                 get_or_create_booking_customer(
                     db=db,
@@ -858,9 +1059,34 @@ def create_booking_setup_intent(
                 "stripe_customer_id"
             ] = stripe_customer_id
 
+        if saved_card:
+            setup_intent_parameters[
+                "payment_method"
+            ] = saved_card[
+                "stripe_payment_method_id"
+            ]
+
+            setup_intent_parameters[
+                "confirm"
+            ] = True
+
         setup_intent = stripe.SetupIntent.create(
             **setup_intent_parameters
         )
+
+        if (
+            saved_card
+            and setup_intent.status
+            != "succeeded"
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "The saved card could not be "
+                    "verified automatically. Please "
+                    "enter the card again."
+                ),
+            )
 
     except HTTPException:
         raise
@@ -902,6 +1128,7 @@ def create_booking_setup_intent(
         "client_secret": setup_intent.client_secret,
         "setup_intent_id": setup_intent.id,
         "stripe_customer_id": stripe_customer_id,
+        "used_saved_card": bool(saved_card),
         "stripe_connect_account_id": (
             shop.stripe_connect_account_id
         ),
