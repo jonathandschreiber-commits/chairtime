@@ -17,6 +17,7 @@ const STRIPE_PUBLISHABLE_KEY =
 
 let stripeScriptPromise = null;
 
+
 function loadStripeScript() {
   if (
     typeof window !== "undefined" &&
@@ -85,6 +86,49 @@ function loadStripeScript() {
 }
 
 
+function cleanPhone(phone) {
+  let digits = String(
+    phone || ""
+  ).replace(/\D/g, "");
+
+  if (
+    digits.length === 11 &&
+    digits.startsWith("1")
+  ) {
+    digits = digits.slice(1);
+  }
+
+  return digits;
+}
+
+
+function cardBrandLabel(brand) {
+  const value = String(
+    brand || ""
+  ).toLowerCase();
+
+  if (value === "visa") {
+    return "Visa";
+  }
+
+  if (value === "mastercard") {
+    return "Mastercard";
+  }
+
+  if (value === "amex") {
+    return "American Express";
+  }
+
+  if (value === "discover") {
+    return "Discover";
+  }
+
+  return brand
+    ? String(brand)
+    : "Card";
+}
+
+
 export default function ShopBookingPage() {
   const params = useParams();
 
@@ -111,11 +155,6 @@ export default function ShopBookingPage() {
 
   const [services, setServices] =
     useState([]);
-
-  const [
-    appointments,
-    setAppointments,
-  ] = useState([]);
 
   const [
     availableSlots,
@@ -184,7 +223,43 @@ export default function ShopBookingPage() {
   const [cardError, setCardError] =
     useState("");
 
+  const [
+    verificationStatus,
+    setVerificationStatus,
+  ] = useState("idle");
+
+  const [
+    verificationCode,
+    setVerificationCode,
+  ] = useState("");
+
+  const [
+    verificationToken,
+    setVerificationToken,
+  ] = useState("");
+
+  const [
+    verificationMessage,
+    setVerificationMessage,
+  ] = useState("");
+
+  const [
+    verifiedCustomer,
+    setVerifiedCustomer,
+  ] = useState(null);
+
+  const [
+    savedCard,
+    setSavedCard,
+  ] = useState(null);
+
+  const [
+    useSavedCard,
+    setUseSavedCard,
+  ] = useState(true);
+
   const stripeRef = useRef(null);
+
   const elementsRef = useRef(null);
 
   const cardElementRef =
@@ -212,7 +287,6 @@ export default function ShopBookingPage() {
         shopRes,
         barbersRes,
         servicesRes,
-        appointmentsRes,
       ] = await Promise.all([
         fetch(
           `${API_BASE}/api/shops${query}`
@@ -224,10 +298,6 @@ export default function ShopBookingPage() {
 
         fetch(
           `${API_BASE}/api/services${query}`
-        ),
-
-        fetch(
-          `${API_BASE}/api/appointments${query}`
         ),
       ]);
 
@@ -263,12 +333,6 @@ export default function ShopBookingPage() {
           await servicesRes.json()
         );
       }
-
-      if (appointmentsRes.ok) {
-        setAppointments(
-          await appointmentsRes.json()
-        );
-      }
     } catch (error) {
       console.error(
         "Could not load booking data:",
@@ -281,14 +345,6 @@ export default function ShopBookingPage() {
   useEffect(() => {
     loadData();
   }, [SHOP_SLUG]);
-
-
-  function cleanPhone(phone) {
-    return String(phone || "").replace(
-      /\D/g,
-      ""
-    );
-  }
 
 
   const availableServices =
@@ -321,74 +377,6 @@ export default function ShopBookingPage() {
       services,
       selectedServiceId,
     ]);
-
-
-  const recognizedCustomer =
-    useMemo(() => {
-      const phone =
-        cleanPhone(customerPhone);
-
-      if (!phone || !SHOP_SLUG) {
-        return null;
-      }
-
-      return (
-        appointments
-          .filter(
-            (appointment) =>
-              appointment.shop_slug ===
-                SHOP_SLUG &&
-              cleanPhone(
-                appointment.customer_phone
-              ) === phone
-          )
-          .sort(
-            (a, b) =>
-              new Date(
-                b.start_datetime
-              ) -
-              new Date(
-                a.start_datetime
-              )
-          )[0] || null
-      );
-    }, [
-      appointments,
-      customerPhone,
-      SHOP_SLUG,
-    ]);
-
-
-  useEffect(() => {
-    if (!recognizedCustomer) {
-      return;
-    }
-
-    if (!customerName) {
-      setCustomerName(
-        recognizedCustomer.customer_name
-      );
-    }
-
-    if (
-      recognizedCustomer.barber_id
-    ) {
-      setSelectedBarberId(
-        recognizedCustomer.barber_id
-      );
-    }
-
-    if (
-      recognizedCustomer.service_id
-    ) {
-      setSelectedServiceId(
-        recognizedCustomer.service_id
-      );
-    }
-  }, [
-    recognizedCustomer,
-    customerName,
-  ]);
 
 
   useEffect(() => {
@@ -502,26 +490,6 @@ export default function ShopBookingPage() {
   }
 
 
-  function barberName(id) {
-    return (
-      barbers.find(
-        (barber) =>
-          barber.id === id
-      )?.name || "staff member"
-    );
-  }
-
-
-  function serviceName(id) {
-    return (
-      services.find(
-        (service) =>
-          service.id === id
-      )?.name || "service"
-    );
-  }
-
-
   function resetCardForm() {
     try {
       if (cardElementRef.current) {
@@ -545,22 +513,325 @@ export default function ShopBookingPage() {
   }
 
 
-  function validateBookingFields() {
-    if (
-      !customerName.trim() ||
-      !customerPhone.trim() ||
-      !selectedBarberId ||
-      !selectedServiceId ||
-      !selectedSlot
-    ) {
-      setMessage(
-        "Please complete all fields."
-      );
+  function resetVerification({
+    clearCustomer = false,
+  } = {}) {
+    setVerificationStatus("idle");
+    setVerificationCode("");
+    setVerificationToken("");
+    setVerificationMessage("");
+    setVerifiedCustomer(null);
+    setSavedCard(null);
+    setUseSavedCard(true);
 
-      return false;
+    if (clearCustomer) {
+      setCustomerName("");
     }
 
-    return true;
+    resetCardForm();
+  }
+
+
+  function handlePhoneChange(event) {
+    const newPhone =
+      event.target.value;
+
+    const oldCleanPhone =
+      cleanPhone(customerPhone);
+
+    const newCleanPhone =
+      cleanPhone(newPhone);
+
+    setCustomerPhone(newPhone);
+
+    if (
+      oldCleanPhone !==
+        newCleanPhone &&
+      verificationStatus !== "idle"
+    ) {
+      resetVerification({
+        clearCustomer:
+          Boolean(verifiedCustomer),
+      });
+    }
+  }
+
+
+  async function requestVerification() {
+    const phone =
+      cleanPhone(customerPhone);
+
+    if (phone.length !== 10) {
+      setVerificationMessage(
+        "Please enter a valid 10-digit phone number."
+      );
+
+      return {
+        verificationRequired: false,
+        newCustomer: false,
+      };
+    }
+
+    if (
+      verificationStatus ===
+      "requesting"
+    ) {
+      return {
+        verificationRequired: false,
+        newCustomer: false,
+      };
+    }
+
+    setVerificationStatus(
+      "requesting"
+    );
+
+    setVerificationMessage("");
+    setMessage("");
+
+    try {
+      const response = await fetch(
+        `${API_BASE}/api/customer-verification/request`,
+        {
+          method: "POST",
+
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+
+          body: JSON.stringify({
+            shop_slug: SHOP_SLUG,
+            customer_phone:
+              customerPhone.trim(),
+          }),
+        }
+      );
+
+      const data = await response
+        .json()
+        .catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(
+          typeof data.detail ===
+            "string"
+            ? data.detail
+            : "We couldn't verify this phone number."
+        );
+      }
+
+      if (
+        data.verification_required
+      ) {
+        setVerificationStatus(
+          "code_sent"
+        );
+
+        setVerificationMessage(
+          "We texted you a 6-digit verification code."
+        );
+
+        return {
+          verificationRequired: true,
+          newCustomer: false,
+        };
+      }
+
+      setVerificationStatus(
+        "new_customer"
+      );
+
+      setVerificationMessage(
+        ""
+      );
+
+      return {
+        verificationRequired: false,
+        newCustomer: true,
+      };
+    } catch (error) {
+      console.error(
+        "Could not request customer verification:",
+        error
+      );
+
+      setVerificationStatus("idle");
+
+      setVerificationMessage(
+        error instanceof Error
+          ? error.message
+          : "We couldn't send the verification code."
+      );
+
+      return {
+        verificationRequired: false,
+        newCustomer: false,
+      };
+    }
+  }
+
+
+  async function confirmVerification() {
+    const phone =
+      cleanPhone(customerPhone);
+
+    const code =
+      verificationCode
+        .replace(/\D/g, "")
+        .slice(0, 6);
+
+    if (phone.length !== 10) {
+      setVerificationMessage(
+        "Please enter a valid 10-digit phone number."
+      );
+      return;
+    }
+
+    if (code.length !== 6) {
+      setVerificationMessage(
+        "Please enter the 6-digit code we texted you."
+      );
+      return;
+    }
+
+    if (
+      verificationStatus ===
+      "verifying"
+    ) {
+      return;
+    }
+
+    setVerificationStatus(
+      "verifying"
+    );
+
+    setVerificationMessage("");
+
+    try {
+      const response = await fetch(
+        `${API_BASE}/api/customer-verification/confirm`,
+        {
+          method: "POST",
+
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+
+          body: JSON.stringify({
+            shop_slug: SHOP_SLUG,
+            customer_phone:
+              customerPhone.trim(),
+            code,
+          }),
+        }
+      );
+
+      const data = await response
+        .json()
+        .catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(
+          typeof data.detail ===
+            "string"
+            ? data.detail
+            : "The verification code could not be confirmed."
+        );
+      }
+
+      if (
+        !data.verified ||
+        !data.verification_token
+      ) {
+        throw new Error(
+          "Phone verification could not be completed."
+        );
+      }
+
+      setVerificationToken(
+        data.verification_token
+      );
+
+      setVerificationStatus(
+        "verified"
+      );
+
+      setVerificationCode("");
+
+      setVerifiedCustomer(
+        data.customer || null
+      );
+
+      setSavedCard(
+        data.saved_card || null
+      );
+
+      setUseSavedCard(
+        Boolean(data.saved_card)
+      );
+
+      if (data.customer?.name) {
+        setCustomerName(
+          data.customer.name
+        );
+      }
+
+      if (
+        data.customer
+          ?.last_barber_id &&
+        barbers.some(
+          (barber) =>
+            barber.id ===
+            data.customer.last_barber_id
+        )
+      ) {
+        setSelectedBarberId(
+          data.customer.last_barber_id
+        );
+
+        const priorServiceId =
+          data.customer
+            ?.last_service_id;
+
+        const priorServiceValid =
+          priorServiceId &&
+          services.some(
+            (service) =>
+              service.id ===
+                priorServiceId &&
+              service.barber_id ===
+                data.customer
+                  .last_barber_id
+          );
+
+        setSelectedServiceId(
+          priorServiceValid
+            ? priorServiceId
+            : ""
+        );
+
+        setSelectedSlot("");
+      }
+
+      setVerificationMessage("");
+    } catch (error) {
+      console.error(
+        "Could not confirm customer verification:",
+        error
+      );
+
+      setVerificationStatus(
+        "code_sent"
+      );
+
+      setVerificationMessage(
+        error instanceof Error
+          ? error.message
+          : "The verification code could not be confirmed."
+      );
+    }
   }
 
 
@@ -581,6 +852,8 @@ export default function ShopBookingPage() {
       return;
     }
 
+    resetCardForm();
+
     setPreparingCard(true);
     setMessage("");
     setCardError("");
@@ -600,10 +873,14 @@ export default function ShopBookingPage() {
 
           body: JSON.stringify({
             shop_slug: SHOP_SLUG,
+
             customer_name:
               customerName.trim(),
+
             customer_phone:
               customerPhone.trim(),
+
+            use_saved_card: false,
           }),
         }
       );
@@ -670,7 +947,7 @@ export default function ShopBookingPage() {
           },
         });
 
-          stripeRef.current = stripe;
+      stripeRef.current = stripe;
 
       elementsRef.current =
         elements;
@@ -723,6 +1000,36 @@ export default function ShopBookingPage() {
     } finally {
       setPreparingCard(false);
     }
+  }
+
+
+  function validateBookingFields() {
+    if (
+      !customerName.trim() ||
+      !customerPhone.trim() ||
+      !selectedBarberId ||
+      !selectedServiceId ||
+      !selectedSlot
+    ) {
+      setMessage(
+        "Please complete all fields."
+      );
+
+      return false;
+    }
+
+    if (
+      cleanPhone(customerPhone)
+        .length !== 10
+    ) {
+      setMessage(
+        "Please enter a valid 10-digit phone number."
+      );
+
+      return false;
+    }
+
+    return true;
   }
 
 
@@ -798,58 +1105,136 @@ export default function ShopBookingPage() {
   }
 
 
-  async function createAppointment() {
-    if (!validateBookingFields()) {
-      return;
-    }
+  function finishSuccessfulBooking() {
+    const bookedSlot = selectedSlot;
 
+    setMessage(
+      "Appointment booked successfully."
+    );
+
+    setSelectedSlot("");
+    setNotes("");
+
+    setAvailableSlots(
+      (currentSlots) =>
+        currentSlots.filter(
+          (slot) =>
+            slot !== bookedSlot
+        )
+    );
+
+    resetCardForm();
+  }
+
+
+  async function reserveWithSavedCard() {
     if (
-      paymentPolicy ===
-      "card_required"
+      !savedCard ||
+      !verificationToken
     ) {
-      if (!cardFormReady) {
-        await prepareCardForm();
-        return;
-      }
-
-      await confirmCardAndBook();
-      return;
-    }
-
-    if (booking) {
-      return;
+      return false;
     }
 
     setBooking(true);
     setMessage("");
+    setCardError("");
 
     try {
-      await submitAppointment();
+      const response = await fetch(
+        `${API_BASE}/api/billing/booking/setup-intent`,
+        {
+          method: "POST",
 
-      setMessage(
-        "Appointment booked successfully."
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+
+          body: JSON.stringify({
+            shop_slug: SHOP_SLUG,
+
+            customer_name:
+              customerName.trim(),
+
+            customer_phone:
+              customerPhone.trim(),
+
+            use_saved_card: true,
+
+            verification_token:
+              verificationToken,
+          }),
+        }
       );
 
-      setSelectedSlot("");
-      setNotes("");
+      const data = await response
+        .json()
+        .catch(() => ({}));
 
-      await loadData();
+      if (!response.ok) {
+        if (response.status === 401) {
+          resetVerification();
+
+          throw new Error(
+            typeof data.detail ===
+              "string"
+              ? data.detail
+              : "Please verify your phone again."
+          );
+        }
+
+        if (response.status === 409) {
+          setUseSavedCard(false);
+
+          throw new Error(
+            typeof data.detail ===
+              "string"
+              ? data.detail
+              : "Please enter your card again."
+          );
+        }
+
+        throw new Error(
+          typeof data.detail ===
+            "string"
+            ? data.detail
+            : "The saved card could not be used."
+        );
+      }
+
+      if (
+        !data.used_saved_card ||
+        !data.setup_intent_id
+      ) {
+        throw new Error(
+          "The saved card could not be verified."
+        );
+      }
+
+      await submitAppointment(
+        data.setup_intent_id
+      );
+
+      finishSuccessfulBooking();
+
+      return true;
     } catch (error) {
       console.error(
-        "Could not create appointment:",
+        "Could not reserve with saved card:",
         error
       );
 
       setMessage(
         error instanceof Error
           ? error.message
-          : "Could not create appointment."
+          : "The saved card could not be used."
       );
+
+      return false;
     } finally {
       setBooking(false);
     }
   }
-
 
   async function confirmCardAndBook() {
     if (booking) {
@@ -932,16 +1317,7 @@ export default function ShopBookingPage() {
         setupIntent.id
       );
 
-      setMessage(
-        "Appointment booked successfully."
-      );
-
-      setSelectedSlot("");
-      setNotes("");
-
-      resetCardForm();
-
-      await loadData();
+      finishSuccessfulBooking();
     } catch (error) {
       console.error(
         "Could not verify card and book appointment:",
@@ -959,16 +1335,109 @@ export default function ShopBookingPage() {
   }
 
 
+  async function createAppointment() {
+    if (!validateBookingFields()) {
+      return;
+    }
+
+    if (
+      paymentPolicy ===
+      "card_required"
+    ) {
+      if (
+        savedCard &&
+        useSavedCard
+      ) {
+        if (!verificationToken) {
+          setMessage(
+            "Please verify your phone before using your saved card."
+          );
+
+          return;
+        }
+
+        await reserveWithSavedCard();
+        return;
+      }
+
+      if (!cardFormReady) {
+        await prepareCardForm();
+        return;
+      }
+
+      await confirmCardAndBook();
+      return;
+    }
+
+    if (booking) {
+      return;
+    }
+
+    setBooking(true);
+    setMessage("");
+
+    try {
+      await submitAppointment();
+
+      finishSuccessfulBooking();
+    } catch (error) {
+      console.error(
+        "Could not create appointment:",
+        error
+      );
+
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Could not create appointment."
+      );
+    } finally {
+      setBooking(false);
+    }
+  }
+
+
+  async function useDifferentCard() {
+    setUseSavedCard(false);
+    setMessage("");
+    setCardError("");
+
+    await prepareCardForm();
+  }
+
+
+  function switchBackToSavedCard() {
+    resetCardForm();
+
+    setUseSavedCard(true);
+    setMessage("");
+    setCardError("");
+  }
+
+
   const cardRequired =
     paymentPolicy ===
     "card_required";
 
+  const phoneReady =
+    cleanPhone(customerPhone)
+      .length === 10;
+
+  const savedCardLabel =
+    savedCard
+      ? `${cardBrandLabel(
+          savedCard.brand
+        )} •••• ${savedCard.last4}`
+      : "";
+
+
   return (
     <main className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-sky-50 p-4 sm:p-10">
       <div className="max-w-2xl mx-auto space-y-6">
+
         <section className="bg-white rounded-3xl shadow-lg p-6 border border-indigo-100">
           {shopName ? (
-            <p className="text-sm font-extrabold tracking-wider text-indigo-600 uppercase mb-2">
+            <p className="text-sm font-extrabold tracking-wider text-indigo-600 mb-2">
               {shopName}
             </p>
           ) : null}
@@ -996,41 +1465,168 @@ export default function ShopBookingPage() {
           )}
         </section>
 
+
         <section className="bg-white rounded-3xl shadow-lg p-6 border border-gray-200 space-y-5">
+
           <div>
             <label className="block font-bold mb-2">
               Phone Number
             </label>
 
             <input
+              type="tel"
+              inputMode="tel"
+              autoComplete="tel"
               className="w-full border rounded-2xl p-5 text-xl"
               value={customerPhone}
-              onChange={(event) =>
-                setCustomerPhone(
-                  event.target.value
-                )
+              onChange={
+                handlePhoneChange
               }
               placeholder="240-555-1234"
             />
 
-            {recognizedCustomer && (
-              <p className="mt-2 text-green-700 font-bold">
-                Welcome back,{" "}
-                {
-                  recognizedCustomer.customer_name
-                }
-                . We selected{" "}
-                {barberName(
-                  recognizedCustomer.barber_id
-                )}{" "}
-                and{" "}
-                {serviceName(
-                  recognizedCustomer.service_id
-                )}{" "}
-                from your last visit.
+            {verificationStatus ===
+              "idle" &&
+              phoneReady && (
+                <button
+                  type="button"
+                  onClick={
+                    requestVerification
+                  }
+                  className="mt-3 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 font-bold text-indigo-800"
+                >
+                  Check for saved details
+                </button>
+              )}
+
+            {verificationStatus ===
+              "requesting" && (
+                <p className="mt-3 text-sm font-bold text-gray-600">
+                  Checking your number...
+                </p>
+              )}
+
+            {verificationStatus ===
+              "new_customer" && (
+                <p className="mt-3 text-sm font-bold text-green-700">
+                  Continue below to book your
+                  appointment.
+                </p>
+              )}
+
+            {(verificationStatus ===
+              "code_sent" ||
+              verificationStatus ===
+                "verifying") && (
+                <div className="mt-4 rounded-2xl border border-indigo-200 bg-indigo-50 p-4">
+                  <p className="font-extrabold text-slate-900">
+                    Verify your phone
+                  </p>
+
+                  <p className="mt-1 text-sm text-slate-700">
+                    We texted you a
+                    6-digit code.
+                  </p>
+
+                  <div className="mt-3 flex flex-col sm:flex-row gap-3">
+                    <input
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      maxLength={6}
+                      value={
+                        verificationCode
+                      }
+                      onChange={(event) =>
+                        setVerificationCode(
+                          event.target.value
+                            .replace(
+                              /\D/g,
+                              ""
+                            )
+                            .slice(0, 6)
+                        )
+                      }
+                      placeholder="6-digit code"
+                      className="flex-1 border rounded-xl p-4 text-xl tracking-widest bg-white"
+                    />
+
+                    <button
+                      type="button"
+                      onClick={
+                        confirmVerification
+                      }
+                      disabled={
+                        verificationStatus ===
+                          "verifying" ||
+                        verificationCode
+                          .length !== 6
+                      }
+                      className="rounded-xl bg-indigo-600 text-white px-5 py-4 font-bold disabled:opacity-50"
+                    >
+                      {verificationStatus ===
+                      "verifying"
+                        ? "Verifying..."
+                        : "Verify"}
+                    </button>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={
+                      requestVerification
+                    }
+                    disabled={
+                      verificationStatus ===
+                      "verifying"
+                    }
+                    className="mt-3 text-sm font-bold text-indigo-700"
+                  >
+                    Send a new code
+                  </button>
+                </div>
+              )}
+
+            {verificationStatus ===
+              "verified" &&
+              verifiedCustomer && (
+                <div className="mt-4 rounded-2xl border border-green-200 bg-green-50 p-4">
+                  <p className="font-extrabold text-green-800">
+                    ✓ Verified
+                  </p>
+
+                  <p className="mt-1 text-green-800">
+                    Welcome back
+                    {verifiedCustomer.name
+                      ? `, ${verifiedCustomer.name}`
+                      : ""}
+                    .
+                  </p>
+
+                  {verifiedCustomer.last_barber_name &&
+                    verifiedCustomer.last_service_name && (
+                      <p className="mt-1 text-sm text-green-800">
+                        We selected{" "}
+                        {
+                          verifiedCustomer.last_barber_name
+                        }{" "}
+                        and{" "}
+                        {
+                          verifiedCustomer.last_service_name
+                        }{" "}
+                        from your last
+                        visit.
+                      </p>
+                    )}
+                </div>
+              )}
+
+            {verificationMessage && (
+              <p className="mt-3 font-bold text-red-700">
+                {verificationMessage}
               </p>
             )}
           </div>
+
 
           <div>
             <label className="block font-bold mb-2">
@@ -1046,8 +1642,10 @@ export default function ShopBookingPage() {
                 )
               }
               placeholder="Your name"
+              autoComplete="name"
             />
           </div>
+
 
           <div>
             <label className="block font-bold mb-2">
@@ -1091,6 +1689,7 @@ export default function ShopBookingPage() {
               )}
             </select>
           </div>
+
 
           <div>
             <label className="block font-bold mb-2">
@@ -1165,6 +1764,7 @@ export default function ShopBookingPage() {
             )}
           </div>
 
+
           <div>
             <label className="block font-bold mb-2">
               Date
@@ -1184,6 +1784,7 @@ export default function ShopBookingPage() {
               }}
             />
           </div>
+
 
           <div>
             <label className="block font-bold mb-2">
@@ -1224,6 +1825,7 @@ export default function ShopBookingPage() {
             )}
           </div>
 
+
           <div>
             <label className="block font-bold mb-2">
               Notes
@@ -1240,6 +1842,7 @@ export default function ShopBookingPage() {
               placeholder="Optional notes"
             />
           </div>
+
 
           {cardRequired && (
             <div className="rounded-2xl border border-violet-200 bg-violet-50 p-5">
@@ -1266,27 +1869,111 @@ export default function ShopBookingPage() {
                 </div>
               </div>
 
-              {cardFormReady && (
-                <div className="mt-5 rounded-xl bg-white border border-violet-200 p-4">
-                  <p className="font-bold mb-3 text-slate-900">
-                    Card information
-                  </p>
 
-                  <div
-                    ref={
-                      cardElementContainerRef
-                    }
-                    className="min-h-10 py-2"
-                  />
-
-                  {!cardElementReady && (
-                    <p className="mt-3 text-sm text-gray-500">
-                      Loading secure card
-                      entry...
+              {savedCard &&
+                verificationStatus ===
+                  "verified" &&
+                useSavedCard && (
+                  <div className="mt-5 rounded-2xl border border-green-200 bg-white p-4">
+                    <p className="text-sm font-bold text-gray-600">
+                      Card on file
                     </p>
-                  )}
-                </div>
-              )}
+
+                    <p className="mt-1 text-xl font-extrabold text-slate-900">
+                      {savedCardLabel}
+                    </p>
+
+                    <p className="mt-1 text-sm text-gray-600">
+                      Your saved card will
+                      be used to secure
+                      this reservation.
+                    </p>
+
+                    <button
+                      type="button"
+                      onClick={
+                        useDifferentCard
+                      }
+                      disabled={
+                        booking ||
+                        preparingCard
+                      }
+                      className="mt-3 text-sm font-bold text-indigo-700"
+                    >
+                      Use a different card
+                    </button>
+                  </div>
+                )}
+
+
+              {savedCard &&
+                verificationStatus ===
+                  "verified" &&
+                !useSavedCard && (
+                  <button
+                    type="button"
+                    onClick={
+                      switchBackToSavedCard
+                    }
+                    disabled={
+                      booking ||
+                      preparingCard
+                    }
+                    className="mt-4 text-sm font-bold text-indigo-700"
+                  >
+                    Use {savedCardLabel}
+                    {" "}instead
+                  </button>
+                )}
+
+
+              {cardFormReady &&
+                !useSavedCard && (
+                  <div className="mt-5 rounded-xl bg-white border border-violet-200 p-4">
+                    <p className="font-bold mb-3 text-slate-900">
+                      Card information
+                    </p>
+
+                    <div
+                      ref={
+                        cardElementContainerRef
+                      }
+                      className="min-h-10 py-2"
+                    />
+
+                    {!cardElementReady && (
+                      <p className="mt-3 text-sm text-gray-500">
+                        Loading secure card
+                        entry...
+                      </p>
+                    )}
+                  </div>
+                )}
+
+
+              {cardFormReady &&
+                !savedCard && (
+                  <div className="mt-5 rounded-xl bg-white border border-violet-200 p-4">
+                    <p className="font-bold mb-3 text-slate-900">
+                      Card information
+                    </p>
+
+                    <div
+                      ref={
+                        cardElementContainerRef
+                      }
+                      className="min-h-10 py-2"
+                    />
+
+                    {!cardElementReady && (
+                      <p className="mt-3 text-sm text-gray-500">
+                        Loading secure card
+                        entry...
+                      </p>
+                    )}
+                  </div>
+                )}
+
 
               {cardError && (
                 <p className="mt-4 font-bold text-red-700">
@@ -1295,6 +1982,7 @@ export default function ShopBookingPage() {
               )}
             </div>
           )}
+
 
           <button
             type="button"
@@ -1314,12 +2002,17 @@ export default function ShopBookingPage() {
               : preparingCard
                 ? "Opening Secure Card Entry..."
                 : cardRequired &&
-                    !cardFormReady
-                  ? "Continue to Card"
-                  : cardRequired
-                    ? "Reserve Appointment"
-                    : "Book Appointment"}
+                    savedCard &&
+                    useSavedCard
+                  ? "Reserve Appointment"
+                  : cardRequired &&
+                      !cardFormReady
+                    ? "Continue to Card"
+                    : cardRequired
+                      ? "Reserve Appointment"
+                      : "Book Appointment"}
           </button>
+
 
           {cardRequired && (
             <p className="text-center text-xs text-gray-500">
