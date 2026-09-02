@@ -5,6 +5,7 @@ import stripe
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+from typing import Literal
 
 from app.database import get_db
 from app.models import Appointment, Shop, User
@@ -15,6 +16,10 @@ from app.routes.customer_verification import (
 
 
 router = APIRouter()
+
+
+class CheckoutSessionCreate(BaseModel):
+    plan: Literal["scheduling", "scheduling_ai"] = "scheduling"
 
 
 class BookingSetupIntentCreate(BaseModel):
@@ -53,6 +58,17 @@ def get_scheduling_price_id() -> str:
     if not price_id:
         raise RuntimeError(
             "STRIPE_SCHEDULING_PRICE_ID environment variable is missing."
+        )
+
+    return price_id
+
+
+def get_ai_voice_price_id() -> str:
+    price_id = os.getenv("STRIPE_AI_VOICE_PRICE_ID")
+
+    if not price_id:
+        raise RuntimeError(
+            "STRIPE_AI_VOICE_PRICE_ID environment variable is missing."
         )
 
     return price_id
@@ -472,6 +488,32 @@ def sync_subscription_to_shop(
         "trial_end",
     )
 
+    metadata = get_object_value(
+        subscription,
+        "metadata",
+        {},
+    )
+
+    selected_plan = get_object_value(
+        metadata,
+        "plan",
+    )
+
+    ai_voice_enabled = get_object_value(
+        metadata,
+        "ai_voice_enabled",
+    )
+
+    if selected_plan == "scheduling_ai":
+        shop.ai_voice_enabled = True
+    elif selected_plan == "scheduling":
+        shop.ai_voice_enabled = False
+    elif ai_voice_enabled is not None:
+        shop.ai_voice_enabled = (
+            str(ai_voice_enabled).strip().lower()
+            in {"1", "true", "yes", "on"}
+        )
+
     if customer_id:
         shop.stripe_customer_id = customer_id
 
@@ -571,14 +613,38 @@ def create_connect_onboarding_link(
 
 @router.post("/create-checkout-session")
 def create_checkout_session(
+    payload: CheckoutSessionCreate | None = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    selected_plan = (
+        payload.plan
+        if payload
+        else "scheduling"
+    )
+
     try:
         stripe.api_key = get_stripe_secret_key()
 
         scheduling_price_id = get_scheduling_price_id()
         frontend_url = get_frontend_url()
+
+        line_items = [
+            {
+                "price": scheduling_price_id,
+                "quantity": 1,
+            }
+        ]
+
+        if selected_plan == "scheduling_ai":
+            ai_voice_price_id = get_ai_voice_price_id()
+
+            line_items.append(
+                {
+                    "price": ai_voice_price_id,
+                    "quantity": 1,
+                }
+            )
 
     except RuntimeError as exc:
         raise HTTPException(
@@ -590,6 +656,22 @@ def create_checkout_session(
         current_user=current_user,
         db=db,
     )
+
+    ai_voice_selected = (
+        selected_plan == "scheduling_ai"
+    )
+
+    plan_metadata = {
+        "shop_id": str(shop.id),
+        "shop_slug": shop.slug,
+        "owner_user_id": str(current_user.id),
+        "plan": selected_plan,
+        "ai_voice_enabled": (
+            "true"
+            if ai_voice_selected
+            else "false"
+        ),
+    }
 
     try:
         if not shop.stripe_customer_id:
@@ -613,26 +695,13 @@ def create_checkout_session(
             mode="subscription",
             customer=shop.stripe_customer_id,
             payment_method_collection="always",
-            line_items=[
-                {
-                    "price": scheduling_price_id,
-                    "quantity": 1,
-                }
-            ],
+            line_items=line_items,
             subscription_data={
                 "trial_period_days": 30,
-                "metadata": {
-                    "shop_id": str(shop.id),
-                    "shop_slug": shop.slug,
-                    "owner_user_id": str(current_user.id),
-                },
+                "metadata": plan_metadata,
             },
             client_reference_id=str(shop.id),
-            metadata={
-                "shop_id": str(shop.id),
-                "shop_slug": shop.slug,
-                "owner_user_id": str(current_user.id),
-            },
+            metadata=plan_metadata,
             success_url=(
                 frontend_url
                 + "/signup/payment-success"
@@ -640,7 +709,7 @@ def create_checkout_session(
             ),
             cancel_url=(
                 frontend_url
-                + "/signup/payment"
+                + "/signup"
             ),
         )
 
@@ -666,6 +735,8 @@ def create_checkout_session(
 
     return {
         "success": True,
+        "plan": selected_plan,
+        "ai_voice_enabled": ai_voice_selected,
         "checkout_url": checkout_session.url,
         "checkout_session_id": checkout_session.id,
     }
