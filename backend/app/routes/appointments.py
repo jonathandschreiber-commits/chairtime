@@ -1,3 +1,4 @@
+import os
 from datetime import datetime, timedelta
 
 import stripe
@@ -27,6 +28,41 @@ ALLOWED_APPOINTMENT_STATUSES = {
     "no_show",
     "canceled",
 }
+
+
+def get_stripe_secret_key() -> str:
+    secret_key = os.getenv("STRIPE_SECRET_KEY")
+
+    if not secret_key:
+        raise RuntimeError(
+            "STRIPE_SECRET_KEY environment variable is missing."
+        )
+
+    return secret_key
+
+
+def get_stripe_id(value) -> str | None:
+    if value is None:
+        return None
+
+    if isinstance(value, str):
+        clean_value = value.strip()
+        return clean_value or None
+
+    object_id = getattr(
+        value,
+        "id",
+        None,
+    )
+
+    if object_id:
+        clean_value = str(
+            object_id
+        ).strip()
+
+        return clean_value or None
+
+    return None
 
 
 def require_user_shop_slug(current_user: User) -> str:
@@ -167,17 +203,26 @@ def apply_reschedule(
 def verify_booking_setup_intent(
     shop: Shop,
     setup_intent_id: str | None,
-) -> tuple[str | None, str | None]:
+) -> tuple[
+    str | None,
+    str | None,
+    str | None,
+]:
     """
     Verify the Stripe SetupIntent for a shop that
     requires a card to reserve an appointment.
 
-    The payment method ID is obtained directly from
-    Stripe rather than trusted from the browser.
+    Stripe Customer and PaymentMethod IDs are obtained
+    directly from Stripe rather than trusted from the
+    browser.
+
+    Older SetupIntents created before Stripe Customer
+    support may legitimately have no customer. Those
+    remain valid during the frontend transition.
     """
 
     if shop.payment_policy != "card_required":
-        return None, None
+        return None, None, None
 
     clean_setup_intent_id = str(
         setup_intent_id or ""
@@ -202,12 +247,31 @@ def verify_booking_setup_intent(
         )
 
     try:
+        stripe.api_key = get_stripe_secret_key()
+
         setup_intent = stripe.SetupIntent.retrieve(
             clean_setup_intent_id,
             stripe_account=(
                 shop.stripe_connect_account_id
             ),
         )
+
+    except RuntimeError as error:
+        print(
+            "Stripe configuration error:",
+            error,
+        )
+
+        raise HTTPException(
+            status_code=(
+                status.HTTP_500_INTERNAL_SERVER_ERROR
+            ),
+            detail=(
+                "Card verification is temporarily "
+                "unavailable."
+            ),
+        )
+
     except stripe.StripeError as error:
         print(
             "Stripe SetupIntent retrieval failed:",
@@ -257,9 +321,9 @@ def verify_booking_setup_intent(
             ),
         )
 
-    payment_method_id = str(
-        setup_intent.payment_method or ""
-    ).strip()
+    payment_method_id = get_stripe_id(
+        setup_intent.payment_method
+    )
 
     if not payment_method_id:
         raise HTTPException(
@@ -270,7 +334,42 @@ def verify_booking_setup_intent(
             ),
         )
 
+    stripe_customer_id = get_stripe_id(
+        setup_intent.customer
+    )
+
+    metadata_customer_id = str(
+        metadata.get("stripe_customer_id") or ""
+    ).strip()
+
+    if (
+        stripe_customer_id
+        and metadata_customer_id
+        and stripe_customer_id
+        != metadata_customer_id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "The verified customer information "
+                "does not match this reservation."
+            ),
+        )
+
+    if (
+        not stripe_customer_id
+        and metadata_customer_id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "The verified customer information "
+                "is incomplete."
+            ),
+        )
+
     return (
+        stripe_customer_id,
         clean_setup_intent_id,
         payment_method_id,
     )
@@ -372,6 +471,7 @@ def create_appointment(
         )
 
     (
+        stripe_customer_id,
         stripe_setup_intent_id,
         stripe_payment_method_id,
     ) = verify_booking_setup_intent(
@@ -392,6 +492,9 @@ def create_appointment(
         notes=payload.notes,
         start_datetime=payload.start_datetime,
         end_datetime=end_datetime,
+        stripe_customer_id=(
+            stripe_customer_id
+        ),
         stripe_setup_intent_id=(
             stripe_setup_intent_id
         ),
@@ -491,7 +594,6 @@ def list_admin_appointments(
         )
         .all()
     )
-
 
 @router.patch(
     "/appointments/{appointment_id}/cancel"
