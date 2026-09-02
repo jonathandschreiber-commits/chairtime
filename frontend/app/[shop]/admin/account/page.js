@@ -17,6 +17,7 @@ export default function AccountOptionsPage() {
   const [savingPolicy, setSavingPolicy] = useState(false);
   const [openingBilling, setOpeningBilling] = useState(false);
   const [openingStripe, setOpeningStripe] = useState(false);
+  const [startingTrial, setStartingTrial] = useState(false);
   const [changingSubscription, setChangingSubscription] =
     useState(false);
 
@@ -150,6 +151,48 @@ export default function AccountOptionsPage() {
       .replace(/\b\w/g, (letter) =>
         letter.toUpperCase()
       );
+  }
+
+  async function startFreeTrial() {
+    setStartingTrial(true);
+    setError("");
+    setMessage("");
+
+    try {
+      const response = await fetch(
+        "/api/billing/create-checkout-session",
+        {
+          method: "POST",
+        }
+      );
+
+      const data = await response
+        .json()
+        .catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(
+          data?.detail ||
+            "Unable to start your free trial."
+        );
+      }
+
+      if (!data?.checkout_url) {
+        throw new Error(
+          "Stripe checkout link was not returned."
+        );
+      }
+
+      window.location.href =
+        data.checkout_url;
+    } catch (err) {
+      setError(
+        err?.message ||
+          "Unable to start your free trial."
+      );
+
+      setStartingTrial(false);
+    }
   }
 
   async function openBillingPortal() {
@@ -403,6 +446,9 @@ export default function AccountOptionsPage() {
   const paymentPolicy =
     payments.payment_policy || "none";
 
+  const hasSubscription =
+    Boolean(subscription.has_subscription);
+
   const subscriptionStatus =
     friendlySubscriptionStatus(
       subscription.status
@@ -501,92 +547,123 @@ export default function AccountOptionsPage() {
             </span>
           </div>
 
-          <div className="mt-6 rounded-2xl bg-slate-50 border border-slate-200 p-5">
-            {subscription.status ===
-              "trialing" &&
-            trialDate ? (
-              <p className="text-slate-700">
-                Your free trial ends{" "}
-                <strong>{trialDate}</strong>.
-                Your $49 monthly subscription
-                begins after the trial unless
-                you cancel.
+          {!hasSubscription ? (
+            <div className="mt-6 rounded-2xl border-2 border-indigo-200 bg-indigo-50 p-5">
+              <p className="text-lg font-extrabold text-slate-900">
+                Start your 30-day free trial
               </p>
-            ) : subscription.cancel_at_period_end ? (
-              <p className="text-slate-700">
-                Your subscription is scheduled
-                to end
-                {periodEndDate ? (
-                  <>
-                    {" "}
-                    on{" "}
-                    <strong>
-                      {periodEndDate}
-                    </strong>
-                  </>
-                ) : null}
-                .
+
+              <p className="text-slate-700 mt-2">
+                Try ChairTime free for 30 days.
+                There is no charge today.
+                After your trial, your
+                subscription is $49 per month
+                unless you cancel.
               </p>
-            ) : periodEndDate ? (
-              <p className="text-slate-700">
-                Your next billing period begins{" "}
-                <strong>
-                  {periodEndDate}
-                </strong>
-                .
-              </p>
-            ) : (
-              <p className="text-slate-700">
-                Manage your ChairTime
-                subscription and billing
-                information here.
-              </p>
-            )}
-          </div>
+            </div>
+          ) : (
+            <div className="mt-6 rounded-2xl bg-slate-50 border border-slate-200 p-5">
+              {subscription.status ===
+                "trialing" &&
+              trialDate ? (
+                <p className="text-slate-700">
+                  Your free trial ends{" "}
+                  <strong>{trialDate}</strong>.
+                  Your $49 monthly subscription
+                  begins after the trial unless
+                  you cancel.
+                </p>
+              ) : subscription.cancel_at_period_end ? (
+                <p className="text-slate-700">
+                  Your subscription is scheduled
+                  to end
+                  {periodEndDate ? (
+                    <>
+                      {" "}
+                      on{" "}
+                      <strong>
+                        {periodEndDate}
+                      </strong>
+                    </>
+                  ) : null}
+                  .
+                </p>
+              ) : periodEndDate ? (
+                <p className="text-slate-700">
+                  Your next billing period begins{" "}
+                  <strong>
+                    {periodEndDate}
+                  </strong>
+                  .
+                </p>
+              ) : (
+                <p className="text-slate-700">
+                  Manage your ChairTime
+                  subscription and billing
+                  information here.
+                </p>
+              )}
+            </div>
+          )}
 
           <div className="mt-5 flex flex-col sm:flex-row gap-3">
-            <button
-              type="button"
-              onClick={openBillingPortal}
-              disabled={openingBilling}
-              className="rounded-xl bg-indigo-600 px-5 py-3 font-extrabold text-white hover:bg-indigo-700 disabled:opacity-60"
-            >
-              {openingBilling
-                ? "Opening..."
-                : "Manage Billing"}
-            </button>
+            {!hasSubscription ? (
+              <button
+                type="button"
+                onClick={startFreeTrial}
+                disabled={startingTrial}
+                className="rounded-xl bg-indigo-600 px-5 py-3 font-extrabold text-white hover:bg-indigo-700 disabled:opacity-60"
+              >
+                {startingTrial
+                  ? "Opening Secure Checkout..."
+                  : "Start My Free Trial"}
+              </button>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={openBillingPortal}
+                  disabled={openingBilling}
+                  className="rounded-xl bg-indigo-600 px-5 py-3 font-extrabold text-white hover:bg-indigo-700 disabled:opacity-60"
+                >
+                  {openingBilling
+                    ? "Opening..."
+                    : "Manage Billing"}
+                </button>
 
-            {subscription.cancel_at_period_end ? (
-              <button
-                type="button"
-                onClick={
-                  reactivateSubscription
-                }
-                disabled={
-                  changingSubscription
-                }
-                className="rounded-xl border border-emerald-300 bg-emerald-50 px-5 py-3 font-extrabold text-emerald-700 hover:bg-emerald-100 disabled:opacity-60"
-              >
-                {changingSubscription
-                  ? "Saving..."
-                  : "Keep My Subscription"}
-              </button>
-            ) : subscription.has_subscription ? (
-              <button
-                type="button"
-                onClick={
-                  cancelSubscription
-                }
-                disabled={
-                  changingSubscription
-                }
-                className="rounded-xl border border-slate-300 bg-white px-5 py-3 font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-60"
-              >
-                {changingSubscription
-                  ? "Saving..."
-                  : "Cancel Subscription"}
-              </button>
-            ) : null}
+                {subscription.cancel_at_period_end ? (
+                  <button
+                    type="button"
+                    onClick={
+                      reactivateSubscription
+                    }
+                    disabled={
+                      changingSubscription
+                    }
+                    className="rounded-xl border border-emerald-300 bg-emerald-50 px-5 py-3 font-extrabold text-emerald-700 hover:bg-emerald-100 disabled:opacity-60"
+                  >
+                    {changingSubscription
+                      ? "Saving..."
+                      : "Keep My Subscription"}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={
+                      cancelSubscription
+                    }
+                    disabled={
+                      changingSubscription
+                    }
+                    className="rounded-xl border border-slate-300 bg-white px-5 py-3 font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-60"
+                  >
+                    {changingSubscription
+                      ? "Saving..."
+                      : "Cancel Subscription"}
+                  </button>
+                )}
+              </>
+            )}
           </div>
         </section>
 
@@ -760,10 +837,9 @@ export default function AccountOptionsPage() {
               </p>
 
               <p className="text-sm text-slate-600 mt-1">
-                If you're still in your free
-                trial, your first payment will
-                appear here after the trial
-                ends.
+                {hasSubscription
+                  ? "If you're still in your free trial, your first payment will appear here after the trial ends."
+                  : "Your subscription payment history will appear here after you start your free trial."}
               </p>
             </div>
           ) : (
@@ -825,8 +901,8 @@ export default function AccountOptionsPage() {
         </section>
 
         <p className="text-center text-sm text-slate-500 mt-8">
-          Need help with your account? ChairTime
-          keeps billing and customer payments
+          ChairTime keeps your subscription
+          billing and customer payments
           separate so they're easy to manage.
         </p>
       </div>
