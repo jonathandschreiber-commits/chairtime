@@ -160,6 +160,15 @@ def run_startup_migrations():
                 text(
                     """
                     ALTER TABLE appointments
+                    ADD COLUMN IF NOT EXISTS stripe_customer_id VARCHAR
+                    """
+                )
+            )
+
+            conn.execute(
+                text(
+                    """
+                    ALTER TABLE appointments
                     ADD COLUMN IF NOT EXISTS stripe_setup_intent_id VARCHAR
                     """
                 )
@@ -203,6 +212,16 @@ def run_startup_migrations():
                     ix_shops_stripe_connect_account_id
                     ON shops (stripe_connect_account_id)
                     WHERE stripe_connect_account_id IS NOT NULL
+                    """
+                )
+            )
+
+            conn.execute(
+                text(
+                    """
+                    CREATE INDEX IF NOT EXISTS
+                    ix_appointments_stripe_customer_id
+                    ON appointments (stripe_customer_id)
                     """
                 )
             )
@@ -301,6 +320,13 @@ def run_startup_migrations():
             add_sqlite_column_if_missing(
                 conn,
                 "appointments",
+                "stripe_customer_id",
+                "VARCHAR",
+            )
+
+            add_sqlite_column_if_missing(
+                conn,
+                "appointments",
                 "stripe_setup_intent_id",
                 "VARCHAR",
             )
@@ -341,6 +367,16 @@ def run_startup_migrations():
                     ix_shops_stripe_connect_account_id
                     ON shops (stripe_connect_account_id)
                     WHERE stripe_connect_account_id IS NOT NULL
+                    """
+                )
+            )
+
+            conn.execute(
+                text(
+                    """
+                    CREATE INDEX IF NOT EXISTS
+                    ix_appointments_stripe_customer_id
+                    ON appointments (stripe_customer_id)
                     """
                 )
             )
