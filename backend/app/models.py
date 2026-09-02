@@ -419,10 +419,19 @@ class Appointment(Base):
 
     # Stripe card-on-file information for this reservation.
     #
-    # These values are populated when a shop requires a card
-    # to reserve an appointment. They allow ChairTime to prove
-    # which Stripe SetupIntent/payment method was associated
-    # with this particular reservation.
+    # stripe_customer_id identifies the customer inside
+    # this shop's Stripe connected account.
+    #
+    # stripe_setup_intent_id proves which SetupIntent
+    # verified the card for this reservation.
+    #
+    # stripe_payment_method_id identifies the verified
+    # card/payment method attached to that Stripe customer.
+    stripe_customer_id = Column(
+        String,
+        nullable=True,
+        index=True,
+    )
     stripe_setup_intent_id = Column(
         String,
         nullable=True,
