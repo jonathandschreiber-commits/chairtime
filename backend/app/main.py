@@ -10,6 +10,9 @@ from app.routes.barbers import router as barbers_router
 from app.routes.billing import router as billing_router
 from app.routes.blocked_times import router as blocked_times_router
 from app.routes.customers import router as customers_router
+from app.routes.customer_verification import (
+    router as customer_verification_router,
+)
 from app.routes.migration import router as migration_router
 from app.routes.reminders import router as reminders_router
 from app.routes.services import router as services_router
@@ -403,6 +406,7 @@ app = FastAPI(
     title="ChairTime API"
 )
 
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -422,6 +426,12 @@ app.include_router(
     billing_router,
     prefix="/api/billing",
     tags=["Billing"],
+)
+
+app.include_router(
+    customer_verification_router,
+    prefix="/api/customer-verification",
+    tags=["Customer Verification"],
 )
 
 app.include_router(
