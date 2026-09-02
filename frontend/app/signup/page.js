@@ -1,21 +1,20 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useState } from "react";
 import styles from "./signup.module.css";
 
 export default function SignupPage() {
-  const router = useRouter();
-
   const [businessName, setBusinessName] = useState("");
-  const [businessType, setBusinessType] = useState("service_business");
+  const [businessType, setBusinessType] =
+    useState("service_business");
   const [phone, setPhone] = useState("");
 
   const [ownerName, setOwnerName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] =
+    useState("");
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -48,7 +47,9 @@ export default function SignupPage() {
     }
 
     if (password.length < 8) {
-      setError("Your password must be at least 8 characters.");
+      setError(
+        "Your password must be at least 8 characters."
+      );
       return;
     }
 
@@ -61,44 +62,58 @@ export default function SignupPage() {
     setError("");
 
     try {
-      const response = await fetch("/api/auth/signup", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
-        body: JSON.stringify({
-          business_name: cleanBusinessName,
-          business_type: businessType,
-          phone: cleanPhone || null,
-          timezone:
-            Intl.DateTimeFormat().resolvedOptions().timeZone ||
-            "America/New_York",
-          owner_name: cleanOwnerName,
-          email: cleanEmail,
-          password,
-        }),
-      });
+      /*
+       * Step 1:
+       * Create the shop and owner account.
+       *
+       * The signup API also establishes the authenticated
+       * ChairTime session needed for the Stripe Checkout
+       * request that immediately follows.
+       */
+      const signupResponse = await fetch(
+        "/api/auth/signup",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify({
+            business_name: cleanBusinessName,
+            business_type: businessType,
+            phone: cleanPhone || null,
+            timezone:
+              Intl.DateTimeFormat()
+                .resolvedOptions()
+                .timeZone ||
+              "America/New_York",
+            owner_name: cleanOwnerName,
+            email: cleanEmail,
+            password,
+          }),
+        }
+      );
 
-      let data = {};
+      let signupData = {};
 
       try {
-        data = await response.json();
+        signupData =
+          await signupResponse.json();
       } catch {
-        data = {};
+        signupData = {};
       }
 
-      if (!response.ok) {
+      if (!signupResponse.ok) {
         throw new Error(
-          data.detail ||
-            data.error ||
+          signupData.detail ||
+            signupData.error ||
             "Unable to create your account."
         );
       }
 
       const shopSlug =
-        data?.shop?.slug ||
-        data?.user?.shop_slug;
+        signupData?.shop?.slug ||
+        signupData?.user?.shop_slug;
 
       if (!shopSlug) {
         throw new Error(
@@ -107,23 +122,65 @@ export default function SignupPage() {
       }
 
       /*
-       * TEMPORARY:
-       * Until Stripe onboarding is added, send the new owner
-       * to the shop's Admin Home so we can verify signup
-       * end-to-end.
+       * Step 2:
+       * Immediately create Stripe Checkout.
        *
-       * The next development step will replace this destination
-       * with the payment/free-trial screen.
+       * A new owner does NOT go to Admin or Setup here.
+       * Stripe must first accept the payment method and
+       * create the 30-day trial subscription.
        */
-      router.replace(`/${shopSlug}/admin`);
-      router.refresh();
+      const checkoutResponse = await fetch(
+        "/api/billing/create-checkout-session",
+        {
+          method: "POST",
+          headers: {
+            Accept: "application/json",
+          },
+        }
+      );
+
+      let checkoutData = {};
+
+      try {
+        checkoutData =
+          await checkoutResponse.json();
+      } catch {
+        checkoutData = {};
+      }
+
+      if (!checkoutResponse.ok) {
+        throw new Error(
+          checkoutData.detail ||
+            checkoutData.error ||
+            "Your account was created, but we could not open the secure payment page. Please sign in and try again."
+        );
+      }
+
+      const checkoutUrl =
+        checkoutData.checkout_url ||
+        checkoutData.url;
+
+      if (!checkoutUrl) {
+        throw new Error(
+          "Your account was created, but Stripe did not return the secure payment page."
+        );
+      }
+
+      /*
+       * Step 3:
+       * Leave ChairTime for Stripe-hosted Checkout.
+       *
+       * Stripe will return the owner to ChairTime only
+       * after Checkout succeeds or is canceled.
+       */
+      window.location.href = checkoutUrl;
     } catch (error) {
       setError(
         error instanceof Error
           ? error.message
           : "Unable to create your account. Please try again."
       );
-    } finally {
+
       setLoading(false);
     }
   }
@@ -142,21 +199,57 @@ export default function SignupPage() {
             </h1>
 
             <p className={styles.brandText}>
-              Tell us a little about your business and create
-              your ChairTime owner account.
+              Tell us a little about your business and
+              create your ChairTime owner account.
             </p>
           </div>
 
-          <div className={styles.trial}>
-            Free for 30 days. No charge today.
-            <br />
-            We&apos;ll ask for payment information before your
-            trial begins.
+          <div
+            className={styles.trial}
+            style={{
+              background:
+                "linear-gradient(135deg, #fff7ed 0%, #fef3c7 100%)",
+              border: "2px solid #f59e0b",
+              borderRadius: "16px",
+              padding: "18px 20px",
+              color: "#78350f",
+              boxShadow:
+                "0 4px 14px rgba(245, 158, 11, 0.14)",
+            }}
+          >
+            <div
+              style={{
+                fontSize: "17px",
+                fontWeight: "900",
+                color: "#b45309",
+                marginBottom: "6px",
+              }}
+            >
+              30 DAYS FREE — NO CHARGE TODAY
+            </div>
+
+            <div
+              style={{
+                fontWeight: "700",
+                lineHeight: "1.55",
+              }}
+            >
+              A credit card is required to start your
+              free trial. You will not be charged today.
+              Your first $49 payment will be charged
+              after your 30-day trial unless you cancel.
+            </div>
           </div>
 
-          <form className={styles.form} onSubmit={handleSubmit}>
+          <form
+            className={styles.form}
+            onSubmit={handleSubmit}
+          >
             {error ? (
-              <p className={styles.error} role="alert">
+              <p
+                className={styles.error}
+                role="alert"
+              >
                 {error}
               </p>
             ) : null}
@@ -184,7 +277,8 @@ export default function SignupPage() {
                         lineHeight: "1.4",
                       }}
                     >
-                      Enter it exactly as you want customers to see it.
+                      Enter it exactly as you want
+                      customers to see it.
                     </p>
 
                     <input
@@ -194,7 +288,9 @@ export default function SignupPage() {
                       autoComplete="organization"
                       value={businessName}
                       onChange={(event) =>
-                        setBusinessName(event.target.value)
+                        setBusinessName(
+                          event.target.value
+                        )
                       }
                       placeholder="Mike's Barbershop"
                       disabled={loading}
@@ -217,25 +313,32 @@ export default function SignupPage() {
                     className={styles.select}
                     value={businessType}
                     onChange={(event) =>
-                      setBusinessType(event.target.value)
+                      setBusinessType(
+                        event.target.value
+                      )
                     }
                     disabled={loading}
                   >
                     <option value="service_business">
                       Other Service Business
                     </option>
+
                     <option value="barbershop">
                       Barbershop
                     </option>
+
                     <option value="hair_salon">
                       Hair Salon
                     </option>
+
                     <option value="nail_salon">
                       Nail Salon
                     </option>
+
                     <option value="massage">
                       Massage / Wellness
                     </option>
+
                     <option value="trainer">
                       Personal Training / Fitness
                     </option>
@@ -289,7 +392,9 @@ export default function SignupPage() {
                       autoComplete="name"
                       value={ownerName}
                       onChange={(event) =>
-                        setOwnerName(event.target.value)
+                        setOwnerName(
+                          event.target.value
+                        )
                       }
                       placeholder="Mike Smith"
                       disabled={loading}
@@ -317,7 +422,9 @@ export default function SignupPage() {
                       spellCheck="false"
                       value={email}
                       onChange={(event) =>
-                        setEmail(event.target.value)
+                        setEmail(
+                          event.target.value
+                        )
                       }
                       placeholder="you@example.com"
                       disabled={loading}
@@ -341,7 +448,9 @@ export default function SignupPage() {
                     autoComplete="new-password"
                     value={password}
                     onChange={(event) =>
-                      setPassword(event.target.value)
+                      setPassword(
+                        event.target.value
+                      )
                     }
                     placeholder="At least 8 characters"
                     disabled={loading}
@@ -364,7 +473,9 @@ export default function SignupPage() {
                     autoComplete="new-password"
                     value={confirmPassword}
                     onChange={(event) =>
-                      setConfirmPassword(event.target.value)
+                      setConfirmPassword(
+                        event.target.value
+                      )
                     }
                     placeholder="Enter password again"
                     disabled={loading}
@@ -374,20 +485,44 @@ export default function SignupPage() {
               </div>
             </section>
 
+            <div
+              style={{
+                background: "#eef2ff",
+                border: "1px solid #c7d2fe",
+                borderRadius: "14px",
+                padding: "14px 16px",
+                marginBottom: "16px",
+                color: "#3730a3",
+                fontSize: "14px",
+                lineHeight: "1.5",
+                fontWeight: "650",
+              }}
+            >
+              <strong>Next: secure card setup.</strong>
+              <br />
+              After you create your account, you&apos;ll
+              enter your card securely with Stripe.
+              You&apos;ll pay $0 today and won&apos;t be
+              charged until your 30-day free trial ends.
+            </div>
+
             <button
               className={styles.button}
               type="submit"
               disabled={loading}
             >
               {loading
-                ? "Creating Your Account..."
-                : "Continue"}
+                ? "Opening Secure Checkout..."
+                : "Create Account & Start Free Trial"}
             </button>
           </form>
 
           <p className={styles.footer}>
             Already have a ChairTime account?{" "}
-            <Link href="/login" className={styles.loginLink}>
+            <Link
+              href="/login"
+              className={styles.loginLink}
+            >
               Sign in
             </Link>
           </p>
