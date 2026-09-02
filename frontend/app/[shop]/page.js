@@ -129,6 +129,16 @@ function cardBrandLabel(brand) {
 }
 
 
+function verificationStorageKey(
+  shopSlug
+) {
+  return (
+    `chairtime:customer-verification:` +
+    `${shopSlug}`
+  );
+}
+
+
 export default function ShopBookingPage() {
   const params = useParams();
 
@@ -347,6 +357,181 @@ export default function ShopBookingPage() {
   }, [SHOP_SLUG]);
 
 
+  useEffect(() => {
+    if (
+      !SHOP_SLUG ||
+      typeof window === "undefined"
+    ) {
+      return;
+    }
+
+    async function restoreVerification() {
+      const key =
+        verificationStorageKey(
+          SHOP_SLUG
+        );
+
+      const storedToken =
+        window.sessionStorage.getItem(
+          key
+        );
+
+      if (!storedToken) {
+        return;
+      }
+
+      setVerificationStatus(
+        "restoring"
+      );
+
+      try {
+        const response = await fetch(
+          `${API_BASE}/api/customer-verification/session`,
+          {
+            method: "POST",
+
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+
+            body: JSON.stringify({
+              shop_slug: SHOP_SLUG,
+              verification_token:
+                storedToken,
+            }),
+          }
+        );
+
+        const data = await response
+          .json()
+          .catch(() => ({}));
+
+        if (!response.ok) {
+          window.sessionStorage.removeItem(
+            key
+          );
+
+          setVerificationStatus(
+            "idle"
+          );
+
+          return;
+        }
+
+        if (
+          !data.verified ||
+          !data.customer
+        ) {
+          window.sessionStorage.removeItem(
+            key
+          );
+
+          setVerificationStatus(
+            "idle"
+          );
+
+          return;
+        }
+
+        setVerificationToken(
+          storedToken
+        );
+
+        setVerificationStatus(
+          "verified"
+        );
+
+        setVerifiedCustomer(
+          data.customer
+        );
+
+        setSavedCard(
+          data.saved_card || null
+        );
+
+        setUseSavedCard(
+          Boolean(data.saved_card)
+        );
+
+        if (data.customer.name) {
+          setCustomerName(
+            data.customer.name
+          );
+        }
+
+        if (data.customer.phone) {
+          setCustomerPhone(
+            data.customer.phone
+          );
+        }
+      } catch (error) {
+        console.error(
+          "Could not restore customer verification:",
+          error
+        );
+
+        setVerificationStatus(
+          "idle"
+        );
+      }
+    }
+
+    restoreVerification();
+  }, [SHOP_SLUG]);
+
+
+  useEffect(() => {
+    if (
+      verificationStatus !==
+        "verified" ||
+      !verifiedCustomer
+    ) {
+      return;
+    }
+
+    const priorBarberId =
+      verifiedCustomer.last_barber_id;
+
+    const priorServiceId =
+      verifiedCustomer.last_service_id;
+
+    if (
+      priorBarberId &&
+      barbers.some(
+        (barber) =>
+          barber.id ===
+          priorBarberId
+      )
+    ) {
+      setSelectedBarberId(
+        priorBarberId
+      );
+
+      const serviceValid =
+        priorServiceId &&
+        services.some(
+          (service) =>
+            service.id ===
+              priorServiceId &&
+            service.barber_id ===
+              priorBarberId
+        );
+
+      setSelectedServiceId(
+        serviceValid
+          ? priorServiceId
+          : ""
+      );
+    }
+  }, [
+    verificationStatus,
+    verifiedCustomer,
+    barbers,
+    services,
+  ]);
+
+
   const availableServices =
     useMemo(() => {
       if (!selectedBarberId) {
@@ -513,9 +698,50 @@ export default function ShopBookingPage() {
   }
 
 
+  function clearStoredVerification() {
+    if (
+      !SHOP_SLUG ||
+      typeof window === "undefined"
+    ) {
+      return;
+    }
+
+    window.sessionStorage.removeItem(
+      verificationStorageKey(
+        SHOP_SLUG
+      )
+    );
+  }
+
+
+  function saveStoredVerification(
+    token
+  ) {
+    if (
+      !SHOP_SLUG ||
+      !token ||
+      typeof window === "undefined"
+    ) {
+      return;
+    }
+
+    window.sessionStorage.setItem(
+      verificationStorageKey(
+        SHOP_SLUG
+      ),
+      token
+    );
+  }
+
+
   function resetVerification({
     clearCustomer = false,
+    clearStored = true,
   } = {}) {
+    if (clearStored) {
+      clearStoredVerification();
+    }
+
     setVerificationStatus("idle");
     setVerificationCode("");
     setVerificationToken("");
@@ -547,11 +773,21 @@ export default function ShopBookingPage() {
     if (
       oldCleanPhone !==
         newCleanPhone &&
-      verificationStatus !== "idle"
+      (
+        verificationStatus ===
+          "verified" ||
+        verificationStatus ===
+          "code_sent" ||
+        verificationStatus ===
+          "verifying" ||
+        verificationStatus ===
+          "restoring"
+      )
     ) {
       resetVerification({
         clearCustomer:
           Boolean(verifiedCustomer),
+        clearStored: true,
       });
     }
   }
@@ -642,9 +878,7 @@ export default function ShopBookingPage() {
         "new_customer"
       );
 
-      setVerificationMessage(
-        ""
-      );
+      setVerificationMessage("");
 
       return {
         verificationRequired: false,
@@ -685,6 +919,7 @@ export default function ShopBookingPage() {
       setVerificationMessage(
         "Please enter a valid 10-digit phone number."
       );
+
       return;
     }
 
@@ -692,6 +927,7 @@ export default function ShopBookingPage() {
       setVerificationMessage(
         "Please enter the 6-digit code we texted you."
       );
+
       return;
     }
 
@@ -750,6 +986,10 @@ export default function ShopBookingPage() {
         );
       }
 
+      saveStoredVerification(
+        data.verification_token
+      );
+
       setVerificationToken(
         data.verification_token
       );
@@ -778,41 +1018,10 @@ export default function ShopBookingPage() {
         );
       }
 
-      if (
-        data.customer
-          ?.last_barber_id &&
-        barbers.some(
-          (barber) =>
-            barber.id ===
-            data.customer.last_barber_id
-        )
-      ) {
-        setSelectedBarberId(
-          data.customer.last_barber_id
+      if (data.customer?.phone) {
+        setCustomerPhone(
+          data.customer.phone
         );
-
-        const priorServiceId =
-          data.customer
-            ?.last_service_id;
-
-        const priorServiceValid =
-          priorServiceId &&
-          services.some(
-            (service) =>
-              service.id ===
-                priorServiceId &&
-              service.barber_id ===
-                data.customer
-                  .last_barber_id
-          );
-
-        setSelectedServiceId(
-          priorServiceValid
-            ? priorServiceId
-            : ""
-        );
-
-        setSelectedSlot("");
       }
 
       setVerificationMessage("");
@@ -832,6 +1041,36 @@ export default function ShopBookingPage() {
           : "The verification code could not be confirmed."
       );
     }
+  }
+
+
+  function validateBookingFields() {
+    if (
+      !customerName.trim() ||
+      !customerPhone.trim() ||
+      !selectedBarberId ||
+      !selectedServiceId ||
+      !selectedSlot
+    ) {
+      setMessage(
+        "Please complete all fields."
+      );
+
+      return false;
+    }
+
+    if (
+      cleanPhone(customerPhone)
+        .length !== 10
+    ) {
+      setMessage(
+        "Please enter a valid 10-digit phone number."
+      );
+
+      return false;
+    }
+
+    return true;
   }
 
 
@@ -1003,36 +1242,6 @@ export default function ShopBookingPage() {
   }
 
 
-  function validateBookingFields() {
-    if (
-      !customerName.trim() ||
-      !customerPhone.trim() ||
-      !selectedBarberId ||
-      !selectedServiceId ||
-      !selectedSlot
-    ) {
-      setMessage(
-        "Please complete all fields."
-      );
-
-      return false;
-    }
-
-    if (
-      cleanPhone(customerPhone)
-        .length !== 10
-    ) {
-      setMessage(
-        "Please enter a valid 10-digit phone number."
-      );
-
-      return false;
-    }
-
-    return true;
-  }
-
-
   async function submitAppointment(
     stripeSetupIntentId = null
   ) {
@@ -1106,7 +1315,8 @@ export default function ShopBookingPage() {
 
 
   function finishSuccessfulBooking() {
-    const bookedSlot = selectedSlot;
+    const bookedSlot =
+      selectedSlot;
 
     setMessage(
       "Appointment booked successfully."
@@ -1173,7 +1383,9 @@ export default function ShopBookingPage() {
 
       if (!response.ok) {
         if (response.status === 401) {
-          resetVerification();
+          resetVerification({
+            clearStored: true,
+          });
 
           throw new Error(
             typeof data.detail ===
@@ -1357,15 +1569,18 @@ export default function ShopBookingPage() {
         }
 
         await reserveWithSavedCard();
+
         return;
       }
 
       if (!cardFormReady) {
         await prepareCardForm();
+
         return;
       }
 
       await confirmCardAndBook();
+
       return;
     }
 
@@ -1485,6 +1700,16 @@ export default function ShopBookingPage() {
               placeholder="240-555-1234"
             />
 
+
+            {verificationStatus ===
+              "restoring" && (
+                <p className="mt-3 text-sm font-bold text-gray-600">
+                  Restoring your saved
+                  details...
+                </p>
+              )}
+
+
             {verificationStatus ===
               "idle" &&
               phoneReady && (
@@ -1499,6 +1724,7 @@ export default function ShopBookingPage() {
                 </button>
               )}
 
+
             {verificationStatus ===
               "requesting" && (
                 <p className="mt-3 text-sm font-bold text-gray-600">
@@ -1506,13 +1732,15 @@ export default function ShopBookingPage() {
                 </p>
               )}
 
+
             {verificationStatus ===
               "new_customer" && (
                 <p className="mt-3 text-sm font-bold text-green-700">
-                  Continue below to book your
-                  appointment.
+                  Continue below to book
+                  your appointment.
                 </p>
               )}
+
 
             {(verificationStatus ===
               "code_sent" ||
@@ -1586,6 +1814,7 @@ export default function ShopBookingPage() {
                 </div>
               )}
 
+
             {verificationStatus ===
               "verified" &&
               verifiedCustomer && (
@@ -1619,6 +1848,7 @@ export default function ShopBookingPage() {
                     )}
                 </div>
               )}
+
 
             {verificationMessage && (
               <p className="mt-3 font-bold text-red-700">
@@ -1725,6 +1955,7 @@ export default function ShopBookingPage() {
                     value={service.id}
                   >
                     {service.name}
+
                     {service.price !==
                       undefined &&
                     service.price !==
@@ -1817,12 +2048,12 @@ export default function ShopBookingPage() {
 
             {availableSlots.length ===
               0 && (
-              <p className="mt-3 text-gray-900">
-                Choose a staff member,
-                service, and date to see
-                times.
-              </p>
-            )}
+                <p className="mt-3 text-gray-900">
+                  Choose a staff member,
+                  service, and date to see
+                  times.
+                </p>
+              )}
           </div>
 
 
@@ -1921,38 +2152,17 @@ export default function ShopBookingPage() {
                     }
                     className="mt-4 text-sm font-bold text-indigo-700"
                   >
-                    Use {savedCardLabel}
-                    {" "}instead
+                    Use {savedCardLabel}{" "}
+                    instead
                   </button>
                 )}
 
 
               {cardFormReady &&
-                !useSavedCard && (
-                  <div className="mt-5 rounded-xl bg-white border border-violet-200 p-4">
-                    <p className="font-bold mb-3 text-slate-900">
-                      Card information
-                    </p>
-
-                    <div
-                      ref={
-                        cardElementContainerRef
-                      }
-                      className="min-h-10 py-2"
-                    />
-
-                    {!cardElementReady && (
-                      <p className="mt-3 text-sm text-gray-500">
-                        Loading secure card
-                        entry...
-                      </p>
-                    )}
-                  </div>
-                )}
-
-
-              {cardFormReady &&
-                !savedCard && (
+                (
+                  !savedCard ||
+                  !useSavedCard
+                ) && (
                   <div className="mt-5 rounded-xl bg-white border border-violet-200 p-4">
                     <p className="font-bold mb-3 text-slate-900">
                       Card information
@@ -1991,7 +2201,9 @@ export default function ShopBookingPage() {
             }
             disabled={
               booking ||
-              preparingCard
+              preparingCard ||
+              verificationStatus ===
+                "restoring"
             }
             className="w-full bg-black text-white rounded-2xl p-5 text-xl font-bold disabled:opacity-50"
           >
