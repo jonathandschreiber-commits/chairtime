@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
 from app.database import Base, engine
+from app.routes.account import router as account_router
 from app.routes.appointments import router as appointments_router
 from app.routes.auth import router as auth_router
 from app.routes.availability import router as availability_router
@@ -426,6 +427,12 @@ app.include_router(
     billing_router,
     prefix="/api/billing",
     tags=["Billing"],
+)
+
+app.include_router(
+    account_router,
+    prefix="/api/account",
+    tags=["Account"],
 )
 
 app.include_router(
