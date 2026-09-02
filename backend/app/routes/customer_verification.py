@@ -263,6 +263,51 @@ def get_verified_session(
     return session
 
 
+def validate_verified_customer_session(
+    shop_slug: str,
+    customer_phone: str,
+    verification_token: str,
+) -> VerifiedSession:
+    clean_slug = str(
+        shop_slug or ""
+    ).strip().lower()
+
+    normalized_phone = normalize_phone(
+        customer_phone
+    )
+
+    if (
+        not clean_slug
+        or len(normalized_phone) != 10
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=(
+                "Customer verification is required "
+                "to use the saved card."
+            ),
+        )
+
+    session = get_verified_session(
+        shop_slug=clean_slug,
+        verification_token=verification_token,
+    )
+
+    if (
+        session.normalized_phone
+        != normalized_phone
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=(
+                "Customer verification does not "
+                "match this phone number."
+            ),
+        )
+
+    return session
+
+
 def get_stripe_value(
     obj,
     key,
@@ -387,8 +432,6 @@ def find_verified_saved_card(
 
         except stripe.StripeError:
             continue
-
-    return None
 
 def build_customer_profile(
     db: Session,
@@ -799,3 +842,5 @@ def get_verified_customer_session(
         ),
         **profile,
     }
+    
+    return None
