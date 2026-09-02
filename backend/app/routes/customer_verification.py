@@ -1,10 +1,11 @@
 import hashlib
 import hmac
+import json
 import os
 import secrets
 import time
-from dataclasses import dataclass
 
+import redis
 import stripe
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
@@ -23,37 +24,7 @@ VERIFIED_SESSION_SECONDS = 30 * 60
 REQUEST_COOLDOWN_SECONDS = 60
 MAX_VERIFY_ATTEMPTS = 5
 
-
-@dataclass
-class VerificationChallenge:
-    shop_slug: str
-    normalized_phone: str
-    code_hash: str
-    expires_at: float
-    attempts_remaining: int
-
-
-@dataclass
-class VerifiedSession:
-    shop_slug: str
-    normalized_phone: str
-    expires_at: float
-
-
-verification_challenges: dict[
-    str,
-    VerificationChallenge,
-] = {}
-
-verified_sessions: dict[
-    str,
-    VerifiedSession,
-] = {}
-
-last_code_request: dict[
-    str,
-    float,
-] = {}
+REDIS_PREFIX = "chairtime:customer-verification"
 
 
 class VerificationRequest(BaseModel):
@@ -70,6 +41,45 @@ class VerificationConfirm(BaseModel):
 class VerificationSessionRequest(BaseModel):
     shop_slug: str
     verification_token: str
+
+
+def get_redis_client():
+    redis_url = os.getenv("REDIS_URL")
+
+    if not redis_url:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "Customer verification is temporarily "
+                "unavailable. Please try again."
+            ),
+        )
+
+    try:
+        client = redis.from_url(
+            redis_url,
+            decode_responses=True,
+            socket_connect_timeout=5,
+            socket_timeout=5,
+        )
+
+        client.ping()
+
+        return client
+
+    except redis.RedisError as exc:
+        print(
+            "Redis connection failed:",
+            exc,
+        )
+
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "Customer verification is temporarily "
+                "unavailable. Please try again."
+            ),
+        )
 
 
 def normalize_phone(
@@ -91,16 +101,6 @@ def normalize_phone(
         digits = digits[1:]
 
     return digits
-
-
-def challenge_key(
-    shop_slug: str,
-    normalized_phone: str,
-) -> str:
-    return (
-        f"{shop_slug}:"
-        f"{normalized_phone}"
-    )
 
 
 def verification_secret() -> str:
@@ -142,48 +142,66 @@ def hash_code(
     ).hexdigest()
 
 
-def cleanup_expired_records():
-    now = time.time()
+def hash_verification_token(
+    verification_token: str,
+) -> str:
+    token = str(
+        verification_token or ""
+    ).strip()
 
-    expired_challenges = [
-        key
-        for key, challenge
-        in verification_challenges.items()
-        if challenge.expires_at <= now
-    ]
+    return hashlib.sha256(
+        token.encode("utf-8")
+    ).hexdigest()
 
-    for key in expired_challenges:
-        verification_challenges.pop(
-            key,
-            None,
+
+def challenge_key(
+    shop_slug: str,
+    normalized_phone: str,
+) -> str:
+    return (
+        f"{REDIS_PREFIX}:challenge:"
+        f"{shop_slug}:{normalized_phone}"
+    )
+
+
+def cooldown_key(
+    shop_slug: str,
+    normalized_phone: str,
+) -> str:
+    return (
+        f"{REDIS_PREFIX}:cooldown:"
+        f"{shop_slug}:{normalized_phone}"
+    )
+
+
+def session_key(
+    verification_token: str,
+) -> str:
+    return (
+        f"{REDIS_PREFIX}:session:"
+        f"{hash_verification_token(verification_token)}"
+    )
+
+
+def get_shop(
+    db: Session,
+    shop_slug: str,
+) -> Shop:
+    shop = (
+        db.query(Shop)
+        .filter(
+            Shop.slug == shop_slug
+        )
+        .first()
+    )
+
+    if not shop:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Business not found.",
         )
 
-    expired_sessions = [
-        token
-        for token, session
-        in verified_sessions.items()
-        if session.expires_at <= now
-    ]
-
-    for token in expired_sessions:
-        verified_sessions.pop(
-            token,
-            None,
-        )
-
-    expired_request_keys = [
-        key
-        for key, requested_at
-        in last_code_request.items()
-        if requested_at
-        <= now - CODE_LIFETIME_SECONDS
-    ]
-
-    for key in expired_request_keys:
-        last_code_request.pop(
-            key,
-            None,
-        )
+    return shop
 
 
 def find_returning_appointments(
@@ -213,44 +231,80 @@ def find_returning_appointments(
     ]
 
 
-def get_shop(
-    db: Session,
-    shop_slug: str,
-) -> Shop:
-    shop = (
-        db.query(Shop)
-        .filter(
-            Shop.slug == shop_slug
-        )
-        .first()
-    )
-
-    if not shop:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Business not found.",
-        )
-
-    return shop
-
-
 def get_verified_session(
     shop_slug: str,
     verification_token: str,
-) -> VerifiedSession:
-    cleanup_expired_records()
+):
+    clean_slug = str(
+        shop_slug or ""
+    ).strip().lower()
 
     token = str(
         verification_token or ""
     ).strip()
 
-    session = verified_sessions.get(
-        token
-    )
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=(
+                "Customer verification has expired. "
+                "Please verify your phone again."
+            ),
+        )
+
+    client = get_redis_client()
+
+    try:
+        raw_session = client.get(
+            session_key(token)
+        )
+
+    except redis.RedisError as exc:
+        print(
+            "Could not read verification session:",
+            exc,
+        )
+
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "Customer verification is temporarily "
+                "unavailable. Please try again."
+            ),
+        )
+
+    if not raw_session:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=(
+                "Customer verification has expired. "
+                "Please verify your phone again."
+            ),
+        )
+
+    try:
+        session = json.loads(
+            raw_session
+        )
+    except Exception:
+        try:
+            client.delete(
+                session_key(token)
+            )
+        except redis.RedisError:
+            pass
+
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=(
+                "Customer verification has expired. "
+                "Please verify your phone again."
+            ),
+        )
 
     if (
-        not session
-        or session.shop_slug != shop_slug
+        session.get("shop_slug")
+        != clean_slug
     ):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -267,7 +321,7 @@ def validate_verified_customer_session(
     shop_slug: str,
     customer_phone: str,
     verification_token: str,
-) -> VerifiedSession:
+):
     clean_slug = str(
         shop_slug or ""
     ).strip().lower()
@@ -294,7 +348,7 @@ def validate_verified_customer_session(
     )
 
     if (
-        session.normalized_phone
+        session.get("normalized_phone")
         != normalized_phone
     ):
         raise HTTPException(
@@ -433,6 +487,9 @@ def find_verified_saved_card(
         except stripe.StripeError:
             continue
 
+    return None
+
+
 def build_customer_profile(
     db: Session,
     shop: Shop,
@@ -518,14 +575,11 @@ def build_customer_profile(
         "saved_card": saved_card,
     }
 
-
 @router.post("/request")
 def request_verification_code(
     payload: VerificationRequest,
     db: Session = Depends(get_db),
 ):
-    cleanup_expired_records()
-
     shop_slug = str(
         payload.shop_slug or ""
     ).strip().lower()
@@ -569,26 +623,44 @@ def request_verification_code(
             "returning_customer": False,
         }
 
-    key = challenge_key(
+    client = get_redis_client()
+
+    cooldown = cooldown_key(
         shop.slug,
         normalized_phone,
     )
 
-    now = time.time()
-
-    previous_request = (
-        last_code_request.get(key)
-    )
-
-    if (
-        previous_request
-        and now - previous_request
-        < REQUEST_COOLDOWN_SECONDS
-    ):
-        seconds_remaining = int(
-            REQUEST_COOLDOWN_SECONDS
-            - (now - previous_request)
+    try:
+        cooldown_created = client.set(
+            cooldown,
+            "1",
+            ex=REQUEST_COOLDOWN_SECONDS,
+            nx=True,
         )
+
+    except redis.RedisError as exc:
+        print(
+            "Could not create verification cooldown:",
+            exc,
+        )
+
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "Customer verification is temporarily "
+                "unavailable. Please try again."
+            ),
+        )
+
+    if not cooldown_created:
+        try:
+            seconds_remaining = client.ttl(
+                cooldown
+            )
+        except redis.RedisError:
+            seconds_remaining = (
+                REQUEST_COOLDOWN_SECONDS
+            )
 
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -604,28 +676,53 @@ def request_verification_code(
         f"{secrets.randbelow(1000000):06d}"
     )
 
-    verification_challenges[key] = (
-        VerificationChallenge(
-            shop_slug=shop.slug,
-            normalized_phone=(
-                normalized_phone
-            ),
-            code_hash=hash_code(
-                shop.slug,
-                normalized_phone,
-                code,
-            ),
-            expires_at=(
-                now
-                + CODE_LIFETIME_SECONDS
-            ),
-            attempts_remaining=(
-                MAX_VERIFY_ATTEMPTS
-            ),
+    challenge = {
+        "shop_slug": shop.slug,
+        "normalized_phone": (
+            normalized_phone
+        ),
+        "code_hash": hash_code(
+            shop.slug,
+            normalized_phone,
+            code,
+        ),
+        "attempts_remaining": (
+            MAX_VERIFY_ATTEMPTS
+        ),
+    }
+
+    challenge_redis_key = (
+        challenge_key(
+            shop.slug,
+            normalized_phone,
         )
     )
 
-    last_code_request[key] = now
+    try:
+        client.set(
+            challenge_redis_key,
+            json.dumps(challenge),
+            ex=CODE_LIFETIME_SECONDS,
+        )
+
+    except redis.RedisError as exc:
+        print(
+            "Could not store verification challenge:",
+            exc,
+        )
+
+        try:
+            client.delete(cooldown)
+        except redis.RedisError:
+            pass
+
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "Customer verification is temporarily "
+                "unavailable. Please try again."
+            ),
+        )
 
     message = (
         f"Your {shop.name} verification "
@@ -640,15 +737,17 @@ def request_verification_code(
     )
 
     if not sms_result.get("success"):
-        verification_challenges.pop(
-            key,
-            None,
-        )
+        try:
+            client.delete(
+                challenge_redis_key
+            )
 
-        last_code_request.pop(
-            key,
-            None,
-        )
+            client.delete(
+                cooldown
+            )
+
+        except redis.RedisError:
+            pass
 
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -674,8 +773,6 @@ def confirm_verification_code(
     payload: VerificationConfirm,
     db: Session = Depends(get_db),
 ):
-    cleanup_expired_records()
-
     shop_slug = str(
         payload.shop_slug or ""
     ).strip().lower()
@@ -703,16 +800,56 @@ def confirm_verification_code(
         shop_slug=shop_slug,
     )
 
-    key = challenge_key(
-        shop.slug,
-        normalized_phone,
+    client = get_redis_client()
+
+    redis_challenge_key = (
+        challenge_key(
+            shop.slug,
+            normalized_phone,
+        )
     )
 
-    challenge = (
-        verification_challenges.get(key)
-    )
+    try:
+        raw_challenge = client.get(
+            redis_challenge_key
+        )
 
-    if not challenge:
+    except redis.RedisError as exc:
+        print(
+            "Could not read verification challenge:",
+            exc,
+        )
+
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "Customer verification is temporarily "
+                "unavailable. Please try again."
+            ),
+        )
+
+    if not raw_challenge:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=(
+                "The verification code has "
+                "expired. Please request "
+                "a new code."
+            ),
+        )
+
+    try:
+        challenge = json.loads(
+            raw_challenge
+        )
+    except Exception:
+        try:
+            client.delete(
+                redis_challenge_key
+            )
+        except redis.RedisError:
+            pass
+
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=(
@@ -729,19 +866,26 @@ def confirm_verification_code(
     )
 
     if not hmac.compare_digest(
-        challenge.code_hash,
+        challenge.get(
+            "code_hash",
+            "",
+        ),
         expected_hash,
     ):
-        challenge.attempts_remaining -= 1
-
-        if (
-            challenge.attempts_remaining
-            <= 0
-        ):
-            verification_challenges.pop(
-                key,
-                None,
+        attempts_remaining = int(
+            challenge.get(
+                "attempts_remaining",
+                MAX_VERIFY_ATTEMPTS,
             )
+        ) - 1
+
+        if attempts_remaining <= 0:
+            try:
+                client.delete(
+                    redis_challenge_key
+                )
+            except redis.RedisError:
+                pass
 
             raise HTTPException(
                 status_code=(
@@ -754,6 +898,50 @@ def confirm_verification_code(
                 ),
             )
 
+        challenge[
+            "attempts_remaining"
+        ] = attempts_remaining
+
+        try:
+            remaining_ttl = client.ttl(
+                redis_challenge_key
+            )
+
+            if remaining_ttl <= 0:
+                raise HTTPException(
+                    status_code=(
+                        status.HTTP_401_UNAUTHORIZED
+                    ),
+                    detail=(
+                        "The verification code has "
+                        "expired. Please request "
+                        "a new code."
+                    ),
+                )
+
+            client.set(
+                redis_challenge_key,
+                json.dumps(challenge),
+                ex=remaining_ttl,
+            )
+
+        except HTTPException:
+            raise
+
+        except redis.RedisError as exc:
+            print(
+                "Could not update verification attempts:",
+                exc,
+            )
+
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=(
+                    "Customer verification is temporarily "
+                    "unavailable. Please try again."
+                ),
+            )
+
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=(
@@ -762,25 +950,55 @@ def confirm_verification_code(
             ),
         )
 
-    verification_challenges.pop(
-        key,
-        None,
-    )
+    try:
+        client.delete(
+            redis_challenge_key
+        )
+
+    except redis.RedisError as exc:
+        print(
+            "Could not remove verification challenge:",
+            exc,
+        )
+
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "Customer verification is temporarily "
+                "unavailable. Please try again."
+            ),
+        )
 
     token = secrets.token_urlsafe(32)
 
-    verified_sessions[token] = (
-        VerifiedSession(
-            shop_slug=shop.slug,
-            normalized_phone=(
-                normalized_phone
-            ),
-            expires_at=(
-                time.time()
-                + VERIFIED_SESSION_SECONDS
+    session = {
+        "shop_slug": shop.slug,
+        "normalized_phone": (
+            normalized_phone
+        ),
+        "created_at": time.time(),
+    }
+
+    try:
+        client.set(
+            session_key(token),
+            json.dumps(session),
+            ex=VERIFIED_SESSION_SECONDS,
+        )
+
+    except redis.RedisError as exc:
+        print(
+            "Could not store verification session:",
+            exc,
+        )
+
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "Customer verification is temporarily "
+                "unavailable. Please try again."
             ),
         )
-    )
 
     profile = build_customer_profile(
         db=db,
@@ -826,21 +1044,31 @@ def get_verified_customer_session(
         db=db,
         shop=shop,
         normalized_phone=(
-            session.normalized_phone
+            session.get(
+                "normalized_phone",
+                "",
+            )
         ),
     )
+
+    client = get_redis_client()
+
+    try:
+        seconds_remaining = client.ttl(
+            session_key(
+                payload.verification_token
+            )
+        )
+
+    except redis.RedisError:
+        seconds_remaining = 0
 
     return {
         "success": True,
         "verified": True,
         "expires_in_seconds": max(
             0,
-            int(
-                session.expires_at
-                - time.time()
-            ),
+            int(seconds_remaining),
         ),
         **profile,
     }
-    
-    return None
