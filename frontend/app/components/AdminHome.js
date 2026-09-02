@@ -106,11 +106,24 @@ export default async function AdminHome({ shop = "" }) {
       arrowClass:
         "text-pink-600 border-pink-300 hover:bg-pink-100",
     },
+    {
+      name: "Account Options",
+      description:
+        "Manage your subscription, payments, and billing settings.",
+      href: basePath + "/account",
+      icon: "⚙️",
+      cardClass:
+        "bg-gradient-to-br from-slate-50 to-gray-100 border-slate-200",
+      iconClass:
+        "bg-gradient-to-br from-slate-600 to-gray-700",
+      arrowClass:
+        "text-slate-700 border-slate-300 hover:bg-slate-100",
+    },
   ];
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-sky-50 px-6 py-10">
-      <div className="max-w-4xl mx-auto">
+      <div className="max-w-5xl mx-auto">
         <div className="bg-white/90 rounded-3xl shadow-lg p-7 border border-indigo-100 mb-6">
           <div className="flex items-center gap-5">
             <div className="w-16 h-16 shrink-0 rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center text-3xl shadow-md">
@@ -133,7 +146,7 @@ export default async function AdminHome({ shop = "" }) {
           </div>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {buttons.map((button) => (
             <a
               key={button.href}
