@@ -600,6 +600,10 @@ export default function ShopBookingPage() {
 
           body: JSON.stringify({
             shop_slug: SHOP_SLUG,
+            customer_name:
+              customerName.trim(),
+            customer_phone:
+              customerPhone.trim(),
           }),
         }
       );
@@ -666,7 +670,7 @@ export default function ShopBookingPage() {
           },
         });
 
-      stripeRef.current = stripe;
+          stripeRef.current = stripe;
 
       elementsRef.current =
         elements;
@@ -957,8 +961,6 @@ export default function ShopBookingPage() {
 
   const cardRequired =
     paymentPolicy ===
-
-    
     "card_required";
 
   return (
