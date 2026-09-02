@@ -9,6 +9,9 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import Appointment, Shop, User
 from app.routes.auth import get_current_user
+from app.routes.customer_verification import (
+    validate_verified_customer_session,
+)
 
 
 router = APIRouter()
@@ -19,6 +22,7 @@ class BookingSetupIntentCreate(BaseModel):
     customer_name: str | None = None
     customer_phone: str | None = None
     use_saved_card: bool = False
+    verification_token: str | None = None
 
 
 def get_stripe_secret_key() -> str:
@@ -365,8 +369,6 @@ def get_or_create_booking_customer(
                 return existing_customer_id
 
         except stripe.StripeError:
-            # If an old Stripe customer reference is no
-            # longer valid, create a fresh customer below.
             pass
 
     customer = stripe.Customer.create(
@@ -668,7 +670,6 @@ def create_checkout_session(
         "checkout_session_id": checkout_session.id,
     }
 
-
 @router.post("/connect/start")
 def start_connect_onboarding(
     current_user: User = Depends(get_current_user),
@@ -814,6 +815,7 @@ def get_connect_status(
         "stripe_connect_account_id": account.id,
     }
 
+
 @router.post("/connect/dashboard")
 def create_connect_dashboard_link(
     current_user: User = Depends(get_current_user),
@@ -871,6 +873,7 @@ def create_connect_dashboard_link(
 def get_booking_saved_card(
     shop_slug: str,
     customer_phone: str,
+    verification_token: str,
     db: Session = Depends(get_db),
 ):
     clean_slug = str(
@@ -900,6 +903,12 @@ def get_booking_saved_card(
         return {
             "has_saved_card": False,
         }
+
+    validate_verified_customer_session(
+        shop_slug=shop.slug,
+        customer_phone=clean_phone,
+        verification_token=verification_token,
+    )
 
     try:
         saved_card = find_existing_saved_card(
@@ -998,10 +1007,35 @@ def create_booking_setup_intent(
         stripe_customer_id = None
         saved_card = None
 
-        if (
-            payload.use_saved_card
-            and clean_customer_phone
-        ):
+        if payload.use_saved_card:
+            if not clean_customer_phone:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        "Customer phone number is required "
+                        "to use a saved card."
+                    ),
+                )
+
+            verification_token = str(
+                payload.verification_token or ""
+            ).strip()
+
+            if not verification_token:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail=(
+                        "Phone verification is required "
+                        "to use the saved card."
+                    ),
+                )
+
+            validate_verified_customer_session(
+                shop_slug=shop.slug,
+                customer_phone=clean_customer_phone,
+                verification_token=verification_token,
+            )
+
             saved_card = find_existing_saved_card(
                 db=db,
                 shop=shop,
