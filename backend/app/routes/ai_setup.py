@@ -12,17 +12,17 @@ from app.routes.auth import get_current_user
 router = APIRouter()
 
 HIGHLEVEL_API_BASE_URL = "https://services.leadconnectorhq.com"
-HIGHLEVEL_API_VERSION = "2021-07-28"
+HIGHLEVEL_VOICE_API_VERSION = "v3"
 
 
-def get_highlevel_agency_api_token() -> str:
-    token = os.getenv("HIGHLEVEL_AGENCY_API_TOKEN")
+def get_highlevel_api_token() -> str:
+    token = os.getenv("HIGHLEVEL_API_TOKEN")
 
     if not token:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=(
-                "HIGHLEVEL_AGENCY_API_TOKEN environment "
+                "HIGHLEVEL_API_TOKEN environment "
                 "variable is missing."
             ),
         )
@@ -30,12 +30,27 @@ def get_highlevel_agency_api_token() -> str:
     return token.strip()
 
 
-def highlevel_agency_headers() -> dict:
+def get_highlevel_location_id() -> str:
+    location_id = os.getenv("HIGHLEVEL_LOCATION_ID")
+
+    if not location_id:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=(
+                "HIGHLEVEL_LOCATION_ID environment "
+                "variable is missing."
+            ),
+        )
+
+    return location_id.strip()
+
+
+def highlevel_voice_headers() -> dict:
     return {
         "Authorization": (
-            f"Bearer {get_highlevel_agency_api_token()}"
+            f"Bearer {get_highlevel_api_token()}"
         ),
-        "Version": HIGHLEVEL_API_VERSION,
+        "Version": HIGHLEVEL_VOICE_API_VERSION,
         "Accept": "application/json",
         "User-Agent": "ChairTime/1.0",
     }
@@ -67,8 +82,25 @@ def require_owner(current_user: User) -> None:
             detail="Owner access is required.",
         )
 
-@router.get("/agency")
-def get_highlevel_agency(
+
+def safe_highlevel_error(response: requests.Response) -> dict:
+    try:
+        data = response.json()
+
+        if isinstance(data, dict):
+            return data
+
+        return {
+            "message": str(data)[:500],
+        }
+
+    except ValueError:
+        return {
+            "message": response.text[:500],
+        }
+
+@router.get("/agents")
+def get_highlevel_voice_agents(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -79,10 +111,17 @@ def get_highlevel_agency(
         db=db,
     )
 
+    location_id = get_highlevel_location_id()
+
     try:
         response = requests.get(
-            f"{HIGHLEVEL_API_BASE_URL}/companies/",
-            headers=highlevel_agency_headers(),
+            f"{HIGHLEVEL_API_BASE_URL}/voice-ai/agents",
+            headers=highlevel_voice_headers(),
+            params={
+                "locationId": location_id,
+                "page": 1,
+                "pageSize": 50,
+            },
             timeout=20,
         )
 
@@ -93,65 +132,59 @@ def get_highlevel_agency(
         )
 
     if response.status_code >= 400:
-        try:
-            highlevel_error = response.json()
-        except ValueError:
-            highlevel_error = {
-                "message": response.text[:500]
-            }
-
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail={
                 "message": (
-                    "HighLevel rejected the agency API request."
+                    "HighLevel rejected the Voice AI request."
                 ),
                 "highlevel_status": response.status_code,
-                "highlevel_error": highlevel_error,
+                "highlevel_error": safe_highlevel_error(
+                    response
+                ),
             },
         )
 
     try:
         data = response.json()
+
     except ValueError:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="HighLevel returned an invalid response.",
         )
 
-    companies = []
+    raw_agents = []
 
     if isinstance(data, dict):
-        raw_companies = data.get("companies")
+        possible_agents = data.get("agents")
 
-        if isinstance(raw_companies, list):
-            companies = raw_companies
+        if isinstance(possible_agents, list):
+            raw_agents = possible_agents
 
-        elif data.get("id"):
-            companies = [data]
+    safe_agents = []
 
-    elif isinstance(data, list):
-        companies = data
-
-    safe_companies = []
-
-    for company in companies:
-        if not isinstance(company, dict):
+    for agent in raw_agents:
+        if not isinstance(agent, dict):
             continue
 
-        company_id = company.get("id")
-        company_name = (
-            company.get("name")
-            or company.get("companyName")
-        )
-
-        if not company_id:
-            continue
-
-        safe_companies.append(
+        safe_agents.append(
             {
-                "id": company_id,
-                "name": company_name,
+                "id": agent.get("id"),
+                "agent_name": (
+                    agent.get("agentName")
+                    or agent.get("name")
+                ),
+                "business_name": agent.get(
+                    "businessName"
+                ),
+                "location_id": agent.get(
+                    "locationId"
+                ),
+                "language": agent.get("language"),
+                "inbound_number": agent.get(
+                    "inboundNumber"
+                ),
             }
         )
 
@@ -162,6 +195,12 @@ def get_highlevel_agency(
             "slug": shop.slug,
             "name": shop.name,
         },
-        "companies": safe_companies,
-        "company_count": len(safe_companies),
+        "highlevel_location_id": location_id,
+        "agent_count": len(safe_agents),
+        "agents": safe_agents,
+        "highlevel_total": (
+            data.get("total")
+            if isinstance(data, dict)
+            else None
+        ),
     }
