@@ -4,6 +4,7 @@ from sqlalchemy import text
 
 from app.database import Base, engine
 from app.routes.account import router as account_router
+from app.routes.ai_setup import router as ai_setup_router
 from app.routes.appointments import router as appointments_router
 from app.routes.auth import router as auth_router
 from app.routes.availability import router as availability_router
@@ -433,6 +434,12 @@ app.include_router(
     account_router,
     prefix="/api/account",
     tags=["Account"],
+)
+
+app.include_router(
+    ai_setup_router,
+    prefix="/api/ai-setup",
+    tags=["AI Setup"],
 )
 
 app.include_router(
