@@ -99,6 +99,32 @@ def safe_highlevel_error(response: requests.Response) -> dict:
             "message": response.text[:500],
         }
 
+
+def safe_action(action: dict) -> dict:
+    if not isinstance(action, dict):
+        return {}
+
+    return {
+        "id": action.get("_id") or action.get("id"),
+        "action_type": action.get("actionType"),
+        "name": action.get("name"),
+        "action_parameters": action.get("actionParameters"),
+    }
+
+
+def safe_agent_summary(agent: dict) -> dict:
+    return {
+        "id": agent.get("id"),
+        "agent_name": (
+            agent.get("agentName")
+            or agent.get("name")
+        ),
+        "business_name": agent.get("businessName"),
+        "location_id": agent.get("locationId"),
+        "language": agent.get("language"),
+        "inbound_number": agent.get("inboundNumber"),
+    }
+
 @router.get("/agents")
 def get_highlevel_voice_agents(
     current_user: User = Depends(get_current_user),
@@ -162,31 +188,11 @@ def get_highlevel_voice_agents(
         if isinstance(possible_agents, list):
             raw_agents = possible_agents
 
-    safe_agents = []
-
-    for agent in raw_agents:
-        if not isinstance(agent, dict):
-            continue
-
-        safe_agents.append(
-            {
-                "id": agent.get("id"),
-                "agent_name": (
-                    agent.get("agentName")
-                    or agent.get("name")
-                ),
-                "business_name": agent.get(
-                    "businessName"
-                ),
-                "location_id": agent.get(
-                    "locationId"
-                ),
-                "language": agent.get("language"),
-                "inbound_number": agent.get(
-                    "inboundNumber"
-                ),
-            }
-        )
+    safe_agents = [
+        safe_agent_summary(agent)
+        for agent in raw_agents
+        if isinstance(agent, dict)
+    ]
 
     return {
         "success": True,
@@ -203,4 +209,115 @@ def get_highlevel_voice_agents(
             if isinstance(data, dict)
             else None
         ),
+    }
+
+
+@router.get("/agents/{agent_id}")
+def get_highlevel_voice_agent(
+    agent_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    require_owner(current_user)
+
+    shop = get_current_shop(
+        current_user=current_user,
+        db=db,
+    )
+
+    location_id = get_highlevel_location_id()
+
+    try:
+        response = requests.get(
+            (
+                f"{HIGHLEVEL_API_BASE_URL}"
+                f"/voice-ai/agents/{agent_id}"
+            ),
+            headers=highlevel_voice_headers(),
+            params={
+                "locationId": location_id,
+            },
+            timeout=20,
+        )
+
+    except requests.RequestException:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Could not connect to HighLevel.",
+        )
+
+    if response.status_code >= 400:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "message": (
+                    "HighLevel rejected the Voice AI "
+                    "agent-detail request."
+                ),
+                "highlevel_status": response.status_code,
+                "highlevel_error": safe_highlevel_error(
+                    response
+                ),
+            },
+        )
+
+    try:
+        data = response.json()
+
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="HighLevel returned an invalid response.",
+        )
+
+    if not isinstance(data, dict):
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="HighLevel returned an unexpected response.",
+        )
+
+    raw_actions = data.get("actions")
+
+    if not isinstance(raw_actions, list):
+        raw_actions = []
+
+    actions = [
+        safe_action(action)
+        for action in raw_actions
+        if isinstance(action, dict)
+    ]
+
+    return {
+        "success": True,
+        "chairtime_shop": {
+            "id": str(shop.id),
+            "slug": shop.slug,
+            "name": shop.name,
+        },
+        "agent": {
+            "id": data.get("id"),
+            "agent_name": data.get("agentName"),
+            "business_name": data.get("businessName"),
+            "welcome_message": data.get("welcomeMessage"),
+            "agent_prompt": data.get("agentPrompt"),
+            "language": data.get("language"),
+            "voice_id": data.get("voiceId"),
+            "timezone": data.get("timezone"),
+            "patience_level": data.get("patienceLevel"),
+            "max_call_duration": data.get("maxCallDuration"),
+            "send_user_idle_reminders": data.get(
+                "sendUserIdleReminders"
+            ),
+            "reminder_after_idle_seconds": data.get(
+                "reminderAfterIdleTimeSeconds"
+            ),
+            "inbound_number": data.get("inboundNumber"),
+            "number_pool_id": data.get("numberPoolId"),
+            "working_hours": data.get("agentWorkingHours"),
+            "backup_disabled": data.get(
+                "isAgentAsBackupDisabled"
+            ),
+            "actions": actions,
+            "action_count": len(actions),
+        },
     }
