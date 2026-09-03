@@ -22,7 +22,7 @@ async function getAuthToken() {
   );
 }
 
-export async function POST() {
+export async function POST(request) {
   try {
     const token = await getAuthToken();
 
@@ -40,6 +40,14 @@ export async function POST() {
 
     const apiUrl = getApiUrl();
 
+    let body = {};
+
+    try {
+      body = await request.json();
+    } catch {
+      body = {};
+    }
+
     const response = await fetch(
       `${apiUrl}/api/billing/create-checkout-session`,
       {
@@ -47,7 +55,9 @@ export async function POST() {
         headers: {
           Authorization: `Bearer ${token}`,
           Accept: "application/json",
+          "Content-Type": "application/json",
         },
+        body: JSON.stringify(body),
         cache: "no-store",
       }
     );
