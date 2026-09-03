@@ -14,6 +14,11 @@ router = APIRouter()
 HIGHLEVEL_API_BASE_URL = "https://services.leadconnectorhq.com"
 HIGHLEVEL_VOICE_API_VERSION = "v3"
 
+CHAIRTIME_AVAILABILITY_URL = (
+    "https://chairtime-production-94da.up.railway.app"
+    "/api/voice/availability"
+)
+
 
 def get_highlevel_api_token() -> str:
     token = os.getenv("HIGHLEVEL_API_TOKEN")
@@ -52,6 +57,7 @@ def highlevel_voice_headers() -> dict:
         ),
         "Version": HIGHLEVEL_VOICE_API_VERSION,
         "Accept": "application/json",
+        "Content-Type": "application/json",
         "User-Agent": "ChairTime/1.0",
     }
 
@@ -111,15 +117,22 @@ def safe_action(action: dict) -> dict:
             action.get("_id")
             or action.get("id")
         ),
-        "action_type": action.get("actionType"),
+        "action_type": (
+            action.get("actionType")
+            or action.get("action_type")
+        ),
         "name": action.get("name"),
-        "action_parameters": action.get(
-            "actionParameters"
+        "action_parameters": (
+            action.get("actionParameters")
+            or action.get("action_parameters")
         ),
     }
 
 
 def safe_agent_summary(agent: dict) -> dict:
+    if not isinstance(agent, dict):
+        return {}
+
     return {
         "id": agent.get("id"),
         "agent_name": (
@@ -135,15 +148,19 @@ def safe_agent_summary(agent: dict) -> dict:
     }
 
 
-def highlevel_get(
+def highlevel_request(
+    method: str,
     path: str,
     params: dict | None = None,
+    json_body: dict | None = None,
 ) -> requests.Response:
     try:
-        response = requests.get(
-            f"{HIGHLEVEL_API_BASE_URL}{path}",
+        response = requests.request(
+            method=method,
+            url=f"{HIGHLEVEL_API_BASE_URL}{path}",
             headers=highlevel_voice_headers(),
             params=params,
+            json=json_body,
             timeout=20,
         )
 
@@ -195,6 +212,158 @@ def response_json(
 
     return data
 
+
+def build_test_agent_payload(
+    shop: Shop,
+    location_id: str,
+) -> dict:
+    business_name = (
+        shop.name
+        or shop.slug
+        or "ChairTime Business"
+    )
+
+    return {
+        "locationId": location_id,
+        "agentName": "ChairTime Provisioning Test",
+        "businessName": business_name,
+        "welcomeMessage": (
+            f"Thanks for calling {business_name}. "
+            "How can I help you today?"
+        ),
+        "agentPrompt": (
+            "You are a temporary ChairTime Voice AI "
+            "provisioning test agent. "
+            "Do not represent this agent as ready for "
+            "customer calls. "
+            "This agent is used only to verify ChairTime "
+            "Voice AI action provisioning."
+        ),
+        "language": "en-US",
+        "maxCallDuration": 300,
+        "sendUserIdleReminders": True,
+        "reminderAfterIdleTimeSeconds": 8,
+        "timezone": (
+            shop.timezone
+            or "America/New_York"
+        ),
+        "isAgentAsBackupDisabled": True,
+    }
+
+
+def build_availability_action_payload(
+    shop: Shop,
+    agent_id: str,
+    location_id: str,
+) -> dict:
+    request_body = {
+        "shop_slug": shop.slug,
+        "service_name": "{{service_name}}",
+        "target_date": "{{target_date}}",
+        "barber_name": "{{barber_name}}",
+    }
+
+    body_schema = {
+        "type": "object",
+        "properties": {
+            "service_name": {
+                "type": "string",
+                "description": (
+                    "The service the caller wants to book. "
+                    "Use the service name stated by the caller."
+                ),
+            },
+            "target_date": {
+                "type": "string",
+                "description": (
+                    "The appointment date requested by the "
+                    "caller. Convert relative dates such as "
+                    "today, tomorrow, or next Monday to "
+                    "YYYY-MM-DD format."
+                ),
+            },
+            "barber_name": {
+                "type": "string",
+                "description": (
+                    "The requested barber or staff member. "
+                    "If the caller has no preference, use "
+                    "no preference."
+                ),
+            },
+        },
+        "required": [
+            "service_name",
+            "target_date",
+            "barber_name",
+        ],
+    }
+
+    return {
+        "agentId": agent_id,
+        "locationId": location_id,
+        "actionType": "CUSTOM_ACTION",
+        "name": "check_availability",
+        "actionParameters": {
+            "triggerPrompt": (
+                "When the caller wants to book an appointment "
+                "and the service, requested date, and staff "
+                "preference have been collected, use this "
+                "action to check ChairTime for actual "
+                "available appointment times before offering "
+                "times to the caller."
+            ),
+            "triggerMessage": (
+                "Let me check what's available."
+            ),
+            "schemaValues": {
+                "paramsValues": {},
+                "requestBodyValues": {
+                    "webhookUrl": {
+                        "value": CHAIRTIME_AVAILABILITY_URL,
+                        "mode": "manual",
+                    },
+                    "httpMethod": {
+                        "value": "POST",
+                        "mode": "manual",
+                    },
+                    "headers": {
+                        "value": {
+                            "Content-Type": "application/json",
+                        },
+                        "mode": "manual",
+                    },
+                    "apiTimeout": {
+                        "value": 10,
+                        "mode": "manual",
+                    },
+                    "retryOnFailure": {
+                        "value": False,
+                        "mode": "manual",
+                    },
+                    "useSimpleRequestBody": {
+                        "value": True,
+                        "mode": "manual",
+                    },
+                    "simpleRequestBody": {
+                        "value": request_body,
+                        "type": "json",
+                        "mode": "manual",
+                    },
+                    "bodySchema": {
+                        "value": body_schema,
+                        "mode": "manual",
+                    },
+                    "selectedOutputFields": {
+                        "value": [
+                            "result.slots[]",
+                        ],
+                        "mode": "manual",
+                    },
+                },
+            },
+        },
+    }
+
 @router.get("/agents")
 def get_highlevel_voice_agents(
     current_user: User = Depends(get_current_user),
@@ -209,8 +378,9 @@ def get_highlevel_voice_agents(
 
     location_id = get_highlevel_location_id()
 
-    response = highlevel_get(
-        "/voice-ai/agents",
+    response = highlevel_request(
+        method="GET",
+        path="/voice-ai/agents",
         params={
             "locationId": location_id,
             "page": 1,
@@ -260,8 +430,9 @@ def get_highlevel_voice_agent(
 
     location_id = get_highlevel_location_id()
 
-    response = highlevel_get(
-        f"/voice-ai/agents/{agent_id}",
+    response = highlevel_request(
+        method="GET",
+        path=f"/voice-ai/agents/{agent_id}",
         params={
             "locationId": location_id,
         },
@@ -347,8 +518,9 @@ def get_highlevel_voice_action(
 
     location_id = get_highlevel_location_id()
 
-    response = highlevel_get(
-        f"/voice-ai/actions/{action_id}",
+    response = highlevel_request(
+        method="GET",
+        path=f"/voice-ai/actions/{action_id}",
         params={
             "locationId": location_id,
         },
@@ -365,4 +537,122 @@ def get_highlevel_voice_action(
         },
         "highlevel_location_id": location_id,
         "action": safe_action(data),
+    }
+
+
+@router.post("/provisioning-test/availability")
+def create_availability_provisioning_test(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Create an isolated HighLevel Voice AI test agent and attach one
+    ChairTime availability action to it.
+
+    This endpoint intentionally does NOT modify the existing working
+    ChairTime Receptionist.
+    """
+
+    require_owner(current_user)
+
+    shop = get_current_shop(
+        current_user=current_user,
+        db=db,
+    )
+
+    if not shop.slug:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="The ChairTime shop does not have a slug.",
+        )
+
+    location_id = get_highlevel_location_id()
+
+    #
+    # Step 1:
+    # Create an isolated Voice AI test agent.
+    #
+    agent_response = highlevel_request(
+        method="POST",
+        path="/voice-ai/agents",
+        json_body=build_test_agent_payload(
+            shop=shop,
+            location_id=location_id,
+        ),
+    )
+
+    agent_data = response_json(agent_response)
+
+    agent_id = agent_data.get("id")
+
+    if not agent_id:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=(
+                "HighLevel created the test agent but "
+                "did not return an agent ID."
+            ),
+        )
+
+    #
+    # Step 2:
+    # Create a modern CUSTOM_ACTION on that test agent.
+    #
+    action_response = highlevel_request(
+        method="POST",
+        path="/voice-ai/actions",
+        json_body=build_availability_action_payload(
+            shop=shop,
+            agent_id=agent_id,
+            location_id=location_id,
+        ),
+    )
+
+    action_data = response_json(action_response)
+
+    action_id = (
+        action_data.get("id")
+        or action_data.get("_id")
+    )
+
+    if not action_id:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "message": (
+                    "HighLevel created the test agent, "
+                    "but the availability action did not "
+                    "return an action ID."
+                ),
+                "test_agent_id": agent_id,
+            },
+        )
+
+    return {
+        "success": True,
+        "message": (
+            "Isolated ChairTime Voice AI provisioning "
+            "test created successfully."
+        ),
+        "chairtime_shop": {
+            "id": str(shop.id),
+            "slug": shop.slug,
+            "name": shop.name,
+        },
+        "highlevel_location_id": location_id,
+        "test_agent": {
+            "id": agent_id,
+            "agent_name": (
+                agent_data.get("agentName")
+                or "ChairTime Provisioning Test"
+            ),
+        },
+        "availability_action": {
+            "id": action_id,
+            "action_type": action_data.get(
+                "actionType"
+            ),
+            "name": action_data.get("name"),
+        },
+        "working_receptionist_modified": False,
     }
