@@ -117,9 +117,9 @@ export default function SignupPage() {
       }
 
       /*
-       * The owner does not enter Setup or Admin yet.
-       * First, Stripe must accept a payment method
-       * and create the 30-day trial subscription.
+       * Stripe must accept the owner's payment
+       * method and create the trial subscription
+       * before the owner proceeds to setup.
        */
       const checkoutResponse = await fetch(
         "/api/billing/create-checkout-session",
@@ -176,25 +176,24 @@ export default function SignupPage() {
 
   const businessFeatures = [
     "Online booking 24/7",
-    "Easy daily schedule and calendar",
-    "Customer records and appointment history",
+    "Daily schedule and calendar",
+    "Customer records and history",
     "Text confirmations and reminders",
     "Staff schedules and availability",
-    "Services, prices, and appointment times",
+    "Services, pricing and appointment times",
     "Customer notes",
     "Easy appointment changes and cancellations",
-    "Card-on-file option to help reduce no-shows",
-    "Access from your phone, tablet, or computer",
+    "Optional card-on-file to reduce no-shows",
   ];
 
   const aiFeatures = [
-    "Answers calls when you're busy with a customer",
-    "Answers when your business is closed",
+    "Answers calls when you're busy",
+    "Answers calls when you're closed",
     "Books appointments directly into your schedule",
-    "Handles routine scheduling questions",
-    "Helps turn missed calls into booked appointments",
-    "Lets you keep your existing business phone number",
-    "Works with your online booking, schedule, and customer information",
+    "Text confirmations and reminders",
+    "Answers common scheduling questions",
+    "Helps turn missed calls into appointments",
+    "Keep your existing business phone number",
   ];
 
   return (
@@ -502,7 +501,7 @@ export default function SignupPage() {
             <section className={styles.section}>
               <div
                 style={{
-                  marginBottom: "18px",
+                  marginBottom: "16px",
                 }}
               >
                 <h2 className={styles.sectionTitle}>
@@ -513,7 +512,7 @@ export default function SignupPage() {
                   style={{
                     color: "#64748b",
                     fontSize: "14px",
-                    lineHeight: "1.55",
+                    lineHeight: "1.5",
                     marginTop: "5px",
                   }}
                 >
@@ -529,6 +528,7 @@ export default function SignupPage() {
                   gridTemplateColumns:
                     "repeat(auto-fit, minmax(260px, 1fr))",
                   gap: "16px",
+                  alignItems: "stretch",
                 }}
               >
                 <button
@@ -615,8 +615,8 @@ export default function SignupPage() {
                       lineHeight: "1.5",
                     }}
                   >
-                    Everything you need to manage
-                    appointments and customers simply.
+                    Everything you need to manage your
+                    appointments and customers.
                   </p>
 
                   <div
@@ -697,7 +697,6 @@ export default function SignupPage() {
                       "scheduling_ai"
                         ? "0 5px 18px rgba(124,58,237,0.14)"
                         : "none",
-                    position: "relative",
                   }}
                 >
                   <div
@@ -712,7 +711,7 @@ export default function SignupPage() {
                       fontWeight: "900",
                     }}
                   >
-                    BEST FOR BUSY BUSINESSES
+                    NEVER MISS A CALL
                   </div>
 
                   <div
@@ -745,7 +744,18 @@ export default function SignupPage() {
                           color: "#7c3aed",
                         }}
                       >
-                        $198/month
+                        $198/month total
+                      </div>
+
+                      <div
+                        style={{
+                          marginTop: "3px",
+                          color: "#64748b",
+                          fontSize: "12px",
+                          fontWeight: "700",
+                        }}
+                      >
+                        Includes Business Management
                       </div>
                     </div>
 
@@ -768,7 +778,7 @@ export default function SignupPage() {
                   <div
                     style={{
                       marginTop: "14px",
-                      marginBottom: "15px",
+                      marginBottom: "14px",
                       padding: "12px",
                       borderRadius: "12px",
                       background: "#ede9fe",
@@ -790,8 +800,7 @@ export default function SignupPage() {
                     }}
                   >
                     Everything in Business Management,
-                    plus an AI receptionist that answers
-                    the phone for you.
+                    plus:
                   </p>
 
                   <div
