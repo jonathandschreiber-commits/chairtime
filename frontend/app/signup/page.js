@@ -16,6 +16,9 @@ export default function SignupPage() {
   const [confirmPassword, setConfirmPassword] =
     useState("");
 
+  const [selectedPlan, setSelectedPlan] =
+    useState("scheduling");
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -62,14 +65,6 @@ export default function SignupPage() {
     setError("");
 
     try {
-      /*
-       * Step 1:
-       * Create the shop and owner account.
-       *
-       * The signup API also establishes the authenticated
-       * ChairTime session needed for the Stripe Checkout
-       * request that immediately follows.
-       */
       const signupResponse = await fetch(
         "/api/auth/signup",
         {
@@ -122,20 +117,21 @@ export default function SignupPage() {
       }
 
       /*
-       * Step 2:
-       * Immediately create Stripe Checkout.
-       *
-       * A new owner does NOT go to Admin or Setup here.
-       * Stripe must first accept the payment method and
-       * create the 30-day trial subscription.
+       * The owner does not enter Setup or Admin yet.
+       * First, Stripe must accept a payment method
+       * and create the 30-day trial subscription.
        */
       const checkoutResponse = await fetch(
         "/api/billing/create-checkout-session",
         {
           method: "POST",
           headers: {
+            "Content-Type": "application/json",
             Accept: "application/json",
           },
+          body: JSON.stringify({
+            plan: selectedPlan,
+          }),
         }
       );
 
@@ -166,13 +162,6 @@ export default function SignupPage() {
         );
       }
 
-      /*
-       * Step 3:
-       * Leave ChairTime for Stripe-hosted Checkout.
-       *
-       * Stripe will return the owner to ChairTime only
-       * after Checkout succeeds or is canceled.
-       */
       window.location.href = checkoutUrl;
     } catch (error) {
       setError(
@@ -184,6 +173,29 @@ export default function SignupPage() {
       setLoading(false);
     }
   }
+
+  const businessFeatures = [
+    "Online booking 24/7",
+    "Easy daily schedule and calendar",
+    "Customer records and appointment history",
+    "Text confirmations and reminders",
+    "Staff schedules and availability",
+    "Services, prices, and appointment times",
+    "Customer notes",
+    "Easy appointment changes and cancellations",
+    "Card-on-file option to help reduce no-shows",
+    "Access from your phone, tablet, or computer",
+  ];
+
+  const aiFeatures = [
+    "Answers calls when you're busy with a customer",
+    "Answers when your business is closed",
+    "Books appointments directly into your schedule",
+    "Handles routine scheduling questions",
+    "Helps turn missed calls into booked appointments",
+    "Lets you keep your existing business phone number",
+    "Works with your online booking, schedule, and customer information",
+  ];
 
   return (
     <main className={styles.page}>
@@ -199,8 +211,9 @@ export default function SignupPage() {
             </h1>
 
             <p className={styles.brandText}>
-              Tell us a little about your business and
-              create your ChairTime owner account.
+              Tell us about your business, choose the
+              plan that works best for you, and start
+              your first 30 days free.
             </p>
           </div>
 
@@ -225,7 +238,7 @@ export default function SignupPage() {
                 marginBottom: "6px",
               }}
             >
-              30 DAYS FREE — NO CHARGE TODAY
+              YOUR FIRST 30 DAYS ARE FREE — $0 TODAY
             </div>
 
             <div
@@ -235,9 +248,10 @@ export default function SignupPage() {
               }}
             >
               A credit card is required to start your
-              free trial. You will not be charged today.
-              Your first $49 payment will be charged
-              after your 30-day trial unless you cancel.
+              free trial. You will not be charged
+              today. Your selected plan begins billing
+              after your 30-day trial unless you
+              cancel.
             </div>
           </div>
 
@@ -485,25 +499,380 @@ export default function SignupPage() {
               </div>
             </section>
 
+            <section className={styles.section}>
+              <div
+                style={{
+                  marginBottom: "18px",
+                }}
+              >
+                <h2 className={styles.sectionTitle}>
+                  Choose your plan
+                </h2>
+
+                <p
+                  style={{
+                    color: "#64748b",
+                    fontSize: "14px",
+                    lineHeight: "1.55",
+                    marginTop: "5px",
+                  }}
+                >
+                  Both plans include your first 30 days
+                  free. Choose what works best for your
+                  business.
+                </p>
+              </div>
+
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns:
+                    "repeat(auto-fit, minmax(260px, 1fr))",
+                  gap: "16px",
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() =>
+                    setSelectedPlan("scheduling")
+                  }
+                  disabled={loading}
+                  style={{
+                    textAlign: "left",
+                    padding: "20px",
+                    borderRadius: "18px",
+                    border:
+                      selectedPlan === "scheduling"
+                        ? "3px solid #4f46e5"
+                        : "2px solid #cbd5e1",
+                    background:
+                      selectedPlan === "scheduling"
+                        ? "#eef2ff"
+                        : "#ffffff",
+                    cursor: loading
+                      ? "default"
+                      : "pointer",
+                    boxShadow:
+                      selectedPlan === "scheduling"
+                        ? "0 5px 18px rgba(79,70,229,0.12)"
+                        : "none",
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent:
+                        "space-between",
+                      alignItems: "flex-start",
+                      gap: "12px",
+                    }}
+                  >
+                    <div>
+                      <div
+                        style={{
+                          fontSize: "21px",
+                          fontWeight: "900",
+                          color: "#0f172a",
+                        }}
+                      >
+                        Business Management
+                      </div>
+
+                      <div
+                        style={{
+                          marginTop: "4px",
+                          fontSize: "20px",
+                          fontWeight: "900",
+                          color: "#4f46e5",
+                        }}
+                      >
+                        $49/month
+                      </div>
+                    </div>
+
+                    <div
+                      style={{
+                        width: "22px",
+                        height: "22px",
+                        borderRadius: "50%",
+                        border:
+                          selectedPlan ===
+                          "scheduling"
+                            ? "6px solid #4f46e5"
+                            : "2px solid #94a3b8",
+                        background: "#ffffff",
+                        flexShrink: 0,
+                      }}
+                    />
+                  </div>
+
+                  <p
+                    style={{
+                      marginTop: "14px",
+                      marginBottom: "14px",
+                      color: "#475569",
+                      fontWeight: "700",
+                      lineHeight: "1.5",
+                    }}
+                  >
+                    Everything you need to manage
+                    appointments and customers simply.
+                  </p>
+
+                  <div
+                    style={{
+                      display: "grid",
+                      gap: "8px",
+                    }}
+                  >
+                    {businessFeatures.map(
+                      (feature) => (
+                        <div
+                          key={feature}
+                          style={{
+                            display: "flex",
+                            gap: "8px",
+                            color: "#334155",
+                            fontSize: "14px",
+                            lineHeight: "1.4",
+                          }}
+                        >
+                          <span
+                            style={{
+                              color: "#16a34a",
+                              fontWeight: "900",
+                            }}
+                          >
+                            ✓
+                          </span>
+
+                          <span>{feature}</span>
+                        </div>
+                      )
+                    )}
+                  </div>
+
+                  <div
+                    style={{
+                      marginTop: "18px",
+                      padding: "10px 12px",
+                      borderRadius: "10px",
+                      background: "#ffffff",
+                      color: "#3730a3",
+                      fontWeight: "800",
+                      fontSize: "13px",
+                    }}
+                  >
+                    Your first 30 days are free.
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setSelectedPlan(
+                      "scheduling_ai"
+                    )
+                  }
+                  disabled={loading}
+                  style={{
+                    textAlign: "left",
+                    padding: "20px",
+                    borderRadius: "18px",
+                    border:
+                      selectedPlan ===
+                      "scheduling_ai"
+                        ? "3px solid #7c3aed"
+                        : "2px solid #c4b5fd",
+                    background:
+                      selectedPlan ===
+                      "scheduling_ai"
+                        ? "#f5f3ff"
+                        : "#fafaff",
+                    cursor: loading
+                      ? "default"
+                      : "pointer",
+                    boxShadow:
+                      selectedPlan ===
+                      "scheduling_ai"
+                        ? "0 5px 18px rgba(124,58,237,0.14)"
+                        : "none",
+                    position: "relative",
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "inline-block",
+                      marginBottom: "12px",
+                      padding: "6px 10px",
+                      borderRadius: "999px",
+                      background: "#7c3aed",
+                      color: "#ffffff",
+                      fontSize: "12px",
+                      fontWeight: "900",
+                    }}
+                  >
+                    BEST FOR BUSY BUSINESSES
+                  </div>
+
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent:
+                        "space-between",
+                      alignItems: "flex-start",
+                      gap: "12px",
+                    }}
+                  >
+                    <div>
+                      <div
+                        style={{
+                          fontSize: "21px",
+                          fontWeight: "900",
+                          color: "#0f172a",
+                        }}
+                      >
+                        Business Management
+                        <br />
+                        + AI Receptionist
+                      </div>
+
+                      <div
+                        style={{
+                          marginTop: "4px",
+                          fontSize: "20px",
+                          fontWeight: "900",
+                          color: "#7c3aed",
+                        }}
+                      >
+                        $198/month
+                      </div>
+                    </div>
+
+                    <div
+                      style={{
+                        width: "22px",
+                        height: "22px",
+                        borderRadius: "50%",
+                        border:
+                          selectedPlan ===
+                          "scheduling_ai"
+                            ? "6px solid #7c3aed"
+                            : "2px solid #94a3b8",
+                        background: "#ffffff",
+                        flexShrink: 0,
+                      }}
+                    />
+                  </div>
+
+                  <div
+                    style={{
+                      marginTop: "14px",
+                      marginBottom: "15px",
+                      padding: "12px",
+                      borderRadius: "12px",
+                      background: "#ede9fe",
+                      color: "#5b21b6",
+                      fontWeight: "900",
+                      lineHeight: "1.45",
+                    }}
+                  >
+                    Never lose a customer because you
+                    couldn&apos;t answer the phone.
+                  </div>
+
+                  <p
+                    style={{
+                      color: "#475569",
+                      fontWeight: "700",
+                      lineHeight: "1.5",
+                      marginBottom: "13px",
+                    }}
+                  >
+                    Everything in Business Management,
+                    plus an AI receptionist that answers
+                    the phone for you.
+                  </p>
+
+                  <div
+                    style={{
+                      display: "grid",
+                      gap: "8px",
+                    }}
+                  >
+                    {aiFeatures.map((feature) => (
+                      <div
+                        key={feature}
+                        style={{
+                          display: "flex",
+                          gap: "8px",
+                          color: "#334155",
+                          fontSize: "14px",
+                          lineHeight: "1.4",
+                        }}
+                      >
+                        <span
+                          style={{
+                            color: "#7c3aed",
+                            fontWeight: "900",
+                          }}
+                        >
+                          ✓
+                        </span>
+
+                        <span>{feature}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div
+                    style={{
+                      marginTop: "18px",
+                      padding: "10px 12px",
+                      borderRadius: "10px",
+                      background: "#ffffff",
+                      color: "#5b21b6",
+                      fontWeight: "800",
+                      fontSize: "13px",
+                    }}
+                  >
+                    Your first 30 days are free.
+                  </div>
+                </button>
+              </div>
+            </section>
+
             <div
               style={{
                 background: "#eef2ff",
                 border: "1px solid #c7d2fe",
                 borderRadius: "14px",
-                padding: "14px 16px",
+                padding: "16px",
                 marginBottom: "16px",
                 color: "#3730a3",
                 fontSize: "14px",
-                lineHeight: "1.5",
+                lineHeight: "1.55",
                 fontWeight: "650",
               }}
             >
-              <strong>Next: secure card setup.</strong>
+              <strong>
+                Next: secure card setup with Stripe.
+              </strong>
               <br />
-              After you create your account, you&apos;ll
-              enter your card securely with Stripe.
-              You&apos;ll pay $0 today and won&apos;t be
-              charged until your 30-day free trial ends.
+              A credit card is required to start your
+              free trial, but you&apos;ll pay{" "}
+              <strong>$0 today</strong>. You won&apos;t
+              be charged until your 30-day free trial
+              ends.
+              <br />
+              <br />
+              After 30 days, your selected plan will be{" "}
+              <strong>
+                {selectedPlan === "scheduling_ai"
+                  ? "$198 per month"
+                  : "$49 per month"}
+              </strong>{" "}
+              unless you cancel.
             </div>
 
             <button
