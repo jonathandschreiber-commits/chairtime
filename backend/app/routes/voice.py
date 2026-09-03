@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Appointment, Barber, Service
+from app.models import Appointment, Barber, Service, Shop
 from app.routes.reminders import send_highlevel_sms
 from app.scheduling import generate_available_slots
 
@@ -549,7 +549,8 @@ def slots_to_datetimes(slots):
             available_datetimes.append(
                 datetime.fromisoformat(
                     str(slot)
-                )
+
+                                    )
             )
 
         except (ValueError, TypeError):
@@ -861,6 +862,7 @@ def parse_start_time(
 
 
 def build_confirmation_message(
+    business_name: str,
     service_name: str,
     barber_name: str,
     start_datetime: datetime,
@@ -881,7 +883,7 @@ def build_confirmation_message(
     ).lstrip("0")
 
     return (
-        f"Joe's Barbershop: Your {service_name.lower()} with "
+        f"{business_name}: Your {service_name.lower()} with "
         f"{barber_name} is confirmed for {date_text} at {time_text}. "
         "You'll receive a reminder before your appointment. "
         "Reply STOP to unsubscribe."
@@ -1034,7 +1036,20 @@ def voice_book_appointment(
     # SMS failure must never undo or invalidate the booking.
     #
 
+    shop = (
+        db.query(Shop)
+        .filter(Shop.slug == payload.shop_slug)
+        .first()
+    )
+
+    business_name = (
+        shop.name
+        if shop and shop.name
+        else payload.shop_slug
+    )
+
     confirmation_message = build_confirmation_message(
+        business_name=business_name,
         service_name=service.name,
         barber_name=barber.name,
         start_datetime=appointment.start_datetime,
