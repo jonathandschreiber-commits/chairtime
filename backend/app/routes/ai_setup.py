@@ -2,7 +2,7 @@ import os
 from typing import Optional
 
 import requests
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -789,7 +789,6 @@ def verify_action_after_warning(
 
     return refreshed_action
 
-
 def create_or_update_action(
     agent_id: str,
     location_id: str,
@@ -925,9 +924,9 @@ def create_or_update_action(
 @router.post(
     "/webhook/{shop_slug}/availability"
 )
-def tenant_voice_availability(
+async def tenant_voice_availability(
     shop_slug: str,
-    payload: TenantAvailabilityRequest,
+    request: Request,
     db: Session = Depends(get_db),
 ):
     shop = get_shop_by_slug(
@@ -935,14 +934,65 @@ def tenant_voice_availability(
         db=db,
     )
 
+    incoming = {}
+
+    try:
+        json_data = await request.json()
+
+        if isinstance(json_data, dict):
+            incoming.update(json_data)
+
+    except Exception:
+        pass
+
+    for key, value in request.query_params.items():
+        if value is not None and key not in incoming:
+            incoming[key] = value
+
+    if not incoming:
+        try:
+            form_data = await request.form()
+
+            for key, value in form_data.items():
+                if value is not None:
+                    incoming[key] = value
+
+        except Exception:
+            pass
+
+    service_name = incoming.get("service_name")
+    target_date = incoming.get("target_date")
     barber_name = normalize_barber_name(
-        payload.barber_name
+        incoming.get("barber_name")
     )
+
+    missing_fields = []
+
+    if not service_name:
+        missing_fields.append("service_name")
+
+    if not target_date:
+        missing_fields.append("target_date")
+
+    if missing_fields:
+        return {
+            "success": False,
+            "message": (
+                "ChairTime received the HighLevel webhook, "
+                "but required appointment values were not "
+                "included in the request."
+            ),
+            "missing_fields": missing_fields,
+            "received_fields": sorted(incoming.keys()),
+            "content_type": request.headers.get(
+                "content-type"
+            ),
+        }
 
     request_payload = {
         "shop_slug": shop.slug,
-        "service_name": payload.service_name,
-        "target_date": payload.target_date,
+        "service_name": str(service_name).strip(),
+        "target_date": str(target_date).strip(),
         "barber_name": barber_name,
     }
 
@@ -955,9 +1005,9 @@ def tenant_voice_availability(
 @router.post(
     "/webhook/{shop_slug}/book"
 )
-def tenant_voice_booking(
+async def tenant_voice_booking(
     shop_slug: str,
-    payload: TenantBookingRequest,
+    request: Request,
     db: Session = Depends(get_db),
 ):
     shop = get_shop_by_slug(
@@ -965,17 +1015,82 @@ def tenant_voice_booking(
         db=db,
     )
 
+    incoming = {}
+
+    try:
+        json_data = await request.json()
+
+        if isinstance(json_data, dict):
+            incoming.update(json_data)
+
+    except Exception:
+        pass
+
+    for key, value in request.query_params.items():
+        if value is not None and key not in incoming:
+            incoming[key] = value
+
+    if not incoming:
+        try:
+            form_data = await request.form()
+
+            for key, value in form_data.items():
+                if value is not None:
+                    incoming[key] = value
+
+        except Exception:
+            pass
+
+    required_fields = [
+        "service_name",
+        "target_date",
+        "start_time",
+        "customer_name",
+        "customer_phone",
+    ]
+
+    missing_fields = [
+        field
+        for field in required_fields
+        if not incoming.get(field)
+    ]
+
+    if missing_fields:
+        return {
+            "success": False,
+            "message": (
+                "ChairTime received the HighLevel webhook, "
+                "but required booking values were not "
+                "included in the request."
+            ),
+            "missing_fields": missing_fields,
+            "received_fields": sorted(incoming.keys()),
+            "content_type": request.headers.get(
+                "content-type"
+            ),
+        }
+
     barber_name = normalize_barber_name(
-        payload.barber_name
+        incoming.get("barber_name")
     )
 
     request_payload = {
         "shop_slug": shop.slug,
-        "service_name": payload.service_name,
-        "target_date": payload.target_date,
-        "start_time": payload.start_time,
-        "customer_name": payload.customer_name,
-        "customer_phone": payload.customer_phone,
+        "service_name": str(
+            incoming["service_name"]
+        ).strip(),
+        "target_date": str(
+            incoming["target_date"]
+        ).strip(),
+        "start_time": str(
+            incoming["start_time"]
+        ).strip(),
+        "customer_name": str(
+            incoming["customer_name"]
+        ).strip(),
+        "customer_phone": str(
+            incoming["customer_phone"]
+        ).strip(),
         "barber_name": barber_name,
     }
 
