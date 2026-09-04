@@ -22,11 +22,11 @@ CHAIRTIME_PUBLIC_API_BASE_URL = os.getenv(
 ).rstrip("/")
 
 CHAIRTIME_AVAILABILITY_URL = (
-    f"{CHAIRTIME_PUBLIC_API_BASE_URL}/api/voice/availability"
+    f"{CHAIRTIME_PUBLIC_API_BASE_URL}/voice/availability"
 )
 
 CHAIRTIME_BOOKING_URL = (
-    f"{CHAIRTIME_PUBLIC_API_BASE_URL}/api/voice/book"
+    f"{CHAIRTIME_PUBLIC_API_BASE_URL}/voice/book"
 )
 
 TEST_AGENT_NAME = "ChairTime Provisioning Test"
@@ -1368,12 +1368,6 @@ def provision_tenant_safe_booking(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """
-    Provision only the book_appointment action.
-
-    This does not update check_availability.
-    """
-
     require_owner(current_user)
 
     shop = get_current_shop(
@@ -1412,10 +1406,6 @@ def provision_tenant_safe_booking(
             ),
         )
 
-    #
-    # Protect against accidentally creating booking before
-    # availability is present.
-    #
     current_agent = get_agent_detail(
         agent_id=agent_id,
         location_id=location_id,
