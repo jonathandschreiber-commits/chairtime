@@ -185,13 +185,9 @@ def safe_highlevel_error(
 def highlevel_error_text(
     response: requests.Response,
 ) -> str:
-    error_data = safe_highlevel_error(response)
-
-    try:
-        return str(error_data).lower()
-
-    except Exception:
-        return ""
+    return str(
+        safe_highlevel_error(response)
+    ).lower()
 
 
 def raise_highlevel_error(
@@ -634,12 +630,11 @@ def build_booking_action_payload(
         "actionParameters": {
             "triggerPrompt": (
                 "Use this action only after the caller "
-                "chooses one of the appointment times "
-                "returned by check_availability and "
-                "explicitly confirms that they want to "
-                "book it. Collect the service, date, "
-                "start time, customer name, customer "
-                "phone number, and staff preference "
+                "chooses an appointment time returned by "
+                "check_availability and explicitly confirms "
+                "that they want to book it. Collect the "
+                "service, date, start time, customer name, "
+                "customer phone number, and staff preference "
                 "before using this action."
             ),
             "triggerMessage": (
@@ -733,11 +728,74 @@ def build_booking_action_payload(
     }
 
 
+def verify_action_after_warning(
+    agent_id: str,
+    location_id: str,
+    action_name: str,
+    response: requests.Response,
+    expected_url: Optional[str] = None,
+) -> Optional[dict]:
+    """
+    HighLevel sometimes returns an error even though the
+    action was created or updated successfully.
+
+    Re-read the parent agent and verify the stored action.
+    """
+
+    error_text = highlevel_error_text(response)
+
+    known_highlevel_warning = (
+        "maximum call stack size exceeded"
+        in error_text
+        or "action with same name already exists"
+        in error_text
+    )
+
+    if not known_highlevel_warning:
+        return None
+
+    refreshed_agent = get_agent_detail(
+        agent_id=agent_id,
+        location_id=location_id,
+    )
+
+    refreshed_action = find_action_by_name(
+        agent_data=refreshed_agent,
+        action_name=action_name,
+    )
+
+    if not refreshed_action:
+        return None
+
+    if expected_url:
+        action_parameters = (
+            refreshed_action.get(
+                "actionParameters"
+            )
+            or {}
+        )
+
+        api_details = (
+            action_parameters.get(
+                "apiDetails"
+            )
+            or {}
+        )
+
+        stored_url = api_details.get("url")
+
+        if stored_url != expected_url:
+            return None
+
+    return refreshed_action
+
+
 def create_or_update_action(
     agent_id: str,
     location_id: str,
     action_name: str,
     payload: dict,
+    expected_url: Optional[str] = None,
 ) -> dict:
     agent_data = get_agent_detail(
         agent_id=agent_id,
@@ -763,26 +821,51 @@ def create_or_update_action(
             json_body=payload,
         )
 
-        if response.status_code >= 400:
-            raise_highlevel_error(response)
+        if response.status_code < 400:
+            refreshed_agent = get_agent_detail(
+                agent_id=agent_id,
+                location_id=location_id,
+            )
 
-        refreshed_agent = get_agent_detail(
-            agent_id=agent_id,
-            location_id=location_id,
+            refreshed_action = find_action_by_name(
+                agent_data=refreshed_agent,
+                action_name=action_name,
+            )
+
+            return {
+                "operation": "updated",
+                "action": safe_action(
+                    refreshed_action
+                    or existing_action
+                ),
+            }
+
+        verified_action = (
+            verify_action_after_warning(
+                agent_id=agent_id,
+                location_id=location_id,
+                action_name=action_name,
+                response=response,
+                expected_url=expected_url,
+            )
         )
 
-        refreshed_action = find_action_by_name(
-            agent_data=refreshed_agent,
-            action_name=action_name,
-        )
+        if verified_action:
+            return {
+                "operation": (
+                    "updated_and_verified"
+                ),
+                "action": safe_action(
+                    verified_action
+                ),
+                "highlevel_warning": (
+                    safe_highlevel_error(
+                        response
+                    )
+                ),
+            }
 
-        return {
-            "operation": "updated",
-            "action": safe_action(
-                refreshed_action
-                or existing_action
-            ),
-        }
+        raise_highlevel_error(response)
 
     response = highlevel_raw_request(
         method="POST",
@@ -811,38 +894,30 @@ def create_or_update_action(
             ),
         }
 
-    error_text = highlevel_error_text(response)
-
-    potentially_created = (
-        "maximum call stack size exceeded"
-        in error_text
-        or "action with same name already exists"
-        in error_text
-    )
-
-    if potentially_created:
-        refreshed_agent = get_agent_detail(
+    verified_action = (
+        verify_action_after_warning(
             agent_id=agent_id,
             location_id=location_id,
-        )
-
-        refreshed_action = find_action_by_name(
-            agent_data=refreshed_agent,
             action_name=action_name,
+            response=response,
+            expected_url=expected_url,
         )
+    )
 
-        if refreshed_action:
-            return {
-                "operation": (
-                    "created_and_verified"
-                ),
-                "action": safe_action(
-                    refreshed_action
-                ),
-                "highlevel_warning": (
-                    safe_highlevel_error(response)
-                ),
-            }
+    if verified_action:
+        return {
+            "operation": (
+                "created_and_verified"
+            ),
+            "action": safe_action(
+                verified_action
+            ),
+            "highlevel_warning": (
+                safe_highlevel_error(
+                    response
+                )
+            ),
+        }
 
     raise_highlevel_error(response)
 
@@ -854,13 +929,6 @@ def tenant_voice_availability(
     payload: TenantAvailabilityRequest,
     db: Session = Depends(get_db),
 ):
-    """
-    Public HighLevel Voice AI webhook.
-
-    The shop is determined only from the URL. HighLevel does
-    not supply shop_slug as an AI-generated parameter.
-    """
-
     shop = get_shop_by_slug(
         shop_slug=shop_slug,
         db=db,
@@ -891,13 +959,6 @@ def tenant_voice_booking(
     payload: TenantBookingRequest,
     db: Session = Depends(get_db),
 ):
-    """
-    Public HighLevel Voice AI booking webhook.
-
-    The shop is determined only from the URL. The AI cannot
-    select or override the ChairTime tenant.
-    """
-
     shop = get_shop_by_slug(
         shop_slug=shop_slug,
         db=db,
@@ -989,11 +1050,9 @@ def get_highlevel_voice_agent(
         location_id=location_id,
     )
 
-    raw_actions = extract_actions(data)
-
     actions = [
         safe_action(action)
-        for action in raw_actions
+        for action in extract_actions(data)
     ]
 
     return {
@@ -1099,16 +1158,6 @@ def provision_tenant_safe_availability(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """
-    Reuse the isolated test agent.
-
-    Update its existing check_availability action if one
-    already exists. Otherwise create it.
-
-    The action's URL contains the ChairTime shop slug, so
-    tenant identity is no longer supplied by the AI.
-    """
-
     require_owner(current_user)
 
     shop = get_current_shop(
@@ -1147,6 +1196,12 @@ def provision_tenant_safe_availability(
             ),
         )
 
+    webhook_url = (
+        tenant_availability_webhook_url(
+            shop
+        )
+    )
+
     availability_result = (
         create_or_update_action(
             agent_id=agent_id,
@@ -1159,6 +1214,7 @@ def provision_tenant_safe_availability(
                     location_id=location_id,
                 )
             ),
+            expected_url=webhook_url,
         )
     )
 
@@ -1181,11 +1237,7 @@ def provision_tenant_safe_availability(
             ),
             "created_this_request": agent_created,
         },
-        "availability_webhook": (
-            tenant_availability_webhook_url(
-                shop
-            )
-        ),
+        "availability_webhook": webhook_url,
         "availability_action": (
             availability_result
         ),
@@ -1193,21 +1245,17 @@ def provision_tenant_safe_availability(
     }
 
 
-@router.post("/provisioning-test/full")
-def provision_tenant_safe_voice_test(
+@router.post(
+    "/provisioning-test/booking"
+)
+def provision_tenant_safe_booking(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
-    Configure both tenant-safe ChairTime Voice AI actions
-    on the isolated test agent:
+    Provision only the book_appointment action.
 
-    1. check_availability
-    2. book_appointment
-
-    Existing actions are updated instead of duplicated.
-
-    The production ChairTime Receptionist is not modified.
+    This does not update check_availability.
     """
 
     require_owner(current_user)
@@ -1249,11 +1297,140 @@ def provision_tenant_safe_voice_test(
         )
 
     #
-    # Do availability first.
+    # Protect against accidentally creating booking before
+    # availability is present.
     #
-    # If HighLevel refuses the update, execution stops
-    # before we create or modify the booking action.
-    #
+    current_agent = get_agent_detail(
+        agent_id=agent_id,
+        location_id=location_id,
+    )
+
+    availability_action = (
+        find_action_by_name(
+            current_agent,
+            "check_availability",
+        )
+    )
+
+    if not availability_action:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "The test agent does not yet have a "
+                "check_availability action."
+            ),
+        )
+
+    webhook_url = (
+        tenant_booking_webhook_url(
+            shop
+        )
+    )
+
+    booking_result = create_or_update_action(
+        agent_id=agent_id,
+        location_id=location_id,
+        action_name="book_appointment",
+        payload=build_booking_action_payload(
+            shop=shop,
+            agent_id=agent_id,
+            location_id=location_id,
+        ),
+        expected_url=webhook_url,
+    )
+
+    refreshed_agent = get_agent_detail(
+        agent_id=agent_id,
+        location_id=location_id,
+    )
+
+    return {
+        "success": True,
+        "message": (
+            "Tenant-safe ChairTime booking action "
+            "is configured."
+        ),
+        "chairtime_shop": {
+            "id": str(shop.id),
+            "slug": shop.slug,
+            "name": shop.name,
+        },
+        "test_agent": {
+            "id": agent_id,
+            "agent_name": (
+                refreshed_agent.get(
+                    "agentName"
+                )
+                or TEST_AGENT_NAME
+            ),
+            "created_this_request": agent_created,
+        },
+        "booking_webhook": webhook_url,
+        "booking_action": booking_result,
+        "final_action_count": len(
+            extract_actions(
+                refreshed_agent
+            )
+        ),
+        "working_receptionist_modified": False,
+    }
+
+
+@router.post("/provisioning-test/full")
+def provision_tenant_safe_voice_test(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    require_owner(current_user)
+
+    shop = get_current_shop(
+        current_user=current_user,
+        db=db,
+    )
+
+    if not shop.slug:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "The ChairTime shop does not have a slug."
+            ),
+        )
+
+    location_id = get_highlevel_location_id()
+
+    agent_data, agent_created = (
+        get_or_create_test_agent(
+            shop=shop,
+            location_id=location_id,
+        )
+    )
+
+    agent_id = (
+        agent_data.get("id")
+        or agent_data.get("_id")
+    )
+
+    if not agent_id:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=(
+                "HighLevel did not return an ID for the "
+                "provisioning test agent."
+            ),
+        )
+
+    availability_url = (
+        tenant_availability_webhook_url(
+            shop
+        )
+    )
+
+    booking_url = (
+        tenant_booking_webhook_url(
+            shop
+        )
+    )
+
     availability_result = (
         create_or_update_action(
             agent_id=agent_id,
@@ -1266,12 +1443,10 @@ def provision_tenant_safe_voice_test(
                     location_id=location_id,
                 )
             ),
+            expected_url=availability_url,
         )
     )
 
-    #
-    # Only provision booking after availability succeeds.
-    #
     booking_result = (
         create_or_update_action(
             agent_id=agent_id,
@@ -1284,6 +1459,7 @@ def provision_tenant_safe_voice_test(
                     location_id=location_id,
                 )
             ),
+            expected_url=booking_url,
         )
     )
 
@@ -1321,16 +1497,8 @@ def provision_tenant_safe_voice_test(
             "created_this_request": agent_created,
         },
         "webhooks": {
-            "availability": (
-                tenant_availability_webhook_url(
-                    shop
-                )
-            ),
-            "booking": (
-                tenant_booking_webhook_url(
-                    shop
-                )
-            ),
+            "availability": availability_url,
+            "booking": booking_url,
         },
         "availability_action": (
             availability_result
