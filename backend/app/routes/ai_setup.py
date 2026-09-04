@@ -611,7 +611,7 @@ def build_availability_action_payload(
                 ],
             },
             "selectedPaths": [
-                "result.slots",
+                "slots",
             ],
         },
     }
@@ -713,16 +713,16 @@ def build_booking_action_payload(
                 ],
             },
             "selectedPaths": [
-                "result.success",
-                "result.message",
-                "result.appointment_id",
-                "result.barber",
-                "result.service",
-                "result.start_datetime",
-                "result.status",
-                "result.confirmation_sms_sent",
-                "result.confirmation_sms_error",
-                "result.reminder_scheduled",
+                "success",
+                "message",
+                "appointment_id",
+                "barber",
+                "service",
+                "start_datetime",
+                "status",
+                "confirmation_sms_sent",
+                "confirmation_sms_error",
+                "reminder_scheduled",
             ],
         },
     }
@@ -920,6 +920,7 @@ def create_or_update_action(
         }
 
     raise_highlevel_error(response)
+
 
 @router.post(
     "/webhook/{shop_slug}/availability"
