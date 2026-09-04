@@ -324,6 +324,15 @@ def build_availability_action_payload(
     agent_id: str,
     location_id: str,
 ) -> dict:
+    """
+    Minimal modern HighLevel CUSTOM_ACTION using POST.
+
+    Important:
+    - selectedPaths must be empty for POST.
+    - No legacy CAP/schemaValues structure.
+    - No unnecessary custom headers.
+    """
+
     return {
         "agentId": agent_id,
         "locationId": location_id,
@@ -345,22 +354,13 @@ def build_availability_action_payload(
                 "url": CHAIRTIME_AVAILABILITY_URL,
                 "method": "POST",
                 "authenticationRequired": False,
-                "headers": [
-                    {
-                        "key": "Content-Type",
-                        "value": "application/json",
-                    },
-                    {
-                        "key": "X-ChairTime-Shop",
-                        "value": shop.slug,
-                    },
-                ],
+                "headers": [],
                 "parameters": [
                     {
                         "name": "shop_slug",
                         "description": (
-                            "ChairTime business identifier. "
-                            f"Always use {shop.slug}."
+                            "The ChairTime business identifier. "
+                            f"Always send exactly: {shop.slug}"
                         ),
                         "type": "string",
                         "example": shop.slug,
@@ -368,7 +368,7 @@ def build_availability_action_payload(
                     {
                         "name": "service_name",
                         "description": (
-                            "Exact service name requested "
+                            "The exact service name requested "
                             "by the caller."
                         ),
                         "type": "string",
@@ -377,7 +377,7 @@ def build_availability_action_payload(
                     {
                         "name": "target_date",
                         "description": (
-                            "Requested appointment date "
+                            "The requested appointment date "
                             "in YYYY-MM-DD format."
                         ),
                         "type": "string",
@@ -386,18 +386,16 @@ def build_availability_action_payload(
                     {
                         "name": "barber_name",
                         "description": (
-                            "Requested barber or staff "
-                            "member. Use no preference "
-                            "when the caller has none."
+                            "The requested barber or staff "
+                            "member. If there is no preference, "
+                            "send No preference."
                         ),
                         "type": "string",
                         "example": "No preference",
                     },
                 ],
             },
-            "selectedPaths": [
-                "result.slots",
-            ],
+            "selectedPaths": [],
         },
     }
 
@@ -581,13 +579,13 @@ def create_availability_provisioning_test(
     db: Session = Depends(get_db),
 ):
     """
-    Reuse the isolated ChairTime provisioning test agent when one
-    already exists. Otherwise create it.
+    Reuse the isolated ChairTime provisioning test agent if it
+    already exists.
 
-    Then create a modern HighLevel CUSTOM_ACTION for ChairTime
-    availability.
+    Create one modern CUSTOM_ACTION that points to ChairTime's
+    production availability endpoint.
 
-    The existing working ChairTime Receptionist is never modified.
+    The existing working ChairTime Receptionist is not modified.
     """
 
     require_owner(current_user)
@@ -609,8 +607,7 @@ def create_availability_provisioning_test(
 
     #
     # Step 1:
-    # Reuse the provisioning test agent created during the
-    # previous attempt. Only create one if it does not exist.
+    # Reuse the existing isolated test agent.
     #
     agent_data, agent_created = (
         get_or_create_test_agent(
@@ -635,8 +632,7 @@ def create_availability_provisioning_test(
 
     #
     # Step 2:
-    # Create the modern CUSTOM_ACTION using HighLevel's
-    # current apiDetails schema.
+    # Create a minimal modern POST CUSTOM_ACTION.
     #
     action_response = highlevel_request(
         method="POST",
