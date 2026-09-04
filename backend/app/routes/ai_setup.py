@@ -19,6 +19,8 @@ CHAIRTIME_AVAILABILITY_URL = (
     "/api/voice/availability"
 )
 
+TEST_AGENT_NAME = "ChairTime Provisioning Test"
+
 
 def get_highlevel_api_token() -> str:
     token = os.getenv("HIGHLEVEL_API_TOKEN")
@@ -134,7 +136,10 @@ def safe_agent_summary(agent: dict) -> dict:
         return {}
 
     return {
-        "id": agent.get("id"),
+        "id": (
+            agent.get("id")
+            or agent.get("_id")
+        ),
         "agent_name": (
             agent.get("agentName")
             or agent.get("name")
@@ -213,6 +218,46 @@ def response_json(
     return data
 
 
+def extract_agents(data: dict) -> list:
+    raw_agents = data.get("agents")
+
+    if not isinstance(raw_agents, list):
+        return []
+
+    return [
+        agent
+        for agent in raw_agents
+        if isinstance(agent, dict)
+    ]
+
+
+def find_existing_test_agent(
+    location_id: str,
+) -> dict | None:
+    response = highlevel_request(
+        method="GET",
+        path="/voice-ai/agents",
+        params={
+            "locationId": location_id,
+            "page": 1,
+            "pageSize": 50,
+        },
+    )
+
+    data = response_json(response)
+
+    for agent in extract_agents(data):
+        agent_name = (
+            agent.get("agentName")
+            or agent.get("name")
+        )
+
+        if agent_name == TEST_AGENT_NAME:
+            return agent
+
+    return None
+
+
 def build_test_agent_payload(
     shop: Shop,
     location_id: str,
@@ -225,7 +270,7 @@ def build_test_agent_payload(
 
     return {
         "locationId": location_id,
-        "agentName": "ChairTime Provisioning Test",
+        "agentName": TEST_AGENT_NAME,
         "businessName": business_name,
         "welcomeMessage": (
             f"Thanks for calling {business_name}. "
@@ -251,53 +296,34 @@ def build_test_agent_payload(
     }
 
 
+def get_or_create_test_agent(
+    shop: Shop,
+    location_id: str,
+) -> tuple[dict, bool]:
+    existing_agent = find_existing_test_agent(
+        location_id=location_id,
+    )
+
+    if existing_agent:
+        return existing_agent, False
+
+    response = highlevel_request(
+        method="POST",
+        path="/voice-ai/agents",
+        json_body=build_test_agent_payload(
+            shop=shop,
+            location_id=location_id,
+        ),
+    )
+
+    return response_json(response), True
+
+
 def build_availability_action_payload(
     shop: Shop,
     agent_id: str,
     location_id: str,
 ) -> dict:
-    request_body = {
-        "shop_slug": shop.slug,
-        "service_name": "{{service_name}}",
-        "target_date": "{{target_date}}",
-        "barber_name": "{{barber_name}}",
-    }
-
-    body_schema = {
-        "type": "object",
-        "properties": {
-            "service_name": {
-                "type": "string",
-                "description": (
-                    "The service the caller wants to book. "
-                    "Use the service name stated by the caller."
-                ),
-            },
-            "target_date": {
-                "type": "string",
-                "description": (
-                    "The appointment date requested by the "
-                    "caller. Convert relative dates such as "
-                    "today, tomorrow, or next Monday to "
-                    "YYYY-MM-DD format."
-                ),
-            },
-            "barber_name": {
-                "type": "string",
-                "description": (
-                    "The requested barber or staff member. "
-                    "If the caller has no preference, use "
-                    "no preference."
-                ),
-            },
-        },
-        "required": [
-            "service_name",
-            "target_date",
-            "barber_name",
-        ],
-    }
-
     return {
         "agentId": agent_id,
         "locationId": location_id,
@@ -305,62 +331,73 @@ def build_availability_action_payload(
         "name": "check_availability",
         "actionParameters": {
             "triggerPrompt": (
-                "When the caller wants to book an appointment "
-                "and the service, requested date, and staff "
-                "preference have been collected, use this "
-                "action to check ChairTime for actual "
-                "available appointment times before offering "
-                "times to the caller."
+                "Use this action when the caller wants "
+                "to book an appointment and you have "
+                "collected the service, requested date, "
+                "and staff preference. Always check "
+                "ChairTime before offering appointment "
+                "times."
             ),
             "triggerMessage": (
                 "Let me check what's available."
             ),
-            "schemaValues": {
-                "paramsValues": {},
-                "requestBodyValues": {
-                    "webhookUrl": {
-                        "value": CHAIRTIME_AVAILABILITY_URL,
-                        "mode": "manual",
+            "apiDetails": {
+                "url": CHAIRTIME_AVAILABILITY_URL,
+                "method": "POST",
+                "authenticationRequired": False,
+                "headers": [
+                    {
+                        "key": "Content-Type",
+                        "value": "application/json",
                     },
-                    "httpMethod": {
-                        "value": "POST",
-                        "mode": "manual",
+                    {
+                        "key": "X-ChairTime-Shop",
+                        "value": shop.slug,
                     },
-                    "headers": {
-                        "value": {
-                            "Content-Type": "application/json",
-                        },
-                        "mode": "manual",
+                ],
+                "parameters": [
+                    {
+                        "name": "shop_slug",
+                        "description": (
+                            "ChairTime business identifier. "
+                            f"Always use {shop.slug}."
+                        ),
+                        "type": "string",
+                        "example": shop.slug,
                     },
-                    "apiTimeout": {
-                        "value": 10,
-                        "mode": "manual",
+                    {
+                        "name": "service_name",
+                        "description": (
+                            "Exact service name requested "
+                            "by the caller."
+                        ),
+                        "type": "string",
+                        "example": "Haircut",
                     },
-                    "retryOnFailure": {
-                        "value": False,
-                        "mode": "manual",
+                    {
+                        "name": "target_date",
+                        "description": (
+                            "Requested appointment date "
+                            "in YYYY-MM-DD format."
+                        ),
+                        "type": "string",
+                        "example": "2026-09-10",
                     },
-                    "useSimpleRequestBody": {
-                        "value": True,
-                        "mode": "manual",
+                    {
+                        "name": "barber_name",
+                        "description": (
+                            "Requested barber or staff "
+                            "member. Use no preference "
+                            "when the caller has none."
+                        ),
+                        "type": "string",
+                        "example": "No preference",
                     },
-                    "simpleRequestBody": {
-                        "value": request_body,
-                        "type": "json",
-                        "mode": "manual",
-                    },
-                    "bodySchema": {
-                        "value": body_schema,
-                        "mode": "manual",
-                    },
-                    "selectedOutputFields": {
-                        "value": [
-                            "result.slots[]",
-                        ],
-                        "mode": "manual",
-                    },
-                },
+                ],
             },
+            "selectedPaths": [
+                "result.slots",
+            ],
         },
     }
 
@@ -389,16 +426,11 @@ def get_highlevel_voice_agents(
     )
 
     data = response_json(response)
-
-    raw_agents = data.get("agents")
-
-    if not isinstance(raw_agents, list):
-        raw_agents = []
+    raw_agents = extract_agents(data)
 
     safe_agents = [
         safe_agent_summary(agent)
         for agent in raw_agents
-        if isinstance(agent, dict)
     ]
 
     return {
@@ -459,7 +491,10 @@ def get_highlevel_voice_agent(
             "name": shop.name,
         },
         "agent": {
-            "id": data.get("id"),
+            "id": (
+                data.get("id")
+                or data.get("_id")
+            ),
             "agent_name": data.get("agentName"),
             "business_name": data.get(
                 "businessName"
@@ -546,11 +581,13 @@ def create_availability_provisioning_test(
     db: Session = Depends(get_db),
 ):
     """
-    Create an isolated HighLevel Voice AI test agent and attach one
-    ChairTime availability action to it.
+    Reuse the isolated ChairTime provisioning test agent when one
+    already exists. Otherwise create it.
 
-    This endpoint intentionally does NOT modify the existing working
-    ChairTime Receptionist.
+    Then create a modern HighLevel CUSTOM_ACTION for ChairTime
+    availability.
+
+    The existing working ChairTime Receptionist is never modified.
     """
 
     require_owner(current_user)
@@ -563,40 +600,43 @@ def create_availability_provisioning_test(
     if not shop.slug:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="The ChairTime shop does not have a slug.",
+            detail=(
+                "The ChairTime shop does not have a slug."
+            ),
         )
 
     location_id = get_highlevel_location_id()
 
     #
     # Step 1:
-    # Create an isolated Voice AI test agent.
+    # Reuse the provisioning test agent created during the
+    # previous attempt. Only create one if it does not exist.
     #
-    agent_response = highlevel_request(
-        method="POST",
-        path="/voice-ai/agents",
-        json_body=build_test_agent_payload(
+    agent_data, agent_created = (
+        get_or_create_test_agent(
             shop=shop,
             location_id=location_id,
-        ),
+        )
     )
 
-    agent_data = response_json(agent_response)
-
-    agent_id = agent_data.get("id")
+    agent_id = (
+        agent_data.get("id")
+        or agent_data.get("_id")
+    )
 
     if not agent_id:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=(
-                "HighLevel created the test agent but "
-                "did not return an agent ID."
+                "HighLevel did not return an ID for the "
+                "provisioning test agent."
             ),
         )
 
     #
     # Step 2:
-    # Create a modern CUSTOM_ACTION on that test agent.
+    # Create the modern CUSTOM_ACTION using HighLevel's
+    # current apiDetails schema.
     #
     action_response = highlevel_request(
         method="POST",
@@ -620,9 +660,8 @@ def create_availability_provisioning_test(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail={
                 "message": (
-                    "HighLevel created the test agent, "
-                    "but the availability action did not "
-                    "return an action ID."
+                    "HighLevel accepted the action request "
+                    "but did not return an action ID."
                 ),
                 "test_agent_id": agent_id,
             },
@@ -631,8 +670,8 @@ def create_availability_provisioning_test(
     return {
         "success": True,
         "message": (
-            "Isolated ChairTime Voice AI provisioning "
-            "test created successfully."
+            "ChairTime availability provisioning test "
+            "created successfully."
         ),
         "chairtime_shop": {
             "id": str(shop.id),
@@ -644,8 +683,9 @@ def create_availability_provisioning_test(
             "id": agent_id,
             "agent_name": (
                 agent_data.get("agentName")
-                or "ChairTime Provisioning Test"
+                or TEST_AGENT_NAME
             ),
+            "created_this_request": agent_created,
         },
         "availability_action": {
             "id": action_id,
@@ -653,6 +693,9 @@ def create_availability_provisioning_test(
                 "actionType"
             ),
             "name": action_data.get("name"),
+            "action_parameters": action_data.get(
+                "actionParameters"
+            ),
         },
         "working_receptionist_modified": False,
     }
