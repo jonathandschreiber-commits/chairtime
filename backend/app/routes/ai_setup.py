@@ -1,5 +1,7 @@
+import json
 import os
 from typing import Optional
+from urllib.parse import parse_qs
 
 import requests
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -50,6 +52,137 @@ class TenantBookingRequest(BaseModel):
     customer_name: str
     customer_phone: str
     barber_name: Optional[str] = None
+
+
+def diagnostic_log(
+    label: str,
+    data,
+) -> None:
+    """
+    Temporary Railway diagnostics for AI setup.
+
+    Do not pass API tokens, authorization headers,
+    Stripe data, or other secrets into this function.
+    """
+    try:
+        if isinstance(data, (dict, list)):
+            rendered = json.dumps(
+                data,
+                default=str,
+                ensure_ascii=False,
+            )
+        else:
+            rendered = str(data)
+
+        print(
+            f"[AI_SETUP_DIAGNOSTIC] {label}: "
+            f"{rendered[:5000]}",
+            flush=True,
+        )
+
+    except Exception as exc:
+        print(
+            "[AI_SETUP_DIAGNOSTIC] "
+            f"{label}: <log failure: {exc}>",
+            flush=True,
+        )
+
+
+def mask_phone(
+    value: Optional[str],
+) -> Optional[str]:
+    if not value:
+        return value
+
+    text = str(value)
+
+    if len(text) <= 4:
+        return "****"
+
+    return (
+        "*" * (len(text) - 4)
+        + text[-4:]
+    )
+
+
+def safe_booking_log_payload(
+    payload: dict,
+) -> dict:
+    safe_payload = dict(payload)
+
+    if "customer_name" in safe_payload:
+        safe_payload["customer_name"] = (
+            "<customer name provided>"
+        )
+
+    if "customer_phone" in safe_payload:
+        safe_payload["customer_phone"] = mask_phone(
+            safe_payload.get("customer_phone")
+        )
+
+    return safe_payload
+
+
+def decode_request_body(
+    raw_body: bytes,
+    content_type: str,
+) -> dict:
+    if not raw_body:
+        return {}
+
+    body_text = raw_body.decode(
+        "utf-8",
+        errors="replace",
+    )
+
+    lowered_content_type = (
+        content_type
+        or ""
+    ).lower()
+
+    if "application/json" in lowered_content_type:
+        try:
+            data = json.loads(body_text)
+
+            if isinstance(data, dict):
+                return data
+
+        except Exception:
+            return {}
+
+    if (
+        "application/x-www-form-urlencoded"
+        in lowered_content_type
+    ):
+        try:
+            parsed = parse_qs(
+                body_text,
+                keep_blank_values=True,
+            )
+
+            return {
+                key: (
+                    values[-1]
+                    if isinstance(values, list)
+                    and values
+                    else values
+                )
+                for key, values in parsed.items()
+            }
+
+        except Exception:
+            return {}
+
+    try:
+        data = json.loads(body_text)
+
+        if isinstance(data, dict):
+            return data
+
+    except Exception:
+        pass
+
+    return {}
 
 
 def get_highlevel_api_token() -> str:
@@ -325,7 +458,25 @@ def response_json(
 def chairtime_voice_request(
     url: str,
     payload: dict,
+    request_type: str,
 ) -> dict:
+    if request_type == "booking":
+        diagnostic_payload = (
+            safe_booking_log_payload(payload)
+        )
+    else:
+        diagnostic_payload = payload
+
+    diagnostic_log(
+        f"{request_type}.internal_request.url",
+        url,
+    )
+
+    diagnostic_log(
+        f"{request_type}.internal_request.payload",
+        diagnostic_payload,
+    )
+
     try:
         response = requests.post(
             url,
@@ -338,7 +489,12 @@ def chairtime_voice_request(
             timeout=20,
         )
 
-    except requests.RequestException:
+    except requests.RequestException as exc:
+        diagnostic_log(
+            f"{request_type}.internal_request.exception",
+            repr(exc),
+        )
+
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=(
@@ -347,10 +503,20 @@ def chairtime_voice_request(
             ),
         )
 
+    diagnostic_log(
+        f"{request_type}.internal_response.status",
+        response.status_code,
+    )
+
     try:
         data = response.json()
 
     except ValueError:
+        diagnostic_log(
+            f"{request_type}.internal_response.non_json",
+            response.text[:2000],
+        )
+
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=(
@@ -359,7 +525,29 @@ def chairtime_voice_request(
             ),
         )
 
+    if request_type == "booking":
+        diagnostic_data = (
+            safe_booking_log_payload(data)
+            if isinstance(data, dict)
+            else data
+        )
+    else:
+        diagnostic_data = data
+
+    diagnostic_log(
+        f"{request_type}.internal_response.body",
+        diagnostic_data,
+    )
+
     if response.status_code >= 400:
+        diagnostic_log(
+            f"{request_type}.raising_http_error",
+            {
+                "status": response.status_code,
+                "body": diagnostic_data,
+            },
+        )
+
         raise HTTPException(
             status_code=response.status_code,
             detail=data,
@@ -927,39 +1115,91 @@ async def tenant_voice_availability(
     request: Request,
     db: Session = Depends(get_db),
 ):
+    diagnostic_log(
+        "availability.webhook.started",
+        {
+            "shop_slug": shop_slug,
+            "method": request.method,
+            "content_type": request.headers.get(
+                "content-type"
+            ),
+            "query_string": str(
+                request.url.query
+            ),
+        },
+    )
+
     shop = get_shop_by_slug(
         shop_slug=shop_slug,
         db=db,
     )
 
-    incoming = {}
+    diagnostic_log(
+        "availability.shop.resolved",
+        {
+            "shop_slug": shop.slug,
+            "shop_name": shop.name,
+        },
+    )
 
-    try:
-        json_data = await request.json()
+    raw_body = await request.body()
 
-        if isinstance(json_data, dict):
-            incoming.update(json_data)
+    content_type = (
+        request.headers.get(
+            "content-type"
+        )
+        or ""
+    )
 
-    except Exception:
-        pass
+    diagnostic_log(
+        "availability.raw_body",
+        raw_body.decode(
+            "utf-8",
+            errors="replace",
+        )[:5000],
+    )
 
-    for key, value in request.query_params.items():
-        if value is not None and key not in incoming:
+    incoming = decode_request_body(
+        raw_body=raw_body,
+        content_type=content_type,
+    )
+
+    diagnostic_log(
+        "availability.parsed_body",
+        incoming,
+    )
+
+    query_values = {
+        key: value
+        for key, value
+        in request.query_params.items()
+    }
+
+    diagnostic_log(
+        "availability.query_params",
+        query_values,
+    )
+
+    for key, value in query_values.items():
+        if (
+            value is not None
+            and key not in incoming
+        ):
             incoming[key] = value
 
-    if not incoming:
-        try:
-            form_data = await request.form()
+    diagnostic_log(
+        "availability.combined_input",
+        incoming,
+    )
 
-            for key, value in form_data.items():
-                if value is not None:
-                    incoming[key] = value
+    service_name = incoming.get(
+        "service_name"
+    )
 
-        except Exception:
-            pass
+    target_date = incoming.get(
+        "target_date"
+    )
 
-    service_name = incoming.get("service_name")
-    target_date = incoming.get("target_date")
     barber_name = normalize_barber_name(
         incoming.get("barber_name")
     )
@@ -967,12 +1207,28 @@ async def tenant_voice_availability(
     missing_fields = []
 
     if not service_name:
-        missing_fields.append("service_name")
+        missing_fields.append(
+            "service_name"
+        )
 
     if not target_date:
-        missing_fields.append("target_date")
+        missing_fields.append(
+            "target_date"
+        )
 
     if missing_fields:
+        diagnostic_log(
+            "availability.missing_fields",
+            {
+                "missing_fields": (
+                    missing_fields
+                ),
+                "received_fields": sorted(
+                    incoming.keys()
+                ),
+            },
+        )
+
         return {
             "success": False,
             "message": (
@@ -981,23 +1237,40 @@ async def tenant_voice_availability(
                 "included in the request."
             ),
             "missing_fields": missing_fields,
-            "received_fields": sorted(incoming.keys()),
-            "content_type": request.headers.get(
-                "content-type"
+            "received_fields": sorted(
+                incoming.keys()
             ),
+            "content_type": content_type,
         }
 
     request_payload = {
         "shop_slug": shop.slug,
-        "service_name": str(service_name).strip(),
-        "target_date": str(target_date).strip(),
+        "service_name": str(
+            service_name
+        ).strip(),
+        "target_date": str(
+            target_date
+        ).strip(),
         "barber_name": barber_name,
     }
 
-    return chairtime_voice_request(
+    diagnostic_log(
+        "availability.forwarding_payload",
+        request_payload,
+    )
+
+    result = chairtime_voice_request(
         url=CHAIRTIME_AVAILABILITY_URL,
         payload=request_payload,
+        request_type="availability",
     )
+
+    diagnostic_log(
+        "availability.webhook.success",
+        result,
+    )
+
+    return result
 
 
 @router.post(
@@ -1008,36 +1281,63 @@ async def tenant_voice_booking(
     request: Request,
     db: Session = Depends(get_db),
 ):
+    diagnostic_log(
+        "booking.webhook.started",
+        {
+            "shop_slug": shop_slug,
+            "method": request.method,
+            "content_type": request.headers.get(
+                "content-type"
+            ),
+            "query_string": str(
+                request.url.query
+            ),
+        },
+    )
+
     shop = get_shop_by_slug(
         shop_slug=shop_slug,
         db=db,
     )
 
-    incoming = {}
+    raw_body = await request.body()
 
-    try:
-        json_data = await request.json()
+    content_type = (
+        request.headers.get(
+            "content-type"
+        )
+        or ""
+    )
 
-        if isinstance(json_data, dict):
-            incoming.update(json_data)
+    incoming = decode_request_body(
+        raw_body=raw_body,
+        content_type=content_type,
+    )
 
-    except Exception:
-        pass
+    query_values = {
+        key: value
+        for key, value
+        in request.query_params.items()
+    }
 
-    for key, value in request.query_params.items():
-        if value is not None and key not in incoming:
+    for key, value in query_values.items():
+        if (
+            value is not None
+            and key not in incoming
+        ):
             incoming[key] = value
 
-    if not incoming:
-        try:
-            form_data = await request.form()
+    diagnostic_log(
+        "booking.received_fields",
+        sorted(incoming.keys()),
+    )
 
-            for key, value in form_data.items():
-                if value is not None:
-                    incoming[key] = value
-
-        except Exception:
-            pass
+    diagnostic_log(
+        "booking.parsed_input",
+        safe_booking_log_payload(
+            incoming
+        ),
+    )
 
     required_fields = [
         "service_name",
@@ -1054,6 +1354,18 @@ async def tenant_voice_booking(
     ]
 
     if missing_fields:
+        diagnostic_log(
+            "booking.missing_fields",
+            {
+                "missing_fields": (
+                    missing_fields
+                ),
+                "received_fields": sorted(
+                    incoming.keys()
+                ),
+            },
+        )
+
         return {
             "success": False,
             "message": (
@@ -1062,10 +1374,10 @@ async def tenant_voice_booking(
                 "included in the request."
             ),
             "missing_fields": missing_fields,
-            "received_fields": sorted(incoming.keys()),
-            "content_type": request.headers.get(
-                "content-type"
+            "received_fields": sorted(
+                incoming.keys()
             ),
+            "content_type": content_type,
         }
 
     barber_name = normalize_barber_name(
@@ -1092,15 +1404,34 @@ async def tenant_voice_booking(
         "barber_name": barber_name,
     }
 
-    return chairtime_voice_request(
+    diagnostic_log(
+        "booking.forwarding_payload",
+        safe_booking_log_payload(
+            request_payload
+        ),
+    )
+
+    result = chairtime_voice_request(
         url=CHAIRTIME_BOOKING_URL,
         payload=request_payload,
+        request_type="booking",
     )
+
+    diagnostic_log(
+        "booking.webhook.success",
+        safe_booking_log_payload(
+            result
+        ),
+    )
+
+    return result
 
 
 @router.get("/agents")
 def get_highlevel_voice_agents(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(
+        get_current_user
+    ),
     db: Session = Depends(get_db),
 ):
     require_owner(current_user)
@@ -1110,7 +1441,9 @@ def get_highlevel_voice_agents(
         db=db,
     )
 
-    location_id = get_highlevel_location_id()
+    location_id = (
+        get_highlevel_location_id()
+    )
 
     response = highlevel_request(
         method="GET",
@@ -1137,17 +1470,25 @@ def get_highlevel_voice_agents(
             "slug": shop.slug,
             "name": shop.name,
         },
-        "highlevel_location_id": location_id,
-        "agent_count": len(safe_agents),
+        "highlevel_location_id": (
+            location_id
+        ),
+        "agent_count": len(
+            safe_agents
+        ),
         "agents": safe_agents,
-        "highlevel_total": data.get("total"),
+        "highlevel_total": data.get(
+            "total"
+        ),
     }
 
 
 @router.get("/agents/{agent_id}")
 def get_highlevel_voice_agent(
     agent_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(
+        get_current_user
+    ),
     db: Session = Depends(get_db),
 ):
     require_owner(current_user)
@@ -1157,7 +1498,9 @@ def get_highlevel_voice_agent(
         db=db,
     )
 
-    location_id = get_highlevel_location_id()
+    location_id = (
+        get_highlevel_location_id()
+    )
 
     data = get_agent_detail(
         agent_id=agent_id,
@@ -1166,7 +1509,9 @@ def get_highlevel_voice_agent(
 
     actions = [
         safe_action(action)
-        for action in extract_actions(data)
+        for action in extract_actions(
+            data
+        )
     ]
 
     return {
@@ -1193,17 +1538,25 @@ def get_highlevel_voice_agent(
             "agent_prompt": data.get(
                 "agentPrompt"
             ),
-            "language": data.get("language"),
-            "voice_id": data.get("voiceId"),
-            "timezone": data.get("timezone"),
+            "language": data.get(
+                "language"
+            ),
+            "voice_id": data.get(
+                "voiceId"
+            ),
+            "timezone": data.get(
+                "timezone"
+            ),
             "patience_level": data.get(
                 "patienceLevel"
             ),
             "max_call_duration": data.get(
                 "maxCallDuration"
             ),
-            "send_user_idle_reminders": data.get(
-                "sendUserIdleReminders"
+            "send_user_idle_reminders": (
+                data.get(
+                    "sendUserIdleReminders"
+                )
             ),
             "reminder_after_idle_seconds": (
                 data.get(
@@ -1223,7 +1576,9 @@ def get_highlevel_voice_agent(
                 "isAgentAsBackupDisabled"
             ),
             "actions": actions,
-            "action_count": len(actions),
+            "action_count": len(
+                actions
+            ),
         },
     }
 
@@ -1231,7 +1586,9 @@ def get_highlevel_voice_agent(
 @router.get("/actions/{action_id}")
 def get_highlevel_voice_action(
     action_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(
+        get_current_user
+    ),
     db: Session = Depends(get_db),
 ):
     require_owner(current_user)
@@ -1241,17 +1598,24 @@ def get_highlevel_voice_action(
         db=db,
     )
 
-    location_id = get_highlevel_location_id()
+    location_id = (
+        get_highlevel_location_id()
+    )
 
     response = highlevel_request(
         method="GET",
-        path=f"/voice-ai/actions/{action_id}",
+        path=(
+            f"/voice-ai/actions/"
+            f"{action_id}"
+        ),
         params={
             "locationId": location_id,
         },
     )
 
-    data = response_json(response)
+    data = response_json(
+        response
+    )
 
     return {
         "success": True,
@@ -1260,8 +1624,12 @@ def get_highlevel_voice_action(
             "slug": shop.slug,
             "name": shop.name,
         },
-        "highlevel_location_id": location_id,
-        "action": safe_action(data),
+        "highlevel_location_id": (
+            location_id
+        ),
+        "action": safe_action(
+            data
+        ),
     }
 
 
@@ -1269,7 +1637,9 @@ def get_highlevel_voice_action(
     "/provisioning-test/availability"
 )
 def provision_tenant_safe_availability(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(
+        get_current_user
+    ),
     db: Session = Depends(get_db),
 ):
     require_owner(current_user)
@@ -1281,13 +1651,17 @@ def provision_tenant_safe_availability(
 
     if not shop.slug:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
+            status_code=(
+                status.HTTP_400_BAD_REQUEST
+            ),
             detail=(
                 "The ChairTime shop does not have a slug."
             ),
         )
 
-    location_id = get_highlevel_location_id()
+    location_id = (
+        get_highlevel_location_id()
+    )
 
     agent_data, agent_created = (
         get_or_create_test_agent(
@@ -1303,7 +1677,9 @@ def provision_tenant_safe_availability(
 
     if not agent_id:
         raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
+            status_code=(
+                status.HTTP_502_BAD_GATEWAY
+            ),
             detail=(
                 "HighLevel did not return an ID for the "
                 "provisioning test agent."
@@ -1320,7 +1696,9 @@ def provision_tenant_safe_availability(
         create_or_update_action(
             agent_id=agent_id,
             location_id=location_id,
-            action_name="check_availability",
+            action_name=(
+                "check_availability"
+            ),
             payload=(
                 build_availability_action_payload(
                     shop=shop,
@@ -1346,16 +1724,24 @@ def provision_tenant_safe_availability(
         "test_agent": {
             "id": agent_id,
             "agent_name": (
-                agent_data.get("agentName")
+                agent_data.get(
+                    "agentName"
+                )
                 or TEST_AGENT_NAME
             ),
-            "created_this_request": agent_created,
+            "created_this_request": (
+                agent_created
+            ),
         },
-        "availability_webhook": webhook_url,
+        "availability_webhook": (
+            webhook_url
+        ),
         "availability_action": (
             availability_result
         ),
-        "working_receptionist_modified": False,
+        "working_receptionist_modified": (
+            False
+        ),
     }
 
 
@@ -1363,7 +1749,9 @@ def provision_tenant_safe_availability(
     "/provisioning-test/booking"
 )
 def provision_tenant_safe_booking(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(
+        get_current_user
+    ),
     db: Session = Depends(get_db),
 ):
     require_owner(current_user)
@@ -1375,13 +1763,17 @@ def provision_tenant_safe_booking(
 
     if not shop.slug:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
+            status_code=(
+                status.HTTP_400_BAD_REQUEST
+            ),
             detail=(
                 "The ChairTime shop does not have a slug."
             ),
         )
 
-    location_id = get_highlevel_location_id()
+    location_id = (
+        get_highlevel_location_id()
+    )
 
     agent_data, agent_created = (
         get_or_create_test_agent(
@@ -1397,7 +1789,9 @@ def provision_tenant_safe_booking(
 
     if not agent_id:
         raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
+            status_code=(
+                status.HTTP_502_BAD_GATEWAY
+            ),
             detail=(
                 "HighLevel did not return an ID for the "
                 "provisioning test agent."
@@ -1418,7 +1812,9 @@ def provision_tenant_safe_booking(
 
     if not availability_action:
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
+            status_code=(
+                status.HTTP_409_CONFLICT
+            ),
             detail=(
                 "The test agent does not yet have a "
                 "check_availability action."
@@ -1431,21 +1827,29 @@ def provision_tenant_safe_booking(
         )
     )
 
-    booking_result = create_or_update_action(
-        agent_id=agent_id,
-        location_id=location_id,
-        action_name="book_appointment",
-        payload=build_booking_action_payload(
-            shop=shop,
+    booking_result = (
+        create_or_update_action(
             agent_id=agent_id,
             location_id=location_id,
-        ),
-        expected_url=webhook_url,
+            action_name=(
+                "book_appointment"
+            ),
+            payload=(
+                build_booking_action_payload(
+                    shop=shop,
+                    agent_id=agent_id,
+                    location_id=location_id,
+                )
+            ),
+            expected_url=webhook_url,
+        )
     )
 
-    refreshed_agent = get_agent_detail(
-        agent_id=agent_id,
-        location_id=location_id,
+    refreshed_agent = (
+        get_agent_detail(
+            agent_id=agent_id,
+            location_id=location_id,
+        )
     )
 
     return {
@@ -1467,22 +1871,34 @@ def provision_tenant_safe_booking(
                 )
                 or TEST_AGENT_NAME
             ),
-            "created_this_request": agent_created,
+            "created_this_request": (
+                agent_created
+            ),
         },
-        "booking_webhook": webhook_url,
-        "booking_action": booking_result,
+        "booking_webhook": (
+            webhook_url
+        ),
+        "booking_action": (
+            booking_result
+        ),
         "final_action_count": len(
             extract_actions(
                 refreshed_agent
             )
         ),
-        "working_receptionist_modified": False,
+        "working_receptionist_modified": (
+            False
+        ),
     }
 
 
-@router.post("/provisioning-test/full")
+@router.post(
+    "/provisioning-test/full"
+)
 def provision_tenant_safe_voice_test(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(
+        get_current_user
+    ),
     db: Session = Depends(get_db),
 ):
     require_owner(current_user)
@@ -1494,13 +1910,17 @@ def provision_tenant_safe_voice_test(
 
     if not shop.slug:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
+            status_code=(
+                status.HTTP_400_BAD_REQUEST
+            ),
             detail=(
                 "The ChairTime shop does not have a slug."
             ),
         )
 
-    location_id = get_highlevel_location_id()
+    location_id = (
+        get_highlevel_location_id()
+    )
 
     agent_data, agent_created = (
         get_or_create_test_agent(
@@ -1516,7 +1936,9 @@ def provision_tenant_safe_voice_test(
 
     if not agent_id:
         raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
+            status_code=(
+                status.HTTP_502_BAD_GATEWAY
+            ),
             detail=(
                 "HighLevel did not return an ID for the "
                 "provisioning test agent."
@@ -1539,7 +1961,9 @@ def provision_tenant_safe_voice_test(
         create_or_update_action(
             agent_id=agent_id,
             location_id=location_id,
-            action_name="check_availability",
+            action_name=(
+                "check_availability"
+            ),
             payload=(
                 build_availability_action_payload(
                     shop=shop,
@@ -1547,7 +1971,9 @@ def provision_tenant_safe_voice_test(
                     location_id=location_id,
                 )
             ),
-            expected_url=availability_url,
+            expected_url=(
+                availability_url
+            ),
         )
     )
 
@@ -1555,7 +1981,9 @@ def provision_tenant_safe_voice_test(
         create_or_update_action(
             agent_id=agent_id,
             location_id=location_id,
-            action_name="book_appointment",
+            action_name=(
+                "book_appointment"
+            ),
             payload=(
                 build_booking_action_payload(
                     shop=shop,
@@ -1563,13 +1991,17 @@ def provision_tenant_safe_voice_test(
                     location_id=location_id,
                 )
             ),
-            expected_url=booking_url,
+            expected_url=(
+                booking_url
+            ),
         )
     )
 
-    refreshed_agent = get_agent_detail(
-        agent_id=agent_id,
-        location_id=location_id,
+    refreshed_agent = (
+        get_agent_detail(
+            agent_id=agent_id,
+            location_id=location_id,
+        )
     )
 
     final_actions = [
@@ -1598,19 +2030,31 @@ def provision_tenant_safe_voice_test(
                 )
                 or TEST_AGENT_NAME
             ),
-            "created_this_request": agent_created,
+            "created_this_request": (
+                agent_created
+            ),
         },
         "webhooks": {
-            "availability": availability_url,
-            "booking": booking_url,
+            "availability": (
+                availability_url
+            ),
+            "booking": (
+                booking_url
+            ),
         },
         "availability_action": (
             availability_result
         ),
-        "booking_action": booking_result,
+        "booking_action": (
+            booking_result
+        ),
         "final_action_count": len(
             final_actions
         ),
-        "final_actions": final_actions,
-        "working_receptionist_modified": False,
+        "final_actions": (
+            final_actions
+        ),
+        "working_receptionist_modified": (
+            False
+        ),
     }
