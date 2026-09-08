@@ -1,5 +1,7 @@
+import asyncio
 import os
 from typing import Optional
+from urllib.parse import unquote
 
 import requests
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -138,6 +140,29 @@ def require_owner(current_user: User) -> None:
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Owner access is required.",
         )
+
+
+def decode_highlevel_value(value):
+    """
+    Decode one additional URL-encoding layer left by HighLevel.
+
+    For example, FastAPI may receive values such as:
+        13%3A30
+        John%20Smith
+        No%20preference
+    after HighLevel double-encodes query parameters.
+    """
+    if not isinstance(value, str):
+        return value
+
+    return unquote(value)
+
+
+def decode_highlevel_fields(values: dict) -> dict:
+    return {
+        key: decode_highlevel_value(value)
+        for key, value in values.items()
+    }
 
 
 def normalize_barber_name(
@@ -784,7 +809,7 @@ def verify_action_after_warning(
 
         if stored_url != expected_url:
             return None
-
+    
     return refreshed_action
 
 def create_or_update_action(
@@ -943,9 +968,11 @@ async def tenant_voice_availability(
     except Exception:
         pass
 
+    incoming = decode_highlevel_fields(incoming)
+
     for key, value in request.query_params.items():
         if value is not None and key not in incoming:
-            incoming[key] = value
+            incoming[key] = decode_highlevel_value(value)
 
     if not incoming:
         try:
@@ -953,7 +980,7 @@ async def tenant_voice_availability(
 
             for key, value in form_data.items():
                 if value is not None:
-                    incoming[key] = value
+                    incoming[key] = decode_highlevel_value(value)
 
         except Exception:
             pass
@@ -994,7 +1021,8 @@ async def tenant_voice_availability(
         "barber_name": barber_name,
     }
 
-    return chairtime_voice_request(
+    return await asyncio.to_thread(
+        chairtime_voice_request,
         url=CHAIRTIME_AVAILABILITY_URL,
         payload=request_payload,
     )
@@ -1024,9 +1052,11 @@ async def tenant_voice_booking(
     except Exception:
         pass
 
+    incoming = decode_highlevel_fields(incoming)
+
     for key, value in request.query_params.items():
         if value is not None and key not in incoming:
-            incoming[key] = value
+            incoming[key] = decode_highlevel_value(value)
 
     if not incoming:
         try:
@@ -1034,7 +1064,7 @@ async def tenant_voice_booking(
 
             for key, value in form_data.items():
                 if value is not None:
-                    incoming[key] = value
+                    incoming[key] = decode_highlevel_value(value)
 
         except Exception:
             pass
@@ -1092,7 +1122,8 @@ async def tenant_voice_booking(
         "barber_name": barber_name,
     }
 
-    return chairtime_voice_request(
+    return await asyncio.to_thread(
+        chairtime_voice_request,
         url=CHAIRTIME_BOOKING_URL,
         payload=request_payload,
     )
