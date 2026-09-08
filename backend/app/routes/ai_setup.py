@@ -21,12 +21,17 @@ CHAIRTIME_PUBLIC_API_BASE_URL = os.getenv(
     "https://chairtime-production-94da.up.railway.app",
 ).rstrip("/")
 
+CHAIRTIME_INTERNAL_API_BASE_URL = os.getenv(
+    "CHAIRTIME_INTERNAL_API_BASE_URL",
+    "http://127.0.0.1:8080",
+).rstrip("/")
+
 CHAIRTIME_AVAILABILITY_URL = (
-    f"{CHAIRTIME_PUBLIC_API_BASE_URL}/voice/availability"
+    f"{CHAIRTIME_INTERNAL_API_BASE_URL}/api/voice/availability"
 )
 
 CHAIRTIME_BOOKING_URL = (
-    f"{CHAIRTIME_PUBLIC_API_BASE_URL}/voice/book"
+    f"{CHAIRTIME_INTERNAL_API_BASE_URL}/api/voice/book"
 )
 
 TEST_AGENT_NAME = "ChairTime Provisioning Test"
@@ -735,13 +740,6 @@ def verify_action_after_warning(
     response: requests.Response,
     expected_url: Optional[str] = None,
 ) -> Optional[dict]:
-    """
-    HighLevel sometimes returns an error even though the
-    action was created or updated successfully.
-
-    Re-read the parent agent and verify the stored action.
-    """
-
     error_text = highlevel_error_text(response)
 
     known_highlevel_warning = (
