@@ -88,6 +88,18 @@ class Shop(Base):
         String,
         nullable=True,
     )
+    highlevel_agent_id = Column(
+        String,
+        nullable=True,
+        unique=True,
+        index=True,
+    )
+    highlevel_webhook_secret = Column(
+        String,
+        nullable=True,
+        unique=True,
+        index=True,
+    )
 
     # Shop payment preferences
     payment_policy = Column(
