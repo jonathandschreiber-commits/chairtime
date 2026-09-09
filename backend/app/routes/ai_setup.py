@@ -1,5 +1,7 @@
 import asyncio
 import os
+import logging
+import time
 from typing import Optional
 from urllib.parse import unquote
 
@@ -14,6 +16,7 @@ from app.routes.auth import get_current_user
 
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 HIGHLEVEL_API_BASE_URL = "https://services.leadconnectorhq.com"
 HIGHLEVEL_VOICE_API_VERSION = "v3"
@@ -38,11 +41,15 @@ CHAIRTIME_BOOKING_URL = (
 
 TEST_AGENT_NAME = "ChairTime Provisioning Test"
 
+TEST_AGENT_PROMPT = 'You are the appointment receptionist for this business. Be warm, brief, and efficient.\nUse ChairTime actions for real availability and bookings. Never invent an opening or claim a booking succeeded before the booking action confirms it.\nA caller saying anyone, any barber, whoever is available, or no preference has given a complete staff preference. Do not ask them to choose a provider. Use No preference for the availability and booking actions. Tell the caller the assigned provider after booking.\nCollect the service and date, then check availability. A morning, afternoon, or evening request is sufficient; pass that time window to the availability action. Morning is before noon, afternoon is noon to 5 PM, and evening is 5 PM onward, subject to actual shop hours. Offer up to three suitable returned times. If the caller asks for the earliest opening, use the earliest matching time. If they give an exact time, check that time directly.\nOnce the caller chooses a time, collect only missing booking information and book. A clear request to book is authorization; do not ask for another confirmation of the same service, date, time, or provider. Ask only when information is missing or genuinely ambiguous.\nAfter a successful booking, state the assigned provider, date, and time, and say that a confirmation text was sent only if confirmation_sms_sent is true. If texting failed, say the appointment is booked but the text could not be sent. Do not promise a reminder was delivered merely because it is scheduled.\nDo not repeat idle check-ins or narrate a long wait. If an action fails, apologize briefly and offer a useful next step. Never pretend to be checking availability when no action is running.'
+
 
 class TenantAvailabilityRequest(BaseModel):
     service_name: str
     target_date: str
     barber_name: Optional[str] = None
+    time_window: Optional[str] = None
+    preferred_start_time: Optional[str] = None
 
 
 class TenantBookingRequest(BaseModel):
@@ -493,67 +500,56 @@ def find_existing_test_agent(
     return None
 
 
-def build_test_agent_payload(
-    shop: Shop,
-    location_id: str,
-) -> dict:
-    business_name = (
-        shop.name
-        or shop.slug
-        or "ChairTime Business"
-    )
-
+def build_test_agent_payload(shop: Shop, location_id: str) -> dict:
+    business_name = shop.name or shop.slug or "ChairTime Business"
     return {
         "locationId": location_id,
         "agentName": TEST_AGENT_NAME,
         "businessName": business_name,
-        "welcomeMessage": (
-            f"Thanks for calling {business_name}. "
-            "How can I help you today?"
-        ),
-        "agentPrompt": (
-            "You are a temporary ChairTime Voice AI "
-            "provisioning test agent. "
-            "Use the available ChairTime actions to check "
-            "real availability and book appointments. "
-            "Never invent an appointment time. "
-            "Never claim an appointment is booked unless "
-            "the booking action confirms success."
-        ),
+        "welcomeMessage": f"Thanks for calling {business_name}. How can I help you today?",
+        "agentPrompt": TEST_AGENT_PROMPT,
         "language": "en-US",
         "maxCallDuration": 300,
-        "sendUserIdleReminders": True,
+        "sendUserIdleReminders": False,
         "reminderAfterIdleTimeSeconds": 8,
-        "timezone": (
-            shop.timezone
-            or "America/New_York"
-        ),
+        "timezone": shop.timezone or "America/New_York",
         "isAgentAsBackupDisabled": True,
     }
 
-
-def get_or_create_test_agent(
-    shop: Shop,
-    location_id: str,
-) -> tuple[dict, bool]:
-    existing_agent = find_existing_test_agent(
-        location_id=location_id,
-    )
-
+def get_or_create_test_agent(shop: Shop, location_id: str) -> tuple[dict, bool]:
+    existing_agent = find_existing_test_agent(location_id=location_id)
     if existing_agent:
         return existing_agent, False
-
     response = highlevel_request(
         method="POST",
         path="/voice-ai/agents",
-        json_body=build_test_agent_payload(
-            shop=shop,
-            location_id=location_id,
-        ),
+        json_body=build_test_agent_payload(shop=shop, location_id=location_id),
     )
-
     return response_json(response), True
 
+
+def update_test_agent_settings(agent_id: str, location_id: str) -> dict:
+    agent = get_agent_detail(agent_id=agent_id, location_id=location_id)
+    if agent.get("agentName") != TEST_AGENT_NAME:
+        raise HTTPException(status_code=409, detail="Only the provisioning test agent may be updated.")
+    payload = {
+        "locationId": location_id,
+        "agentPrompt": TEST_AGENT_PROMPT,
+        "sendUserIdleReminders": False,
+    }
+    response = highlevel_raw_request(
+        method="PATCH",
+        path=f"/voice-ai/agents/{agent_id}",
+        params={"locationId": location_id},
+        json_body=payload,
+    )
+    if response.status_code >= 400:
+        raise_highlevel_error(response)
+    refreshed = get_agent_detail(agent_id=agent_id, location_id=location_id)
+    if (refreshed.get("agentPrompt") != TEST_AGENT_PROMPT
+            or refreshed.get("sendUserIdleReminders") is not False):
+        raise HTTPException(status_code=502, detail="HighLevel did not retain the requested test-agent settings.")
+    return refreshed
 
 def tenant_availability_webhook_url(
     shop: Shop,
@@ -629,6 +625,18 @@ def build_availability_action_payload(
                         "example": "2026-09-10",
                     },
                     {
+                        "name": "time_window",
+                        "description": "Optional morning, afternoon, or evening. Use the caller's requested part of day.",
+                        "type": "string",
+                        "example": "afternoon",
+                    },
+                    {
+                        "name": "preferred_start_time",
+                        "description": "Optional exact requested time in 24-hour HH:MM format. Do not invent one.",
+                        "type": "string",
+                        "example": "10:00",
+                    },
+                    {
                         "name": "barber_name",
                         "description": (
                             "Requested barber or staff "
@@ -641,7 +649,8 @@ def build_availability_action_payload(
                 ],
             },
             "selectedPaths": [
-                "slots",
+                "success", "barber", "service", "target_date",
+                "slots", "available_count", "time_window",
             ],
         },
     }
@@ -1019,13 +1028,23 @@ async def tenant_voice_availability(
         "service_name": str(service_name).strip(),
         "target_date": str(target_date).strip(),
         "barber_name": barber_name,
+        "time_window": incoming.get("time_window"),
+        "preferred_start_time": incoming.get("preferred_start_time"),
     }
 
-    return await asyncio.to_thread(
+    started = time.monotonic()
+    result = await asyncio.to_thread(
         chairtime_voice_request,
         url=CHAIRTIME_AVAILABILITY_URL,
         payload=request_payload,
     )
+    logger.info(
+        "voice_availability shop=%s duration_ms=%d slot_count=%d",
+        shop.slug,
+        int((time.monotonic() - started) * 1000),
+        len(result.get("slots") or []),
+    )
+    return result
 
 
 @router.post(
@@ -1341,6 +1360,10 @@ def provision_tenant_safe_availability(
             ),
         )
 
+    agent_data = update_test_agent_settings(
+        agent_id=agent_id, location_id=location_id
+    )
+
     webhook_url = (
         tenant_availability_webhook_url(
             shop
@@ -1456,6 +1479,10 @@ def provision_tenant_safe_booking(
             ),
         )
 
+    agent_data = update_test_agent_settings(
+        agent_id=agent_id, location_id=location_id
+    )
+
     webhook_url = (
         tenant_booking_webhook_url(
             shop
@@ -1564,6 +1591,10 @@ def provision_tenant_safe_voice_test(
         tenant_booking_webhook_url(
             shop
         )
+    )
+
+    agent_data = update_test_agent_settings(
+        agent_id=agent_id, location_id=location_id
     )
 
     availability_result = (
