@@ -1,6 +1,8 @@
 import asyncio
+import hmac
 import os
 import logging
+import secrets
 import time
 from typing import Optional
 from urllib.parse import unquote
@@ -42,6 +44,9 @@ CHAIRTIME_BOOKING_URL = (
 TEST_AGENT_NAME = "ChairTime Provisioning Test"
 
 TEST_AGENT_PROMPT = 'You are the appointment receptionist for this business. Be warm, brief, and efficient.\nUse ChairTime actions for real availability and bookings. Never invent an opening or claim a booking succeeded before the booking action confirms it.\nA caller saying anyone, any barber, whoever is available, or no preference has given a complete staff preference. Do not ask them to choose a provider. Use No preference for the availability and booking actions. Tell the caller the assigned provider after booking.\nCollect the service and date, then check availability. A morning, afternoon, or evening request is sufficient; pass that time window to the availability action. Morning is before noon, afternoon is noon to 5 PM, and evening is 5 PM onward, subject to actual shop hours. Offer up to three suitable returned times. If the caller asks for the earliest opening, use the earliest matching time. If they give an exact time, check that time directly.\nOnce the caller chooses a time, collect only missing booking information and book. A clear request to book is authorization; do not ask for another confirmation of the same service, date, time, or provider. Ask only when information is missing or genuinely ambiguous.\nAfter a successful booking, state the assigned provider, date, and time, and say that a confirmation text was sent only if confirmation_sms_sent is true. If texting failed, say the appointment is booked but the text could not be sent. Do not promise a reminder was delivered merely because it is scheduled.\nDo not repeat idle check-ins or narrate a long wait. If an action fails, apologize briefly and offer a useful next step. Never pretend to be checking availability when no action is running.'
+
+PRODUCTION_AGENT_NAME_PREFIX = "ChairTime AI"
+PRODUCTION_WEBHOOK_SECRET_HEADER = "X-ChairTime-Webhook-Secret"
 
 
 class TenantAvailabilityRequest(BaseModel):
@@ -550,6 +555,339 @@ def update_test_agent_settings(agent_id: str, location_id: str) -> dict:
         raise HTTPException(status_code=502, detail="HighLevel did not retain the requested test-agent settings.")
     return refreshed
 
+def production_agent_name(shop: Shop) -> str:
+    identifier = shop.slug or str(shop.id)
+    return f"{PRODUCTION_AGENT_NAME_PREFIX} - {identifier}"
+
+
+def production_location_id(shop: Shop) -> str:
+    stored_location_id = str(
+        shop.highlevel_location_id or ""
+    ).strip()
+
+    if stored_location_id:
+        return stored_location_id
+
+    return get_highlevel_location_id()
+
+
+def build_production_agent_payload(
+    shop: Shop,
+    location_id: str,
+) -> dict:
+    business_name = (
+        shop.name
+        or shop.slug
+        or "ChairTime Business"
+    )
+
+    return {
+        "locationId": location_id,
+        "agentName": production_agent_name(shop),
+        "businessName": business_name,
+        "welcomeMessage": (
+            f"Thanks for calling {business_name}. "
+            "How can I help you today?"
+        ),
+        "agentPrompt": TEST_AGENT_PROMPT,
+        "language": "en-US",
+        "maxCallDuration": 300,
+        "sendUserIdleReminders": False,
+        "reminderAfterIdleTimeSeconds": 8,
+        "timezone": (
+            shop.timezone
+            or "America/New_York"
+        ),
+        "isAgentAsBackupDisabled": True,
+    }
+
+
+def ensure_shop_webhook_secret(
+    shop: Shop,
+    db: Session,
+) -> str:
+    existing_secret = str(
+        shop.highlevel_webhook_secret or ""
+    ).strip()
+
+    if existing_secret:
+        return existing_secret
+
+    shop.highlevel_webhook_secret = (
+        secrets.token_urlsafe(32)
+    )
+
+    try:
+        db.commit()
+        db.refresh(shop)
+    except Exception:
+        db.rollback()
+        raise
+
+    return str(shop.highlevel_webhook_secret)
+
+
+def verify_production_webhook_secret(
+    shop: Shop,
+    request: Request,
+) -> None:
+    expected_secret = str(
+        shop.highlevel_webhook_secret or ""
+    ).strip()
+    received_secret = str(
+        request.headers.get(
+            PRODUCTION_WEBHOOK_SECRET_HEADER,
+            "",
+        )
+        or ""
+    ).strip()
+
+    if (
+        not expected_secret
+        or not received_secret
+        or not hmac.compare_digest(
+            expected_secret,
+            received_secret,
+        )
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid ChairTime AI webhook credential.",
+        )
+
+
+def production_availability_webhook_url(
+    shop: Shop,
+) -> str:
+    return (
+        f"{CHAIRTIME_PUBLIC_API_BASE_URL}"
+        f"/api/ai-setup/tenant-webhook/"
+        f"{shop.slug}/availability"
+    )
+
+
+def production_booking_webhook_url(
+    shop: Shop,
+) -> str:
+    return (
+        f"{CHAIRTIME_PUBLIC_API_BASE_URL}"
+        f"/api/ai-setup/tenant-webhook/"
+        f"{shop.slug}/book"
+    )
+
+
+def get_or_create_production_agent(
+    shop: Shop,
+    location_id: str,
+    db: Session,
+) -> tuple[dict, bool]:
+    existing_agent_id = str(
+        shop.highlevel_agent_id or ""
+    ).strip()
+
+    if existing_agent_id:
+        other_shop = (
+            db.query(Shop)
+            .filter(
+                Shop.highlevel_agent_id
+                == existing_agent_id,
+                Shop.id != shop.id,
+            )
+            .first()
+        )
+
+        if other_shop:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "This AI agent is already assigned "
+                    "to another ChairTime shop."
+                ),
+            )
+
+        agent = get_agent_detail(
+            agent_id=existing_agent_id,
+            location_id=location_id,
+        )
+
+        if agent.get("agentName") == TEST_AGENT_NAME:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "The shared provisioning-test agent "
+                    "cannot be assigned to a shop."
+                ),
+            )
+
+        return agent, False
+
+    response = highlevel_request(
+        method="POST",
+        path="/voice-ai/agents",
+        json_body=build_production_agent_payload(
+            shop=shop,
+            location_id=location_id,
+        ),
+    )
+    agent = response_json(response)
+    agent_id = str(
+        agent.get("id")
+        or agent.get("_id")
+        or ""
+    ).strip()
+
+    if not agent_id:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=(
+                "HighLevel did not return an ID for the "
+                "shop AI receptionist."
+            ),
+        )
+
+    conflicting_shop = (
+        db.query(Shop)
+        .filter(
+            Shop.highlevel_agent_id == agent_id,
+            Shop.id != shop.id,
+        )
+        .first()
+    )
+
+    if conflicting_shop:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "HighLevel returned an AI agent already "
+                "assigned to another ChairTime shop."
+            ),
+        )
+
+    shop.highlevel_agent_id = agent_id
+    shop.highlevel_location_id = location_id
+
+    try:
+        db.commit()
+        db.refresh(shop)
+    except Exception:
+        db.rollback()
+        raise
+
+    return agent, True
+
+
+def update_production_agent_settings(
+    shop: Shop,
+    agent_id: str,
+    location_id: str,
+) -> dict:
+    if str(shop.highlevel_agent_id or "") != agent_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "This AI agent is not assigned to the "
+                "current ChairTime shop."
+            ),
+        )
+
+    agent = get_agent_detail(
+        agent_id=agent_id,
+        location_id=location_id,
+    )
+
+    if agent.get("agentName") == TEST_AGENT_NAME:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "The shared provisioning-test agent "
+                "cannot be used as a production agent."
+            ),
+        )
+
+    payload = {
+        "agentPrompt": TEST_AGENT_PROMPT,
+        "sendUserIdleReminders": False,
+    }
+
+    response = highlevel_raw_request(
+        method="PATCH",
+        path=f"/voice-ai/agents/{agent_id}",
+        params={"locationId": location_id},
+        json_body=payload,
+    )
+
+    if response.status_code >= 400:
+        raise_highlevel_error(response)
+
+    refreshed = get_agent_detail(
+        agent_id=agent_id,
+        location_id=location_id,
+    )
+
+    if (
+        refreshed.get("agentPrompt")
+        != TEST_AGENT_PROMPT
+        or refreshed.get("sendUserIdleReminders")
+        is not False
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=(
+                "HighLevel did not retain the requested "
+                "shop AI settings."
+            ),
+        )
+
+    return refreshed
+
+
+def require_shop_agent(
+    shop: Shop,
+    agent_id: str,
+) -> None:
+    assigned_agent_id = str(
+        shop.highlevel_agent_id or ""
+    ).strip()
+
+    if (
+        not assigned_agent_id
+        or assigned_agent_id != agent_id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="AI agent not found for this shop.",
+        )
+
+
+def require_shop_action(
+    shop: Shop,
+    action_id: str,
+    location_id: str,
+) -> dict:
+    assigned_agent_id = str(
+        shop.highlevel_agent_id or ""
+    ).strip()
+
+    if not assigned_agent_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="AI action not found for this shop.",
+        )
+
+    agent = get_agent_detail(
+        agent_id=assigned_agent_id,
+        location_id=location_id,
+    )
+
+    for action in extract_actions(agent):
+        if get_action_id(action) == action_id:
+            return action
+
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="AI action not found for this shop.",
+    )
+
 def tenant_availability_webhook_url(
     shop: Shop,
 ) -> str:
@@ -574,7 +912,24 @@ def build_availability_action_payload(
     shop: Shop,
     agent_id: str,
     location_id: str,
+    webhook_url: Optional[str] = None,
+    webhook_secret: Optional[str] = None,
 ) -> dict:
+    headers = [
+        {
+            "key": "Content-Type",
+            "value": "application/json",
+        },
+    ]
+
+    if webhook_secret:
+        headers.append(
+            {
+                "key": PRODUCTION_WEBHOOK_SECRET_HEADER,
+                "value": webhook_secret,
+            }
+        )
+
     return {
         "agentId": agent_id,
         "locationId": location_id,
@@ -593,17 +948,15 @@ def build_availability_action_payload(
                 "Let me check what's available."
             ),
             "apiDetails": {
-                "url": tenant_availability_webhook_url(
-                    shop
+                "url": (
+                    webhook_url
+                    or tenant_availability_webhook_url(
+                        shop
+                    )
                 ),
                 "method": "POST",
                 "authenticationRequired": False,
-                "headers": [
-                    {
-                        "key": "Content-Type",
-                        "value": "application/json",
-                    },
-                ],
+                "headers": headers,
                 "parameters": [
                     {
                         "name": "service_name",
@@ -659,7 +1012,24 @@ def build_booking_action_payload(
     shop: Shop,
     agent_id: str,
     location_id: str,
+    webhook_url: Optional[str] = None,
+    webhook_secret: Optional[str] = None,
 ) -> dict:
+    headers = [
+        {
+            "key": "Content-Type",
+            "value": "application/json",
+        },
+    ]
+
+    if webhook_secret:
+        headers.append(
+            {
+                "key": PRODUCTION_WEBHOOK_SECRET_HEADER,
+                "value": webhook_secret,
+            }
+        )
+
     return {
         "agentId": agent_id,
         "locationId": location_id,
@@ -680,17 +1050,15 @@ def build_booking_action_payload(
                 "appointment for you."
             ),
             "apiDetails": {
-                "url": tenant_booking_webhook_url(
-                    shop
+                "url": (
+                    webhook_url
+                    or tenant_booking_webhook_url(
+                        shop
+                    )
                 ),
                 "method": "POST",
                 "authenticationRequired": False,
-                "headers": [
-                    {
-                        "key": "Content-Type",
-                        "value": "application/json",
-                    },
-                ],
+                "headers": headers,
                 "parameters": [
                     {
                         "name": "service_name",
@@ -965,6 +1333,15 @@ async def tenant_voice_availability(
         db=db,
     )
 
+    if shop.highlevel_agent_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "The legacy provisioning-test webhook is "
+                "disabled for production AI shops."
+            ),
+        )
+
     incoming = {}
 
     try:
@@ -1059,6 +1436,15 @@ async def tenant_voice_booking(
         db=db,
     )
 
+    if shop.highlevel_agent_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "The legacy provisioning-test webhook is "
+                "disabled for production AI shops."
+            ),
+        )
+
     incoming = {}
 
     try:
@@ -1147,6 +1533,227 @@ async def tenant_voice_booking(
     )
 
 
+@router.post(
+    "/tenant-webhook/{shop_slug}/availability"
+)
+async def production_tenant_voice_availability(
+    shop_slug: str,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    shop = get_shop_by_slug(
+        shop_slug=shop_slug,
+        db=db,
+    )
+
+    if not shop.highlevel_agent_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Production AI receptionist is not configured.",
+        )
+
+    verify_production_webhook_secret(
+        shop=shop,
+        request=request,
+    )
+
+    incoming = {}
+
+    try:
+        json_data = await request.json()
+
+        if isinstance(json_data, dict):
+            incoming.update(json_data)
+
+    except Exception:
+        pass
+
+    incoming = decode_highlevel_fields(incoming)
+
+    for key, value in request.query_params.items():
+        if value is not None and key not in incoming:
+            incoming[key] = decode_highlevel_value(value)
+
+    if not incoming:
+        try:
+            form_data = await request.form()
+
+            for key, value in form_data.items():
+                if value is not None:
+                    incoming[key] = decode_highlevel_value(value)
+
+        except Exception:
+            pass
+
+    service_name = incoming.get("service_name")
+    target_date = incoming.get("target_date")
+    barber_name = normalize_barber_name(
+        incoming.get("barber_name")
+    )
+
+    missing_fields = []
+
+    if not service_name:
+        missing_fields.append("service_name")
+
+    if not target_date:
+        missing_fields.append("target_date")
+
+    if missing_fields:
+        return {
+            "success": False,
+            "message": (
+                "ChairTime received the AI webhook, "
+                "but required appointment values were "
+                "not included in the request."
+            ),
+            "missing_fields": missing_fields,
+            "received_fields": sorted(incoming.keys()),
+            "content_type": request.headers.get(
+                "content-type"
+            ),
+        }
+
+    request_payload = {
+        "shop_slug": shop.slug,
+        "service_name": str(service_name).strip(),
+        "target_date": str(target_date).strip(),
+        "barber_name": barber_name,
+        "time_window": incoming.get("time_window"),
+        "preferred_start_time": incoming.get(
+            "preferred_start_time"
+        ),
+    }
+
+    started = time.monotonic()
+    result = await asyncio.to_thread(
+        chairtime_voice_request,
+        url=CHAIRTIME_AVAILABILITY_URL,
+        payload=request_payload,
+    )
+    logger.info(
+        "production_voice_availability shop=%s "
+        "duration_ms=%d slot_count=%d",
+        shop.slug,
+        int((time.monotonic() - started) * 1000),
+        len(result.get("slots") or []),
+    )
+
+    return result
+
+
+@router.post(
+    "/tenant-webhook/{shop_slug}/book"
+)
+async def production_tenant_voice_booking(
+    shop_slug: str,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    shop = get_shop_by_slug(
+        shop_slug=shop_slug,
+        db=db,
+    )
+
+    if not shop.highlevel_agent_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Production AI receptionist is not configured.",
+        )
+
+    verify_production_webhook_secret(
+        shop=shop,
+        request=request,
+    )
+
+    incoming = {}
+
+    try:
+        json_data = await request.json()
+
+        if isinstance(json_data, dict):
+            incoming.update(json_data)
+
+    except Exception:
+        pass
+
+    incoming = decode_highlevel_fields(incoming)
+
+    for key, value in request.query_params.items():
+        if value is not None and key not in incoming:
+            incoming[key] = decode_highlevel_value(value)
+
+    if not incoming:
+        try:
+            form_data = await request.form()
+
+            for key, value in form_data.items():
+                if value is not None:
+                    incoming[key] = decode_highlevel_value(value)
+
+        except Exception:
+            pass
+
+    required_fields = [
+        "service_name",
+        "target_date",
+        "start_time",
+        "customer_name",
+        "customer_phone",
+    ]
+
+    missing_fields = [
+        field
+        for field in required_fields
+        if not incoming.get(field)
+    ]
+
+    if missing_fields:
+        return {
+            "success": False,
+            "message": (
+                "ChairTime received the AI webhook, "
+                "but required booking values were not "
+                "included in the request."
+            ),
+            "missing_fields": missing_fields,
+            "received_fields": sorted(incoming.keys()),
+            "content_type": request.headers.get(
+                "content-type"
+            ),
+        }
+
+    barber_name = normalize_barber_name(
+        incoming.get("barber_name")
+    )
+
+    request_payload = {
+        "shop_slug": shop.slug,
+        "service_name": str(
+            incoming["service_name"]
+        ).strip(),
+        "target_date": str(
+            incoming["target_date"]
+        ).strip(),
+        "start_time": str(
+            incoming["start_time"]
+        ).strip(),
+        "customer_name": str(
+            incoming["customer_name"]
+        ).strip(),
+        "customer_phone": str(
+            incoming["customer_phone"]
+        ).strip(),
+        "barber_name": barber_name,
+    }
+
+    return await asyncio.to_thread(
+        chairtime_voice_request,
+        url=CHAIRTIME_BOOKING_URL,
+        payload=request_payload,
+    )
+
+
 @router.get("/agents")
 def get_highlevel_voice_agents(
     current_user: User = Depends(get_current_user),
@@ -1159,25 +1766,27 @@ def get_highlevel_voice_agents(
         db=db,
     )
 
-    location_id = get_highlevel_location_id()
+    agent_id = str(
+        shop.highlevel_agent_id or ""
+    ).strip()
 
-    response = highlevel_request(
-        method="GET",
-        path="/voice-ai/agents",
-        params={
-            "locationId": location_id,
-            "page": 1,
-            "pageSize": 50,
-        },
+    if not agent_id:
+        return {
+            "success": True,
+            "chairtime_shop": {
+                "id": str(shop.id),
+                "slug": shop.slug,
+                "name": shop.name,
+            },
+            "agent_count": 0,
+            "agents": [],
+        }
+
+    location_id = production_location_id(shop)
+    agent = get_agent_detail(
+        agent_id=agent_id,
+        location_id=location_id,
     )
-
-    data = response_json(response)
-    raw_agents = extract_agents(data)
-
-    safe_agents = [
-        safe_agent_summary(agent)
-        for agent in raw_agents
-    ]
 
     return {
         "success": True,
@@ -1186,10 +1795,8 @@ def get_highlevel_voice_agents(
             "slug": shop.slug,
             "name": shop.name,
         },
-        "highlevel_location_id": location_id,
-        "agent_count": len(safe_agents),
-        "agents": safe_agents,
-        "highlevel_total": data.get("total"),
+        "agent_count": 1,
+        "agents": [safe_agent_summary(agent)],
     }
 
 
@@ -1206,7 +1813,12 @@ def get_highlevel_voice_agent(
         db=db,
     )
 
-    location_id = get_highlevel_location_id()
+    require_shop_agent(
+        shop=shop,
+        agent_id=agent_id,
+    )
+
+    location_id = production_location_id(shop)
 
     data = get_agent_detail(
         agent_id=agent_id,
@@ -1290,17 +1902,12 @@ def get_highlevel_voice_action(
         db=db,
     )
 
-    location_id = get_highlevel_location_id()
-
-    response = highlevel_request(
-        method="GET",
-        path=f"/voice-ai/actions/{action_id}",
-        params={
-            "locationId": location_id,
-        },
+    location_id = production_location_id(shop)
+    action = require_shop_action(
+        shop=shop,
+        action_id=action_id,
+        location_id=location_id,
     )
-
-    data = response_json(response)
 
     return {
         "success": True,
@@ -1309,8 +1916,218 @@ def get_highlevel_voice_action(
             "slug": shop.slug,
             "name": shop.name,
         },
-        "highlevel_location_id": location_id,
-        "action": safe_action(data),
+        "action": safe_action(action),
+    }
+
+
+@router.get("/provision/status")
+def get_production_provision_status(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    require_owner(current_user)
+
+    shop = get_current_shop(
+        current_user=current_user,
+        db=db,
+    )
+
+    agent_id = str(
+        shop.highlevel_agent_id or ""
+    ).strip()
+
+    response = {
+        "success": True,
+        "chairtime_shop": {
+            "id": str(shop.id),
+            "slug": shop.slug,
+            "name": shop.name,
+        },
+        "ai_voice_enabled": bool(
+            shop.ai_voice_enabled
+        ),
+        "provisioned": bool(agent_id),
+        "agent": None,
+    }
+
+    if not agent_id:
+        return response
+
+    location_id = production_location_id(shop)
+    agent = get_agent_detail(
+        agent_id=agent_id,
+        location_id=location_id,
+    )
+    response["agent"] = safe_agent_summary(agent)
+    return response
+
+
+@router.post("/provision")
+def provision_production_ai_receptionist(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    require_owner(current_user)
+
+    shop = get_current_shop(
+        current_user=current_user,
+        db=db,
+    )
+
+    if not shop.ai_voice_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "AI Receptionist is not enabled for "
+                "this ChairTime subscription."
+            ),
+        )
+
+    if not shop.slug:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "The ChairTime shop does not have a slug."
+            ),
+        )
+
+    location_id = production_location_id(shop)
+
+    if (
+        shop.highlevel_location_id
+        and str(shop.highlevel_location_id).strip()
+        != location_id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "This shop is already associated with a "
+                "different HighLevel location."
+            ),
+        )
+
+    webhook_secret = ensure_shop_webhook_secret(
+        shop=shop,
+        db=db,
+    )
+
+    agent_data, agent_created = (
+        get_or_create_production_agent(
+            shop=shop,
+            location_id=location_id,
+            db=db,
+        )
+    )
+
+    agent_id = str(
+        agent_data.get("id")
+        or agent_data.get("_id")
+        or shop.highlevel_agent_id
+        or ""
+    ).strip()
+
+    if not agent_id:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=(
+                "HighLevel did not return an ID for the "
+                "shop AI receptionist."
+            ),
+        )
+
+    agent_data = update_production_agent_settings(
+        shop=shop,
+        agent_id=agent_id,
+        location_id=location_id,
+    )
+
+    availability_url = (
+        production_availability_webhook_url(shop)
+    )
+    booking_url = production_booking_webhook_url(
+        shop
+    )
+
+    availability_result = (
+        create_or_update_action(
+            agent_id=agent_id,
+            location_id=location_id,
+            action_name="check_availability",
+            payload=(
+                build_availability_action_payload(
+                    shop=shop,
+                    agent_id=agent_id,
+                    location_id=location_id,
+                    webhook_url=availability_url,
+                    webhook_secret=webhook_secret,
+                )
+            ),
+            expected_url=availability_url,
+        )
+    )
+
+    booking_result = create_or_update_action(
+        agent_id=agent_id,
+        location_id=location_id,
+        action_name="book_appointment",
+        payload=build_booking_action_payload(
+            shop=shop,
+            agent_id=agent_id,
+            location_id=location_id,
+            webhook_url=booking_url,
+            webhook_secret=webhook_secret,
+        ),
+        expected_url=booking_url,
+    )
+
+    refreshed_agent = get_agent_detail(
+        agent_id=agent_id,
+        location_id=location_id,
+    )
+
+    if str(shop.highlevel_agent_id or "") != agent_id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "ChairTime could not verify this shop's "
+                "AI agent ownership."
+            ),
+        )
+
+    final_actions = [
+        safe_action(action)
+        for action in extract_actions(
+            refreshed_agent
+        )
+    ]
+
+    return {
+        "success": True,
+        "message": (
+            "This shop's AI Receptionist is configured."
+        ),
+        "chairtime_shop": {
+            "id": str(shop.id),
+            "slug": shop.slug,
+            "name": shop.name,
+        },
+        "agent": {
+            "id": agent_id,
+            "agent_name": (
+                refreshed_agent.get("agentName")
+                or production_agent_name(shop)
+            ),
+            "created_this_request": agent_created,
+        },
+        "availability_action": availability_result,
+        "booking_action": booking_result,
+        "final_action_count": len(final_actions),
+        "final_actions": final_actions,
+        "tenant_isolation": {
+            "shop_agent_binding": True,
+            "authenticated_webhooks": True,
+            "shared_test_agent_used": False,
+        },
     }
 
 
