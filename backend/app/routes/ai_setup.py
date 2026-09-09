@@ -533,7 +533,6 @@ def update_test_agent_settings(agent_id: str, location_id: str) -> dict:
     if agent.get("agentName") != TEST_AGENT_NAME:
         raise HTTPException(status_code=409, detail="Only the provisioning test agent may be updated.")
     payload = {
-        "locationId": location_id,
         "agentPrompt": TEST_AGENT_PROMPT,
         "sendUserIdleReminders": False,
     }
