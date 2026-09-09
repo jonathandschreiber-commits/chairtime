@@ -145,6 +145,24 @@ def run_startup_migrations():
                 text(
                     """
                     ALTER TABLE shops
+                    ADD COLUMN IF NOT EXISTS highlevel_agent_id VARCHAR
+                    """
+                )
+            )
+
+            conn.execute(
+                text(
+                    """
+                    ALTER TABLE shops
+                    ADD COLUMN IF NOT EXISTS highlevel_webhook_secret VARCHAR
+                    """
+                )
+            )
+
+            conn.execute(
+                text(
+                    """
+                    ALTER TABLE shops
                     ADD COLUMN IF NOT EXISTS payment_policy VARCHAR
                     NOT NULL DEFAULT 'none'
                     """
@@ -217,6 +235,28 @@ def run_startup_migrations():
                     ix_shops_stripe_connect_account_id
                     ON shops (stripe_connect_account_id)
                     WHERE stripe_connect_account_id IS NOT NULL
+                    """
+                )
+            )
+
+            conn.execute(
+                text(
+                    """
+                    CREATE UNIQUE INDEX IF NOT EXISTS
+                    ix_shops_highlevel_agent_id
+                    ON shops (highlevel_agent_id)
+                    WHERE highlevel_agent_id IS NOT NULL
+                    """
+                )
+            )
+
+            conn.execute(
+                text(
+                    """
+                    CREATE UNIQUE INDEX IF NOT EXISTS
+                    ix_shops_highlevel_webhook_secret
+                    ON shops (highlevel_webhook_secret)
+                    WHERE highlevel_webhook_secret IS NOT NULL
                     """
                 )
             )
@@ -310,6 +350,20 @@ def run_startup_migrations():
             add_sqlite_column_if_missing(
                 conn,
                 "shops",
+                "highlevel_agent_id",
+                "VARCHAR",
+            )
+
+            add_sqlite_column_if_missing(
+                conn,
+                "shops",
+                "highlevel_webhook_secret",
+                "VARCHAR",
+            )
+
+            add_sqlite_column_if_missing(
+                conn,
+                "shops",
                 "payment_policy",
                 "VARCHAR NOT NULL DEFAULT 'none'",
             )
@@ -372,6 +426,28 @@ def run_startup_migrations():
                     ix_shops_stripe_connect_account_id
                     ON shops (stripe_connect_account_id)
                     WHERE stripe_connect_account_id IS NOT NULL
+                    """
+                )
+            )
+
+            conn.execute(
+                text(
+                    """
+                    CREATE UNIQUE INDEX IF NOT EXISTS
+                    ix_shops_highlevel_agent_id
+                    ON shops (highlevel_agent_id)
+                    WHERE highlevel_agent_id IS NOT NULL
+                    """
+                )
+            )
+
+            conn.execute(
+                text(
+                    """
+                    CREATE UNIQUE INDEX IF NOT EXISTS
+                    ix_shops_highlevel_webhook_secret
+                    ON shops (highlevel_webhook_secret)
+                    WHERE highlevel_webhook_secret IS NOT NULL
                     """
                 )
             )
