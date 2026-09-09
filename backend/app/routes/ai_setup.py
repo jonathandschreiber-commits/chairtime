@@ -529,26 +529,51 @@ def get_or_create_test_agent(shop: Shop, location_id: str) -> tuple[dict, bool]:
 
 
 def update_test_agent_settings(agent_id: str, location_id: str) -> dict:
-    agent = get_agent_detail(agent_id=agent_id, location_id=location_id)
+    agent = get_agent_detail(
+        agent_id=agent_id,
+        location_id=location_id,
+    )
+
     if agent.get("agentName") != TEST_AGENT_NAME:
-        raise HTTPException(status_code=409, detail="Only the provisioning test agent may be updated.")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Only the provisioning test agent may "
+                "be updated."
+            ),
+        )
+
     payload = {
-        "locationId": location_id,
         "agentPrompt": TEST_AGENT_PROMPT,
         "sendUserIdleReminders": False,
     }
+
     response = highlevel_raw_request(
         method="PATCH",
         path=f"/voice-ai/agents/{agent_id}",
-        params={"locationId": location_id},
         json_body=payload,
     )
+
     if response.status_code >= 400:
         raise_highlevel_error(response)
-    refreshed = get_agent_detail(agent_id=agent_id, location_id=location_id)
-    if (refreshed.get("agentPrompt") != TEST_AGENT_PROMPT
-            or refreshed.get("sendUserIdleReminders") is not False):
-        raise HTTPException(status_code=502, detail="HighLevel did not retain the requested test-agent settings.")
+
+    refreshed = get_agent_detail(
+        agent_id=agent_id,
+        location_id=location_id,
+    )
+
+    if (
+        refreshed.get("agentPrompt") != TEST_AGENT_PROMPT
+        or refreshed.get("sendUserIdleReminders") is not False
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=(
+                "HighLevel did not retain the requested "
+                "test-agent settings."
+            ),
+        )
+
     return refreshed
 
 def tenant_availability_webhook_url(
