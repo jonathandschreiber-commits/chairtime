@@ -20,6 +20,8 @@ class VoiceAvailabilityRequest(BaseModel):
     service_name: str
     target_date: date
     barber_name: str | None = None
+    time_window: str | None = None
+    preferred_start_time: str | None = None
 
 
 class VoiceBookingRequest(BaseModel):
@@ -582,12 +584,37 @@ def get_slots_for_candidate(
     return slots
 
 
+
+def filter_requested_slots(slots, time_window=None, preferred_start_time=None):
+    """Filter real openings; never manufacture appointment times."""
+    window = (time_window or "").strip().lower()
+    bounds = {
+        "morning": (0, 12 * 60),
+        "afternoon": (12 * 60, 17 * 60),
+        "evening": (17 * 60, 24 * 60),
+    }
+    if window and window not in bounds:
+        raise HTTPException(status_code=400, detail="Unsupported time window.")
+    requested = parse_start_time(preferred_start_time) if preferred_start_time else None
+    result = []
+    for slot in slots:
+        dt = slot if isinstance(slot, datetime) else datetime.fromisoformat(str(slot))
+        minute = dt.hour * 60 + dt.minute
+        if window and not (bounds[window][0] <= minute < bounds[window][1]):
+            continue
+        if requested and dt.time().replace(second=0, microsecond=0) != requested:
+            continue
+        result.append(slot)
+    return result
+
 def choose_candidate_for_availability(
     db: Session,
     shop_slug: str,
     service_name: str,
     target_date: date,
     barber_name: str | None,
+    time_window: str | None = None,
+    preferred_start_time: str | None = None,
 ):
     """
     Choose the correct service/provider pair for an availability request.
@@ -624,7 +651,7 @@ def choose_candidate_for_availability(
             target_date=target_date,
         )
 
-        return service, barber, slots
+        return service, barber, filter_requested_slots(slots, time_window, preferred_start_time)
 
     candidates = get_service_barber_candidates(
         db=db,
@@ -642,6 +669,7 @@ def choose_candidate_for_availability(
             target_date=target_date,
         )
 
+        slots = filter_requested_slots(slots, time_window, preferred_start_time)
         slot_datetimes = slots_to_datetimes(
             slots
         )
@@ -896,6 +924,8 @@ def get_voice_availability(
     target_date: date,
     barber_name: str | None,
     db: Session,
+    time_window: str | None = None,
+    preferred_start_time: str | None = None,
 ):
     service, barber, slots = (
         choose_candidate_for_availability(
@@ -904,6 +934,8 @@ def get_voice_availability(
             service_name=service_name,
             target_date=target_date,
             barber_name=barber_name,
+            time_window=time_window,
+            preferred_start_time=preferred_start_time,
         )
     )
 
@@ -916,6 +948,8 @@ def get_voice_availability(
         "barber_id": barber.id,
         "service_id": service.id,
         "slots": slots,
+        "available_count": len(slots),
+        "time_window": time_window,
     }
 
 
@@ -946,6 +980,8 @@ def voice_availability_post(
         barber_name=payload.barber_name,
         service_name=payload.service_name,
         target_date=payload.target_date,
+        time_window=payload.time_window,
+        preferred_start_time=payload.preferred_start_time,
         db=db,
     )
 
