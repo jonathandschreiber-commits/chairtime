@@ -468,19 +468,15 @@ export default function AccountOptionsPage() {
       subscription.current_period_ends_at
     );
 
-  const aiVoiceEnabled =
-    Boolean(account?.ai_voice_enabled);
-
-  const subscriptionName =
-    aiVoiceEnabled
-      ? "ChairTime Scheduling + AI Receptionist"
-      : "ChairTime Scheduling";
+    const subscriptionName =
+    subscription.plan_name ||
+    "ChairTime Scheduling";
 
   const monthlyPrice =
-    aiVoiceEnabled ? 198 : 49;
+    Number(subscription.monthly_price || 49);
 
   const monthlyPriceText =
-    `$${monthlyPrice} per month`;
+    `$${monthlyPrice.toFixed(0)} per month`;
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-sky-50 px-5 py-8 sm:py-10">
