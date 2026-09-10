@@ -106,6 +106,24 @@ export default function OnboardingPage() {
     setConnectStatusError,
   ] = useState("");
 
+  const [aiVoiceEnabled, setAiVoiceEnabled] =
+    useState(false);
+
+  const [aiProvisionStatus, setAiProvisionStatus] =
+    useState(null);
+
+  const [loadingAiProvisionStatus, setLoadingAiProvisionStatus] =
+    useState(false);
+
+  const [aiProvisionStatusError, setAiProvisionStatusError] =
+    useState("");
+
+  const [provisioningAi, setProvisioningAi] =
+    useState(false);
+
+  const totalSteps = aiVoiceEnabled ? 7 : 6;
+  const reviewStep = aiVoiceEnabled ? 7 : 6;
+
   const openDayCount = useMemo(() => {
     return hours.filter((day) => day.open).length;
   }, [hours]);
@@ -178,6 +196,125 @@ export default function OnboardingPage() {
     ]
   );
 
+  const loadAiProvisionStatus = useCallback(
+    async () => {
+      if (!shopSlug || !aiVoiceEnabled) {
+        setAiProvisionStatus(null);
+        setAiProvisionStatusError("");
+        return;
+      }
+
+      setLoadingAiProvisionStatus(true);
+      setAiProvisionStatusError("");
+
+      try {
+        const response = await fetch(
+          "/api/ai-setup/provision/status",
+          {
+            method: "GET",
+            headers: {
+              Accept: "application/json",
+            },
+            cache: "no-store",
+          }
+        );
+
+        const data = await response
+          .json()
+          .catch(() => ({}));
+
+        if (response.status === 401) {
+          router.replace(
+            `/login?next=${encodeURIComponent(
+              `/${shopSlug}/onboarding`
+            )}`
+          );
+          return;
+        }
+
+        if (!response.ok) {
+          throw new Error(
+            data.error ||
+              data.detail ||
+              "Could not check your AI Receptionist setup."
+          );
+        }
+
+        setAiProvisionStatus(data);
+      } catch (error) {
+        console.error(error);
+
+        setAiProvisionStatusError(
+          error instanceof Error
+            ? error.message
+            : "Could not check your AI Receptionist setup."
+        );
+      } finally {
+        setLoadingAiProvisionStatus(false);
+      }
+    },
+    [aiVoiceEnabled, router, shopSlug]
+  );
+
+  async function provisionAiReceptionist() {
+    if (provisioningAi || !aiVoiceEnabled) return;
+
+    setProvisioningAi(true);
+    setAiProvisionStatusError("");
+    setMessage("");
+
+    try {
+      const response = await fetch(
+        "/api/ai-setup/provision",
+        {
+          method: "POST",
+          headers: {
+            Accept: "application/json",
+          },
+        }
+      );
+
+      const data = await response
+        .json()
+        .catch(() => ({}));
+
+      if (response.status === 401) {
+        router.replace(
+          `/login?next=${encodeURIComponent(
+            `/${shopSlug}/onboarding`
+          )}`
+        );
+        return;
+      }
+
+      if (!response.ok) {
+        const detail =
+          typeof data.detail === "string"
+            ? data.detail
+            : data.detail?.message;
+
+        throw new Error(
+          data.error ||
+            detail ||
+            "Could not set up your AI Receptionist."
+        );
+      }
+
+      await loadAiProvisionStatus();
+      setMessage("Your AI Receptionist is ready.");
+    } catch (error) {
+      console.error(error);
+
+      setAiProvisionStatusError(
+        error instanceof Error
+          ? error.message
+          : "Could not set up your AI Receptionist."
+      );
+    } finally {
+      setProvisioningAi(false);
+    }
+  }
+
   useEffect(() => {
     if (!shopSlug) return;
 
@@ -198,6 +335,23 @@ export default function OnboardingPage() {
     currentStep,
     loadConnectStatus,
     paymentPolicy,
+    shopSlug,
+  ]);
+
+  useEffect(() => {
+    if (
+      !shopSlug ||
+      !aiVoiceEnabled ||
+      currentStep !== 6
+    ) {
+      return;
+    }
+
+    loadAiProvisionStatus();
+  }, [
+    aiVoiceEnabled,
+    currentStep,
+    loadAiProvisionStatus,
     shopSlug,
   ]);
 
@@ -314,6 +468,10 @@ export default function OnboardingPage() {
 
       setPaymentPolicy(
         currentShop?.payment_policy || "none"
+      );
+
+      setAiVoiceEnabled(
+        Boolean(currentShop?.ai_voice_enabled)
       );
 
       setExistingRules(hoursData);
@@ -1252,7 +1410,8 @@ export default function OnboardingPage() {
                     payload
                   ),
                 }
-              );
+
+                              );
 
             if (!response.ok) {
               throw new Error(
@@ -1554,12 +1713,13 @@ export default function OnboardingPage() {
           </div>
 
           <div className={styles.stepBadge}>
-            Step {currentStep} of 6
+            Step {currentStep} of {totalSteps}
           </div>
         </header>
 
         <Progress
           currentStep={currentStep}
+          aiVoiceEnabled={aiVoiceEnabled}
         />
 
         {currentStep === 1 && (
@@ -1697,7 +1857,26 @@ export default function OnboardingPage() {
           />
         )}
 
-        {currentStep === 6 && (
+        {aiVoiceEnabled && currentStep === 6 && (
+          <AiReceptionistStep
+            provisionStatus={aiProvisionStatus}
+            loadingStatus={loadingAiProvisionStatus}
+            statusError={aiProvisionStatusError}
+            provisioning={provisioningAi}
+            provisionAiReceptionist={
+              provisionAiReceptionist
+            }
+            refreshStatus={loadAiProvisionStatus}
+            goBack={() => goToStep(5)}
+            continueToReview={() => {
+              setMessage("");
+              goToStep(7);
+            }}
+            message={message}
+          />
+        )}
+
+        {currentStep === reviewStep && (
           <ReviewStep
             shopSlug={shopSlug}
             staff={staff}
@@ -1712,8 +1891,9 @@ export default function OnboardingPage() {
               finishOnboarding
             }
             goBack={() =>
-              goToStep(5)
+              goToStep(aiVoiceEnabled ? 6 : 5)
             }
+            stepNumber={reviewStep}
           />
         )}
 
@@ -1729,6 +1909,7 @@ export default function OnboardingPage() {
 
 function Progress({
   currentStep,
+  aiVoiceEnabled,
 }) {
   const steps = [
     "Hours",
@@ -1736,6 +1917,7 @@ function Progress({
     "Services",
     "Schedules",
     "Payments",
+    ...(aiVoiceEnabled ? ["AI Receptionist"] : []),
     "Review",
   ];
 
@@ -2641,15 +2823,12 @@ function ScheduleStep({
                     }}
                   >
                     <label>
-                      <span
+
+                                          <span
                         style={{
                           display: "block",
-
-                          marginBottom:
-                            "6px",
-
+                          marginBottom: "6px",
                           color: "#475569",
-
                           fontSize: "12px",
                           fontWeight: "800",
                         }}
@@ -2661,11 +2840,7 @@ function ScheduleStep({
                         type="number"
                         min="1"
                         step="1"
-
-                        value={
-                          form.duration
-                        }
-
+                        value={form.duration}
                         onChange={(event) =>
                           updateStaffService(
                             service.id,
@@ -2673,20 +2848,12 @@ function ScheduleStep({
                             event.target.value
                           )
                         }
-
                         style={{
                           width: "100%",
                           minHeight: "44px",
-
-                          padding:
-                            "10px 12px",
-
-                          border:
-                            "1px solid #cbd5e1",
-
-                          borderRadius:
-                            "10px",
-
+                          padding: "10px 12px",
+                          border: "1px solid #cbd5e1",
+                          borderRadius: "10px",
                           fontSize: "15px",
                         }}
                       />
@@ -2696,12 +2863,8 @@ function ScheduleStep({
                       <span
                         style={{
                           display: "block",
-
-                          marginBottom:
-                            "6px",
-
+                          marginBottom: "6px",
                           color: "#475569",
-
                           fontSize: "12px",
                           fontWeight: "800",
                         }}
@@ -2713,11 +2876,7 @@ function ScheduleStep({
                         type="number"
                         min="0"
                         step="0.01"
-
-                        value={
-                          form.price
-                        }
-
+                        value={form.price}
                         onChange={(event) =>
                           updateStaffService(
                             service.id,
@@ -2725,22 +2884,13 @@ function ScheduleStep({
                             event.target.value
                           )
                         }
-
                         placeholder="35"
-
                         style={{
                           width: "100%",
                           minHeight: "44px",
-
-                          padding:
-                            "10px 12px",
-
-                          border:
-                            "1px solid #cbd5e1",
-
-                          borderRadius:
-                            "10px",
-
+                          padding: "10px 12px",
+                          border: "1px solid #cbd5e1",
+                          borderRadius: "10px",
                           fontSize: "15px",
                         }}
                       />
@@ -2799,21 +2949,16 @@ function ScheduleStep({
           {staffHours.map((day) => (
             <div
               key={day.weekday}
-
               className={`${styles.dayCard} ${
                 day.open
                   ? styles.dayOpen
                   : styles.dayClosed
               }`}
             >
-              <div
-                className={styles.dayTop}
-              >
+              <div className={styles.dayTop}>
                 <div>
                   <strong
-                    className={
-                      styles.dayName
-                    }
+                    className={styles.dayName}
                   >
                     {day.name}
                   </strong>
@@ -2831,14 +2976,10 @@ function ScheduleStep({
                   </p>
                 </div>
 
-                <label
-                  className={styles.switch}
-                >
+                <label className={styles.switch}>
                   <input
                     type="checkbox"
-
                     checked={day.open}
-
                     onChange={(event) =>
                       updateStaffHours(
                         day.weekday,
@@ -2849,27 +2990,21 @@ function ScheduleStep({
                   />
 
                   <span
-                    className={
-                      styles.slider
-                    }
+                    className={styles.slider}
                   />
                 </label>
               </div>
 
               {day.open ? (
                 <div
-                  className={
-                    styles.timeGrid
-                  }
+                  className={styles.timeGrid}
                 >
                   <label>
                     <span>Starts</span>
 
                     <input
                       type="time"
-
                       value={day.start}
-
                       onChange={(event) =>
                         updateStaffHours(
                           day.weekday,
@@ -2885,9 +3020,7 @@ function ScheduleStep({
 
                     <input
                       type="time"
-
                       value={day.end}
-
                       onChange={(event) =>
                         updateStaffHours(
                           day.weekday,
@@ -2900,9 +3033,7 @@ function ScheduleStep({
                 </div>
               ) : (
                 <div
-                  className={
-                    styles.closedMessage
-                  }
+                  className={styles.closedMessage}
                 >
                   {person.name} will not be
                   bookable on {day.name}.
@@ -2925,16 +3056,9 @@ function ScheduleStep({
 
         <button
           type="button"
-
-          onClick={
-            saveCurrentStaffSetup
-          }
-
+          onClick={saveCurrentStaffSetup}
           disabled={savingStaffSetup}
-
-          className={
-            styles.continueButton
-          }
+          className={styles.continueButton}
         >
           {savingStaffSetup
             ? "Saving..."
@@ -3490,9 +3614,7 @@ function PaymentsStep({
                         "1.5",
                     }}
                   >
-                    {
-                      option.description
-                    }
+                    {option.description}
                   </p>
 
                   <p
@@ -3535,9 +3657,7 @@ function PaymentsStep({
         </div>
       )}
 
-      <div
-        className={styles.footer}
-      >
+      <div className={styles.footer}>
         <button
           type="button"
           onClick={goBack}
@@ -3545,9 +3665,7 @@ function PaymentsStep({
             savingPaymentPolicy ||
             startingConnect
           }
-          className={
-            styles.backButton
-          }
+          className={styles.backButton}
         >
           ← Back
         </button>
@@ -3570,9 +3688,7 @@ function PaymentsStep({
             startingConnect ||
             loadingConnectStatus
           }
-          className={
-            styles.continueButton
-          }
+          className={styles.continueButton}
         >
           {startingConnect
             ? "Opening Stripe..."
@@ -3593,6 +3709,249 @@ function PaymentsStep({
   );
 }
 
+function AiReceptionistStep({
+  provisionStatus,
+  loadingStatus,
+  statusError,
+  provisioning,
+  provisionAiReceptionist,
+  refreshStatus,
+  goBack,
+  continueToReview,
+  message,
+}) {
+  const provisioned = Boolean(
+    provisionStatus?.provisioned
+  );
+
+  const agentName =
+    provisionStatus?.agent?.agent_name ||
+    provisionStatus?.agent?.name ||
+    "Your AI Receptionist";
+
+  return (
+    <section
+      className={`${styles.mainCard} ${styles.scheduleCard}`}
+    >
+      <div className={styles.cardHeading}>
+        <div
+          className={styles.icon}
+          style={{
+            background:
+              "linear-gradient(135deg, #ede9fe, #e0e7ff)",
+          }}
+        >
+          ☎️
+        </div>
+
+        <div>
+          <p
+            className={styles.stepLabel}
+            style={{ color: "#6d28d9" }}
+          >
+            STEP 6
+          </p>
+
+          <h2 className={styles.cardTitle}>
+            Set up your AI Receptionist
+          </h2>
+
+          <p className={styles.cardText}>
+            Your plan includes an AI receptionist that can
+            answer calls, check your real ChairTime
+            availability, and book appointments for you.
+          </p>
+        </div>
+      </div>
+
+      <Message message={message} />
+
+      <div
+        style={{
+          padding: "20px",
+          background: provisioned
+            ? "linear-gradient(135deg, #ecfdf5, #f0fdf4)"
+            : "linear-gradient(135deg, #f5f3ff, #eef2ff)",
+          border: provisioned
+            ? "1px solid #a7f3d0"
+            : "1px solid #c4b5fd",
+          borderRadius: "16px",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "flex-start",
+            gap: "14px",
+          }}
+        >
+          <div
+            style={{
+              width: "46px",
+              height: "46px",
+              flexShrink: 0,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: "22px",
+              background: "#ffffff",
+              border: provisioned
+                ? "1px solid #a7f3d0"
+                : "1px solid #c4b5fd",
+              borderRadius: "12px",
+            }}
+          >
+            {provisioned ? "✓" : "🤖"}
+          </div>
+
+          <div style={{ flex: 1 }}>
+            <strong
+              style={{
+                display: "block",
+                color: provisioned
+                  ? "#065f46"
+                  : "#312e81",
+                fontSize: "17px",
+              }}
+            >
+              {loadingStatus
+                ? "Checking your AI setup..."
+                : provisioned
+                  ? `${agentName} is ready`
+                  : "Ready to create your AI Receptionist"}
+            </strong>
+
+            <p
+              style={{
+                margin: "7px 0 0",
+                color: provisioned
+                  ? "#047857"
+                  : "#4f46e5",
+                fontSize: "14px",
+                lineHeight: "1.55",
+              }}
+            >
+              {provisioned
+                ? "ChairTime has created a dedicated production AI receptionist for this business and connected it to your real availability and booking actions."
+                : "ChairTime will create a dedicated production AI receptionist for this business. It will not use the shared provisioning-test agent."}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {!provisioned && !loadingStatus && (
+        <div
+          style={{
+            marginTop: "16px",
+            padding: "16px",
+            background: "#f8fafc",
+            border: "1px solid #e2e8f0",
+            borderRadius: "14px",
+          }}
+        >
+          <strong
+            style={{
+              display: "block",
+              color: "#0f172a",
+              fontSize: "14px",
+            }}
+          >
+            What happens next
+          </strong>
+
+          <p
+            style={{
+              margin: "6px 0 0",
+              color: "#64748b",
+              fontSize: "13px",
+              lineHeight: "1.55",
+            }}
+          >
+            We&apos;ll create your receptionist and connect it
+            to the services, staff, and schedules you just
+            entered. Your phone routing can be finalized
+            separately without changing your booking setup.
+          </p>
+        </div>
+      )}
+
+      {statusError && (
+        <div
+          style={{
+            marginTop: "14px",
+            padding: "12px 14px",
+            color: "#991b1b",
+            fontSize: "13px",
+            lineHeight: "1.5",
+            background: "#fef2f2",
+            border: "1px solid #fecaca",
+            borderRadius: "12px",
+          }}
+        >
+          {statusError}
+        </div>
+      )}
+
+      <div className={styles.footer}>
+        <button
+          type="button"
+          onClick={goBack}
+          disabled={provisioning}
+          className={styles.backButton}
+        >
+          ← Back
+        </button>
+
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "10px",
+            flexWrap: "wrap",
+            justifyContent: "flex-end",
+          }}
+        >
+          {statusError && (
+            <button
+              type="button"
+              onClick={refreshStatus}
+              disabled={loadingStatus || provisioning}
+              className={styles.backButton}
+            >
+              {loadingStatus
+                ? "Checking..."
+                : "Check Again"}
+            </button>
+          )}
+
+          {!provisioned ? (
+            <button
+              type="button"
+              onClick={provisionAiReceptionist}
+              disabled={loadingStatus || provisioning}
+              className={styles.continueButton}
+            >
+              {provisioning
+                ? "Setting Up AI Receptionist..."
+                : loadingStatus
+                  ? "Checking Setup..."
+                  : "Set Up AI Receptionist →"}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={continueToReview}
+              className={styles.continueButton}
+            >
+              Continue to Review →
+            </button>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function ReviewStep({
   shopSlug,
   staff,
@@ -3601,6 +3960,7 @@ function ReviewStep({
   openBookingPage,
   finishOnboarding,
   goBack,
+  stepNumber,
 }) {
   return (
     <section
@@ -3624,7 +3984,7 @@ function ReviewStep({
               color: "#047857",
             }}
           >
-            STEP 6
+            STEP {stepNumber}
           </p>
 
           <h2 className={styles.cardTitle}>
@@ -3643,10 +4003,8 @@ function ReviewStep({
       <div
         style={{
           display: "grid",
-
           gridTemplateColumns:
             "repeat(2, minmax(0, 1fr))",
-
           gap: "12px",
           marginBottom: "22px",
         }}
@@ -3673,13 +4031,10 @@ function ReviewStep({
       <div
         style={{
           padding: "20px",
-
           background:
             "linear-gradient(135deg, #ecfdf5, #f0fdf4)",
-
           border:
             "1px solid #a7f3d0",
-
           borderRadius: "16px",
         }}
       >
@@ -3710,19 +4065,13 @@ function ReviewStep({
           style={{
             marginTop: "14px",
             minHeight: "46px",
-
             padding: "11px 18px",
-
             color: "#ffffff",
-
             fontSize: "14px",
             fontWeight: "900",
-
             background: "#059669",
-
             border: "none",
             borderRadius: "10px",
-
             cursor: "pointer",
           }}
         >
@@ -3742,9 +4091,7 @@ function ReviewStep({
         <button
           type="button"
           onClick={finishOnboarding}
-          className={
-            styles.continueButton
-          }
+          className={styles.continueButton}
         >
           Finish Setup & Go to Admin →
         </button>
@@ -3762,21 +4109,16 @@ function SummaryBox({
       style={{
         padding: "18px",
         textAlign: "center",
-
         background: "#f8fafc",
-
         border:
           "1px solid #e2e8f0",
-
         borderRadius: "14px",
       }}
     >
       <strong
         style={{
           display: "block",
-
           color: "#1e293b",
-
           fontSize: "26px",
         }}
       >
@@ -3786,11 +4128,8 @@ function SummaryBox({
       <span
         style={{
           display: "block",
-
           marginTop: "3px",
-
           color: "#64748b",
-
           fontSize: "12px",
         }}
       >
@@ -3811,3 +4150,6 @@ function Message({
     </div>
   );
 }
+                
+
+                
