@@ -162,6 +162,15 @@ export default function SignupPage() {
         );
       }
 
+      sessionStorage.setItem(
+        "chairtime_signup_shop_slug",
+        shopSlug
+      );
+      sessionStorage.setItem(
+        "chairtime_signup_plan",
+        selectedPlan
+      );
+
       window.location.href = checkoutUrl;
     } catch (error) {
       setError(
@@ -449,6 +458,7 @@ export default function SignupPage() {
                 <div className={styles.field}>
                   <label
                     className={styles.label}
+
                     htmlFor="password"
                   >
                     Password
