@@ -468,6 +468,20 @@ export default function AccountOptionsPage() {
       subscription.current_period_ends_at
     );
 
+  const aiVoiceEnabled =
+    Boolean(account?.ai_voice_enabled);
+
+  const subscriptionName =
+    aiVoiceEnabled
+      ? "ChairTime Scheduling + AI Receptionist"
+      : "ChairTime Scheduling";
+
+  const monthlyPrice =
+    aiVoiceEnabled ? 198 : 49;
+
+  const monthlyPriceText =
+    `$${monthlyPrice} per month`;
+
   return (
     <main className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-sky-50 px-5 py-8 sm:py-10">
       <div className="max-w-4xl mx-auto">
@@ -527,11 +541,11 @@ export default function AccountOptionsPage() {
 
               <div className="mt-6">
                 <p className="text-xl font-extrabold text-slate-900">
-                  ChairTime Scheduling
+                  {subscriptionName}
                 </p>
 
                 <p className="text-slate-600 mt-1">
-                  $49 per month
+                  {monthlyPriceText}
                 </p>
               </div>
             </div>
@@ -557,7 +571,7 @@ export default function AccountOptionsPage() {
                 Try ChairTime free for 30 days.
                 There is no charge today.
                 After your trial, your
-                subscription is $49 per month
+                subscription is {monthlyPriceText}
                 unless you cancel.
               </p>
             </div>
@@ -569,9 +583,9 @@ export default function AccountOptionsPage() {
                 <p className="text-slate-700">
                   Your free trial ends{" "}
                   <strong>{trialDate}</strong>.
-                  Your $49 monthly subscription
-                  begins after the trial unless
-                  you cancel.
+                  {" "}Your {`$${monthlyPrice}`} monthly
+                  subscription begins after the
+                  trial unless you cancel.
                 </p>
               ) : subscription.cancel_at_period_end ? (
                 <p className="text-slate-700">
