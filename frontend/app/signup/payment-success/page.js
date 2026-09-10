@@ -1,6 +1,43 @@
+"use client";
+
 import Link from "next/link";
+import { useEffect, useState } from "react";
 
 export default function PaymentSuccessPage() {
+  const [shopSlug, setShopSlug] = useState("");
+  const [selectedPlan, setSelectedPlan] =
+    useState("scheduling");
+
+  useEffect(() => {
+    const storedShopSlug =
+      sessionStorage.getItem(
+        "chairtime_signup_shop_slug"
+      ) || "";
+
+    const storedPlan =
+      sessionStorage.getItem(
+        "chairtime_signup_plan"
+      ) || "scheduling";
+
+    setShopSlug(storedShopSlug);
+    setSelectedPlan(storedPlan);
+  }, []);
+
+  const isAiPlan =
+    selectedPlan === "scheduling_ai";
+
+  const monthlyPrice = isAiPlan
+    ? "$198 per month"
+    : "$49 per month";
+
+  const planName = isAiPlan
+    ? "Business Management + AI Receptionist"
+    : "Business Management";
+
+  const setupHref = shopSlug
+    ? `/${shopSlug}/onboarding`
+    : "/login";
+
   return (
     <main
       style={{
@@ -21,7 +58,8 @@ export default function PaymentSuccessPage() {
           background: "#ffffff",
           border: "1px solid #e5e7eb",
           borderRadius: "20px",
-          boxShadow: "0 20px 50px rgba(15, 23, 42, 0.1)",
+          boxShadow:
+            "0 20px 50px rgba(15, 23, 42, 0.1)",
           textAlign: "center",
         }}
       >
@@ -64,8 +102,10 @@ export default function PaymentSuccessPage() {
             lineHeight: "1.6",
           }}
         >
-          Your card is securely on file and you will not be charged today.
-          Your scheduling plan is free for 30 days, then $49 per month.
+          Your card is securely on file and you will
+          not be charged today. Your{" "}
+          <strong>{planName}</strong> plan is free for
+          30 days, then {monthlyPrice}.
         </p>
 
         <div
@@ -79,11 +119,12 @@ export default function PaymentSuccessPage() {
             lineHeight: "1.6",
           }}
         >
-          Next, finish setting up your business so customers can begin booking.
+          Next, finish setting up your business so
+          customers can begin booking.
         </div>
 
         <Link
-          href="/login"
+          href={setupHref}
           style={{
             display: "block",
             marginTop: "28px",
