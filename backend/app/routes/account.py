@@ -236,11 +236,22 @@ def get_account_summary(
             "slug": shop.slug,
         },
 
-        "subscription": {
-            "plan_name":
-                "ChairTime Scheduling",
+        "ai_voice_enabled": bool(
+            shop.ai_voice_enabled
+        ),
 
-            "monthly_price": 49.00,
+        "subscription": {
+            "plan_name": (
+                "ChairTime Scheduling + AI Receptionist"
+                if shop.ai_voice_enabled
+                else "ChairTime Scheduling"
+            ),
+
+            "monthly_price": (
+                198.00
+                if shop.ai_voice_enabled
+                else 49.00
+            ),
 
             "status":
                 subscription_status,
