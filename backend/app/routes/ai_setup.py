@@ -2780,3 +2780,133 @@ def assign_shop_highlevel_phone_number(
             "Receptionist."
         ),
     }
+
+@router.get("/phone-number/current-agent")
+def get_phone_number_current_agent(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    require_owner(current_user)
+
+    shop = get_current_shop(
+        current_user=current_user,
+        db=db,
+    )
+
+    if not shop.ai_voice_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "AI Receptionist is not enabled for "
+                "this ChairTime subscription."
+            ),
+        )
+
+    location_id = production_location_id(shop)
+
+    numbers_response = highlevel_request(
+        method="GET",
+        path=(
+            f"/phone-system/numbers/location/"
+            f"{location_id}"
+        ),
+        params={
+            "page": 1,
+            "pageSize": 100,
+            "skipNumberPool": True,
+        },
+    )
+
+    numbers_data = response_json(
+        numbers_response
+    )
+
+    numbers = (
+        numbers_data
+        .get("data", {})
+        .get("numbers", [])
+    )
+
+    voice_numbers = [
+        number
+        for number in numbers
+        if (
+            number
+            .get("capabilities", {})
+            .get("voice")
+            is True
+        )
+    ]
+
+    if not voice_numbers:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=(
+                "No active voice-capable HighLevel "
+                "phone number was found."
+            ),
+        )
+
+    if len(voice_numbers) > 1:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "More than one voice-capable HighLevel "
+                "phone number was found."
+            ),
+        )
+
+    phone_record = voice_numbers[0]
+
+    inbound_service = (
+        phone_record.get("inboundCallService")
+        or {}
+    )
+
+    current_agent_id = str(
+        inbound_service.get("value")
+        or ""
+    ).strip()
+
+    if (
+        inbound_service.get("type") != "voice_ai"
+        or not current_agent_id
+    ):
+        return {
+            "success": True,
+            "phone_number": phone_record.get(
+                "phoneNumber"
+            ),
+            "friendly_name": phone_record.get(
+                "friendlyName"
+            ),
+            "inbound_service": inbound_service,
+            "current_agent": None,
+        }
+
+    agent_response = highlevel_request(
+        method="GET",
+        path=(
+            f"/voice-ai/agents/"
+            f"{current_agent_id}"
+        ),
+        params={
+            "locationId": location_id,
+        },
+    )
+
+    agent = response_json(agent_response)
+
+    return {
+        "success": True,
+        "phone_number": phone_record.get(
+            "phoneNumber"
+        ),
+        "friendly_name": phone_record.get(
+            "friendlyName"
+        ),
+        "inbound_service": inbound_service,
+        "current_agent": safe_agent_summary(
+            agent
+        ),
+    }
