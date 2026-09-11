@@ -2721,7 +2721,7 @@ def assign_shop_highlevel_phone_number(
         params={
             "locationId": location_id,
         },
-        json=patch_payload,
+        json_body=patch_payload,
     )
 
     response_json(patch_response)
