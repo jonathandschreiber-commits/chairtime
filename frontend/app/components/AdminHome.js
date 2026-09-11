@@ -2,6 +2,7 @@ export default async function AdminHome({ shop = "" }) {
   const basePath = shop ? "/" + shop + "/admin" : "/admin";
 
   let businessName = "";
+  let aiVoiceEnabled = false;
 
   if (shop) {
     try {
@@ -20,15 +21,25 @@ export default async function AdminHome({ shop = "" }) {
 
           if (
             Array.isArray(shops) &&
-            shops.length > 0 &&
-            shops[0]?.name
+            shops.length > 0
           ) {
-            businessName = shops[0].name;
+            const currentShop = shops[0];
+
+            if (currentShop?.name) {
+              businessName = currentShop.name;
+            }
+
+            aiVoiceEnabled = Boolean(
+              currentShop?.ai_voice_enabled
+            );
           }
         }
       }
     } catch (error) {
-      console.error("Unable to load business name:", error);
+      console.error(
+        "Unable to load business information:",
+        error
+      );
     }
   }
 
@@ -38,7 +49,8 @@ export default async function AdminHome({ shop = "" }) {
       .filter(Boolean)
       .map(
         (word) =>
-          word.charAt(0).toUpperCase() + word.slice(1)
+          word.charAt(0).toUpperCase() +
+          word.slice(1)
       )
       .join(" ");
   }
@@ -106,6 +118,26 @@ export default async function AdminHome({ shop = "" }) {
       arrowClass:
         "text-pink-600 border-pink-300 hover:bg-pink-100",
     },
+
+    ...(aiVoiceEnabled
+      ? [
+          {
+            name: "AI Receptionist",
+            description:
+              "Test and manage your AI phone receptionist.",
+            href:
+              basePath + "/ai-receptionist",
+            icon: "🤖",
+            cardClass:
+              "bg-gradient-to-br from-fuchsia-50 to-violet-100 border-fuchsia-200",
+            iconClass:
+              "bg-gradient-to-br from-fuchsia-500 to-violet-600",
+            arrowClass:
+              "text-fuchsia-600 border-fuchsia-300 hover:bg-fuchsia-100",
+          },
+        ]
+      : []),
+
     {
       name: "Account Options",
       description:
