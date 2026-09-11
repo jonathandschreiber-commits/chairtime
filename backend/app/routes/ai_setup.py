@@ -2545,3 +2545,238 @@ def get_shop_highlevel_phone_numbers(
         ),
         "highlevel_response": data,
     }
+
+@router.post("/phone-number/assign")
+def assign_shop_highlevel_phone_number(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    require_owner(current_user)
+
+    shop = get_current_shop(
+        current_user=current_user,
+        db=db,
+    )
+
+    if not shop.ai_voice_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "AI Receptionist is not enabled for "
+                "this ChairTime subscription."
+            ),
+        )
+
+    agent_id = str(
+        shop.highlevel_agent_id or ""
+    ).strip()
+
+    if not agent_id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "This shop does not have a provisioned "
+                "AI Receptionist."
+            ),
+        )
+
+    location_id = production_location_id(shop)
+
+    numbers_response = highlevel_request(
+        method="GET",
+        path=(
+            f"/phone-system/numbers/location/"
+            f"{location_id}"
+        ),
+        params={
+            "page": 1,
+            "pageSize": 100,
+            "skipNumberPool": True,
+        },
+    )
+
+    numbers_data = response_json(
+        numbers_response
+    )
+
+    numbers = (
+        numbers_data
+        .get("data", {})
+        .get("numbers", [])
+    )
+
+    voice_numbers = [
+        number
+        for number in numbers
+        if (
+            number
+            .get("capabilities", {})
+            .get("voice")
+            is True
+        )
+    ]
+
+    if not voice_numbers:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "No active voice-capable HighLevel "
+                "phone number is available for this "
+                "location."
+            ),
+        )
+
+    if len(voice_numbers) > 1:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "More than one voice-capable HighLevel "
+                "phone number is available. Automatic "
+                "assignment has been stopped so the "
+                "correct number can be selected."
+            ),
+        )
+
+    selected_number = voice_numbers[0]
+
+    phone_number = str(
+        selected_number.get("phoneNumber")
+        or ""
+    ).strip()
+
+    if not phone_number:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=(
+                "HighLevel returned a phone record "
+                "without a phone number."
+            ),
+        )
+
+    agent = get_agent_detail(
+        agent_id=agent_id,
+        location_id=location_id,
+    )
+
+    patch_payload = {
+        "agentName": (
+            agent.get("agentName")
+            or production_agent_name(shop)
+        ),
+        "businessName": (
+            agent.get("businessName")
+            or shop.name
+        ),
+        "welcomeMessage": agent.get(
+            "welcomeMessage"
+        ),
+        "agentPrompt": agent.get(
+            "agentPrompt"
+        ),
+        "voiceId": agent.get("voiceId"),
+        "language": (
+            agent.get("language")
+            or "en-US"
+        ),
+        "patienceLevel": (
+            agent.get("patienceLevel")
+            or "high"
+        ),
+        "maxCallDuration": (
+            agent.get("maxCallDuration")
+            or 300
+        ),
+        "sendUserIdleReminders": bool(
+            agent.get(
+                "sendUserIdleReminders",
+                True,
+            )
+        ),
+        "reminderAfterIdleTimeSeconds": (
+            agent.get(
+                "reminderAfterIdleTimeSeconds"
+            )
+            or 8
+        ),
+        "inboundNumber": phone_number,
+    }
+
+    optional_fields = [
+        "numberPoolId",
+        "callEndWorkflowIds",
+        "sendPostCallNotificationTo",
+        "agentWorkingHours",
+        "timezone",
+        "isAgentAsBackupDisabled",
+        "translation",
+    ]
+
+    for field in optional_fields:
+        if field in agent:
+            patch_payload[field] = agent[field]
+
+    patch_response = highlevel_request(
+        method="PATCH",
+        path=f"/voice-ai/agents/{agent_id}",
+        params={
+            "locationId": location_id,
+        },
+        json=patch_payload,
+    )
+
+    response_json(patch_response)
+
+    verified_agent = get_agent_detail(
+        agent_id=agent_id,
+        location_id=location_id,
+    )
+
+    verified_number = str(
+        verified_agent.get("inboundNumber")
+        or ""
+    ).strip()
+
+    if verified_number != phone_number:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=(
+                "HighLevel did not confirm the phone "
+                "number assignment."
+            ),
+        )
+
+    shop.highlevel_phone_number = (
+        phone_number
+    )
+
+    db.add(shop)
+    db.commit()
+    db.refresh(shop)
+
+    return {
+        "success": True,
+        "chairtime_shop": {
+            "id": str(shop.id),
+            "slug": shop.slug,
+            "name": shop.name,
+        },
+        "agent": {
+            "id": agent_id,
+            "agent_name": (
+                verified_agent.get(
+                    "agentName"
+                )
+            ),
+        },
+        "phone_number": phone_number,
+        "friendly_name": (
+            selected_number.get(
+                "friendlyName"
+            )
+        ),
+        "message": (
+            "The HighLevel phone number is now "
+            "assigned to this shop's AI "
+            "Receptionist."
+        ),
+    }
