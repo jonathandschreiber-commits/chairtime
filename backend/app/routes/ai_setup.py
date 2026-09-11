@@ -2492,3 +2492,56 @@ def provision_tenant_safe_voice_test(
         "final_actions": final_actions,
         "working_receptionist_modified": False,
     }
+
+@router.get("/phone-numbers")
+def get_shop_highlevel_phone_numbers(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    require_owner(current_user)
+
+    shop = get_current_shop(
+        current_user=current_user,
+        db=db,
+    )
+
+    if not shop.ai_voice_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "AI Receptionist is not enabled for "
+                "this ChairTime subscription."
+            ),
+        )
+
+    location_id = production_location_id(shop)
+
+    response = highlevel_request(
+        method="GET",
+        path=(
+            f"/phone-system/numbers/location/"
+            f"{location_id}"
+        ),
+        params={
+            "page": 1,
+            "pageSize": 100,
+            "skipNumberPool": True,
+        },
+    )
+
+    data = response_json(response)
+
+    return {
+        "success": True,
+        "chairtime_shop": {
+            "id": str(shop.id),
+            "slug": shop.slug,
+            "name": shop.name,
+        },
+        "location_id": location_id,
+        "stored_phone_number": (
+            str(shop.highlevel_phone_number or "").strip()
+            or None
+        ),
+        "highlevel_response": data,
+    }
