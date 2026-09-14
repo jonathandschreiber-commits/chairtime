@@ -3,6 +3,24 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 
+function formatPhoneNumber(phoneNumber) {
+  const digits = String(phoneNumber || "").replace(/\D/g, "");
+
+  const tenDigits =
+    digits.length === 11 && digits.startsWith("1")
+      ? digits.slice(1)
+      : digits;
+
+  if (tenDigits.length !== 10) {
+    return phoneNumber || "";
+  }
+
+  return `(${tenDigits.slice(0, 3)}) ${tenDigits.slice(
+    3,
+    6
+  )}-${tenDigits.slice(6)}`;
+}
+
 export default function AIReceptionistPage() {
   const params = useParams();
   const router = useRouter();
@@ -65,13 +83,18 @@ export default function AIReceptionistPage() {
   );
 
   const agentName =
+    statusData?.agent?.agent_name ||
     statusData?.agent_name ||
     `ChairTime AI - ${shopSlug}`;
 
   const phoneNumber =
     statusData?.phone_number ||
     statusData?.highlevel_phone_number ||
+    statusData?.agent?.inbound_number ||
     "";
+
+  const displayPhoneNumber =
+    formatPhoneNumber(phoneNumber);
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-sky-50 px-6 py-10">
@@ -186,7 +209,7 @@ export default function AIReceptionistPage() {
                   </p>
 
                   <p className="text-2xl font-extrabold text-slate-900 mt-3">
-                    {phoneNumber}
+                    {displayPhoneNumber}
                   </p>
 
                   <p className="text-sm text-slate-600 mt-4">
@@ -259,6 +282,7 @@ export default function AIReceptionistPage() {
                   <p className="font-extrabold">
                     📅 Check availability
                   </p>
+
                   <p className="text-sm text-slate-600 mt-1">
                     Uses your real ChairTime schedules.
                   </p>
@@ -268,6 +292,7 @@ export default function AIReceptionistPage() {
                   <p className="font-extrabold">
                     ✂️ Explain services
                   </p>
+
                   <p className="text-sm text-slate-600 mt-1">
                     Uses the services configured for your
                     business.
@@ -278,6 +303,7 @@ export default function AIReceptionistPage() {
                   <p className="font-extrabold">
                     👥 Work with staff
                   </p>
+
                   <p className="text-sm text-slate-600 mt-1">
                     Understands your staff and their
                     schedules.
@@ -288,6 +314,7 @@ export default function AIReceptionistPage() {
                   <p className="font-extrabold">
                     ✓ Book appointments
                   </p>
+
                   <p className="text-sm text-slate-600 mt-1">
                     Creates appointments directly in
                     ChairTime.
