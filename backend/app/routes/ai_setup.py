@@ -3344,38 +3344,109 @@ def purchase_one_highlevel_phone_number(
             ),
         )
 
+    fingerprint_id = str(
+        int(time.time() * 1000)
+    )
+
+    purchase_url = (
+        f"{HIGHLEVEL_API_BASE_URL}"
+        f"/phone-system/numbers/location/"
+        f"{location_id}/purchase"
+    )
+
+    purchase_headers = (
+        highlevel_phone_purchase_headers()
+    )
+
+    purchase_payload = {
+        "phoneNumber": phone_number,
+        "addressSid": "",
+        "bundleSid": "",
+        "countryCode": "US",
+        "numberType": "local",
+        "paymentIntentId": None,
+        "stripeAccountId": stripe_account_id,
+        "paymentMethodId": payment_method_id,
+        "locality": locality,
+        "region": region,
+        "fingerprintId": fingerprint_id,
+        "skipLocationKYC": False,
+    }
+
+    print(
+        "HIGHLEVEL_PHONE_PURCHASE_REQUEST",
+        {
+            "url": purchase_url,
+            "version": purchase_headers.get(
+                "Version"
+            ),
+            "accept": purchase_headers.get(
+                "Accept"
+            ),
+            "content_type": purchase_headers.get(
+                "Content-Type"
+            ),
+            "user_agent": purchase_headers.get(
+                "User-Agent"
+            ),
+            "phone_number": phone_number,
+            "country_code": "US",
+            "number_type": "local",
+            "locality": locality,
+            "region": region,
+            "fingerprint_id": fingerprint_id,
+            "skip_location_kyc": False,
+            "has_stripe_account_id": bool(
+                stripe_account_id
+            ),
+            "has_payment_method_id": bool(
+                payment_method_id
+            ),
+        },
+        flush=True,
+    )
+
     try:
         response = requests.post(
-            (
-                f"{HIGHLEVEL_API_BASE_URL}"
-                f"/phone-system/numbers/location/"
-                f"{location_id}/purchase"
-            ),
-            headers=highlevel_phone_purchase_headers(),
-            json={
-                "phoneNumber": phone_number,
-                "addressSid": "",
-                "bundleSid": "",
-                "countryCode": "US",
-                "numberType": "local",
-                "paymentIntentId": None,
-                "stripeAccountId": stripe_account_id,
-                "paymentMethodId": payment_method_id,
-                "locality": locality,
-                "region": region,
-                "fingerprintId": str(
-                    int(time.time() * 1000)
-                ),
-                "skipLocationKYC": False,
-            },
+            purchase_url,
+            headers=purchase_headers,
+            json=purchase_payload,
             timeout=20,
         )
 
-    except requests.RequestException:
+    except requests.RequestException as exc:
+        print(
+            "HIGHLEVEL_PHONE_PURCHASE_EXCEPTION",
+            {
+                "exception_type": type(
+                    exc
+                ).__name__,
+                "message": str(exc),
+            },
+            flush=True,
+        )
+
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Could not connect to HighLevel.",
         )
+
+    try:
+        response_body = response.json()
+    except ValueError:
+        response_body = response.text[:3000]
+
+    print(
+        "HIGHLEVEL_PHONE_PURCHASE_RESPONSE",
+        {
+            "status_code": response.status_code,
+            "content_type": response.headers.get(
+                "Content-Type"
+            ),
+            "response_body": response_body,
+        },
+        flush=True,
+    )
 
     return (
         response,
@@ -3383,7 +3454,6 @@ def purchase_one_highlevel_phone_number(
         locality,
         region,
     )
-
 
 @router.post("/phone-number/purchase")
 def purchase_shop_ai_phone_number(
