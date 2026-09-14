@@ -3779,3 +3779,57 @@ def purchase_shop_ai_phone_number(
             "attempted_numbers": attempted_numbers,
         },
     )
+
+@router.get("/phone-system/internal-host-test")
+def test_highlevel_internal_phone_host(
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    shop = get_current_shop(
+        db=db,
+        current_user=current_user,
+    )
+
+    require_owner(current_user)
+    require_shop_agent(shop)
+
+    location_id = production_location_id(shop)
+
+    url = (
+        "https://backend.leadconnectorhq.com"
+        f"/phone-system/numbers/location/{location_id}"
+    )
+
+    headers = highlevel_voice_headers()
+
+    try:
+        response = requests.get(
+            url,
+            headers=headers,
+            params={
+                "page": 1,
+                "pageSize": 100,
+                "skipNumberPool": True,
+            },
+            timeout=20,
+        )
+    except requests.RequestException as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "message": "Could not connect to the HighLevel internal phone host.",
+                "exception_type": type(exc).__name__,
+            },
+        )
+
+    try:
+        body = response.json()
+    except ValueError:
+        body = response.text[:3000]
+
+    return {
+        "success": response.ok,
+        "status_code": response.status_code,
+        "location_id": location_id,
+        "response": body,
+    }
