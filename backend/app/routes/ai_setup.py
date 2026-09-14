@@ -2994,12 +2994,15 @@ def get_available_highlevel_phone_numbers(
             f"{location_id}/available"
         ),
         params={
-            "country": "US",
-            "areaCode": clean_area_code,
-            "numberType": "local",
-            "capabilities": "voice,sms,mms",
-            "limit": 10,
-        },
+    "firstPart": clean_area_code,
+    "lastPart": "",
+    "anywhere": "",
+    "numberTypes": "local",
+    "smsEnabled": True,
+    "mmsEnabled": True,
+    "voiceEnabled": True,
+    "countryCode": "US",
+},
     )
 
     data = response_json(response)
