@@ -3172,42 +3172,9 @@ def get_phone_purchase_credentials() -> tuple[str, str]:
     return stripe_account_id, payment_method_id
 
 
-def get_available_phone_record(
-    location_id: str,
-    phone_number: str,
-) -> Optional[dict]:
-    normalized_phone_number = (
-        normalize_us_phone_number(phone_number)
-    )
-
-    digits = "".join(
-        character
-        for character in normalized_phone_number
-        if character.isdigit()
-    )
-
-    area_code = digits[1:4]
-
-    response = highlevel_request(
-        method="GET",
-        path=(
-            f"/phone-system/numbers/location/"
-            f"{location_id}/available"
-        ),
-        params={
-            "firstPart": area_code,
-            "lastPart": "",
-            "anywhere": "",
-            "numberTypes": "local",
-            "smsEnabled": True,
-            "mmsEnabled": True,
-            "voiceEnabled": True,
-            "countryCode": "US",
-        },
-    )
-
-    data = response_json(response)
-
+def extract_available_phone_records(
+    data: dict,
+) -> list:
     raw_numbers = (
         data.get("numbers")
         or (data.get("data") or {}).get("numbers")
@@ -3215,18 +3182,75 @@ def get_available_phone_record(
     )
 
     if not isinstance(raw_numbers, list):
-        return None
+        return []
 
-    return find_phone_record_by_number(
-        phone_numbers=raw_numbers,
-        phone_number=normalized_phone_number,
-    )
+    return [
+        number
+        for number in raw_numbers
+        if isinstance(number, dict)
+        and (
+            number.get("phoneNumber")
+            or number.get("number")
+        )
+    ]
+
+
+def get_fresh_available_phone_records(
+    location_id: str,
+    area_code: str,
+    attempts: int = 3,
+) -> list:
+    last_response = None
+
+    for attempt in range(attempts):
+        response = highlevel_raw_request(
+            method="GET",
+            path=(
+                f"/phone-system/numbers/location/"
+                f"{location_id}/available"
+            ),
+            params={
+                "firstPart": area_code,
+                "lastPart": "",
+                "anywhere": "",
+                "numberTypes": "local",
+                "smsEnabled": True,
+                "mmsEnabled": True,
+                "voiceEnabled": True,
+                "countryCode": "US",
+            },
+        )
+
+        last_response = response
+
+        if response.status_code < 400:
+            data = response_json(response)
+            records = extract_available_phone_records(
+                data
+            )
+
+            if records:
+                return records
+
+        elif response.status_code < 500:
+            raise_highlevel_error(response)
+
+        if attempt < attempts - 1:
+            time.sleep(0.4)
+
+    if (
+        last_response is not None
+        and last_response.status_code >= 400
+    ):
+        raise_highlevel_error(last_response)
+
+    return []
 
 
 def wait_for_purchased_phone_number(
     location_id: str,
     phone_number: str,
-    attempts: int = 8,
+    attempts: int = 10,
 ) -> Optional[dict]:
     for attempt in range(attempts):
         _, phone_numbers = get_location_phone_numbers(
@@ -3242,9 +3266,103 @@ def wait_for_purchased_phone_number(
             return matched_phone
 
         if attempt < attempts - 1:
-            time.sleep(0.5)
+            time.sleep(0.75)
 
     return None
+
+
+def phone_purchase_error_is_unavailable(
+    response: requests.Response,
+) -> bool:
+    if response.status_code in {
+        404,
+        409,
+        410,
+    }:
+        return True
+
+    error_text = highlevel_error_text(response)
+
+    unavailable_phrases = (
+        "not available",
+        "no longer available",
+        "unavailable",
+        "already purchased",
+        "already taken",
+    )
+
+    return any(
+        phrase in error_text
+        for phrase in unavailable_phrases
+    )
+
+
+def purchase_one_highlevel_phone_number(
+    location_id: str,
+    available_record: dict,
+    stripe_account_id: str,
+    payment_method_id: str,
+) -> tuple[requests.Response, str, str, str]:
+    phone_number = normalize_us_phone_number(
+        str(
+            available_record.get("phoneNumber")
+            or available_record.get("number")
+            or ""
+        )
+    )
+
+    locality = str(
+        available_record.get("locality")
+        or available_record.get("city")
+        or ""
+    ).strip()
+
+    region = str(
+        available_record.get("region")
+        or available_record.get("state")
+        or ""
+    ).strip()
+
+    if not locality or not region:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "HighLevel did not return the locality "
+                "and region required to purchase this "
+                "phone number."
+            ),
+        )
+
+    response = highlevel_raw_request(
+        method="POST",
+        path=(
+            f"/phone-system/numbers/location/"
+            f"{location_id}/purchase"
+        ),
+        json_body={
+            "phoneNumber": phone_number,
+            "addressSid": "",
+            "bundleSid": "",
+            "countryCode": "US",
+            "numberType": "local",
+            "paymentIntentId": None,
+            "stripeAccountId": stripe_account_id,
+            "paymentMethodId": payment_method_id,
+            "locality": locality,
+            "region": region,
+            "fingerprintId": str(
+                int(time.time() * 1000)
+            ),
+            "skipLocationKYC": False,
+        },
+    )
+
+    return (
+        response,
+        phone_number,
+        locality,
+        region,
+    )
 
 
 @router.post("/phone-number/purchase")
@@ -3282,10 +3400,17 @@ def purchase_shop_ai_phone_number(
             ),
         )
 
-    phone_number = normalize_us_phone_number(
+    requested_phone_number = normalize_us_phone_number(
         payload.phone_number
     )
 
+    requested_digits = "".join(
+        character
+        for character in requested_phone_number
+        if character.isdigit()
+    )
+
+    area_code = requested_digits[1:4]
     location_id = production_location_id(shop)
 
     _, active_phone_numbers = (
@@ -3296,7 +3421,7 @@ def purchase_shop_ai_phone_number(
 
     existing_phone = find_phone_record_by_number(
         phone_numbers=active_phone_numbers,
-        phone_number=phone_number,
+        phone_number=requested_phone_number,
     )
 
     if existing_phone:
@@ -3304,121 +3429,263 @@ def purchase_shop_ai_phone_number(
             "success": True,
             "purchased": False,
             "already_owned": True,
-            "phone_number": phone_number,
+            "requested_phone_number": (
+                requested_phone_number
+            ),
+            "phone_number": requested_phone_number,
+            "fallback_used": False,
             "message": (
                 "This phone number is already active "
                 "in the HighLevel location."
             ),
         }
 
-    available_record = get_available_phone_record(
-        location_id=location_id,
-        phone_number=phone_number,
-    )
-
-    if not available_record:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                "That phone number is no longer "
-                "available. Please choose another."
-            ),
-        )
-
-    locality = str(
-        available_record.get("locality")
-        or available_record.get("city")
-        or ""
-    ).strip()
-
-    region = str(
-        available_record.get("region")
-        or available_record.get("state")
-        or ""
-    ).strip()
-
-    if not locality or not region:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                "HighLevel did not return the locality "
-                "and region required to purchase this "
-                "phone number."
-            ),
-        )
-
     stripe_account_id, payment_method_id = (
         get_phone_purchase_credentials()
     )
 
-    fingerprint_id = str(
-        int(time.time() * 1000)
-    )
-
-    response = highlevel_request(
-        method="POST",
-        path=(
-            f"/phone-system/numbers/location/"
-            f"{location_id}/purchase"
-        ),
-        json_body={
-            "phoneNumber": phone_number,
-            "addressSid": "",
-            "bundleSid": "",
-            "countryCode": "US",
-            "numberType": "local",
-            "paymentIntentId": None,
-            "stripeAccountId": stripe_account_id,
-            "paymentMethodId": payment_method_id,
-            "locality": locality,
-            "region": region,
-            "fingerprintId": fingerprint_id,
-            "skipLocationKYC": False,
-        },
-    )
-
-    purchase_data = response_json(response)
-
-    purchased_phone = (
-        wait_for_purchased_phone_number(
+    available_records = (
+        get_fresh_available_phone_records(
             location_id=location_id,
-            phone_number=phone_number,
+            area_code=area_code,
         )
     )
 
-    if not purchased_phone:
+    if not available_records:
         raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
+            status_code=status.HTTP_409_CONFLICT,
             detail=(
-                "HighLevel reported a successful purchase, "
-                "but ChairTime could not verify that the "
-                "phone number became active."
+                "HighLevel did not return any currently "
+                "available numbers for this area code."
             ),
         )
 
-    return {
-        "success": True,
-        "purchased": True,
-        "already_owned": False,
-        "chairtime_shop": {
-            "id": str(shop.id),
-            "slug": shop.slug,
-            "name": shop.name,
+    requested_record = find_phone_record_by_number(
+        phone_numbers=available_records,
+        phone_number=requested_phone_number,
+    )
+
+    ordered_candidates = []
+
+    if requested_record:
+        ordered_candidates.append(requested_record)
+
+    for record in available_records:
+        if requested_record is record:
+            continue
+
+        ordered_candidates.append(record)
+
+    attempted_numbers = []
+
+    for available_record in ordered_candidates[:10]:
+        candidate_number = str(
+            available_record.get("phoneNumber")
+            or available_record.get("number")
+            or ""
+        ).strip()
+
+        if not candidate_number:
+            continue
+
+        candidate_number = normalize_us_phone_number(
+            candidate_number
+        )
+
+        attempted_numbers.append(candidate_number)
+
+        _, active_phone_numbers = (
+            get_location_phone_numbers(
+                location_id=location_id,
+            )
+        )
+
+        existing_candidate = (
+            find_phone_record_by_number(
+                phone_numbers=active_phone_numbers,
+                phone_number=candidate_number,
+            )
+        )
+
+        if existing_candidate:
+            if phone_numbers_match(
+                candidate_number,
+                requested_phone_number,
+            ):
+                return {
+                    "success": True,
+                    "purchased": False,
+                    "already_owned": True,
+                    "requested_phone_number": (
+                        requested_phone_number
+                    ),
+                    "phone_number": candidate_number,
+                    "fallback_used": False,
+                    "message": (
+                        "This phone number is already "
+                        "active in the HighLevel location."
+                    ),
+                }
+
+            continue
+
+        (
+            response,
+            purchased_number,
+            locality,
+            region,
+        ) = purchase_one_highlevel_phone_number(
+            location_id=location_id,
+            available_record=available_record,
+            stripe_account_id=stripe_account_id,
+            payment_method_id=payment_method_id,
+        )
+
+        if response.status_code < 400:
+            purchase_data = response_json(response)
+
+            purchased_phone = (
+                wait_for_purchased_phone_number(
+                    location_id=location_id,
+                    phone_number=purchased_number,
+                )
+            )
+
+            if not purchased_phone:
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail=(
+                        "HighLevel reported a successful "
+                        "purchase, but ChairTime could not "
+                        "verify that the phone number "
+                        "became active. ChairTime stopped "
+                        "without attempting another number "
+                        "to prevent a duplicate purchase."
+                    ),
+                )
+
+            fallback_used = not phone_numbers_match(
+                purchased_number,
+                requested_phone_number,
+            )
+
+            return {
+                "success": True,
+                "purchased": True,
+                "already_owned": False,
+                "chairtime_shop": {
+                    "id": str(shop.id),
+                    "slug": shop.slug,
+                    "name": shop.name,
+                },
+                "location_id": location_id,
+                "agent_id": agent_id,
+                "requested_phone_number": (
+                    requested_phone_number
+                ),
+                "phone_number": purchased_number,
+                "friendly_name": (
+                    purchased_phone.get("friendlyName")
+                ),
+                "locality": locality,
+                "region": region,
+                "fallback_used": fallback_used,
+                "attempted_numbers": attempted_numbers,
+                "message": (
+                    "HighLevel phone number purchased "
+                    "and verified. It has not yet been "
+                    "routed to the AI Receptionist."
+                ),
+                "highlevel_purchase_confirmed": bool(
+                    purchase_data
+                ),
+            }
+
+        if response.status_code >= 500:
+            purchased_phone = (
+                wait_for_purchased_phone_number(
+                    location_id=location_id,
+                    phone_number=purchased_number,
+                )
+            )
+
+            if purchased_phone:
+                fallback_used = not phone_numbers_match(
+                    purchased_number,
+                    requested_phone_number,
+                )
+
+                return {
+                    "success": True,
+                    "purchased": True,
+                    "already_owned": False,
+                    "chairtime_shop": {
+                        "id": str(shop.id),
+                        "slug": shop.slug,
+                        "name": shop.name,
+                    },
+                    "location_id": location_id,
+                    "agent_id": agent_id,
+                    "requested_phone_number": (
+                        requested_phone_number
+                    ),
+                    "phone_number": purchased_number,
+                    "friendly_name": (
+                        purchased_phone.get(
+                            "friendlyName"
+                        )
+                    ),
+                    "locality": locality,
+                    "region": region,
+                    "fallback_used": fallback_used,
+                    "attempted_numbers": attempted_numbers,
+                    "message": (
+                        "The HighLevel purchase response "
+                        "was ambiguous, but ChairTime "
+                        "verified that the number became "
+                        "active. It has not yet been "
+                        "routed to the AI Receptionist."
+                    ),
+                    "highlevel_purchase_confirmed": False,
+                }
+
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail={
+                    "message": (
+                        "HighLevel returned an ambiguous "
+                        "server error while purchasing the "
+                        "phone number. ChairTime did not "
+                        "attempt another number to prevent "
+                        "a possible duplicate purchase."
+                    ),
+                    "attempted_phone_number": (
+                        purchased_number
+                    ),
+                    "highlevel_status": (
+                        response.status_code
+                    ),
+                    "highlevel_error": (
+                        safe_highlevel_error(response)
+                    ),
+                },
+            )
+
+        if phone_purchase_error_is_unavailable(
+            response
+        ):
+            continue
+
+        raise_highlevel_error(response)
+
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail={
+            "message": (
+                "The available phone numbers changed "
+                "before HighLevel could complete the "
+                "purchase. Please try again."
+            ),
+            "attempted_numbers": attempted_numbers,
         },
-        "location_id": location_id,
-        "agent_id": agent_id,
-        "phone_number": phone_number,
-        "friendly_name": (
-            purchased_phone.get("friendlyName")
-        ),
-        "locality": locality,
-        "region": region,
-        "message": (
-            "HighLevel phone number purchased and "
-            "verified. It has not yet been routed to "
-            "the AI Receptionist."
-        ),
-        "highlevel_purchase_confirmed": bool(
-            purchase_data
-        ),
-    }
+    )
