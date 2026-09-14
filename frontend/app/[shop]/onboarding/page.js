@@ -112,14 +112,42 @@ export default function OnboardingPage() {
   const [aiProvisionStatus, setAiProvisionStatus] =
     useState(null);
 
-  const [loadingAiProvisionStatus, setLoadingAiProvisionStatus] =
-    useState(false);
+  const [
+    loadingAiProvisionStatus,
+    setLoadingAiProvisionStatus,
+  ] = useState(false);
 
-  const [aiProvisionStatusError, setAiProvisionStatusError] =
-    useState("");
+  const [
+    aiProvisionStatusError,
+    setAiProvisionStatusError,
+  ] = useState("");
 
   const [provisioningAi, setProvisioningAi] =
     useState(false);
+
+  // AI Receptionist phone-number chooser.
+  // Selection is intentionally temporary at this stage.
+  // Nothing here purchases, assigns, routes, or saves a number.
+  const [aiAreaCode, setAiAreaCode] =
+    useState("");
+
+  const [
+    availableAiNumbers,
+    setAvailableAiNumbers,
+  ] = useState([]);
+
+  const [
+    loadingAiNumbers,
+    setLoadingAiNumbers,
+  ] = useState(false);
+
+  const [aiNumberError, setAiNumberError] =
+    useState("");
+
+  const [
+    selectedAiNumber,
+    setSelectedAiNumber,
+  ] = useState("");
 
   const totalSteps = aiVoiceEnabled ? 7 : 6;
   const reviewStep = aiVoiceEnabled ? 7 : 6;
@@ -229,6 +257,7 @@ export default function OnboardingPage() {
               `/${shopSlug}/onboarding`
             )}`
           );
+
           return;
         }
 
@@ -312,6 +341,94 @@ export default function OnboardingPage() {
       );
     } finally {
       setProvisioningAi(false);
+    }
+  }
+
+  async function loadAvailableAiNumbers() {
+    if (loadingAiNumbers) return;
+
+    const cleanAreaCode = String(
+      aiAreaCode || ""
+    ).replace(/\D/g, "");
+
+    if (cleanAreaCode.length !== 3) {
+      setAiNumberError(
+        "Enter a valid 3-digit area code."
+      );
+      setAvailableAiNumbers([]);
+      return;
+    }
+
+    setLoadingAiNumbers(true);
+    setAiNumberError("");
+    setAvailableAiNumbers([]);
+    setSelectedAiNumber("");
+
+    try {
+      const response = await fetch(
+        `/api/ai-setup/phone-numbers/available?area_code=${encodeURIComponent(
+          cleanAreaCode
+        )}`,
+        {
+          method: "GET",
+          headers: {
+            Accept: "application/json",
+          },
+          cache: "no-store",
+        }
+      );
+
+      const data = await response
+        .json()
+        .catch(() => ({}));
+
+      if (response.status === 401) {
+        router.replace(
+          `/login?next=${encodeURIComponent(
+            `/${shopSlug}/onboarding`
+          )}`
+        );
+        return;
+      }
+
+      if (!response.ok) {
+        const detail =
+          typeof data.detail === "string"
+            ? data.detail
+            : data.detail?.message;
+
+        throw new Error(
+          data.error ||
+            detail ||
+            "Could not find available phone numbers."
+        );
+      }
+
+      const numbers = Array.isArray(
+        data.available_numbers
+      )
+        ? data.available_numbers
+        : [];
+
+      setAvailableAiNumbers(numbers);
+
+      if (numbers.length === 0) {
+        setAiNumberError(
+          `No available numbers were found for area code ${cleanAreaCode}. Try another nearby area code.`
+        );
+      }
+    } catch (error) {
+      console.error(error);
+
+      setAvailableAiNumbers([]);
+
+      setAiNumberError(
+        error instanceof Error
+          ? error.message
+          : "Could not find available phone numbers."
+      );
+    } finally {
+      setLoadingAiNumbers(false);
     }
   }
 
@@ -462,7 +579,8 @@ export default function OnboardingPage() {
         await shopResponse.json();
 
       const currentShop =
-        Array.isArray(shopData) && shopData.length > 0
+        Array.isArray(shopData) &&
+        shopData.length > 0
           ? shopData[0]
           : null;
 
@@ -596,8 +714,7 @@ export default function OnboardingPage() {
       const existing =
         currentAssignments.find(
           (service) =>
-            service.barber_id ===
-              person.id &&
+            service.barber_id === person.id &&
             String(service.name)
               .trim()
               .toLowerCase() ===
@@ -1410,8 +1527,7 @@ export default function OnboardingPage() {
                     payload
                   ),
                 }
-
-                              );
+              );
 
             if (!response.ok) {
               throw new Error(
@@ -1860,18 +1976,63 @@ export default function OnboardingPage() {
         {aiVoiceEnabled && currentStep === 6 && (
           <AiReceptionistStep
             provisionStatus={aiProvisionStatus}
-            loadingStatus={loadingAiProvisionStatus}
-            statusError={aiProvisionStatusError}
+            loadingStatus={
+              loadingAiProvisionStatus
+            }
+            statusError={
+              aiProvisionStatusError
+            }
             provisioning={provisioningAi}
             provisionAiReceptionist={
               provisionAiReceptionist
             }
-            refreshStatus={loadAiProvisionStatus}
+            refreshStatus={
+              loadAiProvisionStatus
+            }
             goBack={() => goToStep(5)}
             continueToReview={() => {
               setMessage("");
               goToStep(7);
             }}
+
+            aiAreaCode={aiAreaCode}
+
+            setAiAreaCode={(value) => {
+              setAiAreaCode(
+                String(value)
+                  .replace(/\D/g, "")
+                  .slice(0, 3)
+              );
+
+              setAiNumberError("");
+              setAvailableAiNumbers([]);
+              setSelectedAiNumber("");
+            }}
+
+            availableAiNumbers={
+              availableAiNumbers
+            }
+
+            loadingAiNumbers={
+              loadingAiNumbers
+            }
+
+            aiNumberError={
+              aiNumberError
+            }
+
+            selectedAiNumber={
+              selectedAiNumber
+            }
+
+            setSelectedAiNumber={
+              setSelectedAiNumber
+            }
+
+            loadAvailableAiNumbers={
+              loadAvailableAiNumbers
+            }
+
             message={message}
           />
         )}
@@ -1917,7 +2078,9 @@ function Progress({
     "Services",
     "Schedules",
     "Payments",
-    ...(aiVoiceEnabled ? ["AI Receptionist"] : []),
+    ...(aiVoiceEnabled
+      ? ["AI Receptionist"]
+      : []),
     "Review",
   ];
 
@@ -2644,13 +2807,10 @@ function ScheduleStep({
           gap: "16px",
           marginBottom: "20px",
           padding: "14px 16px",
-
           background:
             "linear-gradient(135deg, #eef2ff, #eff6ff)",
-
           border:
             "1px solid #c7d2fe",
-
           borderRadius: "14px",
         }}
       >
@@ -2682,17 +2842,13 @@ function ScheduleStep({
           style={{
             minWidth: "42px",
             height: "42px",
-
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-
             color: "#ffffff",
             fontWeight: "900",
-
             background:
               "linear-gradient(135deg, #4f46e5, #2563eb)",
-
             borderRadius: "50%",
           }}
         >
@@ -2756,18 +2912,14 @@ function ScheduleStep({
             return (
               <div
                 key={service.id}
-
                 style={{
                   padding: "16px",
-
                   background: form.selected
                     ? "#f5f3ff"
                     : "#f8fafc",
-
                   border: form.selected
                     ? "1px solid #c4b5fd"
                     : "1px solid #e2e8f0",
-
                   borderRadius: "14px",
                 }}
               >
@@ -2781,11 +2933,9 @@ function ScheduleStep({
                 >
                   <input
                     type="checkbox"
-
                     checked={
                       form.selected
                     }
-
                     onChange={(event) =>
                       updateStaffService(
                         service.id,
@@ -2793,7 +2943,6 @@ function ScheduleStep({
                         event.target.checked
                       )
                     }
-
                     style={{
                       width: "18px",
                       height: "18px",
@@ -2814,17 +2963,14 @@ function ScheduleStep({
                   <div
                     style={{
                       display: "grid",
-
                       gridTemplateColumns:
                         "1fr 1fr",
-
                       gap: "12px",
                       marginTop: "14px",
                     }}
                   >
                     <label>
-
-                                          <span
+                      <span
                         style={{
                           display: "block",
                           marginBottom: "6px",
@@ -2852,7 +2998,8 @@ function ScheduleStep({
                           width: "100%",
                           minHeight: "44px",
                           padding: "10px 12px",
-                          border: "1px solid #cbd5e1",
+                          border:
+                            "1px solid #cbd5e1",
                           borderRadius: "10px",
                           fontSize: "15px",
                         }}
@@ -2889,7 +3036,8 @@ function ScheduleStep({
                           width: "100%",
                           minHeight: "44px",
                           padding: "10px 12px",
-                          border: "1px solid #cbd5e1",
+                          border:
+                            "1px solid #cbd5e1",
                           borderRadius: "10px",
                           fontSize: "15px",
                         }}
@@ -2976,7 +3124,9 @@ function ScheduleStep({
                   </p>
                 </div>
 
-                <label className={styles.switch}>
+                <label
+                  className={styles.switch}
+                >
                   <input
                     type="checkbox"
                     checked={day.open}
@@ -3033,7 +3183,9 @@ function ScheduleStep({
                 </div>
               ) : (
                 <div
-                  className={styles.closedMessage}
+                  className={
+                    styles.closedMessage
+                  }
                 >
                   {person.name} will not be
                   bookable on {day.name}.
@@ -3649,7 +3801,8 @@ function PaymentsStep({
             fontSize: "13px",
             lineHeight: "1.5",
             background: "#fef2f2",
-            border: "1px solid #fecaca",
+            border:
+              "1px solid #fecaca",
             borderRadius: "12px",
           }}
         >
@@ -3688,7 +3841,9 @@ function PaymentsStep({
             startingConnect ||
             loadingConnectStatus
           }
-          className={styles.continueButton}
+          className={
+            styles.continueButton
+          }
         >
           {startingConnect
             ? "Opening Stripe..."
@@ -3718,6 +3873,14 @@ function AiReceptionistStep({
   refreshStatus,
   goBack,
   continueToReview,
+  aiAreaCode,
+  setAiAreaCode,
+  availableAiNumbers,
+  loadingAiNumbers,
+  aiNumberError,
+  selectedAiNumber,
+  setSelectedAiNumber,
+  loadAvailableAiNumbers,
   message,
 }) {
   const provisioned = Boolean(
@@ -3832,8 +3995,8 @@ function AiReceptionistStep({
               }}
             >
               {provisioned
-                ? "ChairTime has created a dedicated production AI receptionist for this business and connected it to your real availability and booking actions."
-                : "ChairTime will create a dedicated production AI receptionist for this business. It will not use the shared provisioning-test agent."}
+                ? "Your dedicated AI receptionist is connected to your real availability, services, staff, and booking actions."
+                : "ChairTime will create a dedicated AI receptionist for this business."}
             </p>
           </div>
         </div>
@@ -3869,9 +4032,236 @@ function AiReceptionistStep({
           >
             We&apos;ll create your receptionist and connect it
             to the services, staff, and schedules you just
-            entered. Your phone routing can be finalized
-            separately without changing your booking setup.
+            entered.
           </p>
+        </div>
+      )}
+
+      {provisioned && (
+        <div
+          style={{
+            marginTop: "18px",
+            padding: "20px",
+            background: "#ffffff",
+            border: "1px solid #e2e8f0",
+            borderRadius: "16px",
+          }}
+        >
+          <div>
+            <strong
+              style={{
+                display: "block",
+                color: "#0f172a",
+                fontSize: "17px",
+              }}
+            >
+              Choose your local phone number
+            </strong>
+
+            <p
+              style={{
+                margin: "6px 0 0",
+                color: "#64748b",
+                fontSize: "14px",
+                lineHeight: "1.55",
+              }}
+            >
+              Enter the area code you want customers to see
+              when they call your AI receptionist.
+            </p>
+          </div>
+
+          <div
+            style={{
+              display: "flex",
+              gap: "10px",
+              alignItems: "flex-end",
+              marginTop: "16px",
+              flexWrap: "wrap",
+            }}
+          >
+            <label
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: "6px",
+              }}
+            >
+              <span
+                style={{
+                  fontSize: "13px",
+                  fontWeight: 700,
+                  color: "#334155",
+                }}
+              >
+                Area code
+              </span>
+
+              <input
+                type="text"
+                inputMode="numeric"
+                value={aiAreaCode}
+                maxLength={3}
+                placeholder="240"
+                onChange={(event) =>
+                  setAiAreaCode(event.target.value)
+                }
+                onKeyDown={(event) => {
+                  if (
+                    event.key === "Enter" &&
+                    aiAreaCode.length === 3
+                  ) {
+                    event.preventDefault();
+                    loadAvailableAiNumbers();
+                  }
+                }}
+                style={{
+                  width: "130px",
+                  padding: "11px 12px",
+                  border: "1px solid #cbd5e1",
+                  borderRadius: "10px",
+                  fontSize: "16px",
+                  outline: "none",
+                }}
+              />
+            </label>
+
+            <button
+              type="button"
+              onClick={loadAvailableAiNumbers}
+              disabled={
+                loadingAiNumbers ||
+                aiAreaCode.length !== 3
+              }
+              className={styles.continueButton}
+            >
+              {loadingAiNumbers
+                ? "Searching..."
+                : "Find Numbers"}
+            </button>
+          </div>
+
+          {aiNumberError && (
+            <div
+              style={{
+                marginTop: "14px",
+                padding: "12px 14px",
+                color: "#991b1b",
+                fontSize: "13px",
+                lineHeight: "1.5",
+                background: "#fef2f2",
+                border: "1px solid #fecaca",
+                borderRadius: "12px",
+              }}
+            >
+              {aiNumberError}
+            </div>
+          )}
+
+          {availableAiNumbers.length > 0 && (
+            <div
+              style={{
+                display: "grid",
+                gap: "9px",
+                marginTop: "16px",
+              }}
+            >
+              {availableAiNumbers.map((number) => {
+                const selected =
+                  selectedAiNumber ===
+                  number.phone_number;
+
+                const place = [
+                  number.locality,
+                  number.region &&
+                  number.region !== "US"
+                    ? number.region
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .join(", ");
+
+                return (
+                  <label
+                    key={number.phone_number}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "12px",
+                      padding: "13px 14px",
+                      border: selected
+                        ? "2px solid #6d28d9"
+                        : "1px solid #e2e8f0",
+                      borderRadius: "12px",
+                      background: selected
+                        ? "#f5f3ff"
+                        : "#ffffff",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <input
+                      type="radio"
+                      name="aiPhoneNumber"
+                      value={number.phone_number}
+                      checked={selected}
+                      onChange={() =>
+                        setSelectedAiNumber(
+                          number.phone_number
+                        )
+                      }
+                    />
+
+                    <div
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "2px",
+                      }}
+                    >
+                      <strong
+                        style={{
+                          color: "#0f172a",
+                          fontSize: "15px",
+                        }}
+                      >
+                        {number.friendly_name ||
+                          number.phone_number}
+                      </strong>
+
+                      {place && (
+                        <span
+                          style={{
+                            color: "#64748b",
+                            fontSize: "13px",
+                          }}
+                        >
+                          {place}
+                        </span>
+                      )}
+                    </div>
+                  </label>
+                );
+              })}
+            </div>
+          )}
+
+          {selectedAiNumber && (
+            <div
+              style={{
+                marginTop: "14px",
+                padding: "12px 14px",
+                background: "#ecfdf5",
+                border: "1px solid #a7f3d0",
+                borderRadius: "12px",
+                color: "#065f46",
+                fontSize: "14px",
+                fontWeight: 700,
+              }}
+            >
+              ✓ Number selected. No number has been
+              purchased or activated yet.
+            </div>
+          )}
         </div>
       )}
 
@@ -3915,7 +4305,9 @@ function AiReceptionistStep({
             <button
               type="button"
               onClick={refreshStatus}
-              disabled={loadingStatus || provisioning}
+              disabled={
+                loadingStatus || provisioning
+              }
               className={styles.backButton}
             >
               {loadingStatus
@@ -3928,7 +4320,9 @@ function AiReceptionistStep({
             <button
               type="button"
               onClick={provisionAiReceptionist}
-              disabled={loadingStatus || provisioning}
+              disabled={
+                loadingStatus || provisioning
+              }
               className={styles.continueButton}
             >
               {provisioning
@@ -4150,6 +4544,3 @@ function Message({
     </div>
   );
 }
-                
-
-                
