@@ -3349,9 +3349,9 @@ def purchase_one_highlevel_phone_number(
     )
 
     purchase_url = (
-        f"{HIGHLEVEL_API_BASE_URL}"
-        f"/phone-system/numbers/location/"
-        f"{location_id}/purchase"
+    "https://backend.leadconnectorhq.com"
+    f"/phone-system/numbers/location/"
+    f"{location_id}/purchase"
     )
 
     purchase_headers = (
