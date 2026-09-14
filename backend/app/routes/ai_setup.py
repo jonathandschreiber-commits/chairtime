@@ -2881,7 +2881,6 @@ def assign_shop_highlevel_phone_number(
         ),
     }
 
-
 @router.get("/phone-number/current-agent")
 def get_phone_number_current_agent(
     current_user: User = Depends(get_current_user),
@@ -2951,3 +2950,111 @@ def get_phone_number_current_agent(
         "current_agent": safe_agent_summary(agent),
     }
 
+
+@router.get("/phone-numbers/available")
+def get_available_highlevel_phone_numbers(
+    area_code: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    require_owner(current_user)
+
+    shop = get_current_shop(
+        current_user=current_user,
+        db=db,
+    )
+
+    if not shop.ai_voice_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "AI Receptionist is not enabled for "
+                "this ChairTime subscription."
+            ),
+        )
+
+    clean_area_code = "".join(
+        character
+        for character in str(area_code)
+        if character.isdigit()
+    )
+
+    if len(clean_area_code) != 3:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Area code must contain exactly 3 digits.",
+        )
+
+    location_id = production_location_id(shop)
+
+    response = highlevel_request(
+        method="GET",
+        path=(
+            f"/phone-system/numbers/location/"
+            f"{location_id}/available"
+        ),
+        params={
+            "country": "US",
+            "areaCode": clean_area_code,
+            "numberType": "local",
+            "capabilities": "voice,sms,mms",
+            "limit": 10,
+        },
+    )
+
+    data = response_json(response)
+
+    raw_numbers = (
+        data.get("numbers")
+        or (data.get("data") or {}).get("numbers")
+        or []
+    )
+
+    available_numbers = []
+
+    if isinstance(raw_numbers, list):
+        for number in raw_numbers:
+            if not isinstance(number, dict):
+                continue
+
+            phone_number = str(
+                number.get("phoneNumber")
+                or number.get("number")
+                or ""
+            ).strip()
+
+            if not phone_number:
+                continue
+
+            available_numbers.append(
+                {
+                    "phone_number": phone_number,
+                    "friendly_name": number.get(
+                        "friendlyName"
+                    ),
+                    "locality": (
+                        number.get("locality")
+                        or number.get("city")
+                    ),
+                    "region": (
+                        number.get("region")
+                        or number.get("state")
+                    ),
+                    "capabilities": number.get(
+                        "capabilities"
+                    ),
+                }
+            )
+
+    return {
+        "success": True,
+        "chairtime_shop": {
+            "id": str(shop.id),
+            "slug": shop.slug,
+            "name": shop.name,
+        },
+        "area_code": clean_area_code,
+        "location_id": location_id,
+        "count": len(available_numbers),
+        "available_numbers": available_numbers[:10],
+    }
