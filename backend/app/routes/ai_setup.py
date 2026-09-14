@@ -107,6 +107,17 @@ def highlevel_voice_headers() -> dict:
         "User-Agent": "ChairTime/1.0",
     }
 
+def highlevel_phone_purchase_headers() -> dict:
+    return {
+        "Authorization": (
+            f"Bearer {get_highlevel_api_token()}"
+        ),
+        "Version": "2021-07-28",
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "User-Agent": "ChairTime/1.0",
+    }
+
 
 def get_current_shop(
     current_user: User,
@@ -3333,29 +3344,38 @@ def purchase_one_highlevel_phone_number(
             ),
         )
 
-    response = highlevel_raw_request(
-        method="POST",
-        path=(
-            f"/phone-system/numbers/location/"
-            f"{location_id}/purchase"
-        ),
-        json_body={
-            "phoneNumber": phone_number,
-            "addressSid": "",
-            "bundleSid": "",
-            "countryCode": "US",
-            "numberType": "local",
-            "paymentIntentId": None,
-            "stripeAccountId": stripe_account_id,
-            "paymentMethodId": payment_method_id,
-            "locality": locality,
-            "region": region,
-            "fingerprintId": str(
-                int(time.time() * 1000)
+    try:
+        response = requests.post(
+            (
+                f"{HIGHLEVEL_API_BASE_URL}"
+                f"/phone-system/numbers/location/"
+                f"{location_id}/purchase"
             ),
-            "skipLocationKYC": False,
-        },
-    )
+            headers=highlevel_phone_purchase_headers(),
+            json={
+                "phoneNumber": phone_number,
+                "addressSid": "",
+                "bundleSid": "",
+                "countryCode": "US",
+                "numberType": "local",
+                "paymentIntentId": None,
+                "stripeAccountId": stripe_account_id,
+                "paymentMethodId": payment_method_id,
+                "locality": locality,
+                "region": region,
+                "fingerprintId": str(
+                    int(time.time() * 1000)
+                ),
+                "skipLocationKYC": False,
+            },
+            timeout=20,
+        )
+
+    except requests.RequestException:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Could not connect to HighLevel.",
+        )
 
     return (
         response,
