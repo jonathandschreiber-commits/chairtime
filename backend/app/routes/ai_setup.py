@@ -3791,7 +3791,10 @@ def test_highlevel_internal_phone_host(
     )
 
     require_owner(current_user)
-    require_shop_agent(shop)
+    require_shop_agent(
+    shop,
+    shop.highlevel_agent_id,
+)
 
     location_id = production_location_id(shop)
 
