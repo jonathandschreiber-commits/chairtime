@@ -178,6 +178,35 @@ def run_startup_migrations():
                 )
             )
 
+            # Employee login / staff-provider relationship.
+            conn.execute(
+                text(
+                    """
+                    ALTER TABLE users
+                    ADD COLUMN IF NOT EXISTS barber_id VARCHAR
+                    """
+                )
+            )
+
+            conn.execute(
+                text(
+                    """
+                    ALTER TABLE users
+                    ADD COLUMN IF NOT EXISTS can_accept_payments BOOLEAN
+                    NOT NULL DEFAULT FALSE
+                    """
+                )
+            )
+
+            conn.execute(
+                text(
+                    """
+                    CREATE INDEX IF NOT EXISTS ix_users_barber_id
+                    ON users (barber_id)
+                    """
+                )
+            )
+
             # Stripe card-on-file information for appointments.
             conn.execute(
                 text(
@@ -373,6 +402,30 @@ def run_startup_migrations():
                 "shops",
                 "stripe_connect_account_id",
                 "VARCHAR",
+            )
+
+            # Employee login / staff-provider relationship.
+            add_sqlite_column_if_missing(
+                conn,
+                "users",
+                "barber_id",
+                "VARCHAR",
+            )
+
+            add_sqlite_column_if_missing(
+                conn,
+                "users",
+                "can_accept_payments",
+                "BOOLEAN NOT NULL DEFAULT 0",
+            )
+
+            conn.execute(
+                text(
+                    """
+                    CREATE INDEX IF NOT EXISTS ix_users_barber_id
+                    ON users (barber_id)
+                    """
+                )
             )
 
             # Stripe card-on-file information for appointments.
