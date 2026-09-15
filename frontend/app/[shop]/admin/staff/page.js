@@ -6,12 +6,14 @@ import { useParams } from "next/navigation";
 const API_BASE =
   "https://chairtime-production-94da.up.railway.app";
 
+
 export default function StaffServicesPage() {
   const params = useParams();
   const shopSlug = params.shop;
 
   const [barbers, setBarbers] = useState([]);
   const [services, setServices] = useState([]);
+  const [teamMembers, setTeamMembers] = useState([]);
 
   const [newBarberName, setNewBarberName] =
     useState("");
@@ -43,9 +45,73 @@ export default function StaffServicesPage() {
     useState("");
 
   const [
+    staffMessageType,
+    setStaffMessageType,
+  ] = useState("success");
+
+  const [
     serviceMessage,
     setServiceMessage,
   ] = useState("");
+
+  const [
+    accessBarberId,
+    setAccessBarberId,
+  ] = useState("");
+
+  const [
+    accessEmail,
+    setAccessEmail,
+  ] = useState("");
+
+  const [
+    accessPassword,
+    setAccessPassword,
+  ] = useState("");
+
+  const [
+    accessCanAcceptPayments,
+    setAccessCanAcceptPayments,
+  ] = useState(false);
+
+  const [
+    savingAccess,
+    setSavingAccess,
+  ] = useState(false);
+
+  const [
+    teamLoaded,
+    setTeamLoaded,
+  ] = useState(false);
+
+
+  function showStaffSuccess(message) {
+    setStaffMessageType("success");
+    setStaffMessage(message);
+  }
+
+
+  function showStaffError(message) {
+    setStaffMessageType("error");
+    setStaffMessage(message);
+  }
+
+
+  function clearStaffMessage() {
+    setStaffMessage("");
+    setStaffMessageType("success");
+  }
+
+
+  function getTeamMemberForBarber(
+    barberId
+  ) {
+    return teamMembers.find(
+      (member) =>
+        member.barber_id === barberId
+    );
+  }
+
 
   async function loadData() {
     if (!shopSlug) return;
@@ -53,22 +119,40 @@ export default function StaffServicesPage() {
     const [
       barbersResponse,
       servicesResponse,
+      teamResponse,
     ] = await Promise.all([
       fetch(
         `${API_BASE}/api/barbers?shop_slug=${encodeURIComponent(
           shopSlug
-        )}`
+        )}`,
+        {
+          cache: "no-store",
+        }
       ),
 
       fetch(
         `${API_BASE}/api/service-catalog?shop_slug=${encodeURIComponent(
           shopSlug
-        )}`
+        )}`,
+        {
+          cache: "no-store",
+        }
+      ),
+
+      fetch(
+        "/api/team",
+        {
+          method: "GET",
+          headers: {
+            Accept: "application/json",
+          },
+          cache: "no-store",
+        }
       ),
     ]);
 
     if (!barbersResponse.ok) {
-      setStaffMessage(
+      showStaffError(
         "Could not load staff."
       );
       return;
@@ -81,25 +165,53 @@ export default function StaffServicesPage() {
       return;
     }
 
+    const barbersData =
+      await barbersResponse.json();
+
+    const servicesData =
+      await servicesResponse.json();
+
     setBarbers(
-      await barbersResponse.json()
+      Array.isArray(barbersData)
+        ? barbersData
+        : []
     );
 
     setServices(
-      await servicesResponse.json()
+      Array.isArray(servicesData)
+        ? servicesData
+        : []
     );
+
+    if (teamResponse.ok) {
+      const teamData =
+        await teamResponse.json();
+
+      setTeamMembers(
+        Array.isArray(teamData.team)
+          ? teamData.team
+          : []
+      );
+
+      setTeamLoaded(true);
+    } else {
+      setTeamMembers([]);
+      setTeamLoaded(false);
+    }
   }
+
 
   useEffect(() => {
     loadData();
   }, [shopSlug]);
+
 
   async function addBarber() {
     const cleanName =
       newBarberName.trim();
 
     if (!cleanName) {
-      setStaffMessage(
+      showStaffError(
         "Enter a staff name."
       );
       return;
@@ -135,7 +247,7 @@ export default function StaffServicesPage() {
         .json()
         .catch(() => ({}));
 
-      setStaffMessage(
+      showStaffError(
         error.detail ||
           "Could not add staff member."
       );
@@ -144,12 +256,14 @@ export default function StaffServicesPage() {
     }
 
     setNewBarberName("");
-    setStaffMessage(
+
+    showStaffSuccess(
       "Staff member added."
     );
 
-    loadData();
+    await loadData();
   }
+
 
   function startEditingBarber(
     barber
@@ -162,20 +276,23 @@ export default function StaffServicesPage() {
       barber.name
     );
 
-    setStaffMessage("");
+    setAccessBarberId("");
+    clearStaffMessage();
   }
+
 
   function cancelEditingBarber() {
     setEditingBarberId("");
     setEditedBarberName("");
   }
 
+
   async function updateBarber(id) {
     const cleanName =
       editedBarberName.trim();
 
     if (!cleanName) {
-      setStaffMessage(
+      showStaffError(
         "Enter a staff name."
       );
       return;
@@ -202,7 +319,7 @@ export default function StaffServicesPage() {
         .json()
         .catch(() => ({}));
 
-      setStaffMessage(
+      showStaffError(
         error.detail ||
           "Could not update staff member."
       );
@@ -212,16 +329,29 @@ export default function StaffServicesPage() {
 
     cancelEditingBarber();
 
-    setStaffMessage(
+    showStaffSuccess(
       "Staff member updated."
     );
 
-    loadData();
+    await loadData();
   }
+
 
   async function deleteBarber(
     barber
   ) {
+    const teamMember =
+      getTeamMemberForBarber(
+        barber.id
+      );
+
+    if (teamMember) {
+      showStaffError(
+        `${barber.name} has a ChairTime login account. The login account must remain linked to this staff member.`
+      );
+      return;
+    }
+
     const confirmed =
       window.confirm(
         `Delete ${barber.name}?`
@@ -243,7 +373,7 @@ export default function StaffServicesPage() {
         .json()
         .catch(() => ({}));
 
-      setStaffMessage(
+      showStaffError(
         error.detail ||
           "Could not delete staff member."
       );
@@ -251,12 +381,274 @@ export default function StaffServicesPage() {
       return;
     }
 
-    setStaffMessage(
+    showStaffSuccess(
       "Staff member deleted."
     );
 
-    loadData();
+    await loadData();
   }
+
+
+  function startGivingAccess(
+    barber
+  ) {
+    setAccessBarberId(
+      barber.id
+    );
+
+    setEditingBarberId("");
+    setAccessEmail("");
+    setAccessPassword("");
+    setAccessCanAcceptPayments(false);
+    clearStaffMessage();
+  }
+
+
+  function cancelGivingAccess() {
+    setAccessBarberId("");
+    setAccessEmail("");
+    setAccessPassword("");
+    setAccessCanAcceptPayments(false);
+  }
+
+
+  async function createLoginAccess(
+    barber
+  ) {
+    const cleanEmail =
+      accessEmail.trim().toLowerCase();
+
+    if (!cleanEmail) {
+      showStaffError(
+        "Enter the employee's email address."
+      );
+      return;
+    }
+
+    if (accessPassword.length < 8) {
+      showStaffError(
+        "Temporary password must be at least 8 characters."
+      );
+      return;
+    }
+
+    setSavingAccess(true);
+    clearStaffMessage();
+
+    try {
+      const response = await fetch(
+        "/api/team",
+        {
+          method: "POST",
+          headers: {
+            Accept: "application/json",
+            "Content-Type":
+              "application/json",
+          },
+          body: JSON.stringify({
+            name: barber.name,
+            email: cleanEmail,
+            password: accessPassword,
+            barber_id: barber.id,
+            can_accept_payments:
+              accessCanAcceptPayments,
+          }),
+        }
+      );
+
+      const data = await response
+        .json()
+        .catch(() => ({}));
+
+      if (!response.ok) {
+        showStaffError(
+          data.detail ||
+            "Could not create ChairTime access."
+        );
+        return;
+      }
+
+      cancelGivingAccess();
+
+      showStaffSuccess(
+        `${barber.name} now has ChairTime login access.`
+      );
+
+      await loadData();
+    } catch (error) {
+      console.error(
+        "Create staff login error:",
+        error
+      );
+
+      showStaffError(
+        "Could not create ChairTime access."
+      );
+    } finally {
+      setSavingAccess(false);
+    }
+  }
+
+
+  async function updatePaymentAccess(
+    teamMember,
+    canAcceptPayments
+  ) {
+    clearStaffMessage();
+
+    try {
+      const response = await fetch(
+        `/api/team/${encodeURIComponent(
+          teamMember.id
+        )}`,
+        {
+          method: "PATCH",
+          headers: {
+            Accept: "application/json",
+            "Content-Type":
+              "application/json",
+          },
+          body: JSON.stringify({
+            can_accept_payments:
+              canAcceptPayments,
+          }),
+        }
+      );
+
+      const data = await response
+        .json()
+        .catch(() => ({}));
+
+      if (!response.ok) {
+        showStaffError(
+          data.detail ||
+            "Could not update payment access."
+        );
+        return;
+      }
+
+      showStaffSuccess(
+        "Employee permissions updated."
+      );
+
+      await loadData();
+    } catch (error) {
+      console.error(
+        "Update payment access error:",
+        error
+      );
+
+      showStaffError(
+        "Could not update payment access."
+      );
+    }
+  }
+
+
+  async function deactivateLogin(
+    barber,
+    teamMember
+  ) {
+    const confirmed =
+      window.confirm(
+        `Disable ChairTime login access for ${barber.name}?`
+      );
+
+    if (!confirmed) return;
+
+    clearStaffMessage();
+
+    try {
+      const response = await fetch(
+        `/api/team/${encodeURIComponent(
+          teamMember.id
+        )}/deactivate`,
+        {
+          method: "POST",
+          headers: {
+            Accept: "application/json",
+          },
+        }
+      );
+
+      const data = await response
+        .json()
+        .catch(() => ({}));
+
+      if (!response.ok) {
+        showStaffError(
+          data.detail ||
+            "Could not disable ChairTime access."
+        );
+        return;
+      }
+
+      showStaffSuccess(
+        `${barber.name}'s ChairTime access has been disabled.`
+      );
+
+      await loadData();
+    } catch (error) {
+      console.error(
+        "Deactivate staff login error:",
+        error
+      );
+
+      showStaffError(
+        "Could not disable ChairTime access."
+      );
+    }
+  }
+
+
+  async function activateLogin(
+    barber,
+    teamMember
+  ) {
+    clearStaffMessage();
+
+    try {
+      const response = await fetch(
+        `/api/team/${encodeURIComponent(
+          teamMember.id
+        )}/activate`,
+        {
+          method: "POST",
+          headers: {
+            Accept: "application/json",
+          },
+        }
+      );
+
+      const data = await response
+        .json()
+        .catch(() => ({}));
+
+      if (!response.ok) {
+        showStaffError(
+          data.detail ||
+            "Could not restore ChairTime access."
+        );
+        return;
+      }
+
+      showStaffSuccess(
+        `${barber.name}'s ChairTime access has been restored.`
+      );
+
+      await loadData();
+    } catch (error) {
+      console.error(
+        "Activate staff login error:",
+        error
+      );
+
+      showStaffError(
+        "Could not restore ChairTime access."
+      );
+    }
+  }
+
 
   async function addService() {
     const cleanName =
@@ -305,8 +697,9 @@ export default function StaffServicesPage() {
       "Service added."
     );
 
-    loadData();
+    await loadData();
   }
+
 
   function startEditingService(
     service
@@ -322,10 +715,12 @@ export default function StaffServicesPage() {
     setServiceMessage("");
   }
 
+
   function cancelEditingService() {
     setEditingServiceId("");
     setEditedServiceName("");
   }
+
 
   async function updateService(id) {
     const cleanName =
@@ -375,8 +770,9 @@ export default function StaffServicesPage() {
       "Service updated."
     );
 
-    loadData();
+    await loadData();
   }
+
 
   async function deleteService(
     service
@@ -436,8 +832,9 @@ export default function StaffServicesPage() {
       "Service deleted."
     );
 
-    loadData();
+    await loadData();
   }
+
 
   return (
     <main className="min-h-screen bg-rose-50 p-4 sm:p-8">
@@ -454,7 +851,8 @@ export default function StaffServicesPage() {
               </h1>
 
               <p className="text-lg text-gray-700 mt-2">
-                Manage the shop's staff and master service list.
+                Manage the shop&apos;s staff, login access,
+                and master service list.
               </p>
             </div>
 
@@ -467,6 +865,7 @@ export default function StaffServicesPage() {
           </div>
         </section>
 
+
         <section className="bg-white rounded-3xl shadow-lg p-6 border border-rose-200 space-y-4">
           <div>
             <p className="text-sm font-extrabold uppercase tracking-widest text-rose-600 mb-1">
@@ -478,15 +877,25 @@ export default function StaffServicesPage() {
             </h2>
 
             <p className="text-gray-600 mt-1">
-              Add or manage the people who take appointments.
+              Add the people who take appointments.
+              You can also give individual staff members
+              their own ChairTime login.
             </p>
           </div>
 
+
           {staffMessage && (
-            <div className="bg-green-100 border border-green-200 p-3 rounded-xl font-bold text-green-800">
+            <div
+              className={
+                staffMessageType === "error"
+                  ? "bg-red-50 border border-red-200 p-3 rounded-xl font-bold text-red-800"
+                  : "bg-green-100 border border-green-200 p-3 rounded-xl font-bold text-green-800"
+              }
+            >
               {staffMessage}
             </div>
           )}
+
 
           <div className="rounded-2xl bg-rose-50 border border-rose-100 p-4 space-y-3">
             <label className="block font-bold text-rose-950">
@@ -513,6 +922,7 @@ export default function StaffServicesPage() {
             </button>
           </div>
 
+
           <div className="space-y-3">
             {barbers.length === 0 ? (
               <div className="border border-rose-100 rounded-2xl p-4 bg-rose-50">
@@ -521,94 +931,357 @@ export default function StaffServicesPage() {
                 </p>
               </div>
             ) : (
-              barbers.map((barber) => (
-                <div
-                  key={barber.id}
-                  className="border border-rose-200 rounded-2xl p-4 bg-white shadow-sm"
-                >
-                  {editingBarberId ===
-                  barber.id ? (
-                    <div className="space-y-3">
-                      <input
-                        type="text"
-                        value={
-                          editedBarberName
-                        }
-                        onChange={(
-                          event
-                        ) =>
-                          setEditedBarberName(
-                            event.target
-                              .value
-                          )
-                        }
-                        className="border border-rose-200 p-3 rounded-xl w-full focus:outline-none focus:ring-2 focus:ring-rose-300"
-                      />
+              barbers.map((barber) => {
+                const teamMember =
+                  getTeamMemberForBarber(
+                    barber.id
+                  );
 
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() =>
-                            updateBarber(
-                              barber.id
+                const accessIsActive =
+                  Boolean(
+                    teamMember?.is_active
+                  );
+
+                return (
+                  <div
+                    key={barber.id}
+                    className="border border-rose-200 rounded-2xl p-4 bg-white shadow-sm"
+                  >
+                    {editingBarberId ===
+                    barber.id ? (
+                      <div className="space-y-3">
+                        <input
+                          type="text"
+                          value={
+                            editedBarberName
+                          }
+                          onChange={(
+                            event
+                          ) =>
+                            setEditedBarberName(
+                              event.target
+                                .value
                             )
                           }
-                          className="bg-rose-700 text-white px-4 py-2 rounded-xl font-semibold"
-                        >
-                          Save
-                        </button>
+                          className="border border-rose-200 p-3 rounded-xl w-full focus:outline-none focus:ring-2 focus:ring-rose-300"
+                        />
 
-                        <button
-                          onClick={
-                            cancelEditingBarber
-                          }
-                          className="bg-gray-200 px-4 py-2 rounded-xl font-semibold"
-                        >
-                          Cancel
-                        </button>
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            onClick={() =>
+                              updateBarber(
+                                barber.id
+                              )
+                            }
+                            className="bg-rose-700 text-white px-4 py-2 rounded-xl font-semibold"
+                          >
+                            Save
+                          </button>
+
+                          <button
+                            onClick={
+                              cancelEditingBarber
+                            }
+                            className="bg-gray-200 px-4 py-2 rounded-xl font-semibold"
+                          >
+                            Cancel
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  ) : (
-                    <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center">
-                      <div>
-                        <p className="text-xl font-extrabold text-rose-950">
-                          {barber.name}
-                        </p>
+                    ) : accessBarberId ===
+                      barber.id ? (
+                      <div className="space-y-4">
+                        <div>
+                          <p className="text-xl font-extrabold text-rose-950">
+                            {barber.name}
+                          </p>
 
-                        <p className="text-sm text-gray-500">
-                          Staff member
-                        </p>
+                          <p className="text-sm text-gray-500">
+                            Create ChairTime login access
+                          </p>
+                        </div>
+
+                        <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4 space-y-4">
+                          <div>
+                            <label className="block text-sm font-bold text-gray-800 mb-1">
+                              Employee email
+                            </label>
+
+                            <input
+                              type="email"
+                              value={
+                                accessEmail
+                              }
+                              onChange={(
+                                event
+                              ) =>
+                                setAccessEmail(
+                                  event.target
+                                    .value
+                                )
+                              }
+                              placeholder="employee@example.com"
+                              autoComplete="off"
+                              className="border border-blue-200 bg-white p-3 rounded-xl w-full focus:outline-none focus:ring-2 focus:ring-blue-300"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-sm font-bold text-gray-800 mb-1">
+                              Temporary password
+                            </label>
+
+                            <input
+                              type="password"
+                              value={
+                                accessPassword
+                              }
+                              onChange={(
+                                event
+                              ) =>
+                                setAccessPassword(
+                                  event.target
+                                    .value
+                                )
+                              }
+                              placeholder="At least 8 characters"
+                              autoComplete="new-password"
+                              className="border border-blue-200 bg-white p-3 rounded-xl w-full focus:outline-none focus:ring-2 focus:ring-blue-300"
+                            />
+
+                            <p className="text-xs text-gray-500 mt-1">
+                              Give this password to the employee
+                              so they can sign in.
+                            </p>
+                          </div>
+
+                          <label className="flex items-start gap-3 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={
+                                accessCanAcceptPayments
+                              }
+                              onChange={(
+                                event
+                              ) =>
+                                setAccessCanAcceptPayments(
+                                  event.target
+                                    .checked
+                                )
+                              }
+                              className="mt-1 h-4 w-4"
+                            />
+
+                            <span>
+                              <span className="block font-bold text-gray-900">
+                                Allow this employee to charge customers
+                              </span>
+
+                              <span className="block text-sm text-gray-600">
+                                The payment will go to the shop&apos;s
+                                connected payment account.
+                              </span>
+                            </span>
+                          </label>
+
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              onClick={() =>
+                                createLoginAccess(
+                                  barber
+                                )
+                              }
+                              disabled={
+                                savingAccess
+                              }
+                              className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white px-4 py-2 rounded-xl font-semibold"
+                            >
+                              {savingAccess
+                                ? "Creating..."
+                                : "Create Login"}
+                            </button>
+
+                            <button
+                              onClick={
+                                cancelGivingAccess
+                              }
+                              disabled={
+                                savingAccess
+                              }
+                              className="bg-gray-200 px-4 py-2 rounded-xl font-semibold"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
                       </div>
+                    ) : (
+                      <div className="space-y-4">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-start">
+                          <div>
+                            <p className="text-xl font-extrabold text-rose-950">
+                              {barber.name}
+                            </p>
 
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() =>
-                            startEditingBarber(
-                              barber
-                            )
-                          }
-                          className="bg-rose-700 text-white px-4 py-2 rounded-xl font-semibold"
-                        >
-                          Edit
-                        </button>
+                            <p className="text-sm text-gray-500">
+                              Staff member
+                            </p>
 
-                        <button
-                          onClick={() =>
-                            deleteBarber(
-                              barber
-                            )
-                          }
-                          className="bg-red-600 text-white px-4 py-2 rounded-xl font-semibold"
-                        >
-                          Delete
-                        </button>
+                            {teamLoaded &&
+                              !teamMember && (
+                                <div className="mt-2">
+                                  <span className="inline-flex items-center rounded-full bg-gray-100 px-3 py-1 text-xs font-bold text-gray-700">
+                                    ChairTime access: Not enabled
+                                  </span>
+                                </div>
+                              )}
+
+                            {teamMember &&
+                              accessIsActive && (
+                                <div className="mt-2 space-y-1">
+                                  <span className="inline-flex items-center rounded-full bg-green-100 px-3 py-1 text-xs font-bold text-green-800">
+                                    ChairTime access: Active
+                                  </span>
+
+                                  <p className="text-sm text-gray-600">
+                                    {teamMember.email}
+                                  </p>
+                                </div>
+                              )}
+
+                            {teamMember &&
+                              !accessIsActive && (
+                                <div className="mt-2 space-y-1">
+                                  <span className="inline-flex items-center rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-amber-800">
+                                    ChairTime access: Disabled
+                                  </span>
+
+                                  <p className="text-sm text-gray-600">
+                                    {teamMember.email}
+                                  </p>
+                                </div>
+                              )}
+                          </div>
+
+                          <div className="flex flex-wrap gap-2">
+                            {teamLoaded &&
+                              !teamMember && (
+                                <button
+                                  onClick={() =>
+                                    startGivingAccess(
+                                      barber
+                                    )
+                                  }
+                                  className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl font-semibold"
+                                >
+                                  Give Login Access
+                                </button>
+                              )}
+
+                            {teamMember &&
+                              accessIsActive && (
+                                <button
+                                  onClick={() =>
+                                    deactivateLogin(
+                                      barber,
+                                      teamMember
+                                    )
+                                  }
+                                  className="bg-gray-700 hover:bg-gray-800 text-white px-4 py-2 rounded-xl font-semibold"
+                                >
+                                  Disable Access
+                                </button>
+                              )}
+
+                            {teamMember &&
+                              !accessIsActive && (
+                                <button
+                                  onClick={() =>
+                                    activateLogin(
+                                      barber,
+                                      teamMember
+                                    )
+                                  }
+                                  className="bg-green-700 hover:bg-green-800 text-white px-4 py-2 rounded-xl font-semibold"
+                                >
+                                  Restore Access
+                                </button>
+                              )}
+
+                            <button
+                              onClick={() =>
+                                startEditingBarber(
+                                  barber
+                                )
+                              }
+                              className="bg-rose-700 text-white px-4 py-2 rounded-xl font-semibold"
+                            >
+                              Edit
+                            </button>
+
+                            {!teamMember && (
+                              <button
+                                onClick={() =>
+                                  deleteBarber(
+                                    barber
+                                  )
+                                }
+                                className="bg-red-600 text-white px-4 py-2 rounded-xl font-semibold"
+                              >
+                                Delete
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+
+                        {teamMember && (
+                          <div className="rounded-xl border border-gray-200 bg-gray-50 p-3">
+                            <label className="flex items-start gap-3">
+                              <input
+                                type="checkbox"
+                                checked={
+                                  Boolean(
+                                    teamMember.can_accept_payments
+                                  )
+                                }
+                                disabled={
+                                  !accessIsActive
+                                }
+                                onChange={(
+                                  event
+                                ) =>
+                                  updatePaymentAccess(
+                                    teamMember,
+                                    event.target
+                                      .checked
+                                  )
+                                }
+                                className="mt-1 h-4 w-4"
+                              />
+
+                              <span>
+                                <span className="block text-sm font-bold text-gray-900">
+                                  Can charge customers
+                                </span>
+
+                                <span className="block text-xs text-gray-600">
+                                  Allows this employee to collect
+                                  customer payments through ChairTime.
+                                </span>
+                              </span>
+                            </label>
+                          </div>
+                        )}
                       </div>
-                    </div>
-                  )}
-                </div>
-              ))
+                    )}
+                  </div>
+                );
+              })
             )}
           </div>
         </section>
+
 
         <section className="bg-white rounded-3xl shadow-lg p-6 border border-rose-200 space-y-4">
           <div>
@@ -626,11 +1299,13 @@ export default function StaffServicesPage() {
             </p>
           </div>
 
+
           {serviceMessage && (
             <div className="bg-green-100 border border-green-200 p-3 rounded-xl font-bold text-green-800">
               {serviceMessage}
             </div>
           )}
+
 
           <div className="rounded-2xl bg-rose-50 border border-rose-100 p-4 space-y-3">
             <label className="block font-bold text-rose-950">
@@ -656,6 +1331,7 @@ export default function StaffServicesPage() {
               + Add Service
             </button>
           </div>
+
 
           <div className="space-y-3">
             {services.length === 0 ? (
@@ -775,6 +1451,7 @@ export default function StaffServicesPage() {
             )}
           </div>
         </section>
+
 
         <a
           href={`/${shopSlug}/admin`}
