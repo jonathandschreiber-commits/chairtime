@@ -112,7 +112,7 @@ def highlevel_phone_purchase_headers() -> dict:
         "Authorization": (
             f"Bearer {get_highlevel_api_token()}"
         ),
-        "Version": "2021-07-28",
+        "Version": "v3",
         "Accept": "application/json",
         "Content-Type": "application/json",
         "User-Agent": "ChairTime/1.0",
@@ -3349,10 +3349,10 @@ def purchase_one_highlevel_phone_number(
     )
 
     purchase_url = (
-    "https://backend.leadconnectorhq.com"
+    f"{HIGHLEVEL_API_BASE_URL}"
     f"/phone-system/numbers/location/"
     f"{location_id}/purchase"
-    )
+)
 
     purchase_headers = (
         highlevel_phone_purchase_headers()
