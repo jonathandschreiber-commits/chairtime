@@ -105,6 +105,49 @@ def find_shop_appointment(
     return appointment
 
 
+def require_appointment_modify_permission(
+    current_user: User,
+    appointment: Appointment,
+) -> None:
+    role = str(
+        current_user.role or ""
+    ).strip().lower()
+
+    if role == "owner":
+        return
+
+    if role != "staff":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "You do not have permission "
+                "to modify appointments."
+            ),
+        )
+
+    barber_id = str(
+        current_user.barber_id or ""
+    ).strip()
+
+    if not barber_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Your staff login is not linked "
+                "to a service provider."
+            ),
+        )
+
+    if str(appointment.barber_id) != barber_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Employees may modify only their "
+                "own appointments."
+            ),
+        )
+
+
 def parse_datetime(value: str) -> datetime:
     try:
         return datetime.fromisoformat(value)
@@ -595,6 +638,7 @@ def list_admin_appointments(
         .all()
     )
 
+
 @router.patch(
     "/appointments/{appointment_id}/cancel"
 )
@@ -662,7 +706,6 @@ def update_appointment_status(
 
     return appointment
 
-
 @router.patch(
     "/admin/appointments/{appointment_id}/status"
 )
@@ -689,6 +732,11 @@ def update_admin_appointment_status(
         db,
         appointment_id,
         shop_slug,
+    )
+
+    require_appointment_modify_permission(
+        current_user,
+        appointment,
     )
 
     appointment.status = appointment_status
@@ -790,6 +838,11 @@ def reschedule_admin_appointment(
         db,
         appointment_id,
         shop_slug,
+    )
+
+    require_appointment_modify_permission(
+        current_user,
+        appointment,
     )
 
     service = (
