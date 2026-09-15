@@ -67,9 +67,12 @@ function CustomersPageContent() {
   const selectedPhone =
     searchParams.get("phone") || "";
 
-  const [appointments, setAppointments] = useState([]);
+  const [appointments, setAppointments] =
+    useState([]);
   const [barbers, setBarbers] = useState([]);
   const [services, setServices] = useState([]);
+  const [currentUser, setCurrentUser] =
+    useState(null);
 
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -118,27 +121,130 @@ function CustomersPageContent() {
   ] = useState("");
 
   async function loadData() {
-    const query =
-      "?shop_slug=" + encodeURIComponent(shopSlug);
+    try {
+      const query =
+        "?shop_slug=" +
+        encodeURIComponent(shopSlug);
 
-    const [
-      appointmentsRes,
-      barbersRes,
-      servicesRes,
-    ] = await Promise.all([
-      fetch(
-        API_BASE + "/api/appointments" + query
-      ),
-      fetch(API_BASE + "/api/barbers" + query),
-      fetch(API_BASE + "/api/services" + query),
-    ]);
+      const [
+        appointmentsRes,
+        barbersRes,
+        servicesRes,
+        currentUserRes,
+      ] = await Promise.all([
+        fetch("/api/admin/appointments", {
+          cache: "no-store",
+        }),
+        fetch(
+          API_BASE + "/api/barbers" + query
+        ),
+        fetch(
+          API_BASE + "/api/services" + query
+        ),
+        fetch("/api/auth/me", {
+          cache: "no-store",
+        }),
+      ]);
 
-    setAppointments(
-      await appointmentsRes.json()
-    );
+      if (
+        appointmentsRes.status === 401 ||
+        currentUserRes.status === 401
+      ) {
+        router.replace("/login");
+        return;
+      }
 
-    setBarbers(await barbersRes.json());
-    setServices(await servicesRes.json());
+      if (!appointmentsRes.ok) {
+        throw new Error(
+          "Could not load appointments."
+        );
+      }
+
+      if (!currentUserRes.ok) {
+        throw new Error(
+          "Could not verify your login."
+        );
+      }
+
+      if (!barbersRes.ok) {
+        throw new Error(
+          "Could not load staff."
+        );
+      }
+
+      if (!servicesRes.ok) {
+        throw new Error(
+          "Could not load services."
+        );
+      }
+
+      const [
+        appointmentsData,
+        barbersData,
+        servicesData,
+        currentUserData,
+      ] = await Promise.all([
+        appointmentsRes.json(),
+        barbersRes.json(),
+        servicesRes.json(),
+        currentUserRes.json(),
+      ]);
+
+      const authenticatedShopSlug = String(
+        currentUserData?.shop_slug || ""
+      )
+        .trim()
+        .toLowerCase();
+
+      const requestedShopSlug = String(
+        shopSlug || ""
+      )
+        .trim()
+        .toLowerCase();
+
+      if (
+        !authenticatedShopSlug ||
+        authenticatedShopSlug !==
+          requestedShopSlug
+      ) {
+        setAppointments([]);
+        setBarbers([]);
+        setServices([]);
+        setCurrentUser(null);
+
+        setError(
+          "You do not have access to this business."
+        );
+
+        return;
+      }
+
+      setAppointments(
+        Array.isArray(appointmentsData)
+          ? appointmentsData
+          : []
+      );
+
+      setBarbers(
+        Array.isArray(barbersData)
+          ? barbersData
+          : []
+      );
+
+      setServices(
+        Array.isArray(servicesData)
+          ? servicesData
+          : []
+      );
+
+      setCurrentUser(currentUserData);
+    } catch (loadError) {
+      setError(
+        loadError instanceof Error
+          ? loadError.message
+          : "Could not load customers."
+      );
+    }
   }
 
   useEffect(() => {
@@ -187,31 +293,89 @@ function CustomersPageContent() {
     );
   }
 
+  function canModifyAppointment(appointment) {
+    const role = String(
+      currentUser?.role || ""
+    )
+      .trim()
+      .toLowerCase();
+
+    if (role === "owner") {
+      return true;
+    }
+
+    if (role !== "staff") {
+      return false;
+    }
+
+    const userBarberId = String(
+      currentUser?.barber_id || ""
+    ).trim();
+
+    const appointmentBarberId = String(
+      appointment?.barber_id || ""
+    ).trim();
+
+    return (
+      Boolean(userBarberId) &&
+      userBarberId === appointmentBarberId
+    );
+  }
+
+  async function readResponse(response) {
+    try {
+      return await response.json();
+    } catch {
+      return {};
+    }
+  }
+
   async function updateCustomer(oldPhone) {
     setMessage("");
     setError("");
 
-    const response = await fetch(
-      API_BASE +
-        "/api/customers/update?old_phone=" +
-        encodeURIComponent(oldPhone) +
-        "&new_name=" +
-        encodeURIComponent(editName) +
-        "&new_phone=" +
-        encodeURIComponent(editPhone) +
-        "&shop_slug=" +
-        encodeURIComponent(shopSlug),
-      {
-        method: "PATCH",
-      }
-    );
+    try {
+      const response = await fetch(
+        "/api/customers/update",
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify({
+            old_phone: oldPhone,
+            new_name: editName,
+            new_phone: editPhone,
+          }),
+        }
+      );
 
-    if (response.ok) {
+      const data =
+        await readResponse(response);
+
+      if (response.status === 401) {
+        router.replace("/login");
+        return;
+      }
+
+      if (!response.ok) {
+        throw new Error(
+          data?.detail ||
+            "Could not update customer."
+        );
+      }
+
       setMessage("Customer updated.");
       setEditingCustomerKey("");
+
       await loadData();
-    } else {
-      setError("Could not update customer.");
+    } catch (updateError) {
+      setError(
+        updateError instanceof Error
+          ? updateError.message
+          : "Could not update customer."
+      );
     }
   }
 
@@ -222,24 +386,46 @@ function CustomersPageContent() {
     setMessage("");
     setError("");
 
-    const response = await fetch(
-      API_BASE +
-        "/api/customers/tags?customer_phone=" +
-        encodeURIComponent(customerPhone) +
-        "&customer_tags=" +
-        encodeURIComponent(tags.join(",")) +
-        "&shop_slug=" +
-        encodeURIComponent(shopSlug),
-      {
-        method: "PATCH",
-      }
-    );
+    try {
+      const response = await fetch(
+        "/api/customers/tags",
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify({
+            customer_phone: customerPhone,
+            customer_tags: tags.join(","),
+          }),
+        }
+      );
 
-    if (response.ok) {
+      const data =
+        await readResponse(response);
+
+      if (response.status === 401) {
+        router.replace("/login");
+        return;
+      }
+
+      if (!response.ok) {
+        throw new Error(
+          data?.detail ||
+            "Could not update tags."
+        );
+      }
+
       setMessage("Tags updated.");
+
       await loadData();
-    } else {
-      setError("Could not update tags.");
+    } catch (tagError) {
+      setError(
+        tagError instanceof Error
+          ? tagError.message
+          : "Could not update tags."
+      );
     }
   }
 
@@ -249,27 +435,48 @@ function CustomersPageContent() {
     setMessage("");
     setError("");
 
-    const response = await fetch(
-      API_BASE +
-        "/api/customers/notes?customer_phone=" +
-        encodeURIComponent(customerPhone) +
-        "&customer_notes=" +
-        encodeURIComponent(customerNotesText) +
-        "&shop_slug=" +
-        encodeURIComponent(shopSlug),
-      {
-        method: "PATCH",
-      }
-    );
+    try {
+      const response = await fetch(
+        "/api/customers/notes",
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify({
+            customer_phone: customerPhone,
+            customer_notes:
+              customerNotesText,
+          }),
+        }
+      );
 
-    if (response.ok) {
+      const data =
+        await readResponse(response);
+
+      if (response.status === 401) {
+        router.replace("/login");
+        return;
+      }
+
+      if (!response.ok) {
+        throw new Error(
+          data?.detail ||
+            "Could not save customer notes."
+        );
+      }
+
       setMessage("Customer notes saved.");
       setEditingNotesCustomerKey("");
       setCustomerNotesText("");
+
       await loadData();
-    } else {
+    } catch (notesError) {
       setError(
-        "Could not save customer notes."
+        notesError instanceof Error
+          ? notesError.message
+          : "Could not save customer notes."
       );
     }
   }
@@ -300,6 +507,13 @@ function CustomersPageContent() {
   }
 
   function startMove(appointment) {
+    if (!canModifyAppointment(appointment)) {
+      setError(
+        "You do not have permission to modify this appointment."
+      );
+      return;
+    }
+
     setMovingAppointmentId(appointment.id);
 
     setMoveDate(
@@ -357,7 +571,8 @@ function CustomersPageContent() {
         }
       );
 
-      const data = await response.json();
+      const data =
+        await readResponse(response);
 
       if (response.status === 401) {
         router.replace("/login");
@@ -366,7 +581,8 @@ function CustomersPageContent() {
 
       if (!response.ok) {
         throw new Error(
-          data?.error ||
+          data?.detail ||
+            data?.error ||
             "The appointment could not be moved."
         );
       }
@@ -428,7 +644,8 @@ function CustomersPageContent() {
         }
       );
 
-      const data = await response.json();
+      const data =
+        await readResponse(response);
 
       if (response.status === 401) {
         router.replace("/login");
@@ -437,7 +654,8 @@ function CustomersPageContent() {
 
       if (!response.ok) {
         throw new Error(
-          data?.error ||
+          data?.detail ||
+            data?.error ||
             "Appointment status could not be updated."
         );
       }
@@ -544,6 +762,10 @@ function CustomersPageContent() {
     appointment,
     allowActions
   ) {
+    const permitted =
+      allowActions &&
+      canModifyAppointment(appointment);
+
     const isMoving =
       movingAppointmentId === appointment.id;
 
@@ -596,7 +818,7 @@ function CustomersPageContent() {
           </span>
         </div>
 
-        {allowActions && !isMoving && (
+        {permitted && !isMoving && (
           <div className="flex flex-wrap gap-2 mt-4">
             <button
               type="button"
@@ -669,7 +891,7 @@ function CustomersPageContent() {
           </div>
         )}
 
-        {allowActions && isMoving && (
+        {permitted && isMoving && (
           <div className="mt-4 bg-white border rounded-xl p-4">
             <p className="font-bold mb-3">
               Move this appointment
@@ -741,7 +963,8 @@ function CustomersPageContent() {
               </h1>
 
               <p className="mt-2 text-lg text-gray-700">
-                Find customers, review history, and manage upcoming appointments.
+                Find customers, review history,
+                and manage upcoming appointments.
               </p>
             </div>
 
