@@ -25,6 +25,7 @@ from app.routes.shop_blocked_times import (
     router as shop_blocked_times_router,
 )
 from app.routes.shops import router as shops_router
+from app.routes.team import router as team_router
 from app.routes.voice import router as voice_router
 
 
@@ -575,6 +576,12 @@ app.include_router(
     customer_verification_router,
     prefix="/api/customer-verification",
     tags=["Customer Verification"],
+)
+
+app.include_router(
+    team_router,
+    prefix="/api/team",
+    tags=["Team"],
 )
 
 app.include_router(
