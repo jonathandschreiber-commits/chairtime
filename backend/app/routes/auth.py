@@ -91,6 +91,12 @@ def user_response(user: User) -> dict:
         "shop_id": user.shop_id,
         "shop_slug": user.shop_slug,
         "role": user.role,
+        "barber_id": user.barber_id,
+        "can_accept_payments": (
+            user.role == "owner"
+            or user.can_accept_payments
+        ),
+        "is_active": user.is_active,
     }
 
 
@@ -228,6 +234,8 @@ def signup(
             email=email,
             password_hash=hash_password(payload.password),
             role="owner",
+            barber_id=None,
+            can_accept_payments=False,
             is_active=True,
         )
 
@@ -333,6 +341,8 @@ def register(
         email=email,
         password_hash=hash_password(payload.password),
         role=payload.role,
+        barber_id=None,
+        can_accept_payments=False,
         is_active=True,
     )
 
@@ -405,12 +415,4 @@ def login(
 def read_current_user(
     current_user: User = Depends(get_current_user),
 ):
-    return {
-        "id": str(current_user.id),
-        "name": current_user.name,
-        "email": current_user.email,
-        "shop_id": current_user.shop_id,
-        "shop_slug": current_user.shop_slug,
-        "role": current_user.role,
-        "is_active": current_user.is_active,
-    }
+    return user_response(current_user)
