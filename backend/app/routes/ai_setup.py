@@ -3503,6 +3503,8 @@ def purchase_shop_ai_phone_number(
     area_code = requested_digits[1:4]
     location_id = production_location_id(shop)
 
+    # First make sure the selected number is not already
+    # active in this HighLevel location.
     _, active_phone_numbers = (
         get_location_phone_numbers(
             location_id=location_id,
@@ -3519,9 +3521,7 @@ def purchase_shop_ai_phone_number(
             "success": True,
             "purchased": False,
             "already_owned": True,
-            "requested_phone_number": (
-                requested_phone_number
-            ),
+            "requested_phone_number": requested_phone_number,
             "phone_number": requested_phone_number,
             "fallback_used": False,
             "message": (
@@ -3534,6 +3534,9 @@ def purchase_shop_ai_phone_number(
         get_phone_purchase_credentials()
     )
 
+    # Refresh HighLevel inventory immediately before
+    # purchasing. ChairTime will purchase ONLY the exact
+    # number selected by the customer.
     available_records = (
         get_fresh_available_phone_records(
             location_id=location_id,
@@ -3555,110 +3558,102 @@ def purchase_shop_ai_phone_number(
         phone_number=requested_phone_number,
     )
 
-    ordered_candidates = []
-
-    if requested_record:
-        ordered_candidates.append(requested_record)
-
-    for record in available_records:
-        if requested_record is record:
-            continue
-
-        ordered_candidates.append(record)
-
-    attempted_numbers = []
-
-    for available_record in ordered_candidates[:10]:
-        candidate_number = str(
-            available_record.get("phoneNumber")
-            or available_record.get("number")
-            or ""
-        ).strip()
-
-        if not candidate_number:
-            continue
-
-        candidate_number = normalize_us_phone_number(
-            candidate_number
+    if not requested_record:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "message": (
+                    "The phone number you selected is no "
+                    "longer available. Please choose "
+                    "another number."
+                ),
+                "requested_phone_number": (
+                    requested_phone_number
+                ),
+            },
         )
 
-        attempted_numbers.append(candidate_number)
+    (
+        response,
+        purchased_number,
+        locality,
+        region,
+    ) = purchase_one_highlevel_phone_number(
+        location_id=location_id,
+        available_record=requested_record,
+        stripe_account_id=stripe_account_id,
+        payment_method_id=payment_method_id,
+    )
 
-        _, active_phone_numbers = (
-            get_location_phone_numbers(
+    # HighLevel reported success.
+    if response.status_code < 400:
+        purchase_data = response_json(response)
+
+        purchased_phone = (
+            wait_for_purchased_phone_number(
                 location_id=location_id,
+                phone_number=purchased_number,
             )
         )
 
-        existing_candidate = (
-            find_phone_record_by_number(
-                phone_numbers=active_phone_numbers,
-                phone_number=candidate_number,
+        if not purchased_phone:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=(
+                    "HighLevel reported a successful "
+                    "purchase, but ChairTime could not "
+                    "verify that the selected phone number "
+                    "became active. ChairTime stopped "
+                    "without making another purchase."
+                ),
+            )
+
+        return {
+            "success": True,
+            "purchased": True,
+            "already_owned": False,
+            "chairtime_shop": {
+                "id": str(shop.id),
+                "slug": shop.slug,
+                "name": shop.name,
+            },
+            "location_id": location_id,
+            "agent_id": agent_id,
+            "requested_phone_number": (
+                requested_phone_number
+            ),
+            "phone_number": purchased_number,
+            "friendly_name": (
+                purchased_phone.get("friendlyName")
+            ),
+            "locality": locality,
+            "region": region,
+            "fallback_used": False,
+            "attempted_numbers": [
+                purchased_number
+            ],
+            "message": (
+                "HighLevel phone number purchased "
+                "and verified. It has not yet been "
+                "routed to the AI Receptionist."
+            ),
+            "highlevel_purchase_confirmed": bool(
+                purchase_data
+            ),
+        }
+
+    # A server-side HighLevel error can be ambiguous.
+    # Verify the exact selected number before declaring
+    # failure, but NEVER try a replacement number.
+    if response.status_code >= 500:
+        purchased_phone = (
+            wait_for_purchased_phone_number(
+                location_id=location_id,
+                phone_number=purchased_number,
             )
         )
 
-        if existing_candidate:
-            if phone_numbers_match(
-                candidate_number,
-                requested_phone_number,
-            ):
-                return {
-                    "success": True,
-                    "purchased": False,
-                    "already_owned": True,
-                    "requested_phone_number": (
-                        requested_phone_number
-                    ),
-                    "phone_number": candidate_number,
-                    "fallback_used": False,
-                    "message": (
-                        "This phone number is already "
-                        "active in the HighLevel location."
-                    ),
-                }
-
-            continue
-
-        (
-            response,
-            purchased_number,
-            locality,
-            region,
-        ) = purchase_one_highlevel_phone_number(
-            location_id=location_id,
-            available_record=available_record,
-            stripe_account_id=stripe_account_id,
-            payment_method_id=payment_method_id,
-        )
-
-        if response.status_code < 400:
-            purchase_data = response_json(response)
-
-            purchased_phone = (
-                wait_for_purchased_phone_number(
-                    location_id=location_id,
-                    phone_number=purchased_number,
-                )
-            )
-
-            if not purchased_phone:
-                raise HTTPException(
-                    status_code=status.HTTP_502_BAD_GATEWAY,
-                    detail=(
-                        "HighLevel reported a successful "
-                        "purchase, but ChairTime could not "
-                        "verify that the phone number "
-                        "became active. ChairTime stopped "
-                        "without attempting another number "
-                        "to prevent a duplicate purchase."
-                    ),
-                )
-
-            fallback_used = not phone_numbers_match(
-                purchased_number,
-                requested_phone_number,
-            )
-
+        if purchased_phone:
             return {
                 "success": True,
                 "purchased": True,
@@ -3675,110 +3670,68 @@ def purchase_shop_ai_phone_number(
                 ),
                 "phone_number": purchased_number,
                 "friendly_name": (
-                    purchased_phone.get("friendlyName")
+                    purchased_phone.get(
+                        "friendlyName"
+                    )
                 ),
                 "locality": locality,
                 "region": region,
-                "fallback_used": fallback_used,
-                "attempted_numbers": attempted_numbers,
+                "fallback_used": False,
+                "attempted_numbers": [
+                    purchased_number
+                ],
                 "message": (
-                    "HighLevel phone number purchased "
-                    "and verified. It has not yet been "
+                    "The HighLevel purchase response "
+                    "was ambiguous, but ChairTime "
+                    "verified that the selected number "
+                    "became active. It has not yet been "
                     "routed to the AI Receptionist."
                 ),
-                "highlevel_purchase_confirmed": bool(
-                    purchase_data
-                ),
+                "highlevel_purchase_confirmed": False,
             }
 
-        if response.status_code >= 500:
-            purchased_phone = (
-                wait_for_purchased_phone_number(
-                    location_id=location_id,
-                    phone_number=purchased_number,
-                )
-            )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "message": (
+                    "HighLevel returned an ambiguous "
+                    "server error while purchasing the "
+                    "selected phone number. ChairTime "
+                    "did not attempt another number."
+                ),
+                "attempted_phone_number": (
+                    purchased_number
+                ),
+                "highlevel_status": (
+                    response.status_code
+                ),
+                "highlevel_error": (
+                    safe_highlevel_error(response)
+                ),
+            },
+        )
 
-            if purchased_phone:
-                fallback_used = not phone_numbers_match(
-                    purchased_number,
-                    requested_phone_number,
-                )
+    # For any other HighLevel rejection, report the
+    # failure. Never substitute another phone number.
+    if phone_purchase_error_is_unavailable(response):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "message": (
+                    "The phone number you selected is no "
+                    "longer available. Please choose "
+                    "another number."
+                ),
+                "requested_phone_number": (
+                    requested_phone_number
+                ),
+                "highlevel_error": (
+                    safe_highlevel_error(response)
+                ),
+            },
+        )
 
-                return {
-                    "success": True,
-                    "purchased": True,
-                    "already_owned": False,
-                    "chairtime_shop": {
-                        "id": str(shop.id),
-                        "slug": shop.slug,
-                        "name": shop.name,
-                    },
-                    "location_id": location_id,
-                    "agent_id": agent_id,
-                    "requested_phone_number": (
-                        requested_phone_number
-                    ),
-                    "phone_number": purchased_number,
-                    "friendly_name": (
-                        purchased_phone.get(
-                            "friendlyName"
-                        )
-                    ),
-                    "locality": locality,
-                    "region": region,
-                    "fallback_used": fallback_used,
-                    "attempted_numbers": attempted_numbers,
-                    "message": (
-                        "The HighLevel purchase response "
-                        "was ambiguous, but ChairTime "
-                        "verified that the number became "
-                        "active. It has not yet been "
-                        "routed to the AI Receptionist."
-                    ),
-                    "highlevel_purchase_confirmed": False,
-                }
-
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail={
-                    "message": (
-                        "HighLevel returned an ambiguous "
-                        "server error while purchasing the "
-                        "phone number. ChairTime did not "
-                        "attempt another number to prevent "
-                        "a possible duplicate purchase."
-                    ),
-                    "attempted_phone_number": (
-                        purchased_number
-                    ),
-                    "highlevel_status": (
-                        response.status_code
-                    ),
-                    "highlevel_error": (
-                        safe_highlevel_error(response)
-                    ),
-                },
-            )
-
-        if phone_purchase_error_is_unavailable(
-            response
-        ):
-            continue
-
-        raise_highlevel_error(response)
-
-    raise HTTPException(
-        status_code=status.HTTP_409_CONFLICT,
-        detail={
-            "message": (
-                "The available phone numbers changed "
-                "before HighLevel could complete the "
-                "purchase. Please try again."
-            ),
-            "attempted_numbers": attempted_numbers,
-        },
-    )
+    raise_highlevel_error(response)
 
 @router.get("/phone-system/internal-host-test")
 def test_highlevel_internal_phone_host(
