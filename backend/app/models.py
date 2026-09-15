@@ -145,16 +145,42 @@ class User(Base):
         String,
         nullable=False,
     )
+
     role = Column(
         String,
         nullable=False,
         default="owner",
     )
+
+    # Optional link between a ChairTime login and the
+    # staff/provider record used for scheduling.
+    #
+    # Owners or administrative users may not have a provider
+    # record, so this is intentionally nullable.
+    barber_id = Column(
+        String,
+        nullable=True,
+        index=True,
+    )
+
+    # Controls whether this user may collect customer payments
+    # through the shop's ChairTime payment account.
+    #
+    # Owners receive payment permission automatically through
+    # authorization logic. Staff access can be enabled or
+    # disabled individually.
+    can_accept_payments = Column(
+        Boolean,
+        nullable=False,
+        default=False,
+    )
+
     is_active = Column(
         Boolean,
         nullable=False,
         default=True,
     )
+    
     created_at = Column(
         DateTime,
         server_default=func.now(),
