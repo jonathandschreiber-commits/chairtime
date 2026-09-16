@@ -138,6 +138,29 @@ function weekdayValueForDate(
     : javascriptDay - 1;
 }
 
+function normalizePhone(value) {
+  return String(value || "")
+    .replace(/\D/g, "");
+}
+
+function customerKey(
+  name,
+  phone
+) {
+  const cleanPhone =
+    normalizePhone(phone);
+
+  if (cleanPhone) {
+    return `phone:${cleanPhone}`;
+  }
+
+  return `name:${String(
+    name || ""
+  )
+    .trim()
+    .toLowerCase()}`;
+}
+
 export default function CalendarPage() {
   const params = useParams();
   const router = useRouter();
@@ -186,6 +209,71 @@ export default function CalendarPage() {
     setViewMode,
   ] = useState("day");
 
+  /*
+   * NEW APPOINTMENT
+   */
+
+  const [
+    showAppointmentForm,
+    setShowAppointmentForm,
+  ] = useState(false);
+
+  const [
+    appointmentCustomerMode,
+    setAppointmentCustomerMode,
+  ] = useState("existing");
+
+  const [
+    customerSearch,
+    setCustomerSearch,
+  ] = useState("");
+
+  const [
+    selectedCustomerKey,
+    setSelectedCustomerKey,
+  ] = useState("");
+
+  const [
+    appointmentCustomerName,
+    setAppointmentCustomerName,
+  ] = useState("");
+
+  const [
+    appointmentCustomerPhone,
+    setAppointmentCustomerPhone,
+  ] = useState("");
+
+  const [
+    appointmentServiceId,
+    setAppointmentServiceId,
+  ] = useState("");
+
+  const [
+    appointmentDate,
+    setAppointmentDate,
+  ] = useState(
+    localDateValue()
+  );
+
+  const [
+    appointmentTime,
+    setAppointmentTime,
+  ] = useState("09:00");
+
+  const [
+    appointmentNotes,
+    setAppointmentNotes,
+  ] = useState("");
+
+  const [
+    savingAppointment,
+    setSavingAppointment,
+  ] = useState(false);
+
+  /*
+   * MOVE APPOINTMENT
+   */
+
   const [
     movingAppointmentId,
     setMovingAppointmentId,
@@ -207,6 +295,10 @@ export default function CalendarPage() {
     savingMove,
     setSavingMove,
   ] = useState(false);
+
+  /*
+   * BLOCKED TIME
+   */
 
   const [
     showBlockForm,
@@ -298,6 +390,10 @@ export default function CalendarPage() {
     setLoading,
   ] = useState(true);
 
+  /*
+   * CURRENT USER / PERMISSIONS
+   */
+
   const currentUserRole = String(
     currentUser?.role || ""
   )
@@ -357,6 +453,10 @@ export default function CalendarPage() {
       selectedBarberId
     );
 
+  /*
+   * LOAD CALENDAR
+   */
+
   const loadData =
     useCallback(async () => {
       setLoading(true);
@@ -407,8 +507,10 @@ export default function CalendarPage() {
 
         if (
           meResponse.status === 401 ||
-          agendaResponse.status === 401 ||
-          blockedResponse.status === 401
+          agendaResponse.status ===
+            401 ||
+          blockedResponse.status ===
+            401
         ) {
           router.replace(
             `/login?next=${encodeURIComponent(
@@ -430,9 +532,9 @@ export default function CalendarPage() {
 
         if (!meResponse.ok) {
           throw new Error(
-            meData?.error ||
-              meData?.detail ||
-              "Your account information could not be loaded."
+            meData?.detail ||
+              meData?.error ||
+              "Your account could not be loaded."
           );
         }
 
@@ -452,14 +554,24 @@ export default function CalendarPage() {
           );
         }
 
+        const userShopSlug =
+          String(
+            meData?.shop_slug || ""
+          )
+            .trim()
+            .toLowerCase();
+
         if (
-          meData.shop_slug &&
-          meData.shop_slug !==
-            shopSlug
+          !userShopSlug ||
+          userShopSlug !== shopSlug
         ) {
-          router.replace(
-            `/${meData.shop_slug}/admin/calendar`
-          );
+          if (userShopSlug) {
+            router.replace(
+              `/${userShopSlug}/admin/calendar`
+            );
+          } else {
+            router.replace("/login");
+          }
 
           return;
         }
@@ -527,11 +639,14 @@ export default function CalendarPage() {
             }
 
             if (
-              loadedRole === "staff" &&
+              loadedRole ===
+                "staff" &&
               loadedBarberId &&
               loadedBarbers.some(
                 (barber) =>
-                  barber.id ===
+                  String(
+                    barber.id
+                  ) ===
                   loadedBarberId
               )
             ) {
@@ -623,6 +738,445 @@ export default function CalendarPage() {
     );
   }
 
+  /*
+   * CUSTOMER LIST
+   *
+   * ChairTime's customer history is currently
+   * appointment-based. Build a quick customer
+   * picker from the shop's existing appointments.
+   */
+
+  const existingCustomers =
+    useMemo(() => {
+      const customerMap =
+        new Map();
+
+      appointments.forEach(
+        (appointment) => {
+          const name =
+            String(
+              appointment.customer_name ||
+                ""
+            ).trim();
+
+          const phone =
+            String(
+              appointment.customer_phone ||
+                ""
+            ).trim();
+
+          if (!name && !phone) {
+            return;
+          }
+
+          const key =
+            customerKey(
+              name,
+              phone
+            );
+
+          const existing =
+            customerMap.get(key);
+
+          const appointmentTime =
+            new Date(
+              appointment.start_datetime
+            ).getTime();
+
+          const existingTime =
+            existing
+              ? new Date(
+                  existing.lastAppointment
+                ).getTime()
+              : 0;
+
+          if (
+            !existing ||
+            appointmentTime >
+              existingTime
+          ) {
+            customerMap.set(
+              key,
+              {
+                key,
+                name,
+                phone,
+                customerNotes:
+                  appointment.customer_notes ||
+                  "",
+                customerTags:
+                  appointment.customer_tags ||
+                  "",
+                lastAppointment:
+                  appointment.start_datetime,
+              }
+            );
+          }
+        }
+      );
+
+      return Array.from(
+        customerMap.values()
+      ).sort((a, b) =>
+        String(a.name).localeCompare(
+          String(b.name)
+        )
+      );
+    }, [appointments]);
+
+  const filteredCustomers =
+    useMemo(() => {
+      const search =
+        String(
+          customerSearch || ""
+        )
+          .trim()
+          .toLowerCase();
+
+      if (!search) {
+        return existingCustomers.slice(
+          0,
+          8
+        );
+      }
+
+      const searchPhone =
+        normalizePhone(search);
+
+      return existingCustomers
+        .filter((customer) => {
+          const name =
+            String(
+              customer.name || ""
+            ).toLowerCase();
+
+          const phone =
+            normalizePhone(
+              customer.phone
+            );
+
+          return (
+            name.includes(search) ||
+            (searchPhone &&
+              phone.includes(
+                searchPhone
+              ))
+          );
+        })
+        .slice(0, 8);
+    }, [
+      customerSearch,
+      existingCustomers,
+    ]);
+
+  const servicesForSelectedBarber =
+    useMemo(() => {
+      if (!selectedBarberId) {
+        return [];
+      }
+
+      return services.filter(
+        (service) => {
+          const serviceBarberId =
+            String(
+              service.barber_id || ""
+            ).trim();
+
+          if (!serviceBarberId) {
+            return true;
+          }
+
+          return (
+            serviceBarberId ===
+            String(
+              selectedBarberId
+            )
+          );
+        }
+      );
+    }, [
+      services,
+      selectedBarberId,
+    ]);
+
+  function resetAppointmentForm() {
+    setAppointmentCustomerMode(
+      existingCustomers.length
+        ? "existing"
+        : "new"
+    );
+
+    setCustomerSearch("");
+    setSelectedCustomerKey("");
+    setAppointmentCustomerName("");
+    setAppointmentCustomerPhone("");
+
+    setAppointmentServiceId(
+      servicesForSelectedBarber[
+        0
+      ]?.id || ""
+    );
+
+    setAppointmentDate(
+      selectedDate
+    );
+
+    setAppointmentTime(
+      "09:00"
+    );
+
+    setAppointmentNotes("");
+  }
+
+  function openAppointmentForm(
+    time = ""
+  ) {
+    if (
+      !selectedBarberId ||
+      !canManageSelectedBarber
+    ) {
+      return;
+    }
+
+    resetAppointmentForm();
+
+    if (time) {
+      setAppointmentTime(
+        time
+      );
+    }
+
+    setShowBlockForm(false);
+    setShowAppointmentForm(true);
+    setMessage("");
+    setError("");
+  }
+
+  function closeAppointmentForm() {
+    setShowAppointmentForm(false);
+    setSavingAppointment(false);
+    setError("");
+  }
+
+  function chooseExistingCustomer(
+    customer
+  ) {
+    setSelectedCustomerKey(
+      customer.key
+    );
+
+    setAppointmentCustomerName(
+      customer.name
+    );
+
+    setAppointmentCustomerPhone(
+      customer.phone
+    );
+
+    setCustomerSearch(
+      customer.name ||
+        customer.phone
+    );
+  }
+
+  function startNewCustomer() {
+    setAppointmentCustomerMode(
+      "new"
+    );
+
+    setSelectedCustomerKey("");
+
+    const searchValue =
+      customerSearch.trim();
+
+    const looksLikePhone =
+      normalizePhone(
+        searchValue
+      ).length >= 7;
+
+    if (looksLikePhone) {
+      setAppointmentCustomerPhone(
+        searchValue
+      );
+
+      setAppointmentCustomerName(
+        ""
+      );
+    } else {
+      setAppointmentCustomerName(
+        searchValue
+      );
+
+      setAppointmentCustomerPhone(
+        ""
+      );
+    }
+  }
+
+  function useExistingCustomerMode() {
+    setAppointmentCustomerMode(
+      "existing"
+    );
+
+    setSelectedCustomerKey("");
+    setAppointmentCustomerName("");
+    setAppointmentCustomerPhone("");
+    setCustomerSearch("");
+  }
+
+  async function saveNewAppointment() {
+    if (
+      savingAppointment ||
+      !selectedBarberId
+    ) {
+      return;
+    }
+
+    if (
+      !canManageSelectedBarber
+    ) {
+      setError(
+        "You can create appointments only for your own schedule."
+      );
+
+      return;
+    }
+
+    const customerName =
+      appointmentCustomerName.trim();
+
+    const customerPhone =
+      appointmentCustomerPhone.trim();
+
+    if (!customerName) {
+      setError(
+        "Enter the customer's name."
+      );
+
+      return;
+    }
+
+    if (!customerPhone) {
+      setError(
+        "Enter the customer's phone number."
+      );
+
+      return;
+    }
+
+    if (!appointmentServiceId) {
+      setError(
+        "Choose a service."
+      );
+
+      return;
+    }
+
+    if (
+      !appointmentDate ||
+      !appointmentTime
+    ) {
+      setError(
+        "Choose the appointment date and time."
+      );
+
+      return;
+    }
+
+    setSavingAppointment(true);
+    setMessage("");
+    setError("");
+
+    try {
+      const response =
+        await fetch(
+          "/api/admin/appointments",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type":
+                "application/json",
+              Accept:
+                "application/json",
+            },
+            body: JSON.stringify({
+              shop_slug:
+                shopSlug,
+              barber_id:
+                selectedBarberId,
+              service_id:
+                appointmentServiceId,
+              customer_name:
+                customerName,
+              customer_phone:
+                customerPhone,
+              customer_tags:
+                null,
+              customer_notes:
+                null,
+              notes:
+                appointmentNotes.trim() ||
+                null,
+              start_datetime:
+                `${appointmentDate}T${appointmentTime}:00`,
+              stripe_setup_intent_id:
+                null,
+            }),
+          }
+        );
+
+      const data =
+        await response.json();
+
+      if (
+        response.status === 401
+      ) {
+        router.replace(
+          "/login"
+        );
+
+        return;
+      }
+
+      if (!response.ok) {
+        throw new Error(
+          data?.detail ||
+            data?.error ||
+            "The appointment could not be created."
+        );
+      }
+
+      setShowAppointmentForm(
+        false
+      );
+
+      setSelectedDate(
+        appointmentDate
+      );
+
+      setMessage(
+        `${customerName}'s appointment was booked.`
+      );
+
+      await loadData();
+    } catch (appointmentError) {
+      setError(
+        appointmentError instanceof
+          Error
+          ? appointmentError.message
+          : "The appointment could not be created."
+      );
+    } finally {
+      setSavingAppointment(
+        false
+      );
+    }
+  }
+
+  /*
+   * MOVE APPOINTMENT
+   */
+
   function startMove(
     appointment
   ) {
@@ -632,7 +1186,7 @@ export default function CalendarPage() {
       )
     ) {
       setError(
-        "Employees may modify only their own appointments."
+        "You can modify only your own appointments."
       );
 
       return;
@@ -651,29 +1205,35 @@ export default function CalendarPage() {
     setMoveTime(
       timePart(
         appointment.start_datetime
-      ) || "09:00"
+      )
     );
 
+    setShowAppointmentForm(
+      false
+    );
+
+    setShowBlockForm(false);
     setMessage("");
     setError("");
   }
 
   function cancelMove() {
-    setMovingAppointmentId(
-      ""
-    );
-
+    setMovingAppointmentId("");
     setSavingMove(false);
-    setError("");
   }
 
   async function saveMove(
     appointmentId
   ) {
+    if (savingMove) {
+      return;
+    }
+
     const appointment =
       appointments.find(
         (item) =>
-          item.id === appointmentId
+          item.id ===
+          appointmentId
       );
 
     if (
@@ -683,26 +1243,23 @@ export default function CalendarPage() {
       )
     ) {
       setError(
-        "Employees may modify only their own appointments."
+        "You can modify only your own appointments."
       );
 
       return;
     }
 
-    if (
-      !moveDate ||
-      !moveTime ||
-      savingMove
-    ) {
+    if (!moveDate || !moveTime) {
+      setError(
+        "Choose a date and time."
+      );
+
       return;
     }
 
     setSavingMove(true);
     setMessage("");
     setError("");
-
-    const newStartDatetime =
-      `${moveDate}T${moveTime}:00`;
 
     try {
       const response =
@@ -720,7 +1277,7 @@ export default function CalendarPage() {
             },
             body: JSON.stringify({
               new_start_datetime:
-                newStartDatetime,
+                `${moveDate}T${moveTime}:00`,
             }),
           }
         );
@@ -731,24 +1288,23 @@ export default function CalendarPage() {
       if (
         response.status === 401
       ) {
-        router.replace("/login");
+        router.replace(
+          "/login"
+        );
+
         return;
       }
 
       if (!response.ok) {
         throw new Error(
-          data?.error ||
-            data?.detail ||
-            "The appointment could not be moved."
+          data?.detail ||
+            data?.error ||
+            "Appointment could not be moved."
         );
       }
 
       setMovingAppointmentId(
         ""
-      );
-
-      setSelectedDate(
-        moveDate
       );
 
       setMessage(
@@ -760,7 +1316,7 @@ export default function CalendarPage() {
       setError(
         moveError instanceof Error
           ? moveError.message
-          : "The appointment could not be moved."
+          : "Appointment could not be moved."
       );
     } finally {
       setSavingMove(false);
@@ -769,12 +1325,13 @@ export default function CalendarPage() {
 
   async function updateAppointmentStatus(
     appointmentId,
-    appointmentStatus
+    nextStatus
   ) {
     const appointment =
       appointments.find(
         (item) =>
-          item.id === appointmentId
+          item.id ===
+          appointmentId
       );
 
     if (
@@ -784,7 +1341,7 @@ export default function CalendarPage() {
       )
     ) {
       setError(
-        "Employees may modify only their own appointments."
+        "You can modify only your own appointments."
       );
 
       return;
@@ -809,7 +1366,7 @@ export default function CalendarPage() {
             },
             body: JSON.stringify({
               status:
-                appointmentStatus,
+                nextStatus,
             }),
           }
         );
@@ -820,24 +1377,23 @@ export default function CalendarPage() {
       if (
         response.status === 401
       ) {
-        router.replace("/login");
+        router.replace(
+          "/login"
+        );
+
         return;
       }
 
       if (!response.ok) {
         throw new Error(
-          data?.error ||
-            data?.detail ||
+          data?.detail ||
+            data?.error ||
             "Appointment status could not be updated."
         );
       }
 
       setMessage(
-        `Appointment marked ${
-          STATUS_LABELS[
-            appointmentStatus
-          ]
-        }.`
+        "Appointment updated."
       );
 
       await loadData();
@@ -850,16 +1406,23 @@ export default function CalendarPage() {
     }
   }
 
+  /*
+   * BLOCKED TIME
+   */
+
   function openBlockForm() {
     if (
+      !selectedBarberId ||
       !canManageSelectedBarber
     ) {
-      setError(
-        "Employees may block time only on their own schedule."
-      );
-
       return;
     }
+
+    setShowAppointmentForm(
+      false
+    );
+
+    setShowBlockForm(true);
 
     setBlockMode(
       "one-time"
@@ -873,50 +1436,34 @@ export default function CalendarPage() {
       selectedDate
     );
 
-    setRecurringEndDate(
-      defaultRecurringEndDate()
-    );
-
-    setBlockStartTime(
-      "12:00"
-    );
-
-    setBlockEndTime(
-      "12:30"
-    );
-
-    setBlockReason(
-      "Lunch"
-    );
-
-    setCustomBlockReason(
-      ""
-    );
-
     setRecurringDays([
       weekdayValueForDate(
         selectedDate
       ),
     ]);
 
-    setShowBlockForm(
-      true
-    );
-
     setMessage("");
     setError("");
   }
 
   function closeBlockForm() {
-    setShowBlockForm(
-      false
-    );
-
-    setSavingBlock(
-      false
-    );
-
+    setShowBlockForm(false);
+    setSavingBlock(false);
     setError("");
+  }
+
+  function handleRecurringStartDateChange(
+    value
+  ) {
+    setRecurringStartDate(
+      value
+    );
+
+    setRecurringDays([
+      weekdayValueForDate(
+        value
+      ),
+    ]);
   }
 
   function toggleRecurringDay(
@@ -945,67 +1492,20 @@ export default function CalendarPage() {
     );
   }
 
-  function handleRecurringStartDateChange(
-    nextDate
-  ) {
-    setRecurringStartDate(
-      nextDate
-    );
+  function resolvedBlockReason() {
+    if (
+      blockReason === "Other"
+    ) {
+      return (
+        customBlockReason.trim() ||
+        "Blocked"
+      );
+    }
 
-    setRecurringDays(
-      (currentDays) => {
-        if (
-          currentDays.length <= 1
-        ) {
-          return [
-            weekdayValueForDate(
-              nextDate
-            ),
-          ];
-        }
-
-        return currentDays;
-      }
-    );
-  }
-
-  function finalBlockReason() {
-    return blockReason ===
-      "Other"
-      ? customBlockReason.trim()
-      : blockReason;
+    return blockReason;
   }
 
   async function saveOneTimeBlockedTime() {
-    if (
-      !canManageBarber(
-        selectedBarberId
-      )
-    ) {
-      setError(
-        "Employees may block time only on their own schedule."
-      );
-
-      return false;
-    }
-
-    const reason =
-      finalBlockReason();
-
-    if (!reason) {
-      setError(
-        "Please enter a reason."
-      );
-
-      return false;
-    }
-
-    const startDatetime =
-      `${blockDate}T${blockStartTime}:00`;
-
-    const endDatetime =
-      `${blockDate}T${blockEndTime}:00`;
-
     const response =
       await fetch(
         "/api/admin/blocked-times",
@@ -1024,13 +1524,14 @@ export default function CalendarPage() {
             barber_id:
               selectedBarberId,
 
-            reason,
-
             start_datetime:
-              startDatetime,
+              `${blockDate}T${blockStartTime}:00`,
 
             end_datetime:
-              endDatetime,
+              `${blockDate}T${blockEndTime}:00`,
+
+            reason:
+              resolvedBlockReason(),
           }),
         }
       );
@@ -1056,52 +1557,14 @@ export default function CalendarPage() {
       );
     }
 
-    setSelectedDate(
-      blockDate
-    );
-
     setMessage(
-      "Time blocked."
+      "Blocked time created."
     );
 
     return true;
   }
 
   async function saveRecurringBlockedTime() {
-    if (
-      !canManageBarber(
-        selectedBarberId
-      )
-    ) {
-      setError(
-        "Employees may block time only on their own schedule."
-      );
-
-      return false;
-    }
-
-    const reason =
-      finalBlockReason();
-
-    if (!reason) {
-      setError(
-        "Please enter a reason."
-      );
-
-      return false;
-    }
-
-    if (
-      recurringDays.length ===
-      0
-    ) {
-      setError(
-        "Choose at least one day of the week."
-      );
-
-      return false;
-    }
-
     const response =
       await fetch(
         "/api/admin/blocked-times/recurring",
@@ -1120,7 +1583,8 @@ export default function CalendarPage() {
             barber_id:
               selectedBarberId,
 
-            reason,
+            weekdays:
+              recurringDays,
 
             start_date:
               recurringStartDate,
@@ -1129,13 +1593,13 @@ export default function CalendarPage() {
               recurringEndDate,
 
             start_time:
-              `${blockStartTime}:00`,
+              blockStartTime,
 
             end_time:
-              `${blockEndTime}:00`,
+              blockEndTime,
 
-            weekdays:
-              recurringDays,
+            reason:
+              resolvedBlockReason(),
           }),
         }
       );
@@ -1161,16 +1625,11 @@ export default function CalendarPage() {
       );
     }
 
-    const created =
-      data?.occurrences_created ||
-      0;
-
-    setSelectedDate(
-      recurringStartDate
-    );
-
     setMessage(
-      `Recurring blocked time created (${created} occurrences).`
+      `Recurring blocked time created (${
+        data?.occurrences_created ||
+        0
+      } occurrences).`
     );
 
     return true;
@@ -1178,30 +1637,83 @@ export default function CalendarPage() {
 
   async function saveBlockedTime() {
     if (
-      !canManageBarber(
-        selectedBarberId
-      )
+      savingBlock ||
+      !selectedBarberId
+    ) {
+      return;
+    }
+
+    if (
+      !canManageSelectedBarber
     ) {
       setError(
-        "Employees may block time only on their own schedule."
+        "You can block time only on your own schedule."
       );
 
       return;
     }
 
     if (
-      !selectedBarberId ||
       !blockStartTime ||
-      !blockEndTime ||
-      savingBlock
+      !blockEndTime
     ) {
+      setError(
+        "Please choose a start and end time."
+      );
+
       return;
     }
 
-    setSavingBlock(
-      true
-    );
+    if (
+      blockEndTime <=
+      blockStartTime
+    ) {
+      setError(
+        "End time must be after start time."
+      );
 
+      return;
+    }
+
+    if (
+      blockMode ===
+        "recurring" &&
+      recurringDays.length === 0
+    ) {
+      setError(
+        "Choose at least one day."
+      );
+
+      return;
+    }
+
+    if (
+      blockMode ===
+        "recurring" &&
+      (!recurringStartDate ||
+        !recurringEndDate)
+    ) {
+      setError(
+        "Please choose the recurring start and end dates."
+      );
+
+      return;
+    }
+
+    if (
+      blockMode ===
+        "recurring" &&
+      recurringEndDate <
+        recurringStartDate
+    ) {
+      setError(
+        "The recurring end date must be on or after the start date."
+      );
+
+      return;
+    }
+
+    setSavingBlock(true);
     setMessage("");
     setError("");
 
@@ -1241,9 +1753,7 @@ export default function CalendarPage() {
           : "Blocked time could not be created."
       );
     } finally {
-      setSavingBlock(
-        false
-      );
+      setSavingBlock(false);
     }
   }
 
@@ -1268,7 +1778,7 @@ export default function CalendarPage() {
       )
     ) {
       setError(
-        "Employees may modify blocked time only on their own schedule."
+        "You can modify only your own blocked time."
       );
 
       return;
@@ -1339,9 +1849,7 @@ export default function CalendarPage() {
           : "Blocked time could not be deleted."
       );
     } finally {
-      setDeletingBlockId(
-        ""
-      );
+      setDeletingBlockId("");
     }
   }
 
@@ -1355,24 +1863,21 @@ export default function CalendarPage() {
       return;
     }
 
-    const seriesBlocks =
-      blockedTimes.filter(
+    const seriesBlock =
+      blockedTimes.find(
         (block) =>
           block.series_id ===
           seriesId
       );
 
     if (
-      seriesBlocks.length === 0 ||
-      seriesBlocks.some(
-        (block) =>
-          !canModifyBlockedTime(
-            block
-          )
+      !seriesBlock ||
+      !canModifyBlockedTime(
+        seriesBlock
       )
     ) {
       setError(
-        "Employees may modify blocked time only on their own schedule."
+        "You can modify only your own blocked time."
       );
 
       return;
@@ -1446,11 +1951,13 @@ export default function CalendarPage() {
           : "Recurring series could not be deleted."
       );
     } finally {
-      setDeletingSeriesId(
-        ""
-      );
+      setDeletingSeriesId("");
     }
   }
+
+  /*
+   * CALENDAR DATA
+   */
 
   const selectedBarber =
     barbers.find(
@@ -1633,248 +2140,235 @@ export default function CalendarPage() {
     );
   }
 
-  function renderAppointmentCard(
+  /*
+   * APPOINTMENT CARD
+   */
+
+  function appointmentCard(
     appointment
   ) {
+    const isMoving =
+      movingAppointmentId ===
+      appointment.id;
+
     const canModify =
       canModifyAppointment(
         appointment
       );
 
-    const isMoving =
-      movingAppointmentId ===
-      appointment.id;
+    const statusStyle =
+      STATUS_STYLES[
+        appointment.status
+      ] ||
+      STATUS_STYLES.confirmed;
 
-    const status =
-      appointment.status ||
-      "confirmed";
+    const statusLabel =
+      STATUS_LABELS[
+        appointment.status
+      ] || "Confirmed";
 
     return (
       <div
         key={appointment.id}
-        className={`rounded-xl border p-3 ${
-          STATUS_STYLES[status] ||
-          STATUS_STYLES.confirmed
-        }`}
+        className={`rounded-2xl p-4 border shadow-sm ${statusStyle}`}
       >
-        <div className="flex flex-col gap-3">
+        <div className="flex justify-between gap-3 items-start">
           <div>
-            <div className="flex flex-wrap items-center gap-2">
-              <p className="font-extrabold text-gray-950">
-                {formatTime(
-                  appointment.start_datetime
-                )}
-              </p>
-
-              <span className="rounded-full bg-white/70 px-2 py-1 text-xs font-bold text-gray-700">
-                {STATUS_LABELS[
-                  status
-                ] || status}
-              </span>
-            </div>
-
-            <p className="mt-1 font-bold text-gray-900">
-              {appointment.customer_name ||
-                "Customer"}
+            <p className="font-bold text-lg">
+              {formatTime(
+                appointment.start_datetime
+              )}{" "}
+              ·{" "}
+              <button
+                type="button"
+                onClick={() =>
+                  router.push(
+                    `/${shopSlug}/admin/customers?phone=${encodeURIComponent(
+                      appointment.customer_phone
+                    )}`
+                  )
+                }
+                className="font-bold text-blue-700 underline hover:text-blue-900"
+              >
+                {
+                  appointment.customer_name
+                }
+              </button>
             </p>
 
-            <p className="text-sm text-gray-700">
+            <p className="text-gray-900">
               {serviceName(
                 appointment.service_id
               )}
             </p>
 
-            {appointment.customer_phone && (
-              <p className="mt-1 text-sm text-gray-600">
-                {
-                  appointment.customer_phone
-                }
-              </p>
-            )}
+            <p className="text-gray-900">
+              {
+                appointment.customer_phone
+              }
+            </p>
+
+            {appointment.notes ? (
+              <div className="mt-3 rounded-xl bg-white border p-3 text-gray-900">
+                <p className="font-bold">
+                  Notes
+                </p>
+
+                <p>
+                  {
+                    appointment.notes
+                  }
+                </p>
+              </div>
+            ) : null}
           </div>
 
-          {canModify && (
-            <>
-              {isMoving ? (
-                <div className="rounded-xl border border-blue-200 bg-white p-3 space-y-3">
-                  <p className="font-bold text-gray-900">
-                    Move appointment
-                  </p>
-
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <div>
-                      <label className="mb-1 block text-xs font-bold text-gray-700">
-                        Date
-                      </label>
-
-                      <input
-                        type="date"
-                        value={
-                          moveDate
-                        }
-                        onChange={(
-                          event
-                        ) =>
-                          setMoveDate(
-                            event.target
-                              .value
-                          )
-                        }
-                        className="w-full rounded-lg border border-gray-300 bg-white p-2"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="mb-1 block text-xs font-bold text-gray-700">
-                        Time
-                      </label>
-
-                      <input
-                        type="time"
-                        value={
-                          moveTime
-                        }
-                        onChange={(
-                          event
-                        ) =>
-                          setMoveTime(
-                            event.target
-                              .value
-                          )
-                        }
-                        className="w-full rounded-lg border border-gray-300 bg-white p-2"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        saveMove(
-                          appointment.id
-                        )
-                      }
-                      disabled={
-                        savingMove
-                      }
-                      className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-bold text-white hover:bg-blue-700 disabled:opacity-50"
-                    >
-                      {savingMove
-                        ? "Saving..."
-                        : "Save Move"}
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={
-                        cancelMove
-                      }
-                      disabled={
-                        savingMove
-                      }
-                      className="rounded-lg bg-gray-200 px-3 py-2 text-sm font-bold text-gray-800 hover:bg-gray-300"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      startMove(
-                        appointment
-                      )
-                    }
-                    className="rounded-lg bg-white px-3 py-2 text-sm font-bold text-blue-700 shadow-sm hover:bg-blue-50"
-                  >
-                    Move
-                  </button>
-
-                  {status !==
-                    "confirmed" && (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        updateAppointmentStatus(
-                          appointment.id,
-                          "confirmed"
-                        )
-                      }
-                      className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-bold text-white hover:bg-blue-700"
-                    >
-                      Confirm
-                    </button>
-                  )}
-
-                  {status !==
-                    "completed" && (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        updateAppointmentStatus(
-                          appointment.id,
-                          "completed"
-                        )
-                      }
-                      className="rounded-lg bg-green-600 px-3 py-2 text-sm font-bold text-white hover:bg-green-700"
-                    >
-                      Complete
-                    </button>
-                  )}
-
-                  {status !==
-                    "no_show" && (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        updateAppointmentStatus(
-                          appointment.id,
-                          "no_show"
-                        )
-                      }
-                      className="rounded-lg bg-yellow-500 px-3 py-2 text-sm font-bold text-gray-950 hover:bg-yellow-600"
-                    >
-                      No-show
-                    </button>
-                  )}
-
-                  {status !==
-                    "canceled" && (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        updateAppointmentStatus(
-                          appointment.id,
-                          "canceled"
-                        )
-                      }
-                      className="rounded-lg bg-red-600 px-3 py-2 text-sm font-bold text-white hover:bg-red-700"
-                    >
-                      Cancel Appointment
-                    </button>
-                  )}
-                </div>
-              )}
-            </>
-          )}
-
-          {!canModify &&
-            isStaff && (
-              <p className="text-xs font-semibold text-gray-500">
-                View only — this appointment belongs to another staff member.
-              </p>
-            )}
+          <span className="font-bold text-sm bg-white border rounded-full px-3 py-1">
+            {statusLabel}
+          </span>
         </div>
+
+        {canModify &&
+        !isMoving ? (
+          <div className="flex flex-wrap gap-2 mt-4">
+            <button
+              type="button"
+              onClick={() =>
+                startMove(
+                  appointment
+                )
+              }
+              className="bg-purple-600 text-white px-3 py-2 rounded-xl text-sm font-semibold"
+            >
+              Move
+            </button>
+
+            <button
+              type="button"
+              onClick={() =>
+                updateAppointmentStatus(
+                  appointment.id,
+                  "confirmed"
+                )
+              }
+              className="bg-blue-500 text-white px-3 py-2 rounded-xl text-sm font-semibold"
+            >
+              Confirm
+            </button>
+
+            <button
+              type="button"
+              onClick={() =>
+                updateAppointmentStatus(
+                  appointment.id,
+                  "completed"
+                )
+              }
+              className="bg-green-600 text-white px-3 py-2 rounded-xl text-sm font-semibold"
+            >
+              Complete
+            </button>
+
+            <button
+              type="button"
+              onClick={() =>
+                updateAppointmentStatus(
+                  appointment.id,
+                  "no_show"
+                )
+              }
+              className="bg-yellow-500 text-white px-3 py-2 rounded-xl text-sm font-semibold"
+            >
+              No-show
+            </button>
+
+            <button
+              type="button"
+              onClick={() =>
+                updateAppointmentStatus(
+                  appointment.id,
+                  "canceled"
+                )
+              }
+              className="bg-red-500 text-white px-3 py-2 rounded-xl text-sm font-semibold"
+            >
+              Cancel
+            </button>
+          </div>
+        ) : null}
+
+        {canModify &&
+        isMoving ? (
+          <div className="mt-4 bg-white rounded-xl border p-4">
+            <p className="font-bold mb-3">
+              Move this appointment
+            </p>
+
+            <div className="grid gap-3 sm:grid-cols-3">
+              <input
+                type="date"
+                className="border rounded-xl p-3"
+                value={moveDate}
+                onChange={(event) =>
+                  setMoveDate(
+                    event.target.value
+                  )
+                }
+              />
+
+              <input
+                type="time"
+                className="border rounded-xl p-3"
+                value={moveTime}
+                onChange={(event) =>
+                  setMoveTime(
+                    event.target.value
+                  )
+                }
+              />
+
+              <button
+                type="button"
+                onClick={() =>
+                  saveMove(
+                    appointment.id
+                  )
+                }
+                disabled={savingMove}
+                className="bg-black text-white rounded-xl px-4 py-3 font-semibold disabled:opacity-60"
+              >
+                {savingMove
+                  ? "Moving..."
+                  : "Save Move"}
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={cancelMove}
+              disabled={savingMove}
+              className="mt-3 bg-gray-400 text-white px-4 py-2 rounded-xl font-semibold disabled:opacity-60"
+            >
+              Cancel Move
+            </button>
+          </div>
+        ) : null}
       </div>
     );
   }
 
-  function renderBlockedTimeCard(
+  /*
+   * BLOCKED TIME CARD
+   */
+
+  function blockedTimeCard(
     block
   ) {
+    const recurring =
+      Boolean(
+        block.series_id
+      );
+
     const canModify =
       canModifyBlockedTime(
         block
@@ -1883,11 +2377,11 @@ export default function CalendarPage() {
     return (
       <div
         key={block.id}
-        className="rounded-xl border border-gray-300 bg-gray-100 p-3"
+        className="rounded-2xl p-4 bg-slate-100 border border-slate-300"
       >
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-start">
           <div>
-            <p className="font-extrabold text-gray-900">
+            <p className="font-bold">
               {formatTime(
                 block.start_datetime
               )}{" "}
@@ -1897,19 +2391,18 @@ export default function CalendarPage() {
               )}
             </p>
 
-            <p className="mt-1 font-bold text-gray-800">
-              {block.reason ||
-                "Blocked"}
+            <p className="text-gray-900">
+              Blocked: {block.reason}
             </p>
 
-            {block.series_id && (
-              <p className="mt-1 text-xs font-semibold text-gray-500">
-                Recurring blocked time
+            {recurring ? (
+              <p className="text-sm font-semibold mt-1 text-emerald-800">
+                Repeats weekly
               </p>
-            )}
+            ) : null}
           </div>
 
-          {canModify && (
+          {canModify ? (
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
@@ -1922,15 +2415,17 @@ export default function CalendarPage() {
                   deletingBlockId ===
                   block.id
                 }
-                className="rounded-lg bg-red-600 px-3 py-2 text-sm font-bold text-white hover:bg-red-700 disabled:opacity-50"
+                className="bg-red-500 text-white px-3 py-2 rounded-xl text-sm font-semibold disabled:opacity-60"
               >
                 {deletingBlockId ===
                 block.id
                   ? "Deleting..."
-                  : "Delete"}
+                  : recurring
+                    ? "Delete This"
+                    : "Delete"}
               </button>
 
-              {block.series_id && (
+              {recurring ? (
                 <button
                   type="button"
                   onClick={() =>
@@ -1942,68 +2437,48 @@ export default function CalendarPage() {
                     deletingSeriesId ===
                     block.series_id
                   }
-                  className="rounded-lg bg-gray-800 px-3 py-2 text-sm font-bold text-white hover:bg-gray-900 disabled:opacity-50"
+                  className="bg-black text-white px-3 py-2 rounded-xl text-sm font-semibold disabled:opacity-60"
                 >
                   {deletingSeriesId ===
                   block.series_id
-                    ? "Deleting Series..."
+                    ? "Deleting..."
                     : "Delete Series"}
                 </button>
-              )}
+              ) : null}
             </div>
-          )}
-
-          {!canModify &&
-            isStaff && (
-              <p className="text-xs font-semibold text-gray-500">
-                View only
-              </p>
-            )}
+          ) : null}
         </div>
       </div>
     );
   }
 
-  if (loading) {
-    return (
-      <main className="min-h-screen bg-emerald-50 p-4 sm:p-8">
-        <div className="mx-auto max-w-5xl">
-          <div className="rounded-3xl border border-emerald-200 bg-white p-6 shadow-lg">
-            <p className="font-bold text-gray-700">
-              Loading calendar...
-            </p>
-          </div>
-        </div>
-      </main>
-    );
-  }
-
   return (
-    <main className="min-h-screen bg-emerald-50 p-4 sm:p-8">
-      <div className="mx-auto max-w-5xl space-y-6">
+    <main className="min-h-screen bg-emerald-50 p-4 sm:p-10">
+      <div className="max-w-7xl mx-auto space-y-8">
         <AdminUserBar />
 
-        <section className="rounded-3xl border border-emerald-200 bg-gradient-to-r from-emerald-100 via-green-50 to-white p-6 shadow-lg">
+        <section className="rounded-3xl shadow-lg p-6 sm:p-8 border border-emerald-200 bg-gradient-to-r from-emerald-100 via-teal-50 to-white">
           <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <p className="mb-2 text-sm font-extrabold uppercase tracking-widest text-emerald-700">
+              <p className="text-sm font-extrabold uppercase tracking-widest text-emerald-700 mb-2">
                 {displayShopName(
                   shopSlug
                 )}
               </p>
 
-              <h1 className="text-5xl font-extrabold tracking-tight text-gray-950">
+              <h1 className="text-5xl font-extrabold tracking-tight mb-3">
                 Calendar
               </h1>
 
-              <p className="mt-2 text-lg text-gray-700">
-                {isStaff
-                  ? "View the shop schedule and manage your own appointments and blocked time."
-                  : "View appointments and manage blocked time."}
+              <p className="text-lg text-gray-700">
+                View the shop schedule
+                and quickly manage
+                appointments and blocked
+                time.
               </p>
             </div>
 
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-3">
               <button
                 type="button"
                 onClick={() =>
@@ -2011,194 +2486,463 @@ export default function CalendarPage() {
                     `/${shopSlug}/admin`
                   )
                 }
-                className="rounded-xl bg-blue-600 px-5 py-3 font-bold text-white shadow hover:bg-blue-700"
+                className="bg-blue-600 text-white rounded-xl px-5 py-3 font-bold shadow hover:bg-blue-700"
               >
                 Admin Home
               </button>
 
-              {canManageSelectedBarber && (
-                <button
-                  type="button"
-                  onClick={
-                    openBlockForm
-                  }
-                  className="rounded-xl bg-emerald-700 px-5 py-3 font-bold text-white shadow hover:bg-emerald-800"
-                >
-                  + Block Time
-                </button>
-              )}
+              {canManageSelectedBarber ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      openAppointmentForm()
+                    }
+                    disabled={
+                      !selectedBarberId
+                    }
+                    className="bg-blue-700 text-white rounded-xl px-5 py-3 font-bold shadow hover:bg-blue-800 disabled:opacity-50"
+                  >
+                    + Appointment
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={
+                      openBlockForm
+                    }
+                    disabled={
+                      !selectedBarberId
+                    }
+                    className="bg-emerald-700 text-white rounded-xl px-5 py-3 font-bold shadow hover:bg-emerald-800 disabled:opacity-50"
+                  >
+                    + Block Time
+                  </button>
+                </>
+              ) : null}
             </div>
           </div>
+
+          {message ? (
+            <p className="mt-4 rounded-xl bg-green-50 border border-green-200 px-4 py-3 font-semibold text-green-700">
+              {message}
+            </p>
+          ) : null}
+
+          {error ? (
+            <p className="mt-4 rounded-xl bg-red-50 border border-red-200 px-4 py-3 font-semibold text-red-700">
+              {error}
+            </p>
+          ) : null}
         </section>
 
-        {message && (
-          <div className="rounded-2xl border border-green-200 bg-green-100 p-4 font-bold text-green-800">
-            {message}
-          </div>
-        )}
+        {isStaff &&
+        !currentUserBarberId ? (
+          <section className="rounded-2xl border border-amber-300 bg-amber-50 p-4">
+            <p className="font-bold text-amber-900">
+              Your login is not linked
+              to a staff schedule.
+            </p>
 
-        {error && (
-          <div className="rounded-2xl border border-red-200 bg-red-50 p-4 font-bold text-red-800">
-            {error}
-          </div>
-        )}
+            <p className="mt-1 text-amber-900">
+              You can view the calendar,
+              but an owner must link your
+              login to a staff member
+              before you can create or
+              change appointments or
+              blocked time.
+            </p>
+          </section>
+        ) : null}
 
-        <section className="rounded-3xl border border-emerald-200 bg-white p-6 shadow-lg">
-          <h2 className="mb-4 text-2xl font-extrabold text-gray-950">
-            Filters
-          </h2>
+        {isStaff &&
+        currentUserBarberId &&
+        selectedBarberId &&
+        !canManageSelectedBarber ? (
+          <section className="rounded-2xl border border-blue-300 bg-blue-50 p-4">
+            <p className="font-semibold text-blue-900">
+              You can view this staff
+              member&apos;s schedule.
+              Only that staff member or
+              the owner can make changes.
+            </p>
+          </section>
+        ) : null}
 
-          <div className="grid gap-4 md:grid-cols-3">
-            <div>
-              <label className="mb-1 block text-sm font-bold text-gray-800">
-                View
-              </label>
+        {showAppointmentForm &&
+        canManageSelectedBarber ? (
+          <section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-blue-200">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p className="text-sm font-extrabold uppercase tracking-widest text-blue-700 mb-2">
+                  New Appointment
+                </p>
 
-              <select
-                value={
-                  viewMode
+                <h2 className="text-3xl font-bold text-gray-950">
+                  Book for{" "}
+                  {selectedBarber?.name ||
+                    "Staff"}
+                </h2>
+              </div>
+
+              <button
+                type="button"
+                onClick={
+                  closeAppointmentForm
                 }
-                onChange={(
-                  event
-                ) =>
-                  setViewMode(
-                    event.target
-                      .value
-                  )
+                disabled={
+                  savingAppointment
                 }
-                className="w-full rounded-xl border border-emerald-200 bg-white p-3"
+                className="self-start bg-gray-200 text-gray-900 rounded-xl px-4 py-2 font-bold disabled:opacity-60"
               >
-                <option value="day">
-                  Day
-                </option>
-
-                <option value="week">
-                  Week
-                </option>
-              </select>
+                Close
+              </button>
             </div>
 
-            <div>
-              <label className="mb-1 block text-sm font-bold text-gray-800">
-                Date
-              </label>
+            <div className="mt-6 grid gap-6 lg:grid-cols-2">
+              <div>
+                <label className="block text-lg font-bold mb-2">
+                  Customer
+                </label>
 
-              <input
-                type="date"
-                value={
-                  selectedDate
-                }
-                onChange={(
-                  event
-                ) => {
-                  setSelectedDate(
-                    event.target
-                      .value
-                  );
-
-                  setMessage("");
-                  setError("");
-                }}
-                className="w-full rounded-xl border border-emerald-200 bg-white p-3"
-              />
-            </div>
-
-            <div>
-              <label className="mb-1 block text-sm font-bold text-gray-800">
-                Staff
-              </label>
-
-              <select
-                value={
-                  selectedBarberId
-                }
-                onChange={(
-                  event
-                ) => {
-                  setSelectedBarberId(
-                    event.target
-                      .value
-                  );
-
-                  setShowBlockForm(
-                    false
-                  );
-
-                  setMovingAppointmentId(
-                    ""
-                  );
-
-                  setMessage("");
-                  setError("");
-                }}
-                className="w-full rounded-xl border border-emerald-200 bg-white p-3"
-              >
-                {barbers.map(
-                  (barber) => (
-                    <option
-                      key={
-                        barber.id
-                      }
+                {appointmentCustomerMode ===
+                "existing" ? (
+                  <div className="space-y-3">
+                    <input
+                      type="text"
+                      autoFocus
                       value={
-                        barber.id
+                        customerSearch
                       }
+                      onChange={(
+                        event
+                      ) => {
+                        setCustomerSearch(
+                          event.target.value
+                        );
+
+                        setSelectedCustomerKey(
+                          ""
+                        );
+
+                        setAppointmentCustomerName(
+                          ""
+                        );
+
+                        setAppointmentCustomerPhone(
+                          ""
+                        );
+                      }}
+                      placeholder="Type name or phone"
+                      className="w-full border-2 border-blue-200 rounded-xl p-4 text-lg"
+                    />
+
+                    {existingCustomers.length >
+                    0 ? (
+                      <div className="rounded-2xl border border-gray-200 overflow-hidden">
+                        {filteredCustomers.length >
+                        0 ? (
+                          filteredCustomers.map(
+                            (
+                              customer
+                            ) => (
+                              <button
+                                key={
+                                  customer.key
+                                }
+                                type="button"
+                                onClick={() =>
+                                  chooseExistingCustomer(
+                                    customer
+                                  )
+                                }
+                                className={`w-full text-left px-4 py-3 border-b last:border-b-0 hover:bg-blue-50 ${
+                                  selectedCustomerKey ===
+                                  customer.key
+                                    ? "bg-blue-100"
+                                    : "bg-white"
+                                }`}
+                              >
+                                <span className="block font-bold">
+                                  {
+                                    customer.name
+                                  }
+                                </span>
+
+                                <span className="block text-sm text-gray-600">
+                                  {
+                                    customer.phone
+                                  }
+                                </span>
+                              </button>
+                            )
+                          )
+                        ) : (
+                          <div className="p-4 text-gray-600">
+                            No matching
+                            customer.
+                          </div>
+                        )}
+                      </div>
+                    ) : null}
+
+                    <button
+                      type="button"
+                      onClick={
+                        startNewCustomer
+                      }
+                      className="w-full sm:w-auto bg-emerald-700 text-white rounded-xl px-5 py-3 font-bold"
                     >
-                      {barber.name}
-                    </option>
-                  )
+                      + New Customer
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block font-semibold mb-2">
+                        Name
+                      </label>
+
+                      <input
+                        type="text"
+                        autoFocus
+                        value={
+                          appointmentCustomerName
+                        }
+                        onChange={(
+                          event
+                        ) =>
+                          setAppointmentCustomerName(
+                            event.target
+                              .value
+                          )
+                        }
+                        placeholder="Customer name"
+                        className="w-full border-2 border-blue-200 rounded-xl p-4 text-lg"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block font-semibold mb-2">
+                        Phone
+                      </label>
+
+                      <input
+                        type="tel"
+                        value={
+                          appointmentCustomerPhone
+                        }
+                        onChange={(
+                          event
+                        ) =>
+                          setAppointmentCustomerPhone(
+                            event.target
+                              .value
+                          )
+                        }
+                        placeholder="Customer phone"
+                        className="w-full border-2 border-blue-200 rounded-xl p-4 text-lg"
+                      />
+                    </div>
+
+                    {existingCustomers.length >
+                    0 ? (
+                      <button
+                        type="button"
+                        onClick={
+                          useExistingCustomerMode
+                        }
+                        className="text-blue-700 font-bold underline"
+                      >
+                        Choose an existing
+                        customer instead
+                      </button>
+                    ) : null}
+                  </div>
                 )}
-              </select>
-            </div>
-          </div>
-
-          {isStaff &&
-            selectedBarberId &&
-            !canManageSelectedBarber && (
-              <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm font-semibold text-blue-800">
-                You can view this staff member&apos;s schedule, but only they or the shop owner can make changes to it.
               </div>
-            )}
 
-          {isStaff &&
-            !currentUserBarberId && (
-              <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-800">
-                Your login is not linked to a staff/provider record, so this calendar is view-only.
-              </div>
-            )}
-        </section>
-
-        {showBlockForm &&
-          canManageSelectedBarber && (
-            <section className="rounded-3xl border border-emerald-200 bg-white p-6 shadow-lg">
-              <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+              <div className="space-y-4">
                 <div>
-                  <p className="text-sm font-extrabold uppercase tracking-widest text-emerald-700">
-                    Availability
-                  </p>
+                  <label className="block text-lg font-bold mb-2">
+                    Service
+                  </label>
 
-                  <h2 className="text-3xl font-extrabold text-gray-950">
-                    Block Time
-                  </h2>
+                  <select
+                    value={
+                      appointmentServiceId
+                    }
+                    onChange={(
+                      event
+                    ) =>
+                      setAppointmentServiceId(
+                        event.target.value
+                      )
+                    }
+                    className="w-full border-2 border-blue-200 rounded-xl p-4 bg-white text-lg"
+                  >
+                    <option value="">
+                      Choose service
+                    </option>
 
-                  <p className="mt-1 text-gray-600">
-                    {selectedBarber
-                      ? `For ${selectedBarber.name}`
-                      : "Choose a staff member."}
-                  </p>
+                    {servicesForSelectedBarber.map(
+                      (service) => (
+                        <option
+                          key={
+                            service.id
+                          }
+                          value={
+                            service.id
+                          }
+                        >
+                          {
+                            service.name
+                          }
+                          {service.duration_minutes
+                            ? ` · ${service.duration_minutes} min`
+                            : ""}
+                        </option>
+                      )
+                    )}
+                  </select>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={
-                    closeBlockForm
-                  }
-                  className="rounded-xl bg-gray-200 px-4 py-2 font-bold text-gray-800 hover:bg-gray-300"
-                >
-                  Close
-                </button>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <label className="block font-bold mb-2">
+                      Date
+                    </label>
+
+                    <input
+                      type="date"
+                      value={
+                        appointmentDate
+                      }
+                      onChange={(
+                        event
+                      ) =>
+                        setAppointmentDate(
+                          event.target
+                            .value
+                        )
+                      }
+                      className="w-full border-2 border-blue-200 rounded-xl p-4"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-bold mb-2">
+                      Time
+                    </label>
+
+                    <input
+                      type="time"
+                      value={
+                        appointmentTime
+                      }
+                      onChange={(
+                        event
+                      ) =>
+                        setAppointmentTime(
+                          event.target
+                            .value
+                        )
+                      }
+                      className="w-full border-2 border-blue-200 rounded-xl p-4"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block font-bold mb-2">
+                    Notes{" "}
+                    <span className="font-normal text-gray-500">
+                      (optional)
+                    </span>
+                  </label>
+
+                  <textarea
+                    value={
+                      appointmentNotes
+                    }
+                    onChange={(
+                      event
+                    ) =>
+                      setAppointmentNotes(
+                        event.target.value
+                      )
+                    }
+                    rows={3}
+                    placeholder="Anything staff should know"
+                    className="w-full border-2 border-blue-200 rounded-xl p-4"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-3 mt-7">
+              <button
+                type="button"
+                onClick={
+                  saveNewAppointment
+                }
+                disabled={
+                  savingAppointment
+                }
+                className="bg-blue-700 text-white rounded-xl px-7 py-4 text-lg font-extrabold shadow hover:bg-blue-800 disabled:opacity-60"
+              >
+                {savingAppointment
+                  ? "Booking..."
+                  : "Book Appointment"}
+              </button>
+
+              <button
+                type="button"
+                onClick={
+                  closeAppointmentForm
+                }
+                disabled={
+                  savingAppointment
+                }
+                className="bg-gray-300 text-gray-900 rounded-xl px-6 py-4 font-bold disabled:opacity-60"
+              >
+                Cancel
+              </button>
+            </div>
+          </section>
+        ) : null}
+
+                  {showBlockForm &&
+        canManageSelectedBarber ? (
+          <section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-emerald-200">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p className="text-sm font-extrabold uppercase tracking-widest text-emerald-700 mb-2">
+                  Block Time
+                </p>
+
+                <h2 className="text-3xl font-bold text-emerald-950">
+                  {selectedBarber?.name ||
+                    "Staff"}
+                </h2>
               </div>
 
-              <div className="mb-5 grid grid-cols-2 gap-2 rounded-2xl bg-gray-100 p-1">
+              <button
+                type="button"
+                onClick={closeBlockForm}
+                disabled={savingBlock}
+                className="self-start bg-gray-200 text-gray-900 rounded-xl px-4 py-2 font-bold disabled:opacity-60"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="mt-6">
+              <label className="block font-semibold mb-2">
+                Type
+              </label>
+
+              <div className="flex flex-wrap gap-3">
                 <button
                   type="button"
                   onClick={() =>
@@ -2206,11 +2950,11 @@ export default function CalendarPage() {
                       "one-time"
                     )
                   }
-                  className={`rounded-xl px-4 py-3 font-bold ${
+                  className={`rounded-xl px-4 py-3 font-bold border ${
                     blockMode ===
                     "one-time"
-                      ? "bg-white text-emerald-800 shadow"
-                      : "text-gray-600"
+                      ? "bg-emerald-700 text-white border-emerald-700"
+                      : "bg-white text-emerald-900 border-emerald-300"
                   }`}
                 >
                   One Time
@@ -2223,139 +2967,215 @@ export default function CalendarPage() {
                       "recurring"
                     )
                   }
-                  className={`rounded-xl px-4 py-3 font-bold ${
+                  className={`rounded-xl px-4 py-3 font-bold border ${
                     blockMode ===
                     "recurring"
-                      ? "bg-white text-emerald-800 shadow"
-                      : "text-gray-600"
+                      ? "bg-emerald-700 text-white border-emerald-700"
+                      : "bg-white text-emerald-900 border-emerald-300"
                   }`}
                 >
                   Recurring
                 </button>
               </div>
+            </div>
 
-              <div className="space-y-4">
-                {blockMode ===
-                "one-time" ? (
+            <div className="mt-6">
+              <label className="block font-semibold mb-2">
+                Reason
+              </label>
+
+              <select
+                className="w-full border border-emerald-200 rounded-xl p-3 bg-emerald-50"
+                value={blockReason}
+                onChange={(event) =>
+                  setBlockReason(
+                    event.target.value
+                  )
+                }
+              >
+                {BLOCK_REASON_OPTIONS.map(
+                  (reason) => (
+                    <option
+                      key={reason}
+                      value={reason}
+                    >
+                      {reason}
+                    </option>
+                  )
+                )}
+              </select>
+
+              {blockReason ===
+              "Other" ? (
+                <input
+                  type="text"
+                  className="w-full mt-3 border border-emerald-200 rounded-xl p-3 bg-emerald-50"
+                  placeholder="Reason"
+                  value={
+                    customBlockReason
+                  }
+                  onChange={(event) =>
+                    setCustomBlockReason(
+                      event.target.value
+                    )
+                  }
+                />
+              ) : null}
+            </div>
+
+            {blockMode ===
+            "one-time" ? (
+              <div className="grid gap-4 sm:grid-cols-3 mt-6">
+                <div>
+                  <label className="block font-semibold mb-2">
+                    Date
+                  </label>
+
+                  <input
+                    type="date"
+                    className="w-full border border-emerald-200 rounded-xl p-3 bg-emerald-50"
+                    value={blockDate}
+                    onChange={(event) =>
+                      setBlockDate(
+                        event.target.value
+                      )
+                    }
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-semibold mb-2">
+                    Start
+                  </label>
+
+                  <input
+                    type="time"
+                    className="w-full border border-emerald-200 rounded-xl p-3 bg-emerald-50"
+                    value={
+                      blockStartTime
+                    }
+                    onChange={(event) =>
+                      setBlockStartTime(
+                        event.target.value
+                      )
+                    }
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-semibold mb-2">
+                    End
+                  </label>
+
+                  <input
+                    type="time"
+                    className="w-full border border-emerald-200 rounded-xl p-3 bg-emerald-50"
+                    value={blockEndTime}
+                    onChange={(event) =>
+                      setBlockEndTime(
+                        event.target.value
+                      )
+                    }
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="mt-6 space-y-5">
+                <div>
+                  <label className="block font-semibold mb-2">
+                    Repeats On
+                  </label>
+
+                  <div className="flex flex-wrap gap-2">
+                    {RECURRING_DAYS.map(
+                      (day) => {
+                        const selected =
+                          recurringDays.includes(
+                            day.value
+                          );
+
+                        return (
+                          <button
+                            key={
+                              day.value
+                            }
+                            type="button"
+                            onClick={() =>
+                              toggleRecurringDay(
+                                day.value
+                              )
+                            }
+                            className={`rounded-xl px-4 py-2 font-bold border ${
+                              selected
+                                ? "bg-emerald-700 text-white border-emerald-700"
+                                : "bg-white text-emerald-900 border-emerald-300"
+                            }`}
+                          >
+                            {
+                              day.label
+                            }
+                          </button>
+                        );
+                      }
+                    )}
+                  </div>
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-2">
                   <div>
-                    <label className="mb-1 block text-sm font-bold text-gray-800">
-                      Date
+                    <label className="block font-semibold mb-2">
+                      Starts
                     </label>
 
                     <input
                       type="date"
+                      className="w-full border border-emerald-200 rounded-xl p-3 bg-emerald-50"
                       value={
-                        blockDate
+                        recurringStartDate
                       }
                       onChange={(
                         event
                       ) =>
-                        setBlockDate(
+                        handleRecurringStartDateChange(
                           event.target
                             .value
                         )
                       }
-                      className="w-full rounded-xl border border-emerald-200 bg-white p-3"
                     />
                   </div>
-                ) : (
-                  <>
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <div>
-                        <label className="mb-1 block text-sm font-bold text-gray-800">
-                          Starts
-                        </label>
 
-                        <input
-                          type="date"
-                          value={
-                            recurringStartDate
-                          }
-                          onChange={(
-                            event
-                          ) =>
-                            handleRecurringStartDateChange(
-                              event.target
-                                .value
-                            )
-                          }
-                          className="w-full rounded-xl border border-emerald-200 bg-white p-3"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="mb-1 block text-sm font-bold text-gray-800">
-                          Ends
-                        </label>
-
-                        <input
-                          type="date"
-                          value={
-                            recurringEndDate
-                          }
-                          onChange={(
-                            event
-                          ) =>
-                            setRecurringEndDate(
-                              event.target
-                                .value
-                            )
-                          }
-                          className="w-full rounded-xl border border-emerald-200 bg-white p-3"
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="mb-2 block text-sm font-bold text-gray-800">
-                        Repeat on
-                      </label>
-
-                      <div className="flex flex-wrap gap-2">
-                        {RECURRING_DAYS.map(
-                          (day) => {
-                            const selected =
-                              recurringDays.includes(
-                                day.value
-                              );
-
-                            return (
-                              <button
-                                key={
-                                  day.value
-                                }
-                                type="button"
-                                onClick={() =>
-                                  toggleRecurringDay(
-                                    day.value
-                                  )
-                                }
-                                className={`rounded-xl border px-4 py-2 font-bold ${
-                                  selected
-                                    ? "border-emerald-700 bg-emerald-700 text-white"
-                                    : "border-gray-300 bg-white text-gray-700"
-                                }`}
-                              >
-                                {
-                                  day.label
-                                }
-                              </button>
-                            );
-                          }
-                        )}
-                      </div>
-                    </div>
-                  </>
-                )}
-
-                <div className="grid gap-4 sm:grid-cols-2">
                   <div>
-                    <label className="mb-1 block text-sm font-bold text-gray-800">
-                      Start time
+                    <label className="block font-semibold mb-2">
+                      Until
+                    </label>
+
+                    <input
+                      type="date"
+                      className="w-full border border-emerald-200 rounded-xl p-3 bg-emerald-50"
+                      value={
+                        recurringEndDate
+                      }
+                      onChange={(
+                        event
+                      ) =>
+                        setRecurringEndDate(
+                          event.target
+                            .value
+                        )
+                      }
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-semibold mb-2">
+                      Start
                     </label>
 
                     <input
                       type="time"
+                      className="w-full border border-emerald-200 rounded-xl p-3 bg-emerald-50"
                       value={
                         blockStartTime
                       }
@@ -2367,17 +3187,17 @@ export default function CalendarPage() {
                             .value
                         )
                       }
-                      className="w-full rounded-xl border border-emerald-200 bg-white p-3"
                     />
                   </div>
 
                   <div>
-                    <label className="mb-1 block text-sm font-bold text-gray-800">
-                      End time
+                    <label className="block font-semibold mb-2">
+                      End
                     </label>
 
                     <input
                       type="time"
+                      className="w-full border border-emerald-200 rounded-xl p-3 bg-emerald-50"
                       value={
                         blockEndTime
                       }
@@ -2389,171 +3209,245 @@ export default function CalendarPage() {
                             .value
                         )
                       }
-                      className="w-full rounded-xl border border-emerald-200 bg-white p-3"
                     />
                   </div>
-                </div>
-
-                <div>
-                  <label className="mb-1 block text-sm font-bold text-gray-800">
-                    Reason
-                  </label>
-
-                  <select
-                    value={
-                      blockReason
-                    }
-                    onChange={(
-                      event
-                    ) =>
-                      setBlockReason(
-                        event.target
-                          .value
-                      )
-                    }
-                    className="w-full rounded-xl border border-emerald-200 bg-white p-3"
-                  >
-                    {BLOCK_REASON_OPTIONS.map(
-                      (reason) => (
-                        <option
-                          key={
-                            reason
-                          }
-                          value={
-                            reason
-                          }
-                        >
-                          {reason}
-                        </option>
-                      )
-                    )}
-                  </select>
-                </div>
-
-                {blockReason ===
-                  "Other" && (
-                  <div>
-                    <label className="mb-1 block text-sm font-bold text-gray-800">
-                      Custom reason
-                    </label>
-
-                    <input
-                      type="text"
-                      value={
-                        customBlockReason
-                      }
-                      onChange={(
-                        event
-                      ) =>
-                        setCustomBlockReason(
-                          event.target
-                            .value
-                        )
-                      }
-                      placeholder="Reason"
-                      className="w-full rounded-xl border border-emerald-200 bg-white p-3"
-                    />
-                  </div>
-                )}
-
-                <div className="flex flex-wrap gap-2 pt-2">
-                  <button
-                    type="button"
-                    onClick={
-                      saveBlockedTime
-                    }
-                    disabled={
-                      savingBlock
-                    }
-                    className="rounded-xl bg-emerald-700 px-5 py-3 font-bold text-white shadow hover:bg-emerald-800 disabled:opacity-50"
-                  >
-                    {savingBlock
-                      ? "Saving..."
-                      : blockMode ===
-                          "recurring"
-                        ? "Create Recurring Block"
-                        : "Block Time"}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={
-                      closeBlockForm
-                    }
-                    disabled={
-                      savingBlock
-                    }
-                    className="rounded-xl bg-gray-200 px-5 py-3 font-bold text-gray-800 hover:bg-gray-300"
-                  >
-                    Cancel
-                  </button>
                 </div>
               </div>
-            </section>
-          )}
+            )}
 
-        {viewMode ===
-        "day" ? (
-          <section className="rounded-3xl border border-emerald-200 bg-white p-6 shadow-lg">
-            <h2 className="mb-4 text-2xl font-extrabold text-gray-950">
+            <div className="flex flex-wrap gap-3 mt-6">
+              <button
+                type="button"
+                onClick={
+                  saveBlockedTime
+                }
+                disabled={
+                  savingBlock
+                }
+                className="bg-emerald-700 text-white rounded-xl px-5 py-3 font-bold disabled:opacity-60"
+              >
+                {savingBlock
+                  ? "Saving..."
+                  : blockMode ===
+                      "recurring"
+                    ? "Save Recurring Block"
+                    : "Save Blocked Time"}
+              </button>
+
+              <button
+                type="button"
+                onClick={
+                  closeBlockForm
+                }
+                disabled={
+                  savingBlock
+                }
+                className="bg-gray-400 text-white rounded-xl px-5 py-3 font-bold disabled:opacity-60"
+              >
+                Cancel
+              </button>
+            </div>
+          </section>
+        ) : null}
+
+        <section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-emerald-200">
+          <h2 className="text-3xl font-bold mb-6 text-emerald-950">
+            Filters
+          </h2>
+
+          <div className="grid gap-4 sm:grid-cols-3">
+            <div>
+              <label className="block font-semibold mb-2">
+                View
+              </label>
+
+              <select
+                className="w-full border border-emerald-200 rounded-xl p-3 bg-emerald-50"
+                value={viewMode}
+                onChange={(event) =>
+                  setViewMode(
+                    event.target.value
+                  )
+                }
+              >
+                <option value="day">
+                  Day
+                </option>
+
+                <option value="week">
+                  Week
+                </option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block font-semibold mb-2">
+                Date
+              </label>
+
+              <input
+                type="date"
+                className="w-full border border-emerald-200 rounded-xl p-3 bg-emerald-50"
+                value={selectedDate}
+                onChange={(event) => {
+                  setSelectedDate(
+                    event.target.value
+                  );
+
+                  setShowAppointmentForm(
+                    false
+                  );
+
+                  setShowBlockForm(
+                    false
+                  );
+
+                  setMovingAppointmentId(
+                    ""
+                  );
+                }}
+              />
+            </div>
+
+            <div>
+              <label className="block font-semibold mb-2">
+                Staff
+              </label>
+
+              <select
+                className="w-full border border-emerald-200 rounded-xl p-3 bg-emerald-50"
+                value={
+                  selectedBarberId
+                }
+                onChange={(event) => {
+                  setSelectedBarberId(
+                    event.target.value
+                  );
+
+                  setShowAppointmentForm(
+                    false
+                  );
+
+                  setShowBlockForm(
+                    false
+                  );
+
+                  setMovingAppointmentId(
+                    ""
+                  );
+                }}
+              >
+                {barbers.map(
+                  (barber) => (
+                    <option
+                      key={barber.id}
+                      value={barber.id}
+                    >
+                      {barber.name}
+                    </option>
+                  )
+                )}
+              </select>
+            </div>
+          </div>
+        </section>
+
+        {loading ? (
+          <section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-emerald-200">
+            <p className="text-2xl font-bold">
+              Loading calendar...
+            </p>
+          </section>
+        ) : null}
+
+        {!loading &&
+        viewMode === "day" ? (
+          <section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-emerald-200">
+            <h2 className="text-3xl font-bold mb-2 text-emerald-950">
               Day View —{" "}
               {selectedBarber?.name ||
                 "Staff"}{" "}
               — {selectedDate}
             </h2>
 
-            <div className="space-y-2">
+            {canManageSelectedBarber ? (
+              <p className="text-gray-600 mb-6">
+                Click{" "}
+                <strong>
+                  + Appointment
+                </strong>{" "}
+                on an open hour to book
+                that time immediately.
+              </p>
+            ) : (
+              <div className="mb-6" />
+            )}
+
+            <div className="grid gap-3">
               {HOURS.map(
                 (hour) => {
-                  const appointmentItems =
+                  const appointmentsForHour =
                     appointmentItemsForHour(
                       hour
                     );
 
-                  const blockedItems =
+                  const blockedForHour =
                     blockedItemsForHour(
                       hour
                     );
 
-                  const hasItems =
-                    appointmentItems.length >
-                      0 ||
-                    blockedItems.length >
+                  const isOpen =
+                    appointmentsForHour.length ===
+                      0 &&
+                    blockedForHour.length ===
                       0;
 
                   return (
                     <div
-                      key={
-                        hour
-                      }
-                      className="rounded-xl border border-emerald-100 bg-emerald-50/40 p-3"
+                      key={hour}
+                      className="border border-emerald-100 rounded-2xl p-4 bg-emerald-50/50"
                     >
-                      <p className="mb-2 text-sm font-extrabold text-gray-900">
-                        {hour}
-                      </p>
+                      <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+                        <p className="font-bold text-emerald-950">
+                          {hour}
+                        </p>
 
-                      {!hasItems && (
-                        <p className="text-sm text-gray-500">
+                        {isOpen &&
+                        canManageSelectedBarber ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              openAppointmentForm(
+                                hour
+                              )
+                            }
+                            className="bg-blue-600 text-white rounded-lg px-3 py-2 text-sm font-bold hover:bg-blue-700"
+                          >
+                            + Appointment
+                          </button>
+                        ) : null}
+                      </div>
+
+                      {isOpen ? (
+                        <p className="text-gray-600">
                           Open
                         </p>
-                      )}
+                      ) : null}
 
-                      <div className="space-y-2">
-                        {blockedItems.map(
-                          (
-                            block
-                          ) =>
-                            renderBlockedTimeCard(
-                              block
-                            )
-                        )}
-
-                        {appointmentItems.map(
+                      <div className="grid gap-2">
+                        {appointmentsForHour.map(
                           (
                             appointment
                           ) =>
-                            renderAppointmentCard(
+                            appointmentCard(
                               appointment
+                            )
+                        )}
+
+                        {blockedForHour.map(
+                          (block) =>
+                            blockedTimeCard(
+                              block
                             )
                         )}
                       </div>
@@ -2563,96 +3457,92 @@ export default function CalendarPage() {
               )}
             </div>
           </section>
-        ) : (
-          <section className="rounded-3xl border border-emerald-200 bg-white p-6 shadow-lg">
-            <h2 className="mb-4 text-2xl font-extrabold text-gray-950">
+        ) : null}
+
+        {!loading &&
+        viewMode === "week" ? (
+          <section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-emerald-200">
+            <h2 className="text-3xl font-bold mb-6 text-emerald-950">
               Week View —{" "}
               {selectedBarber?.name ||
                 "Staff"}
             </h2>
 
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <div className="grid gap-4">
               {weekDates.map(
-                (date) => {
+                (
+                  date,
+                  index
+                ) => {
                   const items =
                     weekItemsForDate(
                       date
                     );
 
-                  const dateObject =
-                    new Date(
-                      `${date}T12:00:00`
-                    );
-
                   return (
                     <div
-                      key={
-                        date
-                      }
-                      className="rounded-2xl border border-emerald-200 bg-emerald-50/40 p-4"
+                      key={date}
+                      className="border border-emerald-100 rounded-2xl p-4 bg-emerald-50/50"
                     >
-                      <div className="mb-3">
-                        <p className="font-extrabold text-gray-950">
-                          {
-                            DAYS[
-                              dateObject.getDay()
-                            ]
-                          }
-                        </p>
-
-                        <p className="text-sm text-gray-600">
+                      <div className="flex flex-wrap justify-between items-center gap-3 mb-3">
+                        <h3 className="text-xl font-bold text-emerald-950">
+                          {DAYS[index]} —{" "}
                           {date}
-                        </p>
+                        </h3>
+
+                        {canManageSelectedBarber ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedDate(
+                                date
+                              );
+
+                              setViewMode(
+                                "day"
+                              );
+
+                              setAppointmentDate(
+                                date
+                              );
+
+                              openAppointmentForm();
+                            }}
+                            className="bg-blue-600 text-white rounded-lg px-3 py-2 text-sm font-bold hover:bg-blue-700"
+                          >
+                            + Appointment
+                          </button>
+                        ) : null}
                       </div>
 
                       {items.length ===
                       0 ? (
-                        <p className="text-sm text-gray-500">
-                          No appointments or blocked time.
+                        <p className="text-gray-600">
+                          No appointments
+                          or blocked time.
                         </p>
-                      ) : (
-                        <div className="space-y-2">
-                          {items.map(
-                            (
-                              item
-                            ) => {
-                              if (
-                                item.type ===
-                                "blocked"
-                              ) {
-                                return renderBlockedTimeCard(
-                                  item.data
-                                );
-                              }
+                      ) : null}
 
-                              return renderAppointmentCard(
-                                item.data
-                              );
-                            }
-                          )}
-                        </div>
-                      )}
+                      <div className="grid gap-2">
+                        {items.map(
+                          (item) =>
+                            item.type ===
+                            "appointment"
+                              ? appointmentCard(
+                                  item.data
+                                )
+                              : blockedTimeCard(
+                                  item.data
+                                )
+                        )}
+                      </div>
                     </div>
                   );
                 }
               )}
             </div>
           </section>
-        )}
-
-        <div className="pb-4">
-          <button
-            type="button"
-            onClick={() =>
-              router.push(
-                `/${shopSlug}/admin`
-              )
-            }
-            className="rounded-xl bg-blue-600 px-5 py-3 font-bold text-white shadow hover:bg-blue-700"
-          >
-            Admin Home
-          </button>
-        </div>
+        ) : null}
       </div>
     </main>
   );
