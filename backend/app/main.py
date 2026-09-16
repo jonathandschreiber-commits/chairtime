@@ -170,6 +170,19 @@ def run_startup_migrations():
                 )
             )
 
+            # Controls whether staff may manage appointments
+            # assigned to other staff members.
+            conn.execute(
+                text(
+                    """
+                    ALTER TABLE shops
+                    ADD COLUMN IF NOT EXISTS
+                    staff_can_manage_other_staff_appointments BOOLEAN
+                    NOT NULL DEFAULT FALSE
+                    """
+                )
+            )
+
             conn.execute(
                 text(
                     """
@@ -398,6 +411,15 @@ def run_startup_migrations():
                 "VARCHAR NOT NULL DEFAULT 'none'",
             )
 
+            # Controls whether staff may manage appointments
+            # assigned to other staff members.
+            add_sqlite_column_if_missing(
+                conn,
+                "shops",
+                "staff_can_manage_other_staff_appointments",
+                "BOOLEAN NOT NULL DEFAULT 0",
+            )
+
             add_sqlite_column_if_missing(
                 conn,
                 "shops",
@@ -526,10 +548,10 @@ def run_startup_migrations():
                 )
             )
 
-
 Base.metadata.create_all(
     bind=engine
 )
+
 
 run_startup_migrations()
 
@@ -554,11 +576,13 @@ app.include_router(
     tags=["Authentication"],
 )
 
+
 app.include_router(
     billing_router,
     prefix="/api/billing",
     tags=["Billing"],
 )
+
 
 app.include_router(
     account_router,
@@ -566,11 +590,13 @@ app.include_router(
     tags=["Account"],
 )
 
+
 app.include_router(
     ai_setup_router,
     prefix="/api/ai-setup",
     tags=["AI Setup"],
 )
+
 
 app.include_router(
     customer_verification_router,
@@ -578,66 +604,79 @@ app.include_router(
     tags=["Customer Verification"],
 )
 
+
 app.include_router(
     team_router,
     prefix="/api/team",
     tags=["Team"],
 )
 
+
 app.include_router(
     barbers_router,
     prefix="/api",
 )
+
 
 app.include_router(
     services_router,
     prefix="/api",
 )
 
+
 app.include_router(
     shops_router,
     prefix="/api",
 )
+
 
 app.include_router(
     availability_router,
     prefix="/api",
 )
 
+
 app.include_router(
     shop_availability_router,
     prefix="/api",
 )
+
 
 app.include_router(
     blocked_times_router,
     prefix="/api",
 )
 
+
 app.include_router(
     shop_blocked_times_router,
     prefix="/api",
 )
+
 
 app.include_router(
     appointments_router,
     prefix="/api",
 )
 
+
 app.include_router(
     customers_router,
     prefix="/api",
 )
+
 
 app.include_router(
     reminders_router,
     prefix="/api",
 )
 
+
 app.include_router(
     migration_router,
     prefix="/api",
 )
+
 
 app.include_router(
     voice_router,
