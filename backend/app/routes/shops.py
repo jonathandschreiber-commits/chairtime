@@ -25,7 +25,7 @@ def normalize_slug(value: str) -> str:
     return slug
 
 
-def require_owner_for_shop(
+def require_shop_access(
     shop_slug: str,
     current_user: User,
 ) -> str:
@@ -46,6 +46,26 @@ def require_owner_for_shop(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You do not have access to this business.",
         )
+
+    role = str(current_user.role or "").strip().lower()
+
+    if role not in {"owner", "staff"}:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have access to this business.",
+        )
+
+    return clean_slug
+
+
+def require_owner_for_shop(
+    shop_slug: str,
+    current_user: User,
+) -> str:
+    clean_slug = require_shop_access(
+        shop_slug,
+        current_user,
+    )
 
     role = str(current_user.role or "").strip().lower()
 
@@ -195,7 +215,7 @@ def get_staff_appointment_permission(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    clean_slug = require_owner_for_shop(
+    clean_slug = require_shop_access(
         shop_slug,
         current_user,
     )
