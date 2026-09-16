@@ -148,6 +148,49 @@ def require_appointment_modify_permission(
         )
 
 
+def require_appointment_create_permission(
+    current_user: User,
+    barber_id: str,
+) -> None:
+    role = str(
+        current_user.role or ""
+    ).strip().lower()
+
+    if role == "owner":
+        return
+
+    if role != "staff":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "You do not have permission "
+                "to create appointments."
+            ),
+        )
+
+    current_user_barber_id = str(
+        current_user.barber_id or ""
+    ).strip()
+
+    if not current_user_barber_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Your staff login is not linked "
+                "to a service provider."
+            ),
+        )
+
+    if str(barber_id or "").strip() != current_user_barber_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Employees may create appointments "
+                "only for themselves."
+            ),
+        )
+
+
 def parse_datetime(value: str) -> datetime:
     try:
         return datetime.fromisoformat(value)
@@ -418,6 +461,175 @@ def verify_booking_setup_intent(
     )
 
 
+def verify_new_appointment_conflicts(
+    db: Session,
+    shop_slug: str,
+    barber_id: str,
+    start_datetime: datetime,
+    end_datetime: datetime,
+) -> None:
+    appointment_conflict = (
+        db.query(Appointment)
+        .filter(
+            Appointment.shop_slug == shop_slug,
+            Appointment.barber_id == barber_id,
+            Appointment.status != "canceled",
+            Appointment.start_datetime < end_datetime,
+            Appointment.end_datetime > start_datetime,
+        )
+        .first()
+    )
+
+    if appointment_conflict:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="That time is already booked.",
+        )
+
+    blocked_conflict = (
+        db.query(BlockedTime)
+        .filter(
+            BlockedTime.shop_slug == shop_slug,
+            BlockedTime.barber_id == barber_id,
+            BlockedTime.start_datetime < end_datetime,
+            BlockedTime.end_datetime > start_datetime,
+        )
+        .first()
+    )
+
+    if blocked_conflict:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="That time is blocked.",
+        )
+
+
+def send_appointment_confirmation(
+    appointment: Appointment,
+    barber: Barber,
+) -> None:
+    customer_phone = str(
+        appointment.customer_phone or ""
+    ).strip()
+
+    if not customer_phone:
+        return
+
+    confirmation_message = (
+        f"You're booked with {barber.name} "
+        f"on "
+        f"{appointment.start_datetime.strftime('%A, %B %d at %I:%M %p')}. "
+        "Reply STOP to unsubscribe."
+    )
+
+    sms_result = send_highlevel_sms(
+        customer_phone,
+        confirmation_message,
+    )
+
+    if not sms_result.get("success"):
+        print(
+            "Confirmation SMS first attempt failed:",
+            sms_result,
+        )
+
+        sms_result = send_highlevel_sms(
+            customer_phone,
+            confirmation_message,
+        )
+
+        if not sms_result.get("success"):
+            print(
+                "Confirmation SMS retry failed:",
+                sms_result,
+            )
+
+
+def save_new_appointment(
+    db: Session,
+    shop_slug: str,
+    barber: Barber,
+    service: Service,
+    payload: AppointmentCreate,
+    stripe_customer_id: str | None = None,
+    stripe_setup_intent_id: str | None = None,
+    stripe_payment_method_id: str | None = None,
+) -> Appointment:
+    customer_name = str(
+        payload.customer_name or ""
+    ).strip()
+
+    customer_phone = str(
+        payload.customer_phone or ""
+    ).strip()
+
+    if not customer_name:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Customer name is required.",
+        )
+
+    if not customer_phone:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Customer phone number is required.",
+        )
+
+    end_datetime = calculate_appointment_end(
+        payload.start_datetime,
+        service,
+    )
+
+    verify_new_appointment_conflicts(
+        db,
+        shop_slug,
+        str(barber.id),
+        payload.start_datetime,
+        end_datetime,
+    )
+
+    appointment = Appointment(
+        shop_slug=shop_slug,
+        barber_id=barber.id,
+        service_id=service.id,
+        customer_name=customer_name,
+        customer_phone=customer_phone,
+        customer_tags=payload.customer_tags,
+        customer_notes=payload.customer_notes,
+        notes=payload.notes,
+        start_datetime=payload.start_datetime,
+        end_datetime=end_datetime,
+        stripe_customer_id=stripe_customer_id,
+        stripe_setup_intent_id=stripe_setup_intent_id,
+        stripe_payment_method_id=stripe_payment_method_id,
+    )
+
+    db.add(appointment)
+
+    try:
+        db.commit()
+        db.refresh(appointment)
+    except Exception:
+        db.rollback()
+
+        raise HTTPException(
+            status_code=(
+                status.HTTP_500_INTERNAL_SERVER_ERROR
+            ),
+            detail=(
+                "The appointment could not "
+                "be created."
+            ),
+        )
+
+    send_appointment_confirmation(
+        appointment,
+        barber,
+    )
+
+    return appointment
+
+
 @router.post("/appointments")
 def create_appointment(
     payload: AppointmentCreate,
@@ -475,44 +687,6 @@ def create_appointment(
             detail="Staff member not found.",
         )
 
-    end_datetime = calculate_appointment_end(
-        payload.start_datetime,
-        service,
-    )
-
-    overlap = has_overlap(
-        db,
-        payload.barber_id,
-        payload.start_datetime,
-        end_datetime,
-    )
-
-    if overlap:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Time slot already booked.",
-        )
-
-    blocked_conflict = (
-        db.query(BlockedTime)
-        .filter(
-            BlockedTime.shop_slug == shop_slug,
-            BlockedTime.barber_id
-            == payload.barber_id,
-            BlockedTime.start_datetime
-            < end_datetime,
-            BlockedTime.end_datetime
-            > payload.start_datetime,
-        )
-        .first()
-    )
-
-    if blocked_conflict:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="That time is blocked.",
-        )
-
     (
         stripe_customer_id,
         stripe_setup_intent_id,
@@ -522,78 +696,80 @@ def create_appointment(
         payload.stripe_setup_intent_id,
     )
 
-    appointment = Appointment(
+    return save_new_appointment(
+        db=db,
         shop_slug=shop_slug,
-        barber_id=payload.barber_id,
-        service_id=payload.service_id,
-        customer_name=payload.customer_name.strip(),
-        customer_phone=(
-            payload.customer_phone.strip()
-        ),
-        customer_tags=payload.customer_tags,
-        customer_notes=payload.customer_notes,
-        notes=payload.notes,
-        start_datetime=payload.start_datetime,
-        end_datetime=end_datetime,
-        stripe_customer_id=(
-            stripe_customer_id
-        ),
-        stripe_setup_intent_id=(
-            stripe_setup_intent_id
-        ),
-        stripe_payment_method_id=(
-            stripe_payment_method_id
-        ),
+        barber=barber,
+        service=service,
+        payload=payload,
+        stripe_customer_id=stripe_customer_id,
+        stripe_setup_intent_id=stripe_setup_intent_id,
+        stripe_payment_method_id=stripe_payment_method_id,
     )
 
-    db.add(appointment)
 
-    try:
-        db.commit()
-        db.refresh(appointment)
-    except Exception:
-        db.rollback()
+@router.post("/admin/appointments")
+def create_admin_appointment(
+    payload: AppointmentCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    shop_slug = require_user_shop_slug(
+        current_user
+    )
 
+    barber_id = str(
+        payload.barber_id or ""
+    ).strip()
+
+    if not barber_id:
         raise HTTPException(
-            status_code=(
-                status.HTTP_500_INTERNAL_SERVER_ERROR
-            ),
-            detail=(
-                "The appointment could not "
-                "be created."
-            ),
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Staff member is required.",
         )
 
-    confirmation_message = (
-        f"You're booked with {barber.name} "
-        f"on "
-        f"{appointment.start_datetime.strftime('%A, %B %d at %I:%M %p')}. "
-        "Reply STOP to unsubscribe."
+    require_appointment_create_permission(
+        current_user,
+        barber_id,
     )
 
-    sms_result = send_highlevel_sms(
-        appointment.customer_phone,
-        confirmation_message,
+    barber = (
+        db.query(Barber)
+        .filter(
+            Barber.id == barber_id,
+            Barber.shop_slug == shop_slug,
+        )
+        .first()
     )
 
-    if not sms_result.get("success"):
-        print(
-            "Confirmation SMS first attempt failed:",
-            sms_result,
+    if not barber:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Staff member not found.",
         )
 
-        sms_result = send_highlevel_sms(
-            appointment.customer_phone,
-            confirmation_message,
+    service = (
+        db.query(Service)
+        .filter(
+            Service.id == payload.service_id,
+            Service.shop_slug == shop_slug,
+        )
+        .first()
+    )
+
+    if not service:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Service not found.",
         )
 
-        if not sms_result.get("success"):
-            print(
-                "Confirmation SMS retry failed:",
-                sms_result,
-            )
-
-    return appointment
+    return save_new_appointment(
+        db=db,
+        shop_slug=shop_slug,
+        barber=barber,
+        service=service,
+        payload=payload,
+    )
 
 
 @router.get("/appointments")
@@ -637,7 +813,6 @@ def list_admin_appointments(
         )
         .all()
     )
-
 
 @router.patch(
     "/appointments/{appointment_id}/cancel"
@@ -705,6 +880,7 @@ def update_appointment_status(
     db.refresh(appointment)
 
     return appointment
+
 
 @router.patch(
     "/admin/appointments/{appointment_id}/status"
