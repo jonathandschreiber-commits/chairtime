@@ -145,6 +145,11 @@ export default function CalendarPage() {
   const shopSlug = params.shop;
 
   const [
+    currentUser,
+    setCurrentUser,
+  ] = useState(null);
+
+  const [
     appointments,
     setAppointments,
   ] = useState([]);
@@ -293,6 +298,65 @@ export default function CalendarPage() {
     setLoading,
   ] = useState(true);
 
+  const currentUserRole = String(
+    currentUser?.role || ""
+  )
+    .trim()
+    .toLowerCase();
+
+  const isOwner =
+    currentUserRole === "owner";
+
+  const isStaff =
+    currentUserRole === "staff";
+
+  const currentUserBarberId =
+    String(
+      currentUser?.barber_id || ""
+    ).trim();
+
+  function canManageBarber(
+    barberId
+  ) {
+    if (isOwner) {
+      return true;
+    }
+
+    if (!isStaff) {
+      return false;
+    }
+
+    if (!currentUserBarberId) {
+      return false;
+    }
+
+    return (
+      String(barberId || "") ===
+      currentUserBarberId
+    );
+  }
+
+  function canModifyAppointment(
+    appointment
+  ) {
+    return canManageBarber(
+      appointment?.barber_id
+    );
+  }
+
+  function canModifyBlockedTime(
+    block
+  ) {
+    return canManageBarber(
+      block?.barber_id
+    );
+  }
+
+  const canManageSelectedBarber =
+    canManageBarber(
+      selectedBarberId
+    );
+
   const loadData =
     useCallback(async () => {
       setLoading(true);
@@ -300,9 +364,22 @@ export default function CalendarPage() {
 
       try {
         const [
+          meResponse,
           agendaResponse,
           blockedResponse,
         ] = await Promise.all([
+          fetch(
+            "/api/auth/me",
+            {
+              method: "GET",
+              headers: {
+                Accept:
+                  "application/json",
+              },
+              cache: "no-store",
+            }
+          ),
+
           fetch(
             "/api/admin/agenda",
             {
@@ -329,10 +406,9 @@ export default function CalendarPage() {
         ]);
 
         if (
-          agendaResponse.status ===
-            401 ||
-          blockedResponse.status ===
-            401
+          meResponse.status === 401 ||
+          agendaResponse.status === 401 ||
+          blockedResponse.status === 401
         ) {
           router.replace(
             `/login?next=${encodeURIComponent(
@@ -343,15 +419,27 @@ export default function CalendarPage() {
           return;
         }
 
+        const meData =
+          await meResponse.json();
+
         const agendaData =
           await agendaResponse.json();
 
         const blockedData =
           await blockedResponse.json();
 
+        if (!meResponse.ok) {
+          throw new Error(
+            meData?.error ||
+              meData?.detail ||
+              "Your account information could not be loaded."
+          );
+        }
+
         if (!agendaResponse.ok) {
           throw new Error(
             agendaData?.error ||
+              agendaData?.detail ||
               "Calendar data could not be loaded."
           );
         }
@@ -359,8 +447,21 @@ export default function CalendarPage() {
         if (!blockedResponse.ok) {
           throw new Error(
             blockedData?.error ||
+              blockedData?.detail ||
               "Blocked times could not be loaded."
           );
+        }
+
+        if (
+          meData.shop_slug &&
+          meData.shop_slug !==
+            shopSlug
+        ) {
+          router.replace(
+            `/${meData.shop_slug}/admin/calendar`
+          );
+
+          return;
         }
 
         if (
@@ -377,6 +478,22 @@ export default function CalendarPage() {
 
         const loadedBarbers =
           agendaData.barbers || [];
+
+        const loadedRole =
+          String(
+            meData?.role || ""
+          )
+            .trim()
+            .toLowerCase();
+
+        const loadedBarberId =
+          String(
+            meData?.barber_id || ""
+          ).trim();
+
+        setCurrentUser(
+          meData
+        );
 
         setAppointments(
           agendaData.appointments ||
@@ -407,6 +524,18 @@ export default function CalendarPage() {
               )
             ) {
               return currentValue;
+            }
+
+            if (
+              loadedRole === "staff" &&
+              loadedBarberId &&
+              loadedBarbers.some(
+                (barber) =>
+                  barber.id ===
+                  loadedBarberId
+              )
+            ) {
+              return loadedBarberId;
             }
 
             return (
@@ -497,6 +626,18 @@ export default function CalendarPage() {
   function startMove(
     appointment
   ) {
+    if (
+      !canModifyAppointment(
+        appointment
+      )
+    ) {
+      setError(
+        "Employees may modify only their own appointments."
+      );
+
+      return;
+    }
+
     setMovingAppointmentId(
       appointment.id
     );
@@ -529,6 +670,25 @@ export default function CalendarPage() {
   async function saveMove(
     appointmentId
   ) {
+    const appointment =
+      appointments.find(
+        (item) =>
+          item.id === appointmentId
+      );
+
+    if (
+      !appointment ||
+      !canModifyAppointment(
+        appointment
+      )
+    ) {
+      setError(
+        "Employees may modify only their own appointments."
+      );
+
+      return;
+    }
+
     if (
       !moveDate ||
       !moveTime ||
@@ -611,6 +771,25 @@ export default function CalendarPage() {
     appointmentId,
     appointmentStatus
   ) {
+    const appointment =
+      appointments.find(
+        (item) =>
+          item.id === appointmentId
+      );
+
+    if (
+      !appointment ||
+      !canModifyAppointment(
+        appointment
+      )
+    ) {
+      setError(
+        "Employees may modify only their own appointments."
+      );
+
+      return;
+    }
+
     setMessage("");
     setError("");
 
@@ -672,6 +851,16 @@ export default function CalendarPage() {
   }
 
   function openBlockForm() {
+    if (
+      !canManageSelectedBarber
+    ) {
+      setError(
+        "Employees may block time only on their own schedule."
+      );
+
+      return;
+    }
+
     setBlockMode(
       "one-time"
     );
@@ -718,7 +907,6 @@ export default function CalendarPage() {
     setError("");
   }
 
-
   function closeBlockForm() {
     setShowBlockForm(
       false
@@ -730,7 +918,6 @@ export default function CalendarPage() {
 
     setError("");
   }
-
 
   function toggleRecurringDay(
     dayValue
@@ -758,7 +945,6 @@ export default function CalendarPage() {
     );
   }
 
-
   function handleRecurringStartDateChange(
     nextDate
   ) {
@@ -783,7 +969,6 @@ export default function CalendarPage() {
     );
   }
 
-
   function finalBlockReason() {
     return blockReason ===
       "Other"
@@ -791,8 +976,19 @@ export default function CalendarPage() {
       : blockReason;
   }
 
-
   async function saveOneTimeBlockedTime() {
+    if (
+      !canManageBarber(
+        selectedBarberId
+      )
+    ) {
+      setError(
+        "Employees may block time only on their own schedule."
+      );
+
+      return false;
+    }
+
     const reason =
       finalBlockReason();
 
@@ -871,8 +1067,19 @@ export default function CalendarPage() {
     return true;
   }
 
-
   async function saveRecurringBlockedTime() {
+    if (
+      !canManageBarber(
+        selectedBarberId
+      )
+    ) {
+      setError(
+        "Employees may block time only on their own schedule."
+      );
+
+      return false;
+    }
+
     const reason =
       finalBlockReason();
 
@@ -969,8 +1176,19 @@ export default function CalendarPage() {
     return true;
   }
 
-
   async function saveBlockedTime() {
+    if (
+      !canManageBarber(
+        selectedBarberId
+      )
+    ) {
+      setError(
+        "Employees may block time only on their own schedule."
+      );
+
+      return;
+    }
+
     if (
       !selectedBarberId ||
       !blockStartTime ||
@@ -1029,11 +1247,30 @@ export default function CalendarPage() {
     }
   }
 
-
   async function deleteBlockedTime(
     blockedTimeId
   ) {
     if (deletingBlockId) {
+      return;
+    }
+
+    const block =
+      blockedTimes.find(
+        (item) =>
+          item.id ===
+          blockedTimeId
+      );
+
+    if (
+      !block ||
+      !canModifyBlockedTime(
+        block
+      )
+    ) {
+      setError(
+        "Employees may modify blocked time only on their own schedule."
+      );
+
       return;
     }
 
@@ -1108,7 +1345,6 @@ export default function CalendarPage() {
     }
   }
 
-
   async function deleteBlockedTimeSeries(
     seriesId
   ) {
@@ -1116,6 +1352,29 @@ export default function CalendarPage() {
       !seriesId ||
       deletingSeriesId
     ) {
+      return;
+    }
+
+    const seriesBlocks =
+      blockedTimes.filter(
+        (block) =>
+          block.series_id ===
+          seriesId
+      );
+
+    if (
+      seriesBlocks.length === 0 ||
+      seriesBlocks.some(
+        (block) =>
+          !canModifyBlockedTime(
+            block
+          )
+      )
+    ) {
+      setError(
+        "Employees may modify blocked time only on their own schedule."
+      );
+
       return;
     }
 
@@ -1193,14 +1452,12 @@ export default function CalendarPage() {
     }
   }
 
-
   const selectedBarber =
     barbers.find(
       (barber) =>
         barber.id ===
         selectedBarberId
     );
-
 
   const dayAppointments =
     useMemo(() => {
@@ -1232,7 +1489,6 @@ export default function CalendarPage() {
       selectedDate,
     ]);
 
-
   const dayBlockedTimes =
     useMemo(() => {
       return blockedTimes
@@ -1263,7 +1519,6 @@ export default function CalendarPage() {
       selectedDate,
     ]);
 
-
   const weekDates =
     useMemo(
       () =>
@@ -1272,7 +1527,6 @@ export default function CalendarPage() {
         ),
       [selectedDate]
     );
-
 
   function appointmentItemsForHour(
     hourText
@@ -1290,7 +1544,6 @@ export default function CalendarPage() {
     );
   }
 
-
   function blockedItemsForHour(
     hourText
   ) {
@@ -1306,7 +1559,6 @@ export default function CalendarPage() {
         ).getHours() === hour
     );
   }
-
 
   function weekItemsForDate(
     date
@@ -1381,227 +1633,261 @@ export default function CalendarPage() {
     );
   }
 
-  function appointmentCard(
+  function renderAppointmentCard(
     appointment
   ) {
+    const canModify =
+      canModifyAppointment(
+        appointment
+      );
+
     const isMoving =
       movingAppointmentId ===
       appointment.id;
 
-    const statusStyle =
-      STATUS_STYLES[
-        appointment.status
-      ] ||
-      STATUS_STYLES.confirmed;
-
-    const statusLabel =
-      STATUS_LABELS[
-        appointment.status
-      ] || "Confirmed";
+    const status =
+      appointment.status ||
+      "confirmed";
 
     return (
       <div
         key={appointment.id}
-        className={`rounded-2xl p-4 border shadow-sm ${statusStyle}`}
+        className={`rounded-xl border p-3 ${
+          STATUS_STYLES[status] ||
+          STATUS_STYLES.confirmed
+        }`}
       >
-        <div className="flex justify-between gap-3 items-start">
+        <div className="flex flex-col gap-3">
           <div>
-            <p className="font-bold text-lg">
-              {formatTime(
-                appointment.start_datetime
-              )}{" "}
-              ·{" "}
-              <button
-                type="button"
-                onClick={() =>
-                  router.push(
-                    `/${shopSlug}/admin/customers?phone=${encodeURIComponent(
-                      appointment.customer_phone
-                    )}`
-                  )
-                }
-                className="font-bold text-blue-700 underline hover:text-blue-900"
-              >
-                {
-                  appointment.customer_name
-                }
-              </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="font-extrabold text-gray-950">
+                {formatTime(
+                  appointment.start_datetime
+                )}
+              </p>
+
+              <span className="rounded-full bg-white/70 px-2 py-1 text-xs font-bold text-gray-700">
+                {STATUS_LABELS[
+                  status
+                ] || status}
+              </span>
+            </div>
+
+            <p className="mt-1 font-bold text-gray-900">
+              {appointment.customer_name ||
+                "Customer"}
             </p>
 
-            <p className="text-gray-900">
+            <p className="text-sm text-gray-700">
               {serviceName(
                 appointment.service_id
               )}
             </p>
 
-            <p className="text-gray-900">
-              {
-                appointment.customer_phone
-              }
-            </p>
-
-            {appointment.notes ? (
-              <div className="mt-3 rounded-xl bg-white border p-3 text-gray-900">
-                <p className="font-bold">
-                  Notes
-                </p>
-
-                <p>
-                  {
-                    appointment.notes
-                  }
-                </p>
-              </div>
-            ) : null}
+            {appointment.customer_phone && (
+              <p className="mt-1 text-sm text-gray-600">
+                {
+                  appointment.customer_phone
+                }
+              </p>
+            )}
           </div>
 
-          <span className="font-bold text-sm bg-white border rounded-full px-3 py-1">
-            {statusLabel}
-          </span>
+          {canModify && (
+            <>
+              {isMoving ? (
+                <div className="rounded-xl border border-blue-200 bg-white p-3 space-y-3">
+                  <p className="font-bold text-gray-900">
+                    Move appointment
+                  </p>
+
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div>
+                      <label className="mb-1 block text-xs font-bold text-gray-700">
+                        Date
+                      </label>
+
+                      <input
+                        type="date"
+                        value={
+                          moveDate
+                        }
+                        onChange={(
+                          event
+                        ) =>
+                          setMoveDate(
+                            event.target
+                              .value
+                          )
+                        }
+                        className="w-full rounded-lg border border-gray-300 bg-white p-2"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="mb-1 block text-xs font-bold text-gray-700">
+                        Time
+                      </label>
+
+                      <input
+                        type="time"
+                        value={
+                          moveTime
+                        }
+                        onChange={(
+                          event
+                        ) =>
+                          setMoveTime(
+                            event.target
+                              .value
+                          )
+                        }
+                        className="w-full rounded-lg border border-gray-300 bg-white p-2"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        saveMove(
+                          appointment.id
+                        )
+                      }
+                      disabled={
+                        savingMove
+                      }
+                      className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-bold text-white hover:bg-blue-700 disabled:opacity-50"
+                    >
+                      {savingMove
+                        ? "Saving..."
+                        : "Save Move"}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={
+                        cancelMove
+                      }
+                      disabled={
+                        savingMove
+                      }
+                      className="rounded-lg bg-gray-200 px-3 py-2 text-sm font-bold text-gray-800 hover:bg-gray-300"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      startMove(
+                        appointment
+                      )
+                    }
+                    className="rounded-lg bg-white px-3 py-2 text-sm font-bold text-blue-700 shadow-sm hover:bg-blue-50"
+                  >
+                    Move
+                  </button>
+
+                  {status !==
+                    "confirmed" && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        updateAppointmentStatus(
+                          appointment.id,
+                          "confirmed"
+                        )
+                      }
+                      className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-bold text-white hover:bg-blue-700"
+                    >
+                      Confirm
+                    </button>
+                  )}
+
+                  {status !==
+                    "completed" && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        updateAppointmentStatus(
+                          appointment.id,
+                          "completed"
+                        )
+                      }
+                      className="rounded-lg bg-green-600 px-3 py-2 text-sm font-bold text-white hover:bg-green-700"
+                    >
+                      Complete
+                    </button>
+                  )}
+
+                  {status !==
+                    "no_show" && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        updateAppointmentStatus(
+                          appointment.id,
+                          "no_show"
+                        )
+                      }
+                      className="rounded-lg bg-yellow-500 px-3 py-2 text-sm font-bold text-gray-950 hover:bg-yellow-600"
+                    >
+                      No-show
+                    </button>
+                  )}
+
+                  {status !==
+                    "canceled" && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        updateAppointmentStatus(
+                          appointment.id,
+                          "canceled"
+                        )
+                      }
+                      className="rounded-lg bg-red-600 px-3 py-2 text-sm font-bold text-white hover:bg-red-700"
+                    >
+                      Cancel Appointment
+                    </button>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+
+          {!canModify &&
+            isStaff && (
+              <p className="text-xs font-semibold text-gray-500">
+                View only — this appointment belongs to another staff member.
+              </p>
+            )}
         </div>
-
-        {!isMoving ? (
-          <div className="flex flex-wrap gap-2 mt-4">
-            <button
-              type="button"
-              onClick={() =>
-                startMove(
-                  appointment
-                )
-              }
-              className="bg-purple-600 text-white px-3 py-2 rounded-xl text-sm font-semibold"
-            >
-              Move
-            </button>
-
-            <button
-              type="button"
-              onClick={() =>
-                updateAppointmentStatus(
-                  appointment.id,
-                  "confirmed"
-                )
-              }
-              className="bg-blue-500 text-white px-3 py-2 rounded-xl text-sm font-semibold"
-            >
-              Confirm
-            </button>
-
-            <button
-              type="button"
-              onClick={() =>
-                updateAppointmentStatus(
-                  appointment.id,
-                  "completed"
-                )
-              }
-              className="bg-green-600 text-white px-3 py-2 rounded-xl text-sm font-semibold"
-            >
-              Complete
-            </button>
-
-            <button
-              type="button"
-              onClick={() =>
-                updateAppointmentStatus(
-                  appointment.id,
-                  "no_show"
-                )
-              }
-              className="bg-yellow-500 text-white px-3 py-2 rounded-xl text-sm font-semibold"
-            >
-              No-show
-            </button>
-
-            <button
-              type="button"
-              onClick={() =>
-                updateAppointmentStatus(
-                  appointment.id,
-                  "canceled"
-                )
-              }
-              className="bg-red-500 text-white px-3 py-2 rounded-xl text-sm font-semibold"
-            >
-              Cancel
-            </button>
-          </div>
-        ) : (
-          <div className="mt-4 bg-white rounded-xl border p-4">
-            <p className="font-bold mb-3">
-              Move this appointment
-            </p>
-
-            <div className="grid gap-3 sm:grid-cols-3">
-              <input
-                type="date"
-                className="border rounded-xl p-3"
-                value={moveDate}
-                onChange={(event) =>
-                  setMoveDate(
-                    event.target.value
-                  )
-                }
-              />
-
-              <input
-                type="time"
-                className="border rounded-xl p-3"
-                value={moveTime}
-                onChange={(event) =>
-                  setMoveTime(
-                    event.target.value
-                  )
-                }
-              />
-
-              <button
-                type="button"
-                onClick={() =>
-                  saveMove(
-                    appointment.id
-                  )
-                }
-                disabled={savingMove}
-                className="bg-black text-white rounded-xl px-4 py-3 font-semibold disabled:opacity-60"
-              >
-                {savingMove
-                  ? "Moving..."
-                  : "Save Move"}
-              </button>
-            </div>
-
-            <button
-              type="button"
-              onClick={cancelMove}
-              disabled={savingMove}
-              className="mt-3 bg-gray-400 text-white px-4 py-2 rounded-xl font-semibold disabled:opacity-60"
-            >
-              Cancel Move
-            </button>
-          </div>
-        )}
       </div>
     );
   }
 
-
-  function blockedTimeCard(
+  function renderBlockedTimeCard(
     block
   ) {
-    const recurring =
-      Boolean(
-        block.series_id
+    const canModify =
+      canModifyBlockedTime(
+        block
       );
 
     return (
       <div
         key={block.id}
-        className="rounded-2xl p-4 bg-slate-100 border border-slate-300"
+        className="rounded-xl border border-gray-300 bg-gray-100 p-3"
       >
-        <div className="flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-start">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <p className="font-bold">
+            <p className="font-extrabold text-gray-900">
               {formatTime(
                 block.start_datetime
               )}{" "}
@@ -1611,92 +1897,113 @@ export default function CalendarPage() {
               )}
             </p>
 
-            <p className="text-gray-900">
-              Blocked: {block.reason}
+            <p className="mt-1 font-bold text-gray-800">
+              {block.reason ||
+                "Blocked"}
             </p>
 
-            {recurring ? (
-              <p className="text-sm font-semibold mt-1 text-emerald-800">
-                Repeats weekly
+            {block.series_id && (
+              <p className="mt-1 text-xs font-semibold text-gray-500">
+                Recurring blocked time
               </p>
-            ) : null}
+            )}
           </div>
 
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() =>
-                deleteBlockedTime(
-                  block.id
-                )
-              }
-              disabled={
-                deletingBlockId ===
-                block.id
-              }
-              className="bg-red-500 text-white px-3 py-2 rounded-xl text-sm font-semibold disabled:opacity-60"
-            >
-              {deletingBlockId ===
-              block.id
-                ? "Deleting..."
-                : recurring
-                  ? "Delete This"
-                  : "Delete"}
-            </button>
-
-            {recurring ? (
+          {canModify && (
+            <div className="flex flex-wrap gap-2">
               <button
                 type="button"
                 onClick={() =>
-                  deleteBlockedTimeSeries(
-                    block.series_id
+                  deleteBlockedTime(
+                    block.id
                   )
                 }
                 disabled={
-                  deletingSeriesId ===
-                  block.series_id
+                  deletingBlockId ===
+                  block.id
                 }
-                className="bg-black text-white px-3 py-2 rounded-xl text-sm font-semibold disabled:opacity-60"
+                className="rounded-lg bg-red-600 px-3 py-2 text-sm font-bold text-white hover:bg-red-700 disabled:opacity-50"
               >
-                {deletingSeriesId ===
-                block.series_id
+                {deletingBlockId ===
+                block.id
                   ? "Deleting..."
-                  : "Delete Series"}
+                  : "Delete"}
               </button>
-            ) : null}
-          </div>
+
+              {block.series_id && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    deleteBlockedTimeSeries(
+                      block.series_id
+                    )
+                  }
+                  disabled={
+                    deletingSeriesId ===
+                    block.series_id
+                  }
+                  className="rounded-lg bg-gray-800 px-3 py-2 text-sm font-bold text-white hover:bg-gray-900 disabled:opacity-50"
+                >
+                  {deletingSeriesId ===
+                  block.series_id
+                    ? "Deleting Series..."
+                    : "Delete Series"}
+                </button>
+              )}
+            </div>
+          )}
+
+          {!canModify &&
+            isStaff && (
+              <p className="text-xs font-semibold text-gray-500">
+                View only
+              </p>
+            )}
         </div>
       </div>
     );
   }
 
+  if (loading) {
+    return (
+      <main className="min-h-screen bg-emerald-50 p-4 sm:p-8">
+        <div className="mx-auto max-w-5xl">
+          <div className="rounded-3xl border border-emerald-200 bg-white p-6 shadow-lg">
+            <p className="font-bold text-gray-700">
+              Loading calendar...
+            </p>
+          </div>
+        </div>
+      </main>
+    );
+  }
 
   return (
-    <main className="min-h-screen bg-emerald-50 p-4 sm:p-10">
-      <div className="max-w-7xl mx-auto space-y-8">
-
+    <main className="min-h-screen bg-emerald-50 p-4 sm:p-8">
+      <div className="mx-auto max-w-5xl space-y-6">
         <AdminUserBar />
 
-        <section className="rounded-3xl shadow-lg p-6 sm:p-8 border border-emerald-200 bg-gradient-to-r from-emerald-100 via-teal-50 to-white">
+        <section className="rounded-3xl border border-emerald-200 bg-gradient-to-r from-emerald-100 via-green-50 to-white p-6 shadow-lg">
           <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <p className="text-sm font-extrabold uppercase tracking-widest text-emerald-700 mb-2">
+              <p className="mb-2 text-sm font-extrabold uppercase tracking-widest text-emerald-700">
                 {displayShopName(
                   shopSlug
                 )}
               </p>
 
-              <h1 className="text-5xl font-extrabold tracking-tight mb-3">
+              <h1 className="text-5xl font-extrabold tracking-tight text-gray-950">
                 Calendar
               </h1>
 
-              <p className="text-lg text-gray-700">
-                View appointments and
-                manage blocked time.
+              <p className="mt-2 text-lg text-gray-700">
+                {isStaff
+                  ? "View the shop schedule and manage your own appointments and blocked time."
+                  : "View appointments and manage blocked time."}
               </p>
             </div>
 
-            <div className="flex flex-wrap gap-3">
+            <div className="flex flex-wrap gap-2">
               <button
                 type="button"
                 onClick={() =>
@@ -1704,443 +2011,62 @@ export default function CalendarPage() {
                     `/${shopSlug}/admin`
                   )
                 }
-                className="bg-blue-600 text-white rounded-xl px-5 py-3 font-bold shadow hover:bg-blue-700"
+                className="rounded-xl bg-blue-600 px-5 py-3 font-bold text-white shadow hover:bg-blue-700"
               >
                 Admin Home
               </button>
 
-              <button
-                type="button"
-                onClick={
-                  openBlockForm
-                }
-                disabled={
-                  !selectedBarberId
-                }
-                className="bg-emerald-700 text-white rounded-xl px-5 py-3 font-bold shadow hover:bg-emerald-800 disabled:opacity-50"
-              >
-                + Block Time
-              </button>
+              {canManageSelectedBarber && (
+                <button
+                  type="button"
+                  onClick={
+                    openBlockForm
+                  }
+                  className="rounded-xl bg-emerald-700 px-5 py-3 font-bold text-white shadow hover:bg-emerald-800"
+                >
+                  + Block Time
+                </button>
+              )}
             </div>
           </div>
-
-          {message ? (
-            <p className="mt-4 rounded-xl bg-green-50 border border-green-200 px-4 py-3 font-semibold text-green-700">
-              {message}
-            </p>
-          ) : null}
-
-          {error ? (
-            <p className="mt-4 rounded-xl bg-red-50 border border-red-200 px-4 py-3 font-semibold text-red-700">
-              {error}
-            </p>
-          ) : null}
         </section>
 
+        {message && (
+          <div className="rounded-2xl border border-green-200 bg-green-100 p-4 font-bold text-green-800">
+            {message}
+          </div>
+        )}
 
-        {showBlockForm ? (
-          <section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-emerald-200">
-            <h2 className="text-3xl font-bold mb-6 text-emerald-950">
-              Block Time
-            </h2>
+        {error && (
+          <div className="rounded-2xl border border-red-200 bg-red-50 p-4 font-bold text-red-800">
+            {error}
+          </div>
+        )}
 
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div>
-                <label className="block font-semibold mb-2">
-                  Staff
-                </label>
-
-                <select
-                  className="w-full border border-emerald-200 rounded-xl p-3 bg-emerald-50"
-                  value={
-                    selectedBarberId
-                  }
-                  onChange={(event) =>
-                    setSelectedBarberId(
-                      event.target.value
-                    )
-                  }
-                >
-                  {barbers.map(
-                    (barber) => (
-                      <option
-                        key={
-                          barber.id
-                        }
-                        value={
-                          barber.id
-                        }
-                      >
-                        {
-                          barber.name
-                        }
-                      </option>
-                    )
-                  )}
-                </select>
-              </div>
-
-              <div>
-                <label className="block font-semibold mb-2">
-                  Reason
-                </label>
-
-                <select
-                  className="w-full border border-emerald-200 rounded-xl p-3 bg-emerald-50"
-                  value={
-                    blockReason
-                  }
-                  onChange={(event) =>
-                    setBlockReason(
-                      event.target.value
-                    )
-                  }
-                >
-                  {BLOCK_REASON_OPTIONS.map(
-                    (reason) => (
-                      <option
-                        key={reason}
-                        value={reason}
-                      >
-                        {reason}
-                      </option>
-                    )
-                  )}
-                </select>
-              </div>
-
-              {blockReason ===
-              "Other" ? (
-                <div className="sm:col-span-2">
-                  <label className="block font-semibold mb-2">
-                    Custom reason
-                  </label>
-
-                  <input
-                    className="w-full border border-emerald-200 rounded-xl p-3 bg-emerald-50"
-                    value={
-                      customBlockReason
-                    }
-                    onChange={(event) =>
-                      setCustomBlockReason(
-                        event.target.value
-                      )
-                    }
-                    placeholder="Enter reason"
-                  />
-                </div>
-              ) : null}
-            </div>
-
-            <div className="mt-6">
-              <label className="block font-semibold mb-3">
-                Repeat
-              </label>
-
-              <div className="flex flex-wrap gap-3">
-                <button
-                  type="button"
-                  onClick={() =>
-                    setBlockMode(
-                      "one-time"
-                    )
-                  }
-                  className={`px-4 py-3 rounded-xl font-bold border ${
-                    blockMode ===
-                    "one-time"
-                      ? "bg-emerald-700 text-white border-emerald-700"
-                      : "bg-white text-black border-emerald-200"
-                  }`}
-                >
-                  One-time
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setBlockMode(
-                      "recurring"
-                    );
-
-                    setRecurringDays([
-                      weekdayValueForDate(
-                        recurringStartDate
-                      ),
-                    ]);
-                  }}
-                  className={`px-4 py-3 rounded-xl font-bold border ${
-                    blockMode ===
-                    "recurring"
-                      ? "bg-emerald-700 text-white border-emerald-700"
-                      : "bg-white text-black border-emerald-200"
-                  }`}
-                >
-                  Repeat Weekly
-                </button>
-              </div>
-            </div>
-
-            {blockMode ===
-            "one-time" ? (
-              <div className="grid gap-4 sm:grid-cols-2 mt-6">
-                <div>
-                  <label className="block font-semibold mb-2">
-                    Date
-                  </label>
-
-                  <input
-                    type="date"
-                    className="w-full border border-emerald-200 rounded-xl p-3 bg-emerald-50"
-                    value={
-                      blockDate
-                    }
-                    onChange={(event) =>
-                      setBlockDate(
-                        event.target.value
-                      )
-                    }
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block font-semibold mb-2">
-                      Start
-                    </label>
-
-                    <input
-                      type="time"
-                      className="w-full border border-emerald-200 rounded-xl p-3 bg-emerald-50"
-                      value={
-                        blockStartTime
-                      }
-                      onChange={(
-                        event
-                      ) =>
-                        setBlockStartTime(
-                          event.target
-                            .value
-                        )
-                      }
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block font-semibold mb-2">
-                      End
-                    </label>
-
-                    <input
-                      type="time"
-                      className="w-full border border-emerald-200 rounded-xl p-3 bg-emerald-50"
-                      value={
-                        blockEndTime
-                      }
-                      onChange={(
-                        event
-                      ) =>
-                        setBlockEndTime(
-                          event.target
-                            .value
-                        )
-                      }
-                    />
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-5 mt-6">
-                <div>
-                  <label className="block font-semibold mb-3">
-                    Days
-                  </label>
-
-                  <div className="flex flex-wrap gap-2">
-                    {RECURRING_DAYS.map(
-                      (day) => {
-                        const selected =
-                          recurringDays.includes(
-                            day.value
-                          );
-
-                        return (
-                          <button
-                            key={
-                              day.value
-                            }
-                            type="button"
-                            onClick={() =>
-                              toggleRecurringDay(
-                                day.value
-                              )
-                            }
-                            className={`px-4 py-3 rounded-xl font-bold border ${
-                              selected
-                                ? "bg-emerald-700 text-white border-emerald-700"
-                                : "bg-white text-black border-emerald-200"
-                            }`}
-                          >
-                            {
-                              day.label
-                            }
-                          </button>
-                        );
-                      }
-                    )}
-                  </div>
-                </div>
-
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div>
-                    <label className="block font-semibold mb-2">
-                      Starting
-                    </label>
-
-                    <input
-                      type="date"
-                      className="w-full border border-emerald-200 rounded-xl p-3 bg-emerald-50"
-                      value={
-                        recurringStartDate
-                      }
-                      onChange={(
-                        event
-                      ) =>
-                        handleRecurringStartDateChange(
-                          event.target
-                            .value
-                        )
-                      }
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block font-semibold mb-2">
-                      Until
-                    </label>
-
-                    <input
-                      type="date"
-                      className="w-full border border-emerald-200 rounded-xl p-3 bg-emerald-50"
-                      value={
-                        recurringEndDate
-                      }
-                      onChange={(
-                        event
-                      ) =>
-                        setRecurringEndDate(
-                          event.target
-                            .value
-                        )
-                      }
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block font-semibold mb-2">
-                      Start
-                    </label>
-
-                    <input
-                      type="time"
-                      className="w-full border border-emerald-200 rounded-xl p-3 bg-emerald-50"
-                      value={
-                        blockStartTime
-                      }
-                      onChange={(
-                        event
-                      ) =>
-                        setBlockStartTime(
-                          event.target
-                            .value
-                        )
-                      }
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block font-semibold mb-2">
-                      End
-                    </label>
-
-                    <input
-                      type="time"
-                      className="w-full border border-emerald-200 rounded-xl p-3 bg-emerald-50"
-                      value={
-                        blockEndTime
-                      }
-                      onChange={(
-                        event
-                      ) =>
-                        setBlockEndTime(
-                          event.target
-                            .value
-                        )
-                      }
-                    />
-                  </div>
-                </div>
-              </div>
-            )}
-
-            <div className="flex flex-wrap gap-3 mt-6">
-              <button
-                type="button"
-                onClick={
-                  saveBlockedTime
-                }
-                disabled={
-                  savingBlock
-                }
-                className="bg-emerald-700 text-white rounded-xl px-5 py-3 font-bold disabled:opacity-60"
-              >
-                {savingBlock
-                  ? "Saving..."
-                  : blockMode ===
-                      "recurring"
-                    ? "Save Recurring Block"
-                    : "Save Blocked Time"}
-              </button>
-
-              <button
-                type="button"
-                onClick={
-                  closeBlockForm
-                }
-                disabled={
-                  savingBlock
-                }
-                className="bg-gray-400 text-white rounded-xl px-5 py-3 font-bold disabled:opacity-60"
-              >
-                Cancel
-              </button>
-            </div>
-          </section>
-        ) : null}
-
-
-        <section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-emerald-200">
-          <h2 className="text-3xl font-bold mb-6 text-emerald-950">
+        <section className="rounded-3xl border border-emerald-200 bg-white p-6 shadow-lg">
+          <h2 className="mb-4 text-2xl font-extrabold text-gray-950">
             Filters
           </h2>
 
-          <div className="grid gap-4 sm:grid-cols-3">
+          <div className="grid gap-4 md:grid-cols-3">
             <div>
-              <label className="block font-semibold mb-2">
+              <label className="mb-1 block text-sm font-bold text-gray-800">
                 View
               </label>
 
               <select
-                className="w-full border border-emerald-200 rounded-xl p-3 bg-emerald-50"
                 value={
                   viewMode
                 }
-                onChange={(event) =>
+                onChange={(
+                  event
+                ) =>
                   setViewMode(
-                    event.target.value
+                    event.target
+                      .value
                   )
                 }
+                className="w-full rounded-xl border border-emerald-200 bg-white p-3"
               >
                 <option value="day">
                   Day
@@ -2153,39 +2079,59 @@ export default function CalendarPage() {
             </div>
 
             <div>
-              <label className="block font-semibold mb-2">
+              <label className="mb-1 block text-sm font-bold text-gray-800">
                 Date
               </label>
 
               <input
                 type="date"
-                className="w-full border border-emerald-200 rounded-xl p-3 bg-emerald-50"
                 value={
                   selectedDate
                 }
-                onChange={(event) =>
+                onChange={(
+                  event
+                ) => {
                   setSelectedDate(
-                    event.target.value
-                  )
-                }
+                    event.target
+                      .value
+                  );
+
+                  setMessage("");
+                  setError("");
+                }}
+                className="w-full rounded-xl border border-emerald-200 bg-white p-3"
               />
             </div>
 
             <div>
-              <label className="block font-semibold mb-2">
+              <label className="mb-1 block text-sm font-bold text-gray-800">
                 Staff
               </label>
 
               <select
-                className="w-full border border-emerald-200 rounded-xl p-3 bg-emerald-50"
                 value={
                   selectedBarberId
                 }
-                onChange={(event) =>
+                onChange={(
+                  event
+                ) => {
                   setSelectedBarberId(
-                    event.target.value
-                  )
-                }
+                    event.target
+                      .value
+                  );
+
+                  setShowBlockForm(
+                    false
+                  );
+
+                  setMovingAppointmentId(
+                    ""
+                  );
+
+                  setMessage("");
+                  setError("");
+                }}
+                className="w-full rounded-xl border border-emerald-200 bg-white p-3"
               >
                 {barbers.map(
                   (barber) => (
@@ -2197,82 +2143,417 @@ export default function CalendarPage() {
                         barber.id
                       }
                     >
-                      {
-                        barber.name
-                      }
+                      {barber.name}
                     </option>
                   )
                 )}
               </select>
             </div>
           </div>
+
+          {isStaff &&
+            selectedBarberId &&
+            !canManageSelectedBarber && (
+              <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm font-semibold text-blue-800">
+                You can view this staff member&apos;s schedule, but only they or the shop owner can make changes to it.
+              </div>
+            )}
+
+          {isStaff &&
+            !currentUserBarberId && (
+              <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-800">
+                Your login is not linked to a staff/provider record, so this calendar is view-only.
+              </div>
+            )}
         </section>
 
+        {showBlockForm &&
+          canManageSelectedBarber && (
+            <section className="rounded-3xl border border-emerald-200 bg-white p-6 shadow-lg">
+              <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <p className="text-sm font-extrabold uppercase tracking-widest text-emerald-700">
+                    Availability
+                  </p>
 
-        {loading ? (
-          <section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-emerald-200">
-            <p className="text-2xl font-bold">
-              Loading calendar...
-            </p>
-          </section>
-        ) : null}
+                  <h2 className="text-3xl font-extrabold text-gray-950">
+                    Block Time
+                  </h2>
 
+                  <p className="mt-1 text-gray-600">
+                    {selectedBarber
+                      ? `For ${selectedBarber.name}`
+                      : "Choose a staff member."}
+                  </p>
+                </div>
 
-        {!loading &&
-        viewMode === "day" ? (
-          <section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-emerald-200">
-            <h2 className="text-3xl font-bold mb-6 text-emerald-950">
+                <button
+                  type="button"
+                  onClick={
+                    closeBlockForm
+                  }
+                  className="rounded-xl bg-gray-200 px-4 py-2 font-bold text-gray-800 hover:bg-gray-300"
+                >
+                  Close
+                </button>
+              </div>
+
+              <div className="mb-5 grid grid-cols-2 gap-2 rounded-2xl bg-gray-100 p-1">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setBlockMode(
+                      "one-time"
+                    )
+                  }
+                  className={`rounded-xl px-4 py-3 font-bold ${
+                    blockMode ===
+                    "one-time"
+                      ? "bg-white text-emerald-800 shadow"
+                      : "text-gray-600"
+                  }`}
+                >
+                  One Time
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setBlockMode(
+                      "recurring"
+                    )
+                  }
+                  className={`rounded-xl px-4 py-3 font-bold ${
+                    blockMode ===
+                    "recurring"
+                      ? "bg-white text-emerald-800 shadow"
+                      : "text-gray-600"
+                  }`}
+                >
+                  Recurring
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                {blockMode ===
+                "one-time" ? (
+                  <div>
+                    <label className="mb-1 block text-sm font-bold text-gray-800">
+                      Date
+                    </label>
+
+                    <input
+                      type="date"
+                      value={
+                        blockDate
+                      }
+                      onChange={(
+                        event
+                      ) =>
+                        setBlockDate(
+                          event.target
+                            .value
+                        )
+                      }
+                      className="w-full rounded-xl border border-emerald-200 bg-white p-3"
+                    />
+                  </div>
+                ) : (
+                  <>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div>
+                        <label className="mb-1 block text-sm font-bold text-gray-800">
+                          Starts
+                        </label>
+
+                        <input
+                          type="date"
+                          value={
+                            recurringStartDate
+                          }
+                          onChange={(
+                            event
+                          ) =>
+                            handleRecurringStartDateChange(
+                              event.target
+                                .value
+                            )
+                          }
+                          className="w-full rounded-xl border border-emerald-200 bg-white p-3"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="mb-1 block text-sm font-bold text-gray-800">
+                          Ends
+                        </label>
+
+                        <input
+                          type="date"
+                          value={
+                            recurringEndDate
+                          }
+                          onChange={(
+                            event
+                          ) =>
+                            setRecurringEndDate(
+                              event.target
+                                .value
+                            )
+                          }
+                          className="w-full rounded-xl border border-emerald-200 bg-white p-3"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="mb-2 block text-sm font-bold text-gray-800">
+                        Repeat on
+                      </label>
+
+                      <div className="flex flex-wrap gap-2">
+                        {RECURRING_DAYS.map(
+                          (day) => {
+                            const selected =
+                              recurringDays.includes(
+                                day.value
+                              );
+
+                            return (
+                              <button
+                                key={
+                                  day.value
+                                }
+                                type="button"
+                                onClick={() =>
+                                  toggleRecurringDay(
+                                    day.value
+                                  )
+                                }
+                                className={`rounded-xl border px-4 py-2 font-bold ${
+                                  selected
+                                    ? "border-emerald-700 bg-emerald-700 text-white"
+                                    : "border-gray-300 bg-white text-gray-700"
+                                }`}
+                              >
+                                {
+                                  day.label
+                                }
+                              </button>
+                            );
+                          }
+                        )}
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <label className="mb-1 block text-sm font-bold text-gray-800">
+                      Start time
+                    </label>
+
+                    <input
+                      type="time"
+                      value={
+                        blockStartTime
+                      }
+                      onChange={(
+                        event
+                      ) =>
+                        setBlockStartTime(
+                          event.target
+                            .value
+                        )
+                      }
+                      className="w-full rounded-xl border border-emerald-200 bg-white p-3"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-1 block text-sm font-bold text-gray-800">
+                      End time
+                    </label>
+
+                    <input
+                      type="time"
+                      value={
+                        blockEndTime
+                      }
+                      onChange={(
+                        event
+                      ) =>
+                        setBlockEndTime(
+                          event.target
+                            .value
+                        )
+                      }
+                      className="w-full rounded-xl border border-emerald-200 bg-white p-3"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-sm font-bold text-gray-800">
+                    Reason
+                  </label>
+
+                  <select
+                    value={
+                      blockReason
+                    }
+                    onChange={(
+                      event
+                    ) =>
+                      setBlockReason(
+                        event.target
+                          .value
+                      )
+                    }
+                    className="w-full rounded-xl border border-emerald-200 bg-white p-3"
+                  >
+                    {BLOCK_REASON_OPTIONS.map(
+                      (reason) => (
+                        <option
+                          key={
+                            reason
+                          }
+                          value={
+                            reason
+                          }
+                        >
+                          {reason}
+                        </option>
+                      )
+                    )}
+                  </select>
+                </div>
+
+                {blockReason ===
+                  "Other" && (
+                  <div>
+                    <label className="mb-1 block text-sm font-bold text-gray-800">
+                      Custom reason
+                    </label>
+
+                    <input
+                      type="text"
+                      value={
+                        customBlockReason
+                      }
+                      onChange={(
+                        event
+                      ) =>
+                        setCustomBlockReason(
+                          event.target
+                            .value
+                        )
+                      }
+                      placeholder="Reason"
+                      className="w-full rounded-xl border border-emerald-200 bg-white p-3"
+                    />
+                  </div>
+                )}
+
+                <div className="flex flex-wrap gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={
+                      saveBlockedTime
+                    }
+                    disabled={
+                      savingBlock
+                    }
+                    className="rounded-xl bg-emerald-700 px-5 py-3 font-bold text-white shadow hover:bg-emerald-800 disabled:opacity-50"
+                  >
+                    {savingBlock
+                      ? "Saving..."
+                      : blockMode ===
+                          "recurring"
+                        ? "Create Recurring Block"
+                        : "Block Time"}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={
+                      closeBlockForm
+                    }
+                    disabled={
+                      savingBlock
+                    }
+                    className="rounded-xl bg-gray-200 px-5 py-3 font-bold text-gray-800 hover:bg-gray-300"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </section>
+          )}
+
+        {viewMode ===
+        "day" ? (
+          <section className="rounded-3xl border border-emerald-200 bg-white p-6 shadow-lg">
+            <h2 className="mb-4 text-2xl font-extrabold text-gray-950">
               Day View —{" "}
               {selectedBarber?.name ||
                 "Staff"}{" "}
               — {selectedDate}
             </h2>
 
-            <div className="grid gap-3">
+            <div className="space-y-2">
               {HOURS.map(
                 (hour) => {
-                  const appointmentsForHour =
+                  const appointmentItems =
                     appointmentItemsForHour(
                       hour
                     );
 
-                  const blockedForHour =
+                  const blockedItems =
                     blockedItemsForHour(
                       hour
                     );
 
+                  const hasItems =
+                    appointmentItems.length >
+                      0 ||
+                    blockedItems.length >
+                      0;
+
                   return (
                     <div
-                      key={hour}
-                      className="border border-emerald-100 rounded-2xl p-4 bg-emerald-50/50"
+                      key={
+                        hour
+                      }
+                      className="rounded-xl border border-emerald-100 bg-emerald-50/40 p-3"
                     >
-                      <p className="font-bold mb-3 text-emerald-950">
+                      <p className="mb-2 text-sm font-extrabold text-gray-900">
                         {hour}
                       </p>
 
-                      {appointmentsForHour.length ===
-                        0 &&
-                      blockedForHour.length ===
-                        0 ? (
-                        <p className="text-gray-600">
+                      {!hasItems && (
+                        <p className="text-sm text-gray-500">
                           Open
                         </p>
-                      ) : null}
+                      )}
 
-                      <div className="grid gap-2">
-                        {appointmentsForHour.map(
+                      <div className="space-y-2">
+                        {blockedItems.map(
                           (
-                            appointment
+                            block
                           ) =>
-                            appointmentCard(
-                              appointment
+                            renderBlockedTimeCard(
+                              block
                             )
                         )}
 
-                        {blockedForHour.map(
-                          (block) =>
-                            blockedTimeCard(
-                              block
+                        {appointmentItems.map(
+                          (
+                            appointment
+                          ) =>
+                            renderAppointmentCard(
+                              appointment
                             )
                         )}
                       </div>
@@ -2282,69 +2563,96 @@ export default function CalendarPage() {
               )}
             </div>
           </section>
-        ) : null}
-
-
-        {!loading &&
-        viewMode === "week" ? (
-          <section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-emerald-200">
-            <h2 className="text-3xl font-bold mb-6 text-emerald-950">
+        ) : (
+          <section className="rounded-3xl border border-emerald-200 bg-white p-6 shadow-lg">
+            <h2 className="mb-4 text-2xl font-extrabold text-gray-950">
               Week View —{" "}
               {selectedBarber?.name ||
                 "Staff"}
             </h2>
 
-            <div className="grid gap-4">
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
               {weekDates.map(
-                (
-                  date,
-                  index
-                ) => {
+                (date) => {
                   const items =
                     weekItemsForDate(
                       date
                     );
 
+                  const dateObject =
+                    new Date(
+                      `${date}T12:00:00`
+                    );
+
                   return (
                     <div
-                      key={date}
-                      className="border border-emerald-100 rounded-2xl p-4 bg-emerald-50/50"
+                      key={
+                        date
+                      }
+                      className="rounded-2xl border border-emerald-200 bg-emerald-50/40 p-4"
                     >
-                      <h3 className="text-xl font-bold mb-3 text-emerald-950">
-                        {DAYS[index]} —{" "}
-                        {date}
-                      </h3>
+                      <div className="mb-3">
+                        <p className="font-extrabold text-gray-950">
+                          {
+                            DAYS[
+                              dateObject.getDay()
+                            ]
+                          }
+                        </p>
+
+                        <p className="text-sm text-gray-600">
+                          {date}
+                        </p>
+                      </div>
 
                       {items.length ===
                       0 ? (
-                        <p className="text-gray-600">
-                          No appointments
-                          or blocked
-                          time.
+                        <p className="text-sm text-gray-500">
+                          No appointments or blocked time.
                         </p>
-                      ) : null}
+                      ) : (
+                        <div className="space-y-2">
+                          {items.map(
+                            (
+                              item
+                            ) => {
+                              if (
+                                item.type ===
+                                "blocked"
+                              ) {
+                                return renderBlockedTimeCard(
+                                  item.data
+                                );
+                              }
 
-                      <div className="grid gap-2">
-                        {items.map(
-                          (item) =>
-                            item.type ===
-                            "appointment"
-                              ? appointmentCard(
-                                  item.data
-                                )
-                              : blockedTimeCard(
-                                  item.data
-                                )
-                        )}
-                      </div>
+                              return renderAppointmentCard(
+                                item.data
+                              );
+                            }
+                          )}
+                        </div>
+                      )}
                     </div>
                   );
                 }
               )}
             </div>
           </section>
-        ) : null}
+        )}
 
+        <div className="pb-4">
+          <button
+            type="button"
+            onClick={() =>
+              router.push(
+                `/${shopSlug}/admin`
+              )
+            }
+            className="rounded-xl bg-blue-600 px-5 py-3 font-bold text-white shadow hover:bg-blue-700"
+          >
+            Admin Home
+          </button>
+        </div>
       </div>
     </main>
   );
