@@ -1,9 +1,12 @@
 import { cookies } from "next/headers";
+import AdminUserBar from "./AdminUserBar";
 
 const COOKIE_NAME = "chairtime_token";
 
 
-export default async function AdminHome({ shop = "" }) {
+export default async function AdminHome({
+  shop = "",
+}) {
   const basePath = shop
     ? "/" + shop + "/admin"
     : "/admin";
@@ -136,6 +139,18 @@ export default async function AdminHome({ shop = "" }) {
 
   const title =
     businessName || "ChairTime";
+
+  const currentUserName =
+    String(
+      currentUser?.name || ""
+    ).trim();
+
+  const currentUserRole =
+    isOwner
+      ? "Owner"
+      : isStaff
+        ? "Staff"
+        : "";
 
 
   /*
@@ -289,13 +304,17 @@ export default async function AdminHome({ shop = "" }) {
   return (
     <main className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-sky-50 px-6 py-10">
       <div className="max-w-5xl mx-auto">
+        <div className="mb-4">
+          <AdminUserBar />
+        </div>
+
         <div className="bg-white/90 rounded-3xl shadow-lg p-7 border border-indigo-100 mb-6">
-          <div className="flex items-center gap-5">
+          <div className="flex items-start gap-5">
             <div className="w-16 h-16 shrink-0 rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center text-3xl shadow-md">
               🪑
             </div>
 
-            <div>
+            <div className="flex-1 min-w-0">
               <p className="text-sm font-extrabold tracking-wider text-indigo-600 uppercase mb-1">
                 {isStaff
                   ? "Staff Dashboard"
@@ -305,6 +324,15 @@ export default async function AdminHome({ shop = "" }) {
               <h1 className="text-4xl sm:text-5xl font-extrabold text-slate-900 leading-tight">
                 {title}
               </h1>
+
+              {currentUserName &&
+                currentUserRole && (
+                  <p className="mt-2 text-lg font-bold text-indigo-700">
+                    {currentUserName}
+                    {" · "}
+                    {currentUserRole}
+                  </p>
+                )}
 
               <p className="text-gray-600 mt-2 text-base">
                 {isStaff
