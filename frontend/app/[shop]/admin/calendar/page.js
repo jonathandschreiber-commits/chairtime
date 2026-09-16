@@ -8,6 +8,8 @@ import {
   useState,
 } from "react";
 
+import AdminUserBar from "../../../components/AdminUserBar";
+
 const HOURS = [
   "08:00",
   "09:00",
@@ -70,9 +72,11 @@ const BLOCK_REASON_OPTIONS = [
 
 function localDateValue(date = new Date()) {
   const year = date.getFullYear();
+
   const month = String(
     date.getMonth() + 1
   ).padStart(2, "0");
+
   const day = String(
     date.getDate()
   ).padStart(2, "0");
@@ -102,22 +106,32 @@ function displayShopName(slug) {
 
 function defaultRecurringEndDate() {
   const date = new Date();
-  date.setMonth(date.getMonth() + 3);
+
+  date.setMonth(
+    date.getMonth() + 3
+  );
 
   return localDateValue(date);
 }
 
-function weekdayValueForDate(dateString) {
+function weekdayValueForDate(
+  dateString
+) {
   if (!dateString) {
-    const today = new Date().getDay();
-    return today === 0 ? 6 : today - 1;
+    const today =
+      new Date().getDay();
+
+    return today === 0
+      ? 6
+      : today - 1;
   }
 
   const date = new Date(
     `${dateString}T12:00:00`
   );
 
-  const javascriptDay = date.getDay();
+  const javascriptDay =
+    date.getDay();
 
   return javascriptDay === 0
     ? 6
@@ -130,54 +144,91 @@ export default function CalendarPage() {
 
   const shopSlug = params.shop;
 
-  const [appointments, setAppointments] =
-    useState([]);
-  const [barbers, setBarbers] = useState([]);
-  const [services, setServices] = useState([]);
-  const [blockedTimes, setBlockedTimes] =
-    useState([]);
+  const [
+    appointments,
+    setAppointments,
+  ] = useState([]);
 
-  const [selectedDate, setSelectedDate] =
-    useState(localDateValue());
+  const [
+    barbers,
+    setBarbers,
+  ] = useState([]);
+
+  const [
+    services,
+    setServices,
+  ] = useState([]);
+
+  const [
+    blockedTimes,
+    setBlockedTimes,
+  ] = useState([]);
+
+  const [
+    selectedDate,
+    setSelectedDate,
+  ] = useState(
+    localDateValue()
+  );
 
   const [
     selectedBarberId,
     setSelectedBarberId,
   ] = useState("");
 
-  const [viewMode, setViewMode] =
-    useState("day");
+  const [
+    viewMode,
+    setViewMode,
+  ] = useState("day");
 
   const [
     movingAppointmentId,
     setMovingAppointmentId,
   ] = useState("");
 
-  const [moveDate, setMoveDate] =
-    useState(localDateValue());
+  const [
+    moveDate,
+    setMoveDate,
+  ] = useState(
+    localDateValue()
+  );
 
-  const [moveTime, setMoveTime] =
-    useState("09:00");
+  const [
+    moveTime,
+    setMoveTime,
+  ] = useState("09:00");
 
-  const [savingMove, setSavingMove] =
-    useState(false);
+  const [
+    savingMove,
+    setSavingMove,
+  ] = useState(false);
 
-  const [showBlockForm, setShowBlockForm] =
-    useState(false);
+  const [
+    showBlockForm,
+    setShowBlockForm,
+  ] = useState(false);
 
-  const [blockMode, setBlockMode] =
-    useState("one-time");
+  const [
+    blockMode,
+    setBlockMode,
+  ] = useState("one-time");
 
-  const [blockReason, setBlockReason] =
-    useState("Lunch");
+  const [
+    blockReason,
+    setBlockReason,
+  ] = useState("Lunch");
 
   const [
     customBlockReason,
     setCustomBlockReason,
   ] = useState("");
 
-  const [blockDate, setBlockDate] =
-    useState(localDateValue());
+  const [
+    blockDate,
+    setBlockDate,
+  ] = useState(
+    localDateValue()
+  );
 
   const [
     blockStartTime,
@@ -192,22 +243,30 @@ export default function CalendarPage() {
   const [
     recurringStartDate,
     setRecurringStartDate,
-  ] = useState(localDateValue());
+  ] = useState(
+    localDateValue()
+  );
 
   const [
     recurringEndDate,
     setRecurringEndDate,
-  ] = useState(defaultRecurringEndDate());
+  ] = useState(
+    defaultRecurringEndDate()
+  );
 
   const [
     recurringDays,
     setRecurringDays,
   ] = useState([
-    weekdayValueForDate(localDateValue()),
+    weekdayValueForDate(
+      localDateValue()
+    ),
   ]);
 
-  const [savingBlock, setSavingBlock] =
-    useState(false);
+  const [
+    savingBlock,
+    setSavingBlock,
+  ] = useState(false);
 
   const [
     deletingBlockId,
@@ -219,127 +278,153 @@ export default function CalendarPage() {
     setDeletingSeriesId,
   ] = useState("");
 
-  const [message, setMessage] =
-    useState("");
+  const [
+    message,
+    setMessage,
+  ] = useState("");
 
-  const [error, setError] =
-    useState("");
+  const [
+    error,
+    setError,
+  ] = useState("");
 
-  const [loading, setLoading] =
-    useState(true);
+  const [
+    loading,
+    setLoading,
+  ] = useState(true);
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
-    setError("");
+  const loadData =
+    useCallback(async () => {
+      setLoading(true);
+      setError("");
 
-    try {
-      const [
-        agendaResponse,
-        blockedResponse,
-      ] = await Promise.all([
-        fetch("/api/admin/agenda", {
-          method: "GET",
-          headers: {
-            Accept: "application/json",
-          },
-          cache: "no-store",
-        }),
+      try {
+        const [
+          agendaResponse,
+          blockedResponse,
+        ] = await Promise.all([
+          fetch(
+            "/api/admin/agenda",
+            {
+              method: "GET",
+              headers: {
+                Accept:
+                  "application/json",
+              },
+              cache: "no-store",
+            }
+          ),
 
-        fetch("/api/admin/blocked-times", {
-          method: "GET",
-          headers: {
-            Accept: "application/json",
-          },
-          cache: "no-store",
-        }),
-      ]);
+          fetch(
+            "/api/admin/blocked-times",
+            {
+              method: "GET",
+              headers: {
+                Accept:
+                  "application/json",
+              },
+              cache: "no-store",
+            }
+          ),
+        ]);
 
-      if (
-        agendaResponse.status === 401 ||
-        blockedResponse.status === 401
-      ) {
-        router.replace(
-          `/login?next=${encodeURIComponent(
-            `/${shopSlug}/admin/calendar`
-          )}`
-        );
+        if (
+          agendaResponse.status ===
+            401 ||
+          blockedResponse.status ===
+            401
+        ) {
+          router.replace(
+            `/login?next=${encodeURIComponent(
+              `/${shopSlug}/admin/calendar`
+            )}`
+          );
 
-        return;
-      }
-
-      const agendaData =
-        await agendaResponse.json();
-
-      const blockedData =
-        await blockedResponse.json();
-
-      if (!agendaResponse.ok) {
-        throw new Error(
-          agendaData?.error ||
-            "Calendar data could not be loaded."
-        );
-      }
-
-      if (!blockedResponse.ok) {
-        throw new Error(
-          blockedData?.error ||
-            "Blocked times could not be loaded."
-        );
-      }
-
-      if (
-        agendaData.shop_slug &&
-        agendaData.shop_slug !== shopSlug
-      ) {
-        router.replace(
-          `/${agendaData.shop_slug}/admin/calendar`
-        );
-
-        return;
-      }
-
-      const loadedBarbers =
-        agendaData.barbers || [];
-
-      setAppointments(
-        agendaData.appointments || []
-      );
-
-      setBarbers(loadedBarbers);
-
-      setServices(
-        agendaData.services || []
-      );
-
-      setBlockedTimes(
-        blockedData.blocked_times || []
-      );
-
-      setSelectedBarberId(
-        (currentValue) => {
-          if (
-            currentValue &&
-            loadedBarbers.some(
-              (barber) =>
-                barber.id === currentValue
-            )
-          ) {
-            return currentValue;
-          }
-
-          return loadedBarbers[0]?.id || "";
+          return;
         }
-      );
-    } catch (loadError) {
-      setError(
-        loadError instanceof Error
-          ? loadError.message
-          : "Calendar data could not be loaded."
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, [router, shopSlug]);
+
+        const agendaData =
+          await agendaResponse.json();
+
+        const blockedData =
+          await blockedResponse.json();
+
+        if (!agendaResponse.ok) {
+          throw new Error(
+            agendaData?.error ||
+              "Calendar data could not be loaded."
+          );
+        }
+
+        if (!blockedResponse.ok) {
+          throw new Error(
+            blockedData?.error ||
+              "Blocked times could not be loaded."
+          );
+        }
+
+        if (
+          agendaData.shop_slug &&
+          agendaData.shop_slug !==
+            shopSlug
+        ) {
+          router.replace(
+            `/${agendaData.shop_slug}/admin/calendar`
+          );
+
+          return;
+        }
+
+        const loadedBarbers =
+          agendaData.barbers || [];
+
+        setAppointments(
+          agendaData.appointments ||
+            []
+        );
+
+        setBarbers(
+          loadedBarbers
+        );
+
+        setServices(
+          agendaData.services || []
+        );
+
+        setBlockedTimes(
+          blockedData.blocked_times ||
+            []
+        );
+
+        setSelectedBarberId(
+          (currentValue) => {
+            if (
+              currentValue &&
+              loadedBarbers.some(
+                (barber) =>
+                  barber.id ===
+                  currentValue
+              )
+            ) {
+              return currentValue;
+            }
+
+            return (
+              loadedBarbers[0]?.id ||
+              ""
+            );
+          }
+        );
+      } catch (loadError) {
+        setError(
+          loadError instanceof Error
+            ? loadError.message
+            : "Calendar data could not be loaded."
+        );
+      } finally {
+        setLoading(false);
+      }
+    }, [router, shopSlug]);
 
   useEffect(() => {
     if (shopSlug) {
@@ -347,8 +432,13 @@ export default function CalendarPage() {
     }
   }, [loadData, shopSlug]);
 
-  function sameDay(value, date) {
-    return datePart(value) === date;
+  function sameDay(
+    value,
+    date
+  ) {
+    return (
+      datePart(value) === date
+    );
   }
 
   function formatTime(value) {
@@ -363,19 +453,24 @@ export default function CalendarPage() {
   function serviceName(id) {
     return (
       services.find(
-        (service) => service.id === id
+        (service) =>
+          service.id === id
       )?.name || "Service"
     );
   }
 
-  function getWeekDates(dateString) {
+  function getWeekDates(
+    dateString
+  ) {
     const date = new Date(
       `${dateString}T12:00:00`
     );
 
-    const day = date.getDay();
+    const day =
+      date.getDay();
 
-    const sunday = new Date(date);
+    const sunday =
+      new Date(date);
 
     sunday.setDate(
       date.getDate() - day
@@ -388,7 +483,8 @@ export default function CalendarPage() {
           new Date(sunday);
 
         weekDate.setDate(
-          sunday.getDate() + index
+          sunday.getDate() +
+            index
         );
 
         return localDateValue(
@@ -398,7 +494,9 @@ export default function CalendarPage() {
     );
   }
 
-  function startMove(appointment) {
+  function startMove(
+    appointment
+  ) {
     setMovingAppointmentId(
       appointment.id
     );
@@ -420,7 +518,10 @@ export default function CalendarPage() {
   }
 
   function cancelMove() {
-    setMovingAppointmentId("");
+    setMovingAppointmentId(
+      ""
+    );
+
     setSavingMove(false);
     setError("");
   }
@@ -444,28 +545,32 @@ export default function CalendarPage() {
       `${moveDate}T${moveTime}:00`;
 
     try {
-      const response = await fetch(
-        `/api/admin/appointments/${encodeURIComponent(
-          appointmentId
-        )}/reschedule`,
-        {
-          method: "PATCH",
-          headers: {
-            "Content-Type":
-              "application/json",
-            Accept: "application/json",
-          },
-          body: JSON.stringify({
-            new_start_datetime:
-              newStartDatetime,
-          }),
-        }
-      );
+      const response =
+        await fetch(
+          `/api/admin/appointments/${encodeURIComponent(
+            appointmentId
+          )}/reschedule`,
+          {
+            method: "PATCH",
+            headers: {
+              "Content-Type":
+                "application/json",
+              Accept:
+                "application/json",
+            },
+            body: JSON.stringify({
+              new_start_datetime:
+                newStartDatetime,
+            }),
+          }
+        );
 
       const data =
         await response.json();
 
-      if (response.status === 401) {
+      if (
+        response.status === 401
+      ) {
         router.replace("/login");
         return;
       }
@@ -473,12 +578,19 @@ export default function CalendarPage() {
       if (!response.ok) {
         throw new Error(
           data?.error ||
+            data?.detail ||
             "The appointment could not be moved."
         );
       }
 
-      setMovingAppointmentId("");
-      setSelectedDate(moveDate);
+      setMovingAppointmentId(
+        ""
+      );
+
+      setSelectedDate(
+        moveDate
+      );
+
       setMessage(
         "Appointment moved."
       );
@@ -503,28 +615,32 @@ export default function CalendarPage() {
     setError("");
 
     try {
-      const response = await fetch(
-        `/api/admin/appointments/${encodeURIComponent(
-          appointmentId
-        )}/status`,
-        {
-          method: "PATCH",
-          headers: {
-            "Content-Type":
-              "application/json",
-            Accept: "application/json",
-          },
-          body: JSON.stringify({
-            status:
-              appointmentStatus,
-          }),
-        }
-      );
+      const response =
+        await fetch(
+          `/api/admin/appointments/${encodeURIComponent(
+            appointmentId
+          )}/status`,
+          {
+            method: "PATCH",
+            headers: {
+              "Content-Type":
+                "application/json",
+              Accept:
+                "application/json",
+            },
+            body: JSON.stringify({
+              status:
+                appointmentStatus,
+            }),
+          }
+        );
 
       const data =
         await response.json();
 
-      if (response.status === 401) {
+      if (
+        response.status === 401
+      ) {
         router.replace("/login");
         return;
       }
@@ -532,6 +648,7 @@ export default function CalendarPage() {
       if (!response.ok) {
         throw new Error(
           data?.error ||
+            data?.detail ||
             "Appointment status could not be updated."
         );
       }
@@ -555,9 +672,13 @@ export default function CalendarPage() {
   }
 
   function openBlockForm() {
-    setBlockMode("one-time");
+    setBlockMode(
+      "one-time"
+    );
 
-    setBlockDate(selectedDate);
+    setBlockDate(
+      selectedDate
+    );
 
     setRecurringStartDate(
       selectedDate
@@ -567,10 +688,21 @@ export default function CalendarPage() {
       defaultRecurringEndDate()
     );
 
-    setBlockStartTime("12:00");
-    setBlockEndTime("12:30");
-    setBlockReason("Lunch");
-    setCustomBlockReason("");
+    setBlockStartTime(
+      "12:00"
+    );
+
+    setBlockEndTime(
+      "12:30"
+    );
+
+    setBlockReason(
+      "Lunch"
+    );
+
+    setCustomBlockReason(
+      ""
+    );
 
     setRecurringDays([
       weekdayValueForDate(
@@ -578,16 +710,27 @@ export default function CalendarPage() {
       ),
     ]);
 
-    setShowBlockForm(true);
+    setShowBlockForm(
+      true
+    );
+
     setMessage("");
     setError("");
   }
 
+
   function closeBlockForm() {
-    setShowBlockForm(false);
-    setSavingBlock(false);
+    setShowBlockForm(
+      false
+    );
+
+    setSavingBlock(
+      false
+    );
+
     setError("");
   }
+
 
   function toggleRecurringDay(
     dayValue
@@ -608,10 +751,13 @@ export default function CalendarPage() {
         return [
           ...currentDays,
           dayValue,
-        ].sort((a, b) => a - b);
+        ].sort(
+          (a, b) => a - b
+        );
       }
     );
   }
+
 
   function handleRecurringStartDateChange(
     nextDate
@@ -637,11 +783,14 @@ export default function CalendarPage() {
     );
   }
 
+
   function finalBlockReason() {
-    return blockReason === "Other"
+    return blockReason ===
+      "Other"
       ? customBlockReason.trim()
       : blockReason;
   }
+
 
   async function saveOneTimeBlockedTime() {
     const reason =
@@ -661,33 +810,44 @@ export default function CalendarPage() {
     const endDatetime =
       `${blockDate}T${blockEndTime}:00`;
 
-    const response = await fetch(
-      "/api/admin/blocked-times",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type":
-            "application/json",
-          Accept:
-            "application/json",
-        },
-        body: JSON.stringify({
-          barber_id:
-            selectedBarberId,
-          reason,
-          start_datetime:
-            startDatetime,
-          end_datetime:
-            endDatetime,
-        }),
-      }
-    );
+    const response =
+      await fetch(
+        "/api/admin/blocked-times",
+        {
+          method: "POST",
+
+          headers: {
+            "Content-Type":
+              "application/json",
+
+            Accept:
+              "application/json",
+          },
+
+          body: JSON.stringify({
+            barber_id:
+              selectedBarberId,
+
+            reason,
+
+            start_datetime:
+              startDatetime,
+
+            end_datetime:
+              endDatetime,
+          }),
+        }
+      );
 
     const data =
       await response.json();
 
-    if (response.status === 401) {
-      router.replace("/login");
+    if (
+      response.status === 401
+    ) {
+      router.replace(
+        "/login"
+      );
 
       return false;
     }
@@ -695,11 +855,14 @@ export default function CalendarPage() {
     if (!response.ok) {
       throw new Error(
         data?.error ||
+          data?.detail ||
           "Blocked time could not be created."
       );
     }
 
-    setSelectedDate(blockDate);
+    setSelectedDate(
+      blockDate
+    );
 
     setMessage(
       "Time blocked."
@@ -707,6 +870,7 @@ export default function CalendarPage() {
 
     return true;
   }
+
 
   async function saveRecurringBlockedTime() {
     const reason =
@@ -721,7 +885,8 @@ export default function CalendarPage() {
     }
 
     if (
-      recurringDays.length === 0
+      recurringDays.length ===
+      0
     ) {
       setError(
         "Choose at least one day of the week."
@@ -730,39 +895,53 @@ export default function CalendarPage() {
       return false;
     }
 
-    const response = await fetch(
-      "/api/admin/blocked-times/recurring",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type":
-            "application/json",
-          Accept:
-            "application/json",
-        },
-        body: JSON.stringify({
-          barber_id:
-            selectedBarberId,
-          reason,
-          start_date:
-            recurringStartDate,
-          end_date:
-            recurringEndDate,
-          start_time:
-            `${blockStartTime}:00`,
-          end_time:
-            `${blockEndTime}:00`,
-          weekdays:
-            recurringDays,
-        }),
-      }
-    );
+    const response =
+      await fetch(
+        "/api/admin/blocked-times/recurring",
+        {
+          method: "POST",
+
+          headers: {
+            "Content-Type":
+              "application/json",
+
+            Accept:
+              "application/json",
+          },
+
+          body: JSON.stringify({
+            barber_id:
+              selectedBarberId,
+
+            reason,
+
+            start_date:
+              recurringStartDate,
+
+            end_date:
+              recurringEndDate,
+
+            start_time:
+              `${blockStartTime}:00`,
+
+            end_time:
+              `${blockEndTime}:00`,
+
+            weekdays:
+              recurringDays,
+          }),
+        }
+      );
 
     const data =
       await response.json();
 
-    if (response.status === 401) {
-      router.replace("/login");
+    if (
+      response.status === 401
+    ) {
+      router.replace(
+        "/login"
+      );
 
       return false;
     }
@@ -770,6 +949,7 @@ export default function CalendarPage() {
     if (!response.ok) {
       throw new Error(
         data?.error ||
+          data?.detail ||
           "Recurring blocked time could not be created."
       );
     }
@@ -789,6 +969,7 @@ export default function CalendarPage() {
     return true;
   }
 
+
   async function saveBlockedTime() {
     if (
       !selectedBarberId ||
@@ -799,7 +980,10 @@ export default function CalendarPage() {
       return;
     }
 
-    setSavingBlock(true);
+    setSavingBlock(
+      true
+    );
+
     setMessage("");
     setError("");
 
@@ -807,7 +991,8 @@ export default function CalendarPage() {
       let saved = false;
 
       if (
-        blockMode === "recurring"
+        blockMode ===
+        "recurring"
       ) {
         saved =
           await saveRecurringBlockedTime();
@@ -825,7 +1010,10 @@ export default function CalendarPage() {
       }
 
       if (saved) {
-        setShowBlockForm(false);
+        setShowBlockForm(
+          false
+        );
+
         await loadData();
       }
     } catch (blockError) {
@@ -835,9 +1023,12 @@ export default function CalendarPage() {
           : "Blocked time could not be created."
       );
     } finally {
-      setSavingBlock(false);
+      setSavingBlock(
+        false
+      );
     }
   }
+
 
   async function deleteBlockedTime(
     blockedTimeId
@@ -863,30 +1054,38 @@ export default function CalendarPage() {
     setError("");
 
     try {
-      const response = await fetch(
-        `/api/admin/blocked-times/${encodeURIComponent(
-          blockedTimeId
-        )}`,
-        {
-          method: "DELETE",
-          headers: {
-            Accept:
-              "application/json",
-          },
-        }
-      );
+      const response =
+        await fetch(
+          `/api/admin/blocked-times/${encodeURIComponent(
+            blockedTimeId
+          )}`,
+          {
+            method: "DELETE",
+
+            headers: {
+              Accept:
+                "application/json",
+            },
+          }
+        );
 
       const data =
         await response.json();
 
-      if (response.status === 401) {
-        router.replace("/login");
+      if (
+        response.status === 401
+      ) {
+        router.replace(
+          "/login"
+        );
+
         return;
       }
 
       if (!response.ok) {
         throw new Error(
           data?.error ||
+            data?.detail ||
             "Blocked time could not be deleted."
         );
       }
@@ -903,9 +1102,12 @@ export default function CalendarPage() {
           : "Blocked time could not be deleted."
       );
     } finally {
-      setDeletingBlockId("");
+      setDeletingBlockId(
+        ""
+      );
     }
   }
+
 
   async function deleteBlockedTimeSeries(
     seriesId
@@ -934,30 +1136,38 @@ export default function CalendarPage() {
     setError("");
 
     try {
-      const response = await fetch(
-        `/api/admin/blocked-time-series/${encodeURIComponent(
-          seriesId
-        )}`,
-        {
-          method: "DELETE",
-          headers: {
-            Accept:
-              "application/json",
-          },
-        }
-      );
+      const response =
+        await fetch(
+          `/api/admin/blocked-time-series/${encodeURIComponent(
+            seriesId
+          )}`,
+          {
+            method: "DELETE",
+
+            headers: {
+              Accept:
+                "application/json",
+            },
+          }
+        );
 
       const data =
         await response.json();
 
-      if (response.status === 401) {
-        router.replace("/login");
+      if (
+        response.status === 401
+      ) {
+        router.replace(
+          "/login"
+        );
+
         return;
       }
 
       if (!response.ok) {
         throw new Error(
           data?.error ||
+            data?.detail ||
             "Recurring series could not be deleted."
         );
       }
@@ -977,9 +1187,12 @@ export default function CalendarPage() {
           : "Recurring series could not be deleted."
       );
     } finally {
-      setDeletingSeriesId("");
+      setDeletingSeriesId(
+        ""
+      );
     }
   }
+
 
   const selectedBarber =
     barbers.find(
@@ -987,6 +1200,7 @@ export default function CalendarPage() {
         barber.id ===
         selectedBarberId
     );
+
 
   const dayAppointments =
     useMemo(() => {
@@ -1018,6 +1232,7 @@ export default function CalendarPage() {
       selectedDate,
     ]);
 
+
   const dayBlockedTimes =
     useMemo(() => {
       return blockedTimes
@@ -1048,20 +1263,24 @@ export default function CalendarPage() {
       selectedDate,
     ]);
 
-  const weekDates = useMemo(
-    () =>
-      getWeekDates(
-        selectedDate
-      ),
-    [selectedDate]
-  );
+
+  const weekDates =
+    useMemo(
+      () =>
+        getWeekDates(
+          selectedDate
+        ),
+      [selectedDate]
+    );
+
 
   function appointmentItemsForHour(
     hourText
   ) {
-    const hour = Number(
-      hourText.split(":")[0]
-    );
+    const hour =
+      Number(
+        hourText.split(":")[0]
+      );
 
     return dayAppointments.filter(
       (appointment) =>
@@ -1071,12 +1290,14 @@ export default function CalendarPage() {
     );
   }
 
+
   function blockedItemsForHour(
     hourText
   ) {
-    const hour = Number(
-      hourText.split(":")[0]
-    );
+    const hour =
+      Number(
+        hourText.split(":")[0]
+      );
 
     return dayBlockedTimes.filter(
       (block) =>
@@ -1085,6 +1306,7 @@ export default function CalendarPage() {
         ).getHours() === hour
     );
   }
+
 
   function weekItemsForDate(
     date
@@ -1107,9 +1329,13 @@ export default function CalendarPage() {
           (appointment) => ({
             type:
               "appointment",
-            id: appointment.id,
+
+            id:
+              appointment.id,
+
             time:
               appointment.start_datetime,
+
             data:
               appointment,
           })
@@ -1131,11 +1357,17 @@ export default function CalendarPage() {
         )
         .map(
           (block) => ({
-            type: "blocked",
-            id: block.id,
+            type:
+              "blocked",
+
+            id:
+              block.id,
+
             time:
               block.start_datetime,
-            data: block,
+
+            data:
+              block,
           })
         );
 
@@ -1213,6 +1445,7 @@ export default function CalendarPage() {
                 <p className="font-bold">
                   Notes
                 </p>
+
                 <p>
                   {
                     appointment.notes
@@ -1352,12 +1585,14 @@ export default function CalendarPage() {
     );
   }
 
+
   function blockedTimeCard(
     block
   ) {
-    const recurring = Boolean(
-      block.series_id
-    );
+    const recurring =
+      Boolean(
+        block.series_id
+      );
 
     return (
       <div
@@ -1435,9 +1670,13 @@ export default function CalendarPage() {
     );
   }
 
+
   return (
     <main className="min-h-screen bg-emerald-50 p-4 sm:p-10">
       <div className="max-w-7xl mx-auto space-y-8">
+
+        <AdminUserBar />
+
         <section className="rounded-3xl shadow-lg p-6 sm:p-8 border border-emerald-200 bg-gradient-to-r from-emerald-100 via-teal-50 to-white">
           <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
             <div>
@@ -1452,7 +1691,8 @@ export default function CalendarPage() {
               </h1>
 
               <p className="text-lg text-gray-700">
-                View appointments and manage blocked time.
+                View appointments and
+                manage blocked time.
               </p>
             </div>
 
@@ -1496,6 +1736,7 @@ export default function CalendarPage() {
             </p>
           ) : null}
         </section>
+
 
         {showBlockForm ? (
           <section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-emerald-200">
@@ -1650,7 +1891,9 @@ export default function CalendarPage() {
                   <input
                     type="date"
                     className="w-full border border-emerald-200 rounded-xl p-3 bg-emerald-50"
-                    value={blockDate}
+                    value={
+                      blockDate
+                    }
                     onChange={(event) =>
                       setBlockDate(
                         event.target.value
@@ -1847,7 +2090,9 @@ export default function CalendarPage() {
                 onClick={
                   saveBlockedTime
                 }
-                disabled={savingBlock}
+                disabled={
+                  savingBlock
+                }
                 className="bg-emerald-700 text-white rounded-xl px-5 py-3 font-bold disabled:opacity-60"
               >
                 {savingBlock
@@ -1863,7 +2108,9 @@ export default function CalendarPage() {
                 onClick={
                   closeBlockForm
                 }
-                disabled={savingBlock}
+                disabled={
+                  savingBlock
+                }
                 className="bg-gray-400 text-white rounded-xl px-5 py-3 font-bold disabled:opacity-60"
               >
                 Cancel
@@ -1871,6 +2118,7 @@ export default function CalendarPage() {
             </div>
           </section>
         ) : null}
+
 
         <section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-emerald-200">
           <h2 className="text-3xl font-bold mb-6 text-emerald-950">
@@ -1885,7 +2133,9 @@ export default function CalendarPage() {
 
               <select
                 className="w-full border border-emerald-200 rounded-xl p-3 bg-emerald-50"
-                value={viewMode}
+                value={
+                  viewMode
+                }
                 onChange={(event) =>
                   setViewMode(
                     event.target.value
@@ -1958,6 +2208,7 @@ export default function CalendarPage() {
           </div>
         </section>
 
+
         {loading ? (
           <section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-emerald-200">
             <p className="text-2xl font-bold">
@@ -1965,6 +2216,7 @@ export default function CalendarPage() {
             </p>
           </section>
         ) : null}
+
 
         {!loading &&
         viewMode === "day" ? (
@@ -1977,58 +2229,61 @@ export default function CalendarPage() {
             </h2>
 
             <div className="grid gap-3">
-              {HOURS.map((hour) => {
-                const appointmentsForHour =
-                  appointmentItemsForHour(
-                    hour
-                  );
+              {HOURS.map(
+                (hour) => {
+                  const appointmentsForHour =
+                    appointmentItemsForHour(
+                      hour
+                    );
 
-                const blockedForHour =
-                  blockedItemsForHour(
-                    hour
-                  );
+                  const blockedForHour =
+                    blockedItemsForHour(
+                      hour
+                    );
 
-                return (
-                  <div
-                    key={hour}
-                    className="border border-emerald-100 rounded-2xl p-4 bg-emerald-50/50"
-                  >
-                    <p className="font-bold mb-3 text-emerald-950">
-                      {hour}
-                    </p>
-
-                    {appointmentsForHour.length ===
-                      0 &&
-                    blockedForHour.length ===
-                      0 ? (
-                      <p className="text-gray-600">
-                        Open
+                  return (
+                    <div
+                      key={hour}
+                      className="border border-emerald-100 rounded-2xl p-4 bg-emerald-50/50"
+                    >
+                      <p className="font-bold mb-3 text-emerald-950">
+                        {hour}
                       </p>
-                    ) : null}
 
-                    <div className="grid gap-2">
-                      {appointmentsForHour.map(
-                        (
-                          appointment
-                        ) =>
-                          appointmentCard(
+                      {appointmentsForHour.length ===
+                        0 &&
+                      blockedForHour.length ===
+                        0 ? (
+                        <p className="text-gray-600">
+                          Open
+                        </p>
+                      ) : null}
+
+                      <div className="grid gap-2">
+                        {appointmentsForHour.map(
+                          (
                             appointment
-                          )
-                      )}
+                          ) =>
+                            appointmentCard(
+                              appointment
+                            )
+                        )}
 
-                      {blockedForHour.map(
-                        (block) =>
-                          blockedTimeCard(
-                            block
-                          )
-                      )}
+                        {blockedForHour.map(
+                          (block) =>
+                            blockedTimeCard(
+                              block
+                            )
+                        )}
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                }
+              )}
             </div>
           </section>
         ) : null}
+
 
         {!loading &&
         viewMode === "week" ? (
@@ -2041,7 +2296,10 @@ export default function CalendarPage() {
 
             <div className="grid gap-4">
               {weekDates.map(
-                (date, index) => {
+                (
+                  date,
+                  index
+                ) => {
                   const items =
                     weekItemsForDate(
                       date
@@ -2086,6 +2344,7 @@ export default function CalendarPage() {
             </div>
           </section>
         ) : null}
+
       </div>
     </main>
   );
