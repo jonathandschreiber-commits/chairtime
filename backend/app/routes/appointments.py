@@ -105,9 +105,34 @@ def find_shop_appointment(
     return appointment
 
 
+def staff_can_manage_other_staff_appointments(
+    db: Session,
+    shop_slug: str,
+) -> bool:
+    shop = (
+        db.query(Shop)
+        .filter(
+            Shop.slug == shop_slug,
+        )
+        .first()
+    )
+
+    if not shop:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Business not found.",
+        )
+
+    return bool(
+        shop.staff_can_manage_other_staff_appointments
+    )
+
+
 def require_appointment_modify_permission(
+    db: Session,
     current_user: User,
     appointment: Appointment,
+    shop_slug: str,
 ) -> None:
     role = str(
         current_user.role or ""
@@ -124,6 +149,12 @@ def require_appointment_modify_permission(
                 "to modify appointments."
             ),
         )
+
+    if staff_can_manage_other_staff_appointments(
+        db,
+        shop_slug,
+    ):
+        return
 
     barber_id = str(
         current_user.barber_id or ""
@@ -149,8 +180,10 @@ def require_appointment_modify_permission(
 
 
 def require_appointment_create_permission(
+    db: Session,
     current_user: User,
     barber_id: str,
+    shop_slug: str,
 ) -> None:
     role = str(
         current_user.role or ""
@@ -167,6 +200,12 @@ def require_appointment_create_permission(
                 "to create appointments."
             ),
         )
+
+    if staff_can_manage_other_staff_appointments(
+        db,
+        shop_slug,
+    ):
+        return
 
     current_user_barber_id = str(
         current_user.barber_id or ""
@@ -629,7 +668,6 @@ def save_new_appointment(
 
     return appointment
 
-
 @router.post("/appointments")
 def create_appointment(
     payload: AppointmentCreate,
@@ -729,8 +767,10 @@ def create_admin_appointment(
         )
 
     require_appointment_create_permission(
+        db,
         current_user,
         barber_id,
+        shop_slug,
     )
 
     barber = (
@@ -813,6 +853,7 @@ def list_admin_appointments(
         )
         .all()
     )
+
 
 @router.patch(
     "/appointments/{appointment_id}/cancel"
@@ -911,8 +952,10 @@ def update_admin_appointment_status(
     )
 
     require_appointment_modify_permission(
+        db,
         current_user,
         appointment,
+        shop_slug,
     )
 
     appointment.status = appointment_status
@@ -1017,8 +1060,10 @@ def reschedule_admin_appointment(
     )
 
     require_appointment_modify_permission(
+        db,
         current_user,
         appointment,
+        shop_slug,
     )
 
     service = (
