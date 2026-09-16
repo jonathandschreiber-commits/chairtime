@@ -2637,7 +2637,8 @@ export default function CalendarPage() {
                       className="w-full border-2 border-blue-200 rounded-xl p-4 text-lg"
                     />
 
-                    {existingCustomers.length >
+                    {customerSearch.trim() &&
+                    existingCustomers.length >
                     0 ? (
                       <div className="rounded-2xl border border-gray-200 overflow-hidden">
                         {filteredCustomers.length >
