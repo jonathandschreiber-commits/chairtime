@@ -27,6 +27,10 @@ class TeamMemberUpdate(BaseModel):
     is_active: Optional[bool] = None
 
 
+class TeamMemberPasswordReset(BaseModel):
+    password: str
+
+
 def require_owner(current_user: User) -> None:
     if current_user.role != "owner":
         raise HTTPException(
@@ -284,6 +288,60 @@ def update_team_member(
     return {
         "success": True,
         "team_member": team_member_response(team_member),
+    }
+
+
+@router.post("/{user_id}/reset-password")
+def reset_team_member_password(
+    user_id: str,
+    payload: TeamMemberPasswordReset,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    require_owner(current_user)
+
+    team_member = get_shop_team_member(
+        db,
+        current_user,
+        user_id,
+    )
+
+    if team_member.role == "owner":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "The shop owner's password cannot be reset "
+                "from the Team page."
+            ),
+        )
+
+    if len(payload.password) < 8:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password must be at least 8 characters.",
+        )
+
+    team_member.password_hash = hash_password(
+        payload.password
+    )
+
+    try:
+        db.commit()
+        db.refresh(team_member)
+
+    except Exception:
+        db.rollback()
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="The password could not be reset.",
+        )
+
+    return {
+        "success": True,
+        "message": (
+            f"Password reset for {team_member.name}."
+        ),
     }
 
 
