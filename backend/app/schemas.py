@@ -20,6 +20,10 @@ class ShopPaymentPolicyUpdate(BaseModel):
     ]
 
 
+class ShopStaffAppointmentPermissionUpdate(BaseModel):
+    staff_can_manage_other_staff_appointments: bool
+
+
 class SignupCreate(BaseModel):
     business_name: str
     business_type: str = "service_business"
