@@ -84,6 +84,26 @@ export default function StaffServicesPage() {
     setTeamLoaded,
   ] = useState(false);
 
+  const [
+    resetPasswordUserId,
+    setResetPasswordUserId,
+  ] = useState("");
+
+  const [
+    resetPassword,
+    setResetPassword,
+  ] = useState("");
+
+  const [
+    resetPasswordConfirm,
+    setResetPasswordConfirm,
+  ] = useState("");
+
+  const [
+    savingResetPassword,
+    setSavingResetPassword,
+  ] = useState(false);
+
 
   function showStaffSuccess(message) {
     setStaffMessageType("success");
@@ -155,6 +175,7 @@ export default function StaffServicesPage() {
       showStaffError(
         "Could not load staff."
       );
+
       return;
     }
 
@@ -162,6 +183,7 @@ export default function StaffServicesPage() {
       setServiceMessage(
         "Could not load services."
       );
+
       return;
     }
 
@@ -214,6 +236,7 @@ export default function StaffServicesPage() {
       showStaffError(
         "Enter a staff name."
       );
+
       return;
     }
 
@@ -277,6 +300,7 @@ export default function StaffServicesPage() {
     );
 
     setAccessBarberId("");
+    cancelResetPassword();
     clearStaffMessage();
   }
 
@@ -295,6 +319,7 @@ export default function StaffServicesPage() {
       showStaffError(
         "Enter a staff name."
       );
+
       return;
     }
 
@@ -349,6 +374,7 @@ export default function StaffServicesPage() {
       showStaffError(
         `${barber.name} has a ChairTime login account. The login account must remain linked to this staff member.`
       );
+
       return;
     }
 
@@ -397,6 +423,7 @@ export default function StaffServicesPage() {
     );
 
     setEditingBarberId("");
+    cancelResetPassword();
     setAccessEmail("");
     setAccessPassword("");
     setAccessCanAcceptPayments(false);
@@ -412,6 +439,115 @@ export default function StaffServicesPage() {
   }
 
 
+  function startResetPassword(
+    teamMember
+  ) {
+    setResetPasswordUserId(
+      teamMember.id
+    );
+
+    setResetPassword("");
+    setResetPasswordConfirm("");
+    setEditingBarberId("");
+    setAccessBarberId("");
+    clearStaffMessage();
+  }
+
+
+  function cancelResetPassword() {
+    setResetPasswordUserId("");
+    setResetPassword("");
+    setResetPasswordConfirm("");
+    setSavingResetPassword(false);
+  }
+
+
+  async function saveResetPassword(
+    barber,
+    teamMember
+  ) {
+    if (
+      resetPassword.length < 8
+    ) {
+      showStaffError(
+        "Temporary password must be at least 8 characters."
+      );
+
+      return;
+    }
+
+    if (
+      resetPassword !==
+      resetPasswordConfirm
+    ) {
+      showStaffError(
+        "The passwords do not match."
+      );
+
+      return;
+    }
+
+    if (savingResetPassword) {
+      return;
+    }
+
+    setSavingResetPassword(true);
+    clearStaffMessage();
+
+    try {
+      const response = await fetch(
+        `/api/team/${encodeURIComponent(
+          teamMember.id
+        )}/reset-password`,
+        {
+          method: "POST",
+          headers: {
+            Accept:
+              "application/json",
+            "Content-Type":
+              "application/json",
+          },
+          body: JSON.stringify({
+            password:
+              resetPassword,
+          }),
+        }
+      );
+
+      const data = await response
+        .json()
+        .catch(() => ({}));
+
+      if (!response.ok) {
+        showStaffError(
+          data.detail ||
+            data.error ||
+            "Could not reset the employee password."
+        );
+
+        return;
+      }
+
+      cancelResetPassword();
+
+      showStaffSuccess(
+        `${barber.name}'s password has been reset.`
+      );
+    } catch (error) {
+      console.error(
+        "Reset staff password error:",
+        error
+      );
+
+      showStaffError(
+        "Could not reset the employee password."
+      );
+    } finally {
+      setSavingResetPassword(false);
+    }
+  }
+
+
   async function createLoginAccess(
     barber
   ) {
@@ -422,6 +558,7 @@ export default function StaffServicesPage() {
       showStaffError(
         "Enter the employee's email address."
       );
+
       return;
     }
 
@@ -429,6 +566,7 @@ export default function StaffServicesPage() {
       showStaffError(
         "Temporary password must be at least 8 characters."
       );
+
       return;
     }
 
@@ -463,8 +601,10 @@ export default function StaffServicesPage() {
       if (!response.ok) {
         showStaffError(
           data.detail ||
+            data.error ||
             "Could not create ChairTime access."
         );
+
         return;
       }
 
@@ -488,7 +628,6 @@ export default function StaffServicesPage() {
       setSavingAccess(false);
     }
   }
-
 
   async function updatePaymentAccess(
     teamMember,
@@ -522,8 +661,10 @@ export default function StaffServicesPage() {
       if (!response.ok) {
         showStaffError(
           data.detail ||
+            data.error ||
             "Could not update payment access."
         );
+
         return;
       }
 
@@ -578,8 +719,10 @@ export default function StaffServicesPage() {
       if (!response.ok) {
         showStaffError(
           data.detail ||
+            data.error ||
             "Could not disable ChairTime access."
         );
+
         return;
       }
 
@@ -627,8 +770,10 @@ export default function StaffServicesPage() {
       if (!response.ok) {
         showStaffError(
           data.detail ||
+            data.error ||
             "Could not restore ChairTime access."
         );
+
         return;
       }
 
@@ -658,6 +803,7 @@ export default function StaffServicesPage() {
       setServiceMessage(
         "Enter a service name."
       );
+
       return;
     }
 
@@ -730,6 +876,7 @@ export default function StaffServicesPage() {
       setServiceMessage(
         "Enter a service name."
       );
+
       return;
     }
 
@@ -942,6 +1089,13 @@ export default function StaffServicesPage() {
                     teamMember?.is_active
                   );
 
+                const resettingPassword =
+                  Boolean(
+                    teamMember &&
+                      resetPasswordUserId ===
+                        teamMember.id
+                  );
+
                 return (
                   <div
                     key={barber.id}
@@ -1115,6 +1269,107 @@ export default function StaffServicesPage() {
                           </div>
                         </div>
                       </div>
+
+                    ) : resettingPassword ? (
+                      <div className="space-y-4">
+                        <div>
+                          <p className="text-xl font-extrabold text-rose-950">
+                            {barber.name}
+                          </p>
+
+                          <p className="text-sm text-gray-500">
+                            Reset employee password
+                          </p>
+                        </div>
+
+                        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 space-y-4">
+                          <div>
+                            <label className="block text-sm font-bold text-gray-800 mb-1">
+                              New temporary password
+                            </label>
+
+                            <input
+                              type="password"
+                              value={
+                                resetPassword
+                              }
+                              onChange={(
+                                event
+                              ) =>
+                                setResetPassword(
+                                  event.target
+                                    .value
+                                )
+                              }
+                              placeholder="At least 8 characters"
+                              autoComplete="new-password"
+                              className="border border-amber-200 bg-white p-3 rounded-xl w-full focus:outline-none focus:ring-2 focus:ring-amber-300"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-sm font-bold text-gray-800 mb-1">
+                              Confirm temporary password
+                            </label>
+
+                            <input
+                              type="password"
+                              value={
+                                resetPasswordConfirm
+                              }
+                              onChange={(
+                                event
+                              ) =>
+                                setResetPasswordConfirm(
+                                  event.target
+                                    .value
+                                )
+                              }
+                              placeholder="Enter it again"
+                              autoComplete="new-password"
+                              className="border border-amber-200 bg-white p-3 rounded-xl w-full focus:outline-none focus:ring-2 focus:ring-amber-300"
+                            />
+                          </div>
+
+                          <p className="text-sm text-gray-600">
+                            The employee&apos;s existing password
+                            will stop working immediately. Give the
+                            employee this temporary password so they
+                            can sign in.
+                          </p>
+
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              onClick={() =>
+                                saveResetPassword(
+                                  barber,
+                                  teamMember
+                                )
+                              }
+                              disabled={
+                                savingResetPassword
+                              }
+                              className="bg-amber-600 hover:bg-amber-700 disabled:bg-amber-300 text-white px-4 py-2 rounded-xl font-semibold"
+                            >
+                              {savingResetPassword
+                                ? "Resetting..."
+                                : "Reset Password"}
+                            </button>
+
+                            <button
+                              onClick={
+                                cancelResetPassword
+                              }
+                              disabled={
+                                savingResetPassword
+                              }
+                              className="bg-gray-200 px-4 py-2 rounded-xl font-semibold"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      </div>
                     ) : (
                       <div className="space-y-4">
                         <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-start">
@@ -1180,17 +1435,30 @@ export default function StaffServicesPage() {
 
                             {teamMember &&
                               accessIsActive && (
-                                <button
-                                  onClick={() =>
-                                    deactivateLogin(
-                                      barber,
-                                      teamMember
-                                    )
-                                  }
-                                  className="bg-gray-700 hover:bg-gray-800 text-white px-4 py-2 rounded-xl font-semibold"
-                                >
-                                  Disable Access
-                                </button>
+                                <>
+                                  <button
+                                    onClick={() =>
+                                      startResetPassword(
+                                        teamMember
+                                      )
+                                    }
+                                    className="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-xl font-semibold"
+                                  >
+                                    Reset Password
+                                  </button>
+
+                                  <button
+                                    onClick={() =>
+                                      deactivateLogin(
+                                        barber,
+                                        teamMember
+                                      )
+                                    }
+                                    className="bg-gray-700 hover:bg-gray-800 text-white px-4 py-2 rounded-xl font-semibold"
+                                  >
+                                    Disable Access
+                                  </button>
+                                </>
                               )}
 
                             {teamMember &&
