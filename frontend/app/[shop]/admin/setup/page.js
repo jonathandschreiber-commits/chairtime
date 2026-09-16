@@ -126,6 +126,121 @@ export default function SetupPage() {
 
   const [message, setMessage] = useState("");
 
+  const [staffAppointmentPermission, setStaffAppointmentPermission] =
+    useState(false);
+
+  const [staffAppointmentPermissionLoaded, setStaffAppointmentPermissionLoaded] =
+    useState(false);
+
+  const [savingStaffAppointmentPermission, setSavingStaffAppointmentPermission] =
+    useState(false);
+
+  async function loadStaffAppointmentPermission() {
+    if (!shopSlug) return;
+
+    try {
+      const response = await fetch(
+        `/api/shops/${encodeURIComponent(
+          shopSlug
+        )}/staff-appointment-permission`,
+        {
+          method: "GET",
+          cache: "no-store",
+        }
+      );
+
+      if (!response.ok) {
+        const error = await response
+          .json()
+          .catch(() => ({}));
+
+        setMessage(
+          getErrorMessage(
+            error,
+            "Could not load staff appointment permissions."
+          )
+        );
+
+        return;
+      }
+
+      const data = await response.json();
+
+      setStaffAppointmentPermission(
+        Boolean(
+          data.staff_can_manage_other_staff_appointments
+        )
+      );
+
+      setStaffAppointmentPermissionLoaded(true);
+    } catch (error) {
+      console.error(error);
+      setMessage(
+        "Could not load staff appointment permissions."
+      );
+    }
+  }
+
+  async function saveStaffAppointmentPermission(value) {
+    if (!shopSlug || savingStaffAppointmentPermission) {
+      return;
+    }
+
+    setSavingStaffAppointmentPermission(true);
+    setMessage("");
+
+    try {
+      const response = await fetch(
+        `/api/shops/${encodeURIComponent(
+          shopSlug
+        )}/staff-appointment-permission`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            staff_can_manage_other_staff_appointments:
+              value,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        const error = await response
+          .json()
+          .catch(() => ({}));
+
+        setMessage(
+          getErrorMessage(
+            error,
+            "Could not save staff appointment permissions."
+          )
+        );
+
+        return;
+      }
+
+      const data = await response.json();
+
+      setStaffAppointmentPermission(
+        Boolean(
+          data.staff_can_manage_other_staff_appointments
+        )
+      );
+
+      setStaffAppointmentPermissionLoaded(true);
+      setMessage("Staff appointment permission saved.");
+    } catch (error) {
+      console.error(error);
+      setMessage(
+        "Could not save staff appointment permissions."
+      );
+    } finally {
+      setSavingStaffAppointmentPermission(false);
+    }
+  }
+
   async function loadData() {
     if (!shopSlug) return;
 
@@ -209,6 +324,7 @@ export default function SetupPage() {
   useEffect(() => {
     if (shopSlug) {
       loadData();
+      loadStaffAppointmentPermission();
     }
   }, [shopSlug]);
 
@@ -1360,6 +1476,104 @@ export default function SetupPage() {
           </div>
         )}
 
+        {/* STAFF APPOINTMENT PERMISSIONS */}
+
+        <div className="bg-white p-6 rounded-2xl shadow-lg border border-indigo-200 space-y-4">
+          <div>
+            <h2 className="text-2xl font-bold">
+              Staff Appointment Access
+            </h2>
+
+            <p className="text-gray-600 mt-1">
+              Decide whether staff can manage appointments assigned
+              to other staff members.
+            </p>
+          </div>
+
+          {!staffAppointmentPermissionLoaded ? (
+            <p className="text-gray-500">
+              Loading staff appointment setting...
+            </p>
+          ) : (
+            <div className="space-y-3">
+              <p className="font-bold">
+                Can staff manage other staff members&apos; appointments?
+              </p>
+
+              <label
+                className={`block border-2 rounded-2xl p-4 cursor-pointer ${
+                  !staffAppointmentPermission
+                    ? "border-indigo-500 bg-indigo-50"
+                    : "border-gray-200 bg-white"
+                }`}
+              >
+                <div className="flex items-start gap-3">
+                  <input
+                    type="radio"
+                    name="staffAppointmentPermission"
+                    checked={!staffAppointmentPermission}
+                    disabled={savingStaffAppointmentPermission}
+                    onChange={() =>
+                      saveStaffAppointmentPermission(false)
+                    }
+                    className="mt-1"
+                  />
+
+                  <div>
+                    <p className="font-extrabold">
+                      No
+                    </p>
+
+                    <p className="text-sm text-gray-600 mt-1">
+                      Staff can view everyone&apos;s schedule but
+                      can only add, change, or cancel their own
+                      appointments.
+                    </p>
+                  </div>
+                </div>
+              </label>
+
+              <label
+                className={`block border-2 rounded-2xl p-4 cursor-pointer ${
+                  staffAppointmentPermission
+                    ? "border-indigo-500 bg-indigo-50"
+                    : "border-gray-200 bg-white"
+                }`}
+              >
+                <div className="flex items-start gap-3">
+                  <input
+                    type="radio"
+                    name="staffAppointmentPermission"
+                    checked={staffAppointmentPermission}
+                    disabled={savingStaffAppointmentPermission}
+                    onChange={() =>
+                      saveStaffAppointmentPermission(true)
+                    }
+                    className="mt-1"
+                  />
+
+                  <div>
+                    <p className="font-extrabold">
+                      Yes
+                    </p>
+
+                    <p className="text-sm text-gray-600 mt-1">
+                      Staff can add, change, or cancel appointments
+                      for any staff member.
+                    </p>
+                  </div>
+                </div>
+              </label>
+
+              {savingStaffAppointmentPermission && (
+                <p className="text-sm font-semibold text-indigo-700">
+                  Saving...
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+
         {/* SHOP-WIDE SETTINGS */}
 
         <div className="bg-white p-6 rounded-2xl shadow-lg border border-indigo-200 space-y-5">
@@ -1932,7 +2146,7 @@ export default function SetupPage() {
                 <strong>
                   {selectedBarber.name}
                 </strong>{" "}
-                from the shop's master service
+                from the shop&apos;s master service
                 list.
               </p>
 
