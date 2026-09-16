@@ -5,10 +5,12 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Shop
+from app.models import Shop, User
+from app.routes.auth import get_current_user
 from app.schemas import (
     ShopCreate,
     ShopPaymentPolicyUpdate,
+    ShopStaffAppointmentPermissionUpdate,
 )
 
 
@@ -21,6 +23,39 @@ def normalize_slug(value: str) -> str:
     slug = slug.strip("-")
 
     return slug
+
+
+def require_owner_for_shop(
+    shop_slug: str,
+    current_user: User,
+) -> str:
+    clean_slug = normalize_slug(shop_slug)
+
+    current_user_shop_slug = normalize_slug(
+        str(current_user.shop_slug or "")
+    )
+
+    if not current_user_shop_slug:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Your account is not assigned to a business.",
+        )
+
+    if current_user_shop_slug != clean_slug:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have access to this business.",
+        )
+
+    role = str(current_user.role or "").strip().lower()
+
+    if role != "owner":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Owner access is required.",
+        )
+
+    return clean_slug
 
 
 @router.post("/shops")
@@ -150,3 +185,87 @@ def update_shop_payment_policy(
         )
 
     return shop
+
+
+@router.get(
+    "/shops/{shop_slug}/staff-appointment-permission"
+)
+def get_staff_appointment_permission(
+    shop_slug: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    clean_slug = require_owner_for_shop(
+        shop_slug,
+        current_user,
+    )
+
+    shop = (
+        db.query(Shop)
+        .filter(Shop.slug == clean_slug)
+        .first()
+    )
+
+    if not shop:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Business not found.",
+        )
+
+    return {
+        "staff_can_manage_other_staff_appointments": bool(
+            shop.staff_can_manage_other_staff_appointments
+        ),
+    }
+
+
+@router.patch(
+    "/shops/{shop_slug}/staff-appointment-permission"
+)
+def update_staff_appointment_permission(
+    shop_slug: str,
+    payload: ShopStaffAppointmentPermissionUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    clean_slug = require_owner_for_shop(
+        shop_slug,
+        current_user,
+    )
+
+    shop = (
+        db.query(Shop)
+        .filter(Shop.slug == clean_slug)
+        .first()
+    )
+
+    if not shop:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Business not found.",
+        )
+
+    shop.staff_can_manage_other_staff_appointments = (
+        payload.staff_can_manage_other_staff_appointments
+    )
+
+    try:
+        db.commit()
+        db.refresh(shop)
+
+    except Exception:
+        db.rollback()
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=(
+                "The staff appointment permission "
+                "could not be saved."
+            ),
+        )
+
+    return {
+        "staff_can_manage_other_staff_appointments": bool(
+            shop.staff_can_manage_other_staff_appointments
+        ),
+    }
