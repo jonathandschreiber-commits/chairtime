@@ -14,6 +14,7 @@ from sqlalchemy.sql import func
 
 from app.database import Base
 
+
 def generate_uuid():
     return str(uuid.uuid4())
 
@@ -107,6 +108,18 @@ class Shop(Base):
         default="none",
     )
 
+    # Controls whether staff members may add, change,
+    # or cancel appointments for other staff members.
+    #
+    # False is the safer default:
+    # staff may view the full shop schedule but may
+    # modify only their own appointments.
+    staff_can_manage_other_staff_appointments = Column(
+        Boolean,
+        nullable=False,
+        default=False,
+    )
+
     # Shop payment processing through Stripe Connect
     stripe_connect_account_id = Column(
         String,
@@ -180,7 +193,7 @@ class User(Base):
         nullable=False,
         default=True,
     )
-    
+
     created_at = Column(
         DateTime,
         server_default=func.now(),
