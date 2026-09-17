@@ -173,6 +173,11 @@ export default function CalendarPage() {
   ] = useState(null);
 
   const [
+    staffCanManageOtherStaffAppointments,
+    setStaffCanManageOtherStaffAppointments,
+  ] = useState(false);
+
+  const [
     appointments,
     setAppointments,
   ] = useState([]);
@@ -411,7 +416,34 @@ export default function CalendarPage() {
       currentUser?.barber_id || ""
     ).trim();
 
-  function canManageBarber(
+  function canManageAppointmentsForBarber(
+    barberId
+  ) {
+    if (isOwner) {
+      return true;
+    }
+
+    if (!isStaff) {
+      return false;
+    }
+
+    if (
+      staffCanManageOtherStaffAppointments
+    ) {
+      return true;
+    }
+
+    if (!currentUserBarberId) {
+      return false;
+    }
+
+    return (
+      String(barberId || "") ===
+      currentUserBarberId
+    );
+  }
+
+  function canManageBlockedTimeForBarber(
     barberId
   ) {
     if (isOwner) {
@@ -435,7 +467,7 @@ export default function CalendarPage() {
   function canModifyAppointment(
     appointment
   ) {
-    return canManageBarber(
+    return canManageAppointmentsForBarber(
       appointment?.barber_id
     );
   }
@@ -443,13 +475,18 @@ export default function CalendarPage() {
   function canModifyBlockedTime(
     block
   ) {
-    return canManageBarber(
+    return canManageBlockedTimeForBarber(
       block?.barber_id
     );
   }
 
-  const canManageSelectedBarber =
-    canManageBarber(
+  const canManageSelectedBarberAppointments =
+    canManageAppointmentsForBarber(
+      selectedBarberId
+    );
+
+  const canManageSelectedBarberBlockedTime =
+    canManageBlockedTimeForBarber(
       selectedBarberId
     );
 
@@ -467,6 +504,7 @@ export default function CalendarPage() {
           meResponse,
           agendaResponse,
           blockedResponse,
+          permissionResponse,
         ] = await Promise.all([
           fetch(
             "/api/auth/me",
@@ -503,6 +541,20 @@ export default function CalendarPage() {
               cache: "no-store",
             }
           ),
+
+          fetch(
+            `/api/shops/${encodeURIComponent(
+              shopSlug
+            )}/staff-appointment-permission`,
+            {
+              method: "GET",
+              headers: {
+                Accept:
+                  "application/json",
+              },
+              cache: "no-store",
+            }
+          ),
         ]);
 
         if (
@@ -510,6 +562,8 @@ export default function CalendarPage() {
           agendaResponse.status ===
             401 ||
           blockedResponse.status ===
+            401 ||
+          permissionResponse.status ===
             401
         ) {
           router.replace(
@@ -529,6 +583,9 @@ export default function CalendarPage() {
 
         const blockedData =
           await blockedResponse.json();
+
+        const permissionData =
+          await permissionResponse.json();
 
         if (!meResponse.ok) {
           throw new Error(
@@ -551,6 +608,14 @@ export default function CalendarPage() {
             blockedData?.error ||
               blockedData?.detail ||
               "Blocked times could not be loaded."
+          );
+        }
+
+        if (!permissionResponse.ok) {
+          throw new Error(
+            permissionData?.detail ||
+              permissionData?.error ||
+              "Staff appointment permissions could not be loaded."
           );
         }
 
@@ -605,6 +670,13 @@ export default function CalendarPage() {
 
         setCurrentUser(
           meData
+        );
+
+        setStaffCanManageOtherStaffAppointments(
+          Boolean(
+            permissionData
+              ?.staff_can_manage_other_staff_appointments
+          )
         );
 
         setAppointments(
@@ -933,7 +1005,7 @@ export default function CalendarPage() {
   ) {
     if (
       !selectedBarberId ||
-      !canManageSelectedBarber
+      !canManageSelectedBarberAppointments
     ) {
       return;
     }
@@ -1033,10 +1105,10 @@ export default function CalendarPage() {
     }
 
     if (
-      !canManageSelectedBarber
+      !canManageSelectedBarberAppointments
     ) {
       setError(
-        "You can create appointments only for your own schedule."
+        "You do not have permission to create appointments for this staff member."
       );
 
       return;
@@ -1186,7 +1258,7 @@ export default function CalendarPage() {
       )
     ) {
       setError(
-        "You can modify only your own appointments."
+        "You do not have permission to modify this appointment."
       );
 
       return;
@@ -1243,7 +1315,7 @@ export default function CalendarPage() {
       )
     ) {
       setError(
-        "You can modify only your own appointments."
+        "You do not have permission to modify this appointment."
       );
 
       return;
@@ -1341,7 +1413,7 @@ export default function CalendarPage() {
       )
     ) {
       setError(
-        "You can modify only your own appointments."
+        "You do not have permission to modify this appointment."
       );
 
       return;
@@ -1413,7 +1485,7 @@ export default function CalendarPage() {
   function openBlockForm() {
     if (
       !selectedBarberId ||
-      !canManageSelectedBarber
+      !canManageSelectedBarberBlockedTime
     ) {
       return;
     }
@@ -1644,7 +1716,7 @@ export default function CalendarPage() {
     }
 
     if (
-      !canManageSelectedBarber
+      !canManageSelectedBarberBlockedTime
     ) {
       setError(
         "You can block time only on your own schedule."
@@ -2202,34 +2274,27 @@ export default function CalendarPage() {
               )}
             </p>
 
-            <p className="text-gray-900">
-              {
-                appointment.customer_phone
-              }
-            </p>
+            {appointment.customer_phone ? (
+              <p className="text-gray-700">
+                {
+                  appointment.customer_phone
+                }
+              </p>
+            ) : null}
 
             {appointment.notes ? (
-              <div className="mt-3 rounded-xl bg-white border p-3 text-gray-900">
-                <p className="font-bold">
-                  Notes
-                </p>
-
-                <p>
-                  {
-                    appointment.notes
-                  }
-                </p>
-              </div>
+              <p className="text-gray-700 mt-2">
+                {appointment.notes}
+              </p>
             ) : null}
           </div>
 
-          <span className="font-bold text-sm bg-white border rounded-full px-3 py-1">
+          <span className="rounded-full bg-white/70 px-3 py-1 text-sm font-bold">
             {statusLabel}
           </span>
         </div>
 
-        {canModify &&
-        !isMoving ? (
+        {canModify ? (
           <div className="flex flex-wrap gap-2 mt-4">
             <button
               type="button"
@@ -2238,95 +2303,121 @@ export default function CalendarPage() {
                   appointment
                 )
               }
-              className="bg-purple-600 text-white px-3 py-2 rounded-xl text-sm font-semibold"
+              className="bg-white border border-gray-300 text-gray-900 px-3 py-2 rounded-xl text-sm font-semibold"
             >
               Move
             </button>
 
-            <button
-              type="button"
-              onClick={() =>
-                updateAppointmentStatus(
-                  appointment.id,
-                  "confirmed"
-                )
-              }
-              className="bg-blue-500 text-white px-3 py-2 rounded-xl text-sm font-semibold"
-            >
-              Confirm
-            </button>
+            {appointment.status !==
+            "confirmed" ? (
+              <button
+                type="button"
+                onClick={() =>
+                  updateAppointmentStatus(
+                    appointment.id,
+                    "confirmed"
+                  )
+                }
+                className="bg-blue-600 text-white px-3 py-2 rounded-xl text-sm font-semibold"
+              >
+                Confirm
+              </button>
+            ) : null}
 
-            <button
-              type="button"
-              onClick={() =>
-                updateAppointmentStatus(
-                  appointment.id,
-                  "completed"
-                )
-              }
-              className="bg-green-600 text-white px-3 py-2 rounded-xl text-sm font-semibold"
-            >
-              Complete
-            </button>
+            {appointment.status !==
+            "completed" ? (
+              <button
+                type="button"
+                onClick={() =>
+                  updateAppointmentStatus(
+                    appointment.id,
+                    "completed"
+                  )
+                }
+                className="bg-green-600 text-white px-3 py-2 rounded-xl text-sm font-semibold"
+              >
+                Complete
+              </button>
+            ) : null}
 
-            <button
-              type="button"
-              onClick={() =>
-                updateAppointmentStatus(
-                  appointment.id,
-                  "no_show"
-                )
-              }
-              className="bg-yellow-500 text-white px-3 py-2 rounded-xl text-sm font-semibold"
-            >
-              No-show
-            </button>
+            {appointment.status !==
+            "no_show" ? (
+              <button
+                type="button"
+                onClick={() =>
+                  updateAppointmentStatus(
+                    appointment.id,
+                    "no_show"
+                  )
+                }
+                className="bg-yellow-500 text-black px-3 py-2 rounded-xl text-sm font-semibold"
+              >
+                No-show
+              </button>
+            ) : null}
 
-            <button
-              type="button"
-              onClick={() =>
-                updateAppointmentStatus(
-                  appointment.id,
-                  "canceled"
-                )
-              }
-              className="bg-red-500 text-white px-3 py-2 rounded-xl text-sm font-semibold"
-            >
-              Cancel
-            </button>
+            {appointment.status !==
+            "canceled" ? (
+              <button
+                type="button"
+                onClick={() =>
+                  updateAppointmentStatus(
+                    appointment.id,
+                    "canceled"
+                  )
+                }
+                className="bg-red-500 text-white px-3 py-2 rounded-xl text-sm font-semibold"
+              >
+                Cancel
+              </button>
+            ) : null}
           </div>
         ) : null}
 
-        {canModify &&
-        isMoving ? (
-          <div className="mt-4 bg-white rounded-xl border p-4">
+        {isMoving &&
+        canModify ? (
+          <div className="mt-4 rounded-xl border border-blue-200 bg-white/80 p-4">
             <p className="font-bold mb-3">
-              Move this appointment
+              Move Appointment
             </p>
 
-            <div className="grid gap-3 sm:grid-cols-3">
-              <input
-                type="date"
-                className="border rounded-xl p-3"
-                value={moveDate}
-                onChange={(event) =>
-                  setMoveDate(
-                    event.target.value
-                  )
-                }
-              />
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <label className="block font-semibold mb-1">
+                  Date
+                </label>
 
-              <input
-                type="time"
-                className="border rounded-xl p-3"
-                value={moveTime}
-                onChange={(event) =>
-                  setMoveTime(
-                    event.target.value
-                  )
-                }
-              />
+                <input
+                  type="date"
+                  value={moveDate}
+                  onChange={(event) =>
+                    setMoveDate(
+                      event.target.value
+                    )
+                  }
+                  className="w-full border border-gray-300 rounded-xl p-3 bg-white"
+                />
+              </div>
 
+              <div>
+                <label className="block font-semibold mb-1">
+                  Time
+                </label>
+
+                <input
+                  type="time"
+                  value={moveTime}
+                  onChange={(event) =>
+                    setMoveTime(
+                      event.target.value
+                    )
+                  }
+                  className="w-full border border-gray-300 rounded-xl p-3 bg-white"
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-2 mt-3">
               <button
                 type="button"
                 onClick={() =>
@@ -2335,22 +2426,22 @@ export default function CalendarPage() {
                   )
                 }
                 disabled={savingMove}
-                className="bg-black text-white rounded-xl px-4 py-3 font-semibold disabled:opacity-60"
+                className="bg-blue-700 text-white px-4 py-2 rounded-xl font-semibold disabled:opacity-60"
               >
                 {savingMove
-                  ? "Moving..."
+                  ? "Saving..."
                   : "Save Move"}
               </button>
-            </div>
 
-            <button
-              type="button"
-              onClick={cancelMove}
-              disabled={savingMove}
-              className="mt-3 bg-gray-400 text-white px-4 py-2 rounded-xl font-semibold disabled:opacity-60"
-            >
-              Cancel Move
-            </button>
+              <button
+                type="button"
+                onClick={cancelMove}
+                disabled={savingMove}
+                className="bg-gray-300 text-gray-900 px-4 py-2 rounded-xl font-semibold disabled:opacity-60"
+              >
+                Cancel
+              </button>
+            </div>
           </div>
         ) : null}
       </div>
@@ -2377,11 +2468,11 @@ export default function CalendarPage() {
     return (
       <div
         key={block.id}
-        className="rounded-2xl p-4 bg-slate-100 border border-slate-300"
+        className="rounded-2xl p-4 border border-gray-300 bg-gray-100 shadow-sm"
       >
-        <div className="flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-start">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <p className="font-bold">
+            <p className="font-bold text-lg">
               {formatTime(
                 block.start_datetime
               )}{" "}
@@ -2391,13 +2482,15 @@ export default function CalendarPage() {
               )}
             </p>
 
-            <p className="text-gray-900">
-              Blocked: {block.reason}
+            <p className="text-gray-800">
+              Blocked ·{" "}
+              {block.reason ||
+                "Unavailable"}
             </p>
 
             {recurring ? (
-              <p className="text-sm font-semibold mt-1 text-emerald-800">
-                Repeats weekly
+              <p className="text-sm text-gray-600 mt-1">
+                Recurring block
               </p>
             ) : null}
           </div>
@@ -2491,34 +2584,34 @@ export default function CalendarPage() {
                 Admin Home
               </button>
 
-              {canManageSelectedBarber ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      openAppointmentForm()
-                    }
-                    disabled={
-                      !selectedBarberId
-                    }
-                    className="bg-blue-700 text-white rounded-xl px-5 py-3 font-bold shadow hover:bg-blue-800 disabled:opacity-50"
-                  >
-                    + Appointment
-                  </button>
+              {canManageSelectedBarberAppointments ? (
+                <button
+                  type="button"
+                  onClick={() =>
+                    openAppointmentForm()
+                  }
+                  disabled={
+                    !selectedBarberId
+                  }
+                  className="bg-blue-700 text-white rounded-xl px-5 py-3 font-bold shadow hover:bg-blue-800 disabled:opacity-50"
+                >
+                  + Appointment
+                </button>
+              ) : null}
 
-                  <button
-                    type="button"
-                    onClick={
-                      openBlockForm
-                    }
-                    disabled={
-                      !selectedBarberId
-                    }
-                    className="bg-emerald-700 text-white rounded-xl px-5 py-3 font-bold shadow hover:bg-emerald-800 disabled:opacity-50"
-                  >
-                    + Block Time
-                  </button>
-                </>
+              {canManageSelectedBarberBlockedTime ? (
+                <button
+                  type="button"
+                  onClick={
+                    openBlockForm
+                  }
+                  disabled={
+                    !selectedBarberId
+                  }
+                  className="bg-emerald-700 text-white rounded-xl px-5 py-3 font-bold shadow hover:bg-emerald-800 disabled:opacity-50"
+                >
+                  + Block Time
+                </button>
               ) : null}
             </div>
           </div>
@@ -2537,7 +2630,8 @@ export default function CalendarPage() {
         </section>
 
         {isStaff &&
-        !currentUserBarberId ? (
+        !currentUserBarberId &&
+        !staffCanManageOtherStaffAppointments ? (
           <section className="rounded-2xl border border-amber-300 bg-amber-50 p-4">
             <p className="font-bold text-amber-900">
               Your login is not linked
@@ -2556,21 +2650,59 @@ export default function CalendarPage() {
         ) : null}
 
         {isStaff &&
+        !currentUserBarberId &&
+        staffCanManageOtherStaffAppointments ? (
+          <section className="rounded-2xl border border-blue-300 bg-blue-50 p-4">
+            <p className="font-bold text-blue-900">
+              You can manage appointments
+              for the team.
+            </p>
+
+            <p className="mt-1 text-blue-900">
+              Your login is not linked to
+              a staff schedule, so you
+              cannot add or remove blocked
+              time.
+            </p>
+          </section>
+        ) : null}
+
+        {isStaff &&
         currentUserBarberId &&
         selectedBarberId &&
-        !canManageSelectedBarber ? (
+        selectedBarberId !==
+          currentUserBarberId &&
+        !staffCanManageOtherStaffAppointments ? (
           <section className="rounded-2xl border border-blue-300 bg-blue-50 p-4">
             <p className="font-semibold text-blue-900">
               You can view this staff
               member&apos;s schedule.
               Only that staff member or
-              the owner can make changes.
+              the owner can change their
+              appointments.
+            </p>
+          </section>
+        ) : null}
+
+        {isStaff &&
+        currentUserBarberId &&
+        selectedBarberId &&
+        selectedBarberId !==
+          currentUserBarberId &&
+        staffCanManageOtherStaffAppointments ? (
+          <section className="rounded-2xl border border-blue-300 bg-blue-50 p-4">
+            <p className="font-semibold text-blue-900">
+              You can manage this staff
+              member&apos;s appointments.
+              Blocked time can only be
+              changed by that staff member
+              or the owner.
             </p>
           </section>
         ) : null}
 
         {showAppointmentForm &&
-        canManageSelectedBarber ? (
+        canManageSelectedBarberAppointments ? (
           <section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-blue-200">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
               <div>
@@ -2639,7 +2771,7 @@ export default function CalendarPage() {
 
                     {customerSearch.trim() &&
                     existingCustomers.length >
-                    0 ? (
+                      0 ? (
                       <div className="rounded-2xl border border-gray-200 overflow-hidden">
                         {filteredCustomers.length >
                         0 ? (
@@ -2914,7 +3046,7 @@ export default function CalendarPage() {
         ) : null}
 
                   {showBlockForm &&
-        canManageSelectedBarber ? (
+        canManageSelectedBarberBlockedTime ? (
           <section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-emerald-200">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
@@ -3010,8 +3142,8 @@ export default function CalendarPage() {
               "Other" ? (
                 <input
                   type="text"
-                  className="w-full mt-3 border border-emerald-200 rounded-xl p-3 bg-emerald-50"
-                  placeholder="Reason"
+                  className="w-full border border-emerald-200 rounded-xl p-3 mt-3"
+                  placeholder="Enter reason"
                   value={
                     customBlockReason
                   }
@@ -3026,65 +3158,27 @@ export default function CalendarPage() {
 
             {blockMode ===
             "one-time" ? (
-              <div className="grid gap-4 sm:grid-cols-3 mt-6">
-                <div>
-                  <label className="block font-semibold mb-2">
-                    Date
-                  </label>
+              <div className="mt-6">
+                <label className="block font-semibold mb-2">
+                  Date
+                </label>
 
-                  <input
-                    type="date"
-                    className="w-full border border-emerald-200 rounded-xl p-3 bg-emerald-50"
-                    value={blockDate}
-                    onChange={(event) =>
-                      setBlockDate(
-                        event.target.value
-                      )
-                    }
-                  />
-                </div>
-
-                <div>
-                  <label className="block font-semibold mb-2">
-                    Start
-                  </label>
-
-                  <input
-                    type="time"
-                    className="w-full border border-emerald-200 rounded-xl p-3 bg-emerald-50"
-                    value={
-                      blockStartTime
-                    }
-                    onChange={(event) =>
-                      setBlockStartTime(
-                        event.target.value
-                      )
-                    }
-                  />
-                </div>
-
-                <div>
-                  <label className="block font-semibold mb-2">
-                    End
-                  </label>
-
-                  <input
-                    type="time"
-                    className="w-full border border-emerald-200 rounded-xl p-3 bg-emerald-50"
-                    value={blockEndTime}
-                    onChange={(event) =>
-                      setBlockEndTime(
-                        event.target.value
-                      )
-                    }
-                  />
-                </div>
+                <input
+                  type="date"
+                  className="w-full border border-emerald-200 rounded-xl p-3"
+                  value={blockDate}
+                  onChange={(event) =>
+                    setBlockDate(
+                      event.target.value
+                    )
+                  }
+                />
               </div>
             ) : (
               <div className="mt-6 space-y-5">
                 <div>
                   <label className="block font-semibold mb-2">
-                    Repeats On
+                    Days
                   </label>
 
                   <div className="flex flex-wrap gap-2">
@@ -3106,7 +3200,7 @@ export default function CalendarPage() {
                                 day.value
                               )
                             }
-                            className={`rounded-xl px-4 py-2 font-bold border ${
+                            className={`rounded-xl px-4 py-2 font-semibold border ${
                               selected
                                 ? "bg-emerald-700 text-white border-emerald-700"
                                 : "bg-white text-emerald-900 border-emerald-300"
@@ -3125,12 +3219,12 @@ export default function CalendarPage() {
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div>
                     <label className="block font-semibold mb-2">
-                      Starts
+                      Start Date
                     </label>
 
                     <input
                       type="date"
-                      className="w-full border border-emerald-200 rounded-xl p-3 bg-emerald-50"
+                      className="w-full border border-emerald-200 rounded-xl p-3"
                       value={
                         recurringStartDate
                       }
@@ -3147,12 +3241,12 @@ export default function CalendarPage() {
 
                   <div>
                     <label className="block font-semibold mb-2">
-                      Until
+                      End Date
                     </label>
 
                     <input
                       type="date"
-                      className="w-full border border-emerald-200 rounded-xl p-3 bg-emerald-50"
+                      className="w-full border border-emerald-200 rounded-xl p-3"
                       value={
                         recurringEndDate
                       }
@@ -3167,83 +3261,69 @@ export default function CalendarPage() {
                     />
                   </div>
                 </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block font-semibold mb-2">
-                      Start
-                    </label>
-
-                    <input
-                      type="time"
-                      className="w-full border border-emerald-200 rounded-xl p-3 bg-emerald-50"
-                      value={
-                        blockStartTime
-                      }
-                      onChange={(
-                        event
-                      ) =>
-                        setBlockStartTime(
-                          event.target
-                            .value
-                        )
-                      }
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block font-semibold mb-2">
-                      End
-                    </label>
-
-                    <input
-                      type="time"
-                      className="w-full border border-emerald-200 rounded-xl p-3 bg-emerald-50"
-                      value={
-                        blockEndTime
-                      }
-                      onChange={(
-                        event
-                      ) =>
-                        setBlockEndTime(
-                          event.target
-                            .value
-                        )
-                      }
-                    />
-                  </div>
-                </div>
               </div>
             )}
 
-            <div className="flex flex-wrap gap-3 mt-6">
+            <div className="grid gap-4 sm:grid-cols-2 mt-6">
+              <div>
+                <label className="block font-semibold mb-2">
+                  Start Time
+                </label>
+
+                <input
+                  type="time"
+                  className="w-full border border-emerald-200 rounded-xl p-3"
+                  value={
+                    blockStartTime
+                  }
+                  onChange={(event) =>
+                    setBlockStartTime(
+                      event.target.value
+                    )
+                  }
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold mb-2">
+                  End Time
+                </label>
+
+                <input
+                  type="time"
+                  className="w-full border border-emerald-200 rounded-xl p-3"
+                  value={
+                    blockEndTime
+                  }
+                  onChange={(event) =>
+                    setBlockEndTime(
+                      event.target.value
+                    )
+                  }
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-3 mt-7">
               <button
                 type="button"
-                onClick={
-                  saveBlockedTime
-                }
-                disabled={
-                  savingBlock
-                }
-                className="bg-emerald-700 text-white rounded-xl px-5 py-3 font-bold disabled:opacity-60"
+                onClick={saveBlockedTime}
+                disabled={savingBlock}
+                className="bg-emerald-700 text-white rounded-xl px-6 py-3 font-bold disabled:opacity-60"
               >
                 {savingBlock
                   ? "Saving..."
                   : blockMode ===
                       "recurring"
-                    ? "Save Recurring Block"
-                    : "Save Blocked Time"}
+                    ? "Create Recurring Block"
+                    : "Block Time"}
               </button>
 
               <button
                 type="button"
-                onClick={
-                  closeBlockForm
-                }
-                disabled={
-                  savingBlock
-                }
-                className="bg-gray-400 text-white rounded-xl px-5 py-3 font-bold disabled:opacity-60"
+                onClick={closeBlockForm}
+                disabled={savingBlock}
+                className="bg-gray-200 text-gray-900 rounded-xl px-6 py-3 font-bold disabled:opacity-60"
               >
                 Cancel
               </button>
@@ -3251,192 +3331,252 @@ export default function CalendarPage() {
           </section>
         ) : null}
 
-        <section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-emerald-200">
-          <h2 className="text-3xl font-bold mb-6 text-emerald-950">
-            Filters
-          </h2>
+        <section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 flex-1">
+              <div>
+                <label className="block font-semibold mb-2">
+                  Staff
+                </label>
 
-          <div className="grid gap-4 sm:grid-cols-3">
-            <div>
-              <label className="block font-semibold mb-2">
-                View
-              </label>
+                <select
+                  value={
+                    selectedBarberId
+                  }
+                  onChange={(event) => {
+                    setSelectedBarberId(
+                      event.target.value
+                    );
 
-              <select
-                className="w-full border border-emerald-200 rounded-xl p-3 bg-emerald-50"
-                value={viewMode}
-                onChange={(event) =>
-                  setViewMode(
-                    event.target.value
-                  )
-                }
-              >
-                <option value="day">
-                  Day
-                </option>
+                    setShowAppointmentForm(
+                      false
+                    );
 
-                <option value="week">
-                  Week
-                </option>
-              </select>
-            </div>
+                    setShowBlockForm(
+                      false
+                    );
 
-            <div>
-              <label className="block font-semibold mb-2">
-                Date
-              </label>
+                    setMovingAppointmentId(
+                      ""
+                    );
 
-              <input
-                type="date"
-                className="w-full border border-emerald-200 rounded-xl p-3 bg-emerald-50"
-                value={selectedDate}
-                onChange={(event) => {
-                  setSelectedDate(
-                    event.target.value
-                  );
-
-                  setShowAppointmentForm(
-                    false
-                  );
-
-                  setShowBlockForm(
-                    false
-                  );
-
-                  setMovingAppointmentId(
-                    ""
-                  );
-                }}
-              />
-            </div>
-
-            <div>
-              <label className="block font-semibold mb-2">
-                Staff
-              </label>
-
-              <select
-                className="w-full border border-emerald-200 rounded-xl p-3 bg-emerald-50"
-                value={
-                  selectedBarberId
-                }
-                onChange={(event) => {
-                  setSelectedBarberId(
-                    event.target.value
-                  );
-
-                  setShowAppointmentForm(
-                    false
-                  );
-
-                  setShowBlockForm(
-                    false
-                  );
-
-                  setMovingAppointmentId(
-                    ""
-                  );
-                }}
-              >
-                {barbers.map(
-                  (barber) => (
-                    <option
-                      key={barber.id}
-                      value={barber.id}
-                    >
-                      {barber.name}
+                    setMessage("");
+                    setError("");
+                  }}
+                  className="w-full border border-gray-300 rounded-xl p-3 bg-white"
+                >
+                  {barbers.length ===
+                  0 ? (
+                    <option value="">
+                      No staff found
                     </option>
-                  )
-                )}
-              </select>
+                  ) : null}
+
+                  {barbers.map(
+                    (barber) => (
+                      <option
+                        key={barber.id}
+                        value={barber.id}
+                      >
+                        {barber.name}
+                      </option>
+                    )
+                  )}
+                </select>
+              </div>
+
+              <div>
+                <label className="block font-semibold mb-2">
+                  Date
+                </label>
+
+                <input
+                  type="date"
+                  value={selectedDate}
+                  onChange={(event) => {
+                    setSelectedDate(
+                      event.target.value
+                    );
+
+                    setAppointmentDate(
+                      event.target.value
+                    );
+
+                    setBlockDate(
+                      event.target.value
+                    );
+
+                    setShowAppointmentForm(
+                      false
+                    );
+
+                    setShowBlockForm(
+                      false
+                    );
+
+                    setMovingAppointmentId(
+                      ""
+                    );
+                  }}
+                  className="w-full border border-gray-300 rounded-xl p-3"
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold mb-2">
+                  View
+                </label>
+
+                <div className="flex rounded-xl overflow-hidden border border-gray-300">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setViewMode(
+                        "day"
+                      )
+                    }
+                    className={`flex-1 px-4 py-3 font-semibold ${
+                      viewMode ===
+                      "day"
+                        ? "bg-emerald-700 text-white"
+                        : "bg-white text-gray-800"
+                    }`}
+                  >
+                    Day
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setViewMode(
+                        "week"
+                      )
+                    }
+                    className={`flex-1 px-4 py-3 font-semibold ${
+                      viewMode ===
+                      "week"
+                        ? "bg-emerald-700 text-white"
+                        : "bg-white text-gray-800"
+                    }`}
+                  >
+                    Week
+                  </button>
+                </div>
+              </div>
             </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                const today =
+                  localDateValue();
+
+                setSelectedDate(
+                  today
+                );
+
+                setAppointmentDate(
+                  today
+                );
+
+                setBlockDate(today);
+              }}
+              className="bg-gray-900 text-white rounded-xl px-5 py-3 font-bold"
+            >
+              Today
+            </button>
           </div>
         </section>
 
         {loading ? (
-          <section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-emerald-200">
-            <p className="text-2xl font-bold">
+          <section className="bg-white rounded-3xl shadow-lg p-8">
+            <p className="text-lg font-semibold text-gray-700">
               Loading calendar...
             </p>
           </section>
         ) : null}
 
         {!loading &&
+        !selectedBarberId ? (
+          <section className="bg-white rounded-3xl shadow-lg p-8">
+            <p className="text-lg font-semibold text-gray-700">
+              No staff schedule is
+              available yet.
+            </p>
+          </section>
+        ) : null}
+
+        {!loading &&
+        selectedBarberId &&
         viewMode === "day" ? (
-          <section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-emerald-200">
-            <h2 className="text-3xl font-bold mb-2 text-emerald-950">
-              Day View —{" "}
-              {selectedBarber?.name ||
-                "Staff"}{" "}
-              — {selectedDate}
-            </h2>
-
-            {canManageSelectedBarber ? (
-              <p className="text-gray-600 mb-6">
-                Click{" "}
-                <strong>
-                  + Appointment
-                </strong>{" "}
-                on an open hour to book
-                that time immediately.
+          <section className="bg-white rounded-3xl shadow-lg overflow-hidden">
+            <div className="p-6 border-b">
+              <p className="text-sm font-extrabold uppercase tracking-widest text-emerald-700">
+                Day View
               </p>
-            ) : (
-              <div className="mb-6" />
-            )}
 
-            <div className="grid gap-3">
+              <h2 className="text-3xl font-bold mt-1">
+                {selectedBarber?.name ||
+                  "Staff"}{" "}
+                ·{" "}
+                {new Date(
+                  `${selectedDate}T12:00:00`
+                ).toLocaleDateString(
+                  [],
+                  {
+                    weekday:
+                      "long",
+                    month:
+                      "long",
+                    day: "numeric",
+                    year: "numeric",
+                  }
+                )}
+              </h2>
+            </div>
+
+            <div className="divide-y">
               {HOURS.map(
-                (hour) => {
-                  const appointmentsForHour =
+                (hourText) => {
+                  const appointmentItems =
                     appointmentItemsForHour(
-                      hour
+                      hourText
                     );
 
-                  const blockedForHour =
+                  const blockedItems =
                     blockedItemsForHour(
-                      hour
+                      hourText
                     );
 
                   const isOpen =
-                    appointmentsForHour.length ===
+                    appointmentItems.length ===
                       0 &&
-                    blockedForHour.length ===
+                    blockedItems.length ===
                       0;
 
                   return (
                     <div
-                      key={hour}
-                      className="border border-emerald-100 rounded-2xl p-4 bg-emerald-50/50"
+                      key={hourText}
+                      className="grid gap-4 p-5 md:grid-cols-[110px_1fr]"
                     >
-                      <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
-                        <p className="font-bold text-emerald-950">
-                          {hour}
-                        </p>
-
-                        {isOpen &&
-                        canManageSelectedBarber ? (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              openAppointmentForm(
-                                hour
-                              )
+                      <div>
+                        <p className="font-bold text-gray-700">
+                          {new Date(
+                            `${selectedDate}T${hourText}:00`
+                          ).toLocaleTimeString(
+                            [],
+                            {
+                              hour:
+                                "numeric",
+                              minute:
+                                "2-digit",
                             }
-                            className="bg-blue-600 text-white rounded-lg px-3 py-2 text-sm font-bold hover:bg-blue-700"
-                          >
-                            + Appointment
-                          </button>
-                        ) : null}
+                          )}
+                        </p>
                       </div>
 
-                      {isOpen ? (
-                        <p className="text-gray-600">
-                          Open
-                        </p>
-                      ) : null}
-
-                      <div className="grid gap-2">
-                        {appointmentsForHour.map(
+                      <div className="space-y-3">
+                        {appointmentItems.map(
                           (
                             appointment
                           ) =>
@@ -3445,12 +3585,35 @@ export default function CalendarPage() {
                             )
                         )}
 
-                        {blockedForHour.map(
+                        {blockedItems.map(
                           (block) =>
                             blockedTimeCard(
                               block
                             )
                         )}
+
+                        {isOpen &&
+                        canManageSelectedBarberAppointments ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              openAppointmentForm(
+                                hourText
+                              )
+                            }
+                            className="w-full text-left rounded-2xl border-2 border-dashed border-emerald-200 bg-emerald-50/50 px-4 py-4 font-semibold text-emerald-800 hover:bg-emerald-50"
+                          >
+                            Open · Add
+                            appointment
+                          </button>
+                        ) : null}
+
+                        {isOpen &&
+                        !canManageSelectedBarberAppointments ? (
+                          <div className="rounded-2xl border border-gray-200 bg-gray-50 px-4 py-4 text-gray-500">
+                            Open
+                          </div>
+                        ) : null}
                       </div>
                     </div>
                   );
@@ -3461,20 +3624,23 @@ export default function CalendarPage() {
         ) : null}
 
         {!loading &&
+        selectedBarberId &&
         viewMode === "week" ? (
-          <section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-emerald-200">
-            <h2 className="text-3xl font-bold mb-6 text-emerald-950">
-              Week View —{" "}
-              {selectedBarber?.name ||
-                "Staff"}
-            </h2>
+          <section className="bg-white rounded-3xl shadow-lg overflow-hidden">
+            <div className="p-6 border-b">
+              <p className="text-sm font-extrabold uppercase tracking-widest text-emerald-700">
+                Week View
+              </p>
 
-            <div className="grid gap-4">
+              <h2 className="text-3xl font-bold mt-1">
+                {selectedBarber?.name ||
+                  "Staff"}
+              </h2>
+            </div>
+
+            <div className="grid gap-4 p-5 lg:grid-cols-7">
               {weekDates.map(
-                (
-                  date,
-                  index
-                ) => {
+                (date) => {
                   const items =
                     weekItemsForDate(
                       date
@@ -3483,15 +3649,180 @@ export default function CalendarPage() {
                   return (
                     <div
                       key={date}
-                      className="border border-emerald-100 rounded-2xl p-4 bg-emerald-50/50"
+                      className="rounded-2xl border border-gray-200 bg-gray-50 min-h-[220px] overflow-hidden"
                     >
-                      <div className="flex flex-wrap justify-between items-center gap-3 mb-3">
-                        <h3 className="text-xl font-bold text-emerald-950">
-                          {DAYS[index]} —{" "}
-                          {date}
-                        </h3>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedDate(
+                            date
+                          );
 
-                        {canManageSelectedBarber ? (
+                          setAppointmentDate(
+                            date
+                          );
+
+                          setBlockDate(
+                            date
+                          );
+
+                          setViewMode(
+                            "day"
+                          );
+
+                          setShowAppointmentForm(
+                            false
+                          );
+
+                          setShowBlockForm(
+                            false
+                          );
+
+                          setMovingAppointmentId(
+                            ""
+                          );
+                        }}
+                        className="w-full text-left p-4 border-b border-gray-200 bg-white hover:bg-emerald-50"
+                      >
+                        <p className="text-sm font-bold text-emerald-700">
+                          {
+                            DAYS[
+                              new Date(
+                                `${date}T12:00:00`
+                              ).getDay()
+                            ]
+                          }
+                        </p>
+
+                        <p className="font-bold text-gray-950">
+                          {new Date(
+                            `${date}T12:00:00`
+                          ).toLocaleDateString(
+                            [],
+                            {
+                              month:
+                                "short",
+                              day: "numeric",
+                            }
+                          )}
+                        </p>
+                      </button>
+
+                      <div className="p-3 space-y-2">
+                        {items.length ===
+                        0 ? (
+                          <p className="text-sm text-gray-500">
+                            Open
+                          </p>
+                        ) : null}
+
+                        {items.map(
+                          (item) => {
+                            if (
+                              item.type ===
+                              "appointment"
+                            ) {
+                              const appointment =
+                                item.data;
+
+                              const statusStyle =
+                                STATUS_STYLES[
+                                  appointment
+                                    .status
+                                ] ||
+                                STATUS_STYLES
+                                  .confirmed;
+
+                              return (
+                                <button
+                                  key={
+                                    item.id
+                                  }
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedDate(
+                                      date
+                                    );
+
+                                    setAppointmentDate(
+                                      date
+                                    );
+
+                                    setBlockDate(
+                                      date
+                                    );
+
+                                    setViewMode(
+                                      "day"
+                                    );
+                                  }}
+                                  className={`w-full text-left rounded-xl border p-3 ${statusStyle}`}
+                                >
+                                  <p className="font-bold text-sm">
+                                    {formatTime(
+                                      appointment.start_datetime
+                                    )}
+                                  </p>
+
+                                  <p className="font-semibold text-sm mt-1">
+                                    {
+                                      appointment.customer_name
+                                    }
+                                  </p>
+
+                                  <p className="text-xs mt-1">
+                                    {serviceName(
+                                      appointment.service_id
+                                    )}
+                                  </p>
+                                </button>
+                              );
+                            }
+
+                            const block =
+                              item.data;
+
+                            return (
+                              <button
+                                key={
+                                  item.id
+                                }
+                                type="button"
+                                onClick={() => {
+                                  setSelectedDate(
+                                    date
+                                  );
+
+                                  setAppointmentDate(
+                                    date
+                                  );
+
+                                  setBlockDate(
+                                    date
+                                  );
+
+                                  setViewMode(
+                                    "day"
+                                  );
+                                }}
+                                className="w-full text-left rounded-xl border border-gray-300 bg-gray-200 p-3"
+                              >
+                                <p className="font-bold text-sm">
+                                  {formatTime(
+                                    block.start_datetime
+                                  )}
+                                </p>
+
+                                <p className="text-sm mt-1">
+                                  {block.reason ||
+                                    "Blocked"}
+                                </p>
+                              </button>
+                            );
+                          }
+                        )}
+
+                        {canManageSelectedBarberAppointments ? (
                           <button
                             type="button"
                             onClick={() => {
@@ -3499,43 +3830,44 @@ export default function CalendarPage() {
                                 date
                               );
 
+                              setAppointmentDate(
+                                date
+                              );
+
+                              setBlockDate(
+                                date
+                              );
+
                               setViewMode(
                                 "day"
                               );
+
+                              setShowBlockForm(
+                                false
+                              );
+
+                              setMovingAppointmentId(
+                                ""
+                              );
+
+                              resetAppointmentForm();
 
                               setAppointmentDate(
                                 date
                               );
 
-                              openAppointmentForm();
+                              setShowAppointmentForm(
+                                true
+                              );
+
+                              setMessage("");
+                              setError("");
                             }}
-                            className="bg-blue-600 text-white rounded-lg px-3 py-2 text-sm font-bold hover:bg-blue-700"
+                            className="w-full rounded-xl border-2 border-dashed border-emerald-300 bg-white px-3 py-2 text-sm font-bold text-emerald-800 hover:bg-emerald-50"
                           >
                             + Appointment
                           </button>
                         ) : null}
-                      </div>
-
-                      {items.length ===
-                      0 ? (
-                        <p className="text-gray-600">
-                          No appointments
-                          or blocked time.
-                        </p>
-                      ) : null}
-
-                      <div className="grid gap-2">
-                        {items.map(
-                          (item) =>
-                            item.type ===
-                            "appointment"
-                              ? appointmentCard(
-                                  item.data
-                                )
-                              : blockedTimeCard(
-                                  item.data
-                                )
-                        )}
                       </div>
                     </div>
                   );
