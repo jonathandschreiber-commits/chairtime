@@ -32,6 +32,52 @@ def require_user_shop_slug(current_user: User) -> str:
     return shop_slug
 
 
+def require_blocked_time_modify_permission(
+    current_user: User,
+    barber_id: str,
+) -> None:
+    role = str(
+        current_user.role or ""
+    ).strip().lower()
+
+    if role == "owner":
+        return
+
+    if role != "staff":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "You do not have permission "
+                "to manage blocked time."
+            ),
+        )
+
+    current_user_barber_id = str(
+        current_user.barber_id or ""
+    ).strip()
+
+    if not current_user_barber_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Your staff login is not linked "
+                "to a service provider."
+            ),
+        )
+
+    if (
+        str(barber_id or "").strip()
+        != current_user_barber_id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Employees may manage blocked time "
+                "only on their own schedule."
+            ),
+        )
+
+
 def validate_reason(reason: str) -> str:
     clean_reason = str(reason or "").strip()
 
@@ -302,6 +348,11 @@ def create_admin_blocked_time(
         shop_slug,
     )
 
+    require_blocked_time_modify_permission(
+        current_user,
+        payload.barber_id,
+    )
+
     validate_datetime_range(
         payload.start_datetime,
         payload.end_datetime,
@@ -339,7 +390,6 @@ def create_admin_blocked_time(
 
     return blocked_time
 
-
 @router.post("/admin/blocked-times/recurring")
 def create_recurring_admin_blocked_time(
     payload: RecurringBlockedTimeCreate,
@@ -353,6 +403,11 @@ def create_recurring_admin_blocked_time(
         db,
         payload.barber_id,
         shop_slug,
+    )
+
+    require_blocked_time_modify_permission(
+        current_user,
+        payload.barber_id,
     )
 
     if payload.end_date < payload.start_date:
@@ -501,6 +556,11 @@ def delete_admin_blocked_time(
         shop_slug,
     )
 
+    require_blocked_time_modify_permission(
+        current_user,
+        blocked_time.barber_id,
+    )
+
     db.delete(blocked_time)
 
     try:
@@ -539,6 +599,12 @@ def delete_admin_blocked_time_series(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Blocked-time series not found.",
+        )
+
+    for blocked_time in blocked_times:
+        require_blocked_time_modify_permission(
+            current_user,
+            blocked_time.barber_id,
         )
 
     deleted_count = len(blocked_times)
