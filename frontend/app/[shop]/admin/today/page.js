@@ -63,6 +63,16 @@ export default function AgendaPage() {
 
   const shopSlug = params.shop;
 
+  const [
+    currentUser,
+    setCurrentUser,
+  ] = useState(null);
+
+  const [
+    staffCanManageOtherStaffAppointments,
+    setStaffCanManageOtherStaffAppointments,
+  ] = useState(false);
+
   const [appointments, setAppointments] = useState([]);
   const [barbers, setBarbers] = useState([]);
   const [services, setServices] = useState([]);
@@ -92,25 +102,110 @@ export default function AgendaPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
 
+  /*
+   * CURRENT USER / PERMISSIONS
+   */
+
+  const currentUserRole = String(
+    currentUser?.role || ""
+  )
+    .trim()
+    .toLowerCase();
+
+  const isOwner =
+    currentUserRole === "owner";
+
+  const isStaff =
+    currentUserRole === "staff";
+
+  const currentUserBarberId =
+    String(
+      currentUser?.barber_id || ""
+    ).trim();
+
+  function canModifyAppointment(
+    appointment
+  ) {
+    if (isOwner) {
+      return true;
+    }
+
+    if (!isStaff) {
+      return false;
+    }
+
+    if (
+      staffCanManageOtherStaffAppointments
+    ) {
+      return true;
+    }
+
+    if (!currentUserBarberId) {
+      return false;
+    }
+
+    return (
+      String(
+        appointment?.barber_id || ""
+      ) === currentUserBarberId
+    );
+  }
+
+  /*
+   * LOAD DAILY AGENDA
+   */
+
   const loadData = useCallback(async () => {
     setLoading(true);
     setError("");
 
     try {
-      const response = await fetch(
-        "/api/admin/agenda",
-        {
-          method: "GET",
-          headers: {
-            Accept: "application/json",
-          },
-          cache: "no-store",
-        }
-      );
+      const [
+        meResponse,
+        agendaResponse,
+        permissionResponse,
+      ] = await Promise.all([
+        fetch(
+          "/api/auth/me",
+          {
+            method: "GET",
+            headers: {
+              Accept: "application/json",
+            },
+            cache: "no-store",
+          }
+        ),
 
-      const data = await response.json();
+        fetch(
+          "/api/admin/agenda",
+          {
+            method: "GET",
+            headers: {
+              Accept: "application/json",
+            },
+            cache: "no-store",
+          }
+        ),
 
-      if (response.status === 401) {
+        fetch(
+          `/api/shops/${encodeURIComponent(
+            shopSlug
+          )}/staff-appointment-permission`,
+          {
+            method: "GET",
+            headers: {
+              Accept: "application/json",
+            },
+            cache: "no-store",
+          }
+        ),
+      ]);
+
+      if (
+        meResponse.status === 401 ||
+        agendaResponse.status === 401 ||
+        permissionResponse.status === 401
+      ) {
         router.replace(
           `/login?next=${encodeURIComponent(
             `/${shopSlug}/admin/today`
@@ -120,27 +215,92 @@ export default function AgendaPage() {
         return;
       }
 
-      if (!response.ok) {
+      const meData =
+        await meResponse.json();
+
+      const agendaData =
+        await agendaResponse.json();
+
+      const permissionData =
+        await permissionResponse.json();
+
+      if (!meResponse.ok) {
         throw new Error(
-          data?.error ||
+          meData?.detail ||
+            meData?.error ||
+            "Your account could not be loaded."
+        );
+      }
+
+      if (!agendaResponse.ok) {
+        throw new Error(
+          agendaData?.error ||
+            agendaData?.detail ||
             "The agenda could not be loaded."
         );
       }
 
+      if (!permissionResponse.ok) {
+        throw new Error(
+          permissionData?.detail ||
+            permissionData?.error ||
+            "Staff appointment permissions could not be loaded."
+        );
+      }
+
+      const userShopSlug =
+        String(
+          meData?.shop_slug || ""
+        )
+          .trim()
+          .toLowerCase();
+
       if (
-        data.shop_slug &&
-        data.shop_slug !== shopSlug
+        !userShopSlug ||
+        userShopSlug !== shopSlug
+      ) {
+        if (userShopSlug) {
+          router.replace(
+            `/${userShopSlug}/admin/today`
+          );
+        } else {
+          router.replace("/login");
+        }
+
+        return;
+      }
+
+      if (
+        agendaData.shop_slug &&
+        agendaData.shop_slug !== shopSlug
       ) {
         router.replace(
-          `/${data.shop_slug}/admin/today`
+          `/${agendaData.shop_slug}/admin/today`
         );
 
         return;
       }
 
-      setAppointments(data.appointments || []);
-      setBarbers(data.barbers || []);
-      setServices(data.services || []);
+      setCurrentUser(meData);
+
+      setStaffCanManageOtherStaffAppointments(
+        Boolean(
+          permissionData
+            ?.staff_can_manage_other_staff_appointments
+        )
+      );
+
+      setAppointments(
+        agendaData.appointments || []
+      );
+
+      setBarbers(
+        agendaData.barbers || []
+      );
+
+      setServices(
+        agendaData.services || []
+      );
     } catch (loadError) {
       setError(
         loadError instanceof Error
@@ -196,6 +356,18 @@ export default function AgendaPage() {
   }
 
   function startMove(appointment) {
+    if (
+      !canModifyAppointment(
+        appointment
+      )
+    ) {
+      setError(
+        "You do not have permission to modify this appointment."
+      );
+
+      return;
+    }
+
     setMovingAppointmentId(appointment.id);
 
     setMoveDate(
@@ -223,6 +395,25 @@ export default function AgendaPage() {
       !moveTime ||
       savingMove
     ) {
+      return;
+    }
+
+    const appointment =
+      appointments.find(
+        (item) =>
+          item.id === appointmentId
+      );
+
+    if (
+      !appointment ||
+      !canModifyAppointment(
+        appointment
+      )
+    ) {
+      setError(
+        "You do not have permission to modify this appointment."
+      );
+
       return;
     }
 
@@ -260,7 +451,8 @@ export default function AgendaPage() {
 
       if (!response.ok) {
         throw new Error(
-          data?.error ||
+          data?.detail ||
+            data?.error ||
             "The appointment could not be moved."
         );
       }
@@ -285,6 +477,25 @@ export default function AgendaPage() {
     appointmentId,
     appointmentStatus
   ) {
+    const appointment =
+      appointments.find(
+        (item) =>
+          item.id === appointmentId
+      );
+
+    if (
+      !appointment ||
+      !canModifyAppointment(
+        appointment
+      )
+    ) {
+      setError(
+        "You do not have permission to modify this appointment."
+      );
+
+      return;
+    }
+
     setMessage("");
     setError("");
 
@@ -314,7 +525,8 @@ export default function AgendaPage() {
 
       if (!response.ok) {
         throw new Error(
-          data?.error ||
+          data?.detail ||
+            data?.error ||
             "The appointment could not be updated."
         );
       }
@@ -490,6 +702,11 @@ export default function AgendaPage() {
                   movingAppointmentId ===
                   appointment.id;
 
+                const canModify =
+                  canModifyAppointment(
+                    appointment
+                  );
+
                 return (
                   <div
                     key={appointment.id}
@@ -547,68 +764,80 @@ export default function AgendaPage() {
                     </div>
 
                     {!isMoving ? (
-                      <div className="grid grid-cols-2 sm:grid-cols-6 gap-3 mt-5">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            updateStatus(
-                              appointment.id,
-                              "confirmed"
-                            )
-                          }
-                          className="bg-blue-500 text-white rounded-xl p-4 font-bold"
-                        >
-                          Confirm
-                        </button>
+                      <div
+                        className={`grid grid-cols-2 gap-3 mt-5 ${
+                          canModify
+                            ? "sm:grid-cols-6"
+                            : "sm:grid-cols-1"
+                        }`}
+                      >
+                        {canModify ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                updateStatus(
+                                  appointment.id,
+                                  "confirmed"
+                                )
+                              }
+                              className="bg-blue-500 text-white rounded-xl p-4 font-bold"
+                            >
+                              Confirm
+                            </button>
 
-                        <button
-                          type="button"
-                          onClick={() =>
-                            updateStatus(
-                              appointment.id,
-                              "completed"
-                            )
-                          }
-                          className="bg-green-600 text-white rounded-xl p-4 font-bold"
-                        >
-                          Done
-                        </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                updateStatus(
+                                  appointment.id,
+                                  "completed"
+                                )
+                              }
+                              className="bg-green-600 text-white rounded-xl p-4 font-bold"
+                            >
+                              Done
+                            </button>
 
-                        <button
-                          type="button"
-                          onClick={() =>
-                            updateStatus(
-                              appointment.id,
-                              "no_show"
-                            )
-                          }
-                          className="bg-yellow-500 text-white rounded-xl p-4 font-bold"
-                        >
-                          No-show
-                        </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                updateStatus(
+                                  appointment.id,
+                                  "no_show"
+                                )
+                              }
+                              className="bg-yellow-500 text-white rounded-xl p-4 font-bold"
+                            >
+                              No-show
+                            </button>
 
-                        <button
-                          type="button"
-                          onClick={() =>
-                            updateStatus(
-                              appointment.id,
-                              "canceled"
-                            )
-                          }
-                          className="bg-red-500 text-white rounded-xl p-4 font-bold"
-                        >
-                          Cancel
-                        </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                updateStatus(
+                                  appointment.id,
+                                  "canceled"
+                                )
+                              }
+                              className="bg-red-500 text-white rounded-xl p-4 font-bold"
+                            >
+                              Cancel
+                            </button>
 
-                        <button
-                          type="button"
-                          onClick={() =>
-                            startMove(appointment)
-                          }
-                          className="bg-gray-700 text-white rounded-xl p-4 font-bold"
-                        >
-                          Move
-                        </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                startMove(
+                                  appointment
+                                )
+                              }
+                              className="bg-gray-700 text-white rounded-xl p-4 font-bold"
+                            >
+                              Move
+                            </button>
+                          </>
+                        ) : null}
 
                         <Link
                           href={`/${shopSlug}/admin/customers?phone=${encodeURIComponent(
@@ -619,7 +848,7 @@ export default function AgendaPage() {
                           Customer
                         </Link>
                       </div>
-                    ) : (
+                    ) : canModify ? (
                       <div className="mt-5 rounded-2xl border bg-white p-4">
                         <p className="font-bold text-lg mb-3">
                           Move this appointment
@@ -685,7 +914,7 @@ export default function AgendaPage() {
                           Cancel Move
                         </button>
                       </div>
-                    )}
+                    ) : null}
                   </div>
                 );
               }
