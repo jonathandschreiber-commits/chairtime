@@ -158,6 +158,7 @@ def find_appointment_service(
         .filter(
             Service.id == appointment.service_id,
             Service.shop_slug == shop_slug,
+            Service.barber_id == appointment.barber_id,
         )
         .first()
     )
@@ -165,7 +166,48 @@ def find_appointment_service(
     if not service:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Service not found.",
+            detail=(
+                "Service is not available for "
+                "this staff member."
+            ),
+        )
+
+    return service
+
+
+def find_service_for_barber(
+    db: Session,
+    service_id: str,
+    barber_id: str,
+    shop_slug: str,
+) -> Service:
+    """
+    Return a service only when it belongs to the
+    authenticated/requested business AND is assigned
+    to the selected staff member.
+
+    This prevents a caller from combining a valid
+    service ID with a different provider's ID by
+    bypassing the ChairTime frontend.
+    """
+
+    service = (
+        db.query(Service)
+        .filter(
+            Service.id == service_id,
+            Service.shop_slug == shop_slug,
+            Service.barber_id == barber_id,
+        )
+        .first()
+    )
+
+    if not service:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "The selected service is not offered "
+                "by this staff member."
+            ),
         )
 
     return service
@@ -834,25 +876,20 @@ def create_appointment(
         shop_slug,
     )
 
-    service = (
-        db.query(Service)
-        .filter(
-            Service.id == payload.service_id,
-            Service.shop_slug == shop_slug,
-        )
-        .first()
-    )
+    barber_id = str(
+        payload.barber_id or ""
+    ).strip()
 
-    if not service:
+    if not barber_id:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Service not found.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Staff member is required.",
         )
 
     barber = (
         db.query(Barber)
         .filter(
-            Barber.id == payload.barber_id,
+            Barber.id == barber_id,
             Barber.shop_slug == shop_slug,
         )
         .first()
@@ -863,6 +900,23 @@ def create_appointment(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Staff member not found.",
         )
+
+    service_id = str(
+        payload.service_id or ""
+    ).strip()
+
+    if not service_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Service is required.",
+        )
+
+    service = find_service_for_barber(
+        db,
+        service_id,
+        barber_id,
+        shop_slug,
+    )
 
     (
         stripe_customer_id,
@@ -942,20 +996,22 @@ def create_admin_appointment(
             detail="Staff member not found.",
         )
 
-    service = (
-        db.query(Service)
-        .filter(
-            Service.id == payload.service_id,
-            Service.shop_slug == shop_slug,
-        )
-        .first()
-    )
+    service_id = str(
+        payload.service_id or ""
+    ).strip()
 
-    if not service:
+    if not service_id:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Service not found.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Service is required.",
         )
+
+    service = find_service_for_barber(
+        db,
+        service_id,
+        barber_id,
+        shop_slug,
+    )
 
     return save_new_appointment(
         db=db,
@@ -1023,22 +1079,31 @@ def cancel_admin_appointment(
         shop_slug,
     )
 
-    shop = find_shop(
-        db,
-        shop_slug,
-    )
+    old_status = str(
+        appointment.status or ""
+    ).strip().lower()
 
-    barber = find_appointment_barber(
-        db,
-        appointment,
-        shop_slug,
-    )
+    shop = None
+    barber = None
+    service = None
 
-    service = find_appointment_service(
-        db,
-        appointment,
-        shop_slug,
-    )
+    if old_status != "canceled":
+        shop = find_shop(
+            db,
+            shop_slug,
+        )
+
+        barber = find_appointment_barber(
+            db,
+            appointment,
+            shop_slug,
+        )
+
+        service = find_appointment_service(
+            db,
+            appointment,
+            shop_slug,
+        )
 
     appointment.status = "canceled"
 
@@ -1059,12 +1124,18 @@ def cancel_admin_appointment(
             ),
         )
 
-    send_cancellation_confirmation(
-        appointment,
-        shop,
-        barber,
-        service,
-    )
+    if (
+        old_status != "canceled"
+        and shop is not None
+        and barber is not None
+        and service is not None
+    ):
+        send_cancellation_confirmation(
+            appointment,
+            shop,
+            barber,
+            service,
+        )
 
     return appointment
 
