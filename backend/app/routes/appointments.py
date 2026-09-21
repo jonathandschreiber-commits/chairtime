@@ -104,10 +104,10 @@ def find_shop_appointment(
     return appointment
 
 
-def staff_can_manage_other_staff_appointments(
+def find_shop(
     db: Session,
     shop_slug: str,
-) -> bool:
+) -> Shop:
     shop = (
         db.query(Shop)
         .filter(
@@ -121,6 +121,64 @@ def staff_can_manage_other_staff_appointments(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Business not found.",
         )
+
+    return shop
+
+
+def find_appointment_barber(
+    db: Session,
+    appointment: Appointment,
+    shop_slug: str,
+) -> Barber:
+    barber = (
+        db.query(Barber)
+        .filter(
+            Barber.id == appointment.barber_id,
+            Barber.shop_slug == shop_slug,
+        )
+        .first()
+    )
+
+    if not barber:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Staff member not found.",
+        )
+
+    return barber
+
+
+def find_appointment_service(
+    db: Session,
+    appointment: Appointment,
+    shop_slug: str,
+) -> Service:
+    service = (
+        db.query(Service)
+        .filter(
+            Service.id == appointment.service_id,
+            Service.shop_slug == shop_slug,
+        )
+        .first()
+    )
+
+    if not service:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Service not found.",
+        )
+
+    return service
+
+
+def staff_can_manage_other_staff_appointments(
+    db: Session,
+    shop_slug: str,
+) -> bool:
+    shop = find_shop(
+        db,
+        shop_slug,
+    )
 
     return bool(
         shop.staff_can_manage_other_staff_appointments
@@ -298,11 +356,118 @@ def verify_no_reschedule_conflict(
         )
 
 
+def send_customer_sms(
+    customer_phone: str,
+    message: str,
+    message_type: str,
+) -> None:
+    clean_phone = str(
+        customer_phone or ""
+    ).strip()
+
+    if not clean_phone:
+        return
+
+    sms_result = send_highlevel_sms(
+        clean_phone,
+        message,
+    )
+
+    if not sms_result.get("success"):
+        print(
+            f"{message_type} SMS first attempt failed:",
+            sms_result,
+        )
+
+        sms_result = send_highlevel_sms(
+            clean_phone,
+            message,
+        )
+
+        if not sms_result.get("success"):
+            print(
+                f"{message_type} SMS retry failed:",
+                sms_result,
+            )
+
+
+def format_appointment_datetime(
+    appointment: Appointment,
+) -> str:
+    return appointment.start_datetime.strftime(
+        "%A, %B %d at %I:%M %p"
+    )
+
+
+def send_appointment_confirmation(
+    appointment: Appointment,
+    shop: Shop,
+    barber: Barber,
+    service: Service,
+) -> None:
+    message = (
+        f"{shop.name}: Your {service.name} appointment "
+        f"with {barber.name} is confirmed for "
+        f"{format_appointment_datetime(appointment)}. "
+        "Reply STOP to unsubscribe."
+    )
+
+    send_customer_sms(
+        appointment.customer_phone,
+        message,
+        "Appointment confirmation",
+    )
+
+
+def send_reschedule_confirmation(
+    appointment: Appointment,
+    shop: Shop,
+    barber: Barber,
+    service: Service,
+) -> None:
+    message = (
+        f"{shop.name}: Your {service.name} appointment "
+        f"with {barber.name} has been rescheduled to "
+        f"{format_appointment_datetime(appointment)}. "
+        "Reply STOP to unsubscribe."
+    )
+
+    send_customer_sms(
+        appointment.customer_phone,
+        message,
+        "Appointment reschedule",
+    )
+
+
+def send_cancellation_confirmation(
+    appointment: Appointment,
+    shop: Shop,
+    barber: Barber,
+    service: Service,
+) -> None:
+    message = (
+        f"{shop.name}: Your {service.name} appointment "
+        f"with {barber.name} for "
+        f"{format_appointment_datetime(appointment)} "
+        "has been canceled. "
+        "Reply STOP to unsubscribe."
+    )
+
+    send_customer_sms(
+        appointment.customer_phone,
+        message,
+        "Appointment cancellation",
+    )
+
+
 def apply_reschedule(
     db: Session,
     appointment: Appointment,
     new_start: datetime,
     new_end: datetime,
+    shop: Shop,
+    barber: Barber,
+    service: Service,
 ) -> Appointment:
     appointment.start_datetime = new_start
     appointment.end_datetime = new_end
@@ -325,6 +490,13 @@ def apply_reschedule(
                 "The appointment could not be moved."
             ),
         )
+
+    send_reschedule_confirmation(
+        appointment,
+        shop,
+        barber,
+        service,
+    )
 
     return appointment
 
@@ -503,7 +675,6 @@ def verify_booking_setup_intent(
         payment_method_id,
     )
 
-
 def verify_new_appointment_conflicts(
     db: Session,
     shop_slug: str,
@@ -547,49 +718,9 @@ def verify_new_appointment_conflicts(
         )
 
 
-def send_appointment_confirmation(
-    appointment: Appointment,
-    barber: Barber,
-) -> None:
-    customer_phone = str(
-        appointment.customer_phone or ""
-    ).strip()
-
-    if not customer_phone:
-        return
-
-    confirmation_message = (
-        f"You're booked with {barber.name} "
-        f"on "
-        f"{appointment.start_datetime.strftime('%A, %B %d at %I:%M %p')}. "
-        "Reply STOP to unsubscribe."
-    )
-
-    sms_result = send_highlevel_sms(
-        customer_phone,
-        confirmation_message,
-    )
-
-    if not sms_result.get("success"):
-        print(
-            "Confirmation SMS first attempt failed:",
-            sms_result,
-        )
-
-        sms_result = send_highlevel_sms(
-            customer_phone,
-            confirmation_message,
-        )
-
-        if not sms_result.get("success"):
-            print(
-                "Confirmation SMS retry failed:",
-                sms_result,
-            )
-
-
 def save_new_appointment(
     db: Session,
+    shop: Shop,
     shop_slug: str,
     barber: Barber,
     service: Service,
@@ -668,10 +799,13 @@ def save_new_appointment(
 
     send_appointment_confirmation(
         appointment,
+        shop,
         barber,
+        service,
     )
 
     return appointment
+
 
 @router.post("/appointments")
 def create_appointment(
@@ -695,19 +829,10 @@ def create_appointment(
             detail="Business is required.",
         )
 
-    shop = (
-        db.query(Shop)
-        .filter(
-            Shop.slug == shop_slug,
-        )
-        .first()
+    shop = find_shop(
+        db,
+        shop_slug,
     )
-
-    if not shop:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Business not found.",
-        )
 
     service = (
         db.query(Service)
@@ -750,6 +875,7 @@ def create_appointment(
 
     return save_new_appointment(
         db=db,
+        shop=shop,
         shop_slug=shop_slug,
         barber=barber,
         service=service,
@@ -777,6 +903,11 @@ def create_admin_appointment(
 
     shop_slug = require_user_shop_slug(
         current_user
+    )
+
+    shop = find_shop(
+        db,
+        shop_slug,
     )
 
     barber_id = str(
@@ -828,6 +959,7 @@ def create_admin_appointment(
 
     return save_new_appointment(
         db=db,
+        shop=shop,
         shop_slug=shop_slug,
         barber=barber,
         service=service,
@@ -891,6 +1023,23 @@ def cancel_admin_appointment(
         shop_slug,
     )
 
+    shop = find_shop(
+        db,
+        shop_slug,
+    )
+
+    barber = find_appointment_barber(
+        db,
+        appointment,
+        shop_slug,
+    )
+
+    service = find_appointment_service(
+        db,
+        appointment,
+        shop_slug,
+    )
+
     appointment.status = "canceled"
 
     try:
@@ -909,6 +1058,13 @@ def cancel_admin_appointment(
                 "be canceled."
             ),
         )
+
+    send_cancellation_confirmation(
+        appointment,
+        shop,
+        barber,
+        service,
+    )
 
     return appointment
 
@@ -953,6 +1109,35 @@ def update_admin_appointment_status(
         shop_slug,
     )
 
+    old_status = str(
+        appointment.status or ""
+    ).strip().lower()
+
+    shop = None
+    barber = None
+    service = None
+
+    if (
+        appointment_status == "canceled"
+        and old_status != "canceled"
+    ):
+        shop = find_shop(
+            db,
+            shop_slug,
+        )
+
+        barber = find_appointment_barber(
+            db,
+            appointment,
+            shop_slug,
+        )
+
+        service = find_appointment_service(
+            db,
+            appointment,
+            shop_slug,
+        )
+
     appointment.status = appointment_status
 
     try:
@@ -970,6 +1155,20 @@ def update_admin_appointment_status(
                 "The appointment status could "
                 "not be updated."
             ),
+        )
+
+    if (
+        appointment_status == "canceled"
+        and old_status != "canceled"
+        and shop is not None
+        and barber is not None
+        and service is not None
+    ):
+        send_cancellation_confirmation(
+            appointment,
+            shop,
+            barber,
+            service,
         )
 
     return appointment
@@ -1006,20 +1205,22 @@ def reschedule_admin_appointment(
         shop_slug,
     )
 
-    service = (
-        db.query(Service)
-        .filter(
-            Service.id == appointment.service_id,
-            Service.shop_slug == shop_slug,
-        )
-        .first()
+    shop = find_shop(
+        db,
+        shop_slug,
     )
 
-    if not service:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Service not found.",
-        )
+    barber = find_appointment_barber(
+        db,
+        appointment,
+        shop_slug,
+    )
+
+    service = find_appointment_service(
+        db,
+        appointment,
+        shop_slug,
+    )
 
     new_start = parse_datetime(
         new_start_datetime
@@ -1043,6 +1244,9 @@ def reschedule_admin_appointment(
         appointment,
         new_start,
         new_end,
+        shop,
+        barber,
+        service,
     )
 
 
@@ -1152,7 +1356,8 @@ def cancel_appointment_compatibility(
 ):
     """
     Legacy cancel endpoint with authentication,
-    tenant isolation, and appointment permissions.
+    tenant isolation, appointment permissions, and
+    customer cancellation notification.
     """
 
     shop_slug = require_user_shop_slug(
@@ -1171,6 +1376,32 @@ def cancel_appointment_compatibility(
         appointment,
         shop_slug,
     )
+
+    old_status = str(
+        appointment.status or ""
+    ).strip().lower()
+
+    shop = None
+    barber = None
+    service = None
+
+    if old_status != "canceled":
+        shop = find_shop(
+            db,
+            shop_slug,
+        )
+
+        barber = find_appointment_barber(
+            db,
+            appointment,
+            shop_slug,
+        )
+
+        service = find_appointment_service(
+            db,
+            appointment,
+            shop_slug,
+        )
 
     appointment.status = "canceled"
 
@@ -1191,6 +1422,19 @@ def cancel_appointment_compatibility(
             ),
         )
 
+    if (
+        old_status != "canceled"
+        and shop is not None
+        and barber is not None
+        and service is not None
+    ):
+        send_cancellation_confirmation(
+            appointment,
+            shop,
+            barber,
+            service,
+        )
+
     return appointment
 
 
@@ -1205,7 +1449,8 @@ def update_appointment_status_compatibility(
 ):
     """
     Legacy status endpoint with authentication,
-    tenant isolation, and appointment permissions.
+    tenant isolation, appointment permissions, and
+    customer cancellation notification when needed.
     """
 
     if (
@@ -1234,6 +1479,35 @@ def update_appointment_status_compatibility(
         shop_slug,
     )
 
+    old_status = str(
+        appointment.status or ""
+    ).strip().lower()
+
+    shop = None
+    barber = None
+    service = None
+
+    if (
+        status_value == "canceled"
+        and old_status != "canceled"
+    ):
+        shop = find_shop(
+            db,
+            shop_slug,
+        )
+
+        barber = find_appointment_barber(
+            db,
+            appointment,
+            shop_slug,
+        )
+
+        service = find_appointment_service(
+            db,
+            appointment,
+            shop_slug,
+        )
+
     appointment.status = status_value
 
     try:
@@ -1253,6 +1527,20 @@ def update_appointment_status_compatibility(
             ),
         )
 
+    if (
+        status_value == "canceled"
+        and old_status != "canceled"
+        and shop is not None
+        and barber is not None
+        and service is not None
+    ):
+        send_cancellation_confirmation(
+            appointment,
+            shop,
+            barber,
+            service,
+        )
+
     return appointment
 
 
@@ -1267,8 +1555,8 @@ def reschedule_appointment_compatibility(
 ):
     """
     Legacy reschedule endpoint with authentication,
-    tenant isolation, appointment permissions, and
-    conflict checking.
+    tenant isolation, appointment permissions,
+    conflict checking, and customer notification.
     """
 
     shop_slug = require_user_shop_slug(
@@ -1288,20 +1576,22 @@ def reschedule_appointment_compatibility(
         shop_slug,
     )
 
-    service = (
-        db.query(Service)
-        .filter(
-            Service.id == appointment.service_id,
-            Service.shop_slug == shop_slug,
-        )
-        .first()
+    shop = find_shop(
+        db,
+        shop_slug,
     )
 
-    if not service:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Service not found.",
-        )
+    barber = find_appointment_barber(
+        db,
+        appointment,
+        shop_slug,
+    )
+
+    service = find_appointment_service(
+        db,
+        appointment,
+        shop_slug,
+    )
 
     new_start = parse_datetime(
         new_start_datetime
@@ -1325,6 +1615,9 @@ def reschedule_appointment_compatibility(
         appointment,
         new_start,
         new_end,
+        shop,
+        barber,
+        service,
     )
 
 
