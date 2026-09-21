@@ -17,7 +17,6 @@ from app.models import (
 from app.routes.auth import get_current_user
 from app.routes.reminders import send_highlevel_sms
 from app.schemas import AppointmentCreate
-from app.scheduling import has_overlap
 
 
 router = APIRouter()
@@ -220,7 +219,10 @@ def require_appointment_create_permission(
             ),
         )
 
-    if str(barber_id or "").strip() != current_user_barber_id:
+    if (
+        str(barber_id or "").strip()
+        != current_user_barber_id
+    ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=(
@@ -233,6 +235,7 @@ def require_appointment_create_permission(
 def parse_datetime(value: str) -> datetime:
     try:
         return datetime.fromisoformat(value)
+
     except ValueError:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -310,6 +313,7 @@ def apply_reschedule(
     try:
         db.commit()
         db.refresh(appointment)
+
     except Exception:
         db.rollback()
 
@@ -648,6 +652,7 @@ def save_new_appointment(
     try:
         db.commit()
         db.refresh(appointment)
+
     except Exception:
         db.rollback()
 
@@ -673,6 +678,13 @@ def create_appointment(
     payload: AppointmentCreate,
     db: Session = Depends(get_db),
 ):
+    """
+    Public customer-booking endpoint.
+
+    This route intentionally does not require an
+    authenticated ChairTime owner/staff account.
+    """
+
     shop_slug = str(
         payload.shop_slug or ""
     ).strip().lower()
@@ -685,7 +697,9 @@ def create_appointment(
 
     shop = (
         db.query(Shop)
-        .filter(Shop.slug == shop_slug)
+        .filter(
+            Shop.slug == shop_slug,
+        )
         .first()
     )
 
@@ -752,6 +766,15 @@ def create_admin_appointment(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """
+    Create an appointment from the ChairTime admin UI.
+
+    The logged-in user's shop determines the tenant.
+    Owners may create appointments for any provider.
+    Staff permissions are governed by the shop's
+    staff appointment-management setting.
+    """
+
     shop_slug = require_user_shop_slug(
         current_user
     )
@@ -812,33 +835,16 @@ def create_admin_appointment(
     )
 
 
-@router.get("/appointments")
-def list_appointments(
-    shop_slug: str | None = None,
-    db: Session = Depends(get_db),
-):
-    query = db.query(Appointment)
-
-    if shop_slug:
-        clean_shop_slug = (
-            shop_slug.strip().lower()
-        )
-
-        query = query.filter(
-            Appointment.shop_slug
-            == clean_shop_slug
-        )
-
-    return query.order_by(
-        Appointment.start_datetime.asc()
-    ).all()
-
-
 @router.get("/admin/appointments")
 def list_admin_appointments(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """
+    Return appointments only for the authenticated
+    user's business.
+    """
+
     shop_slug = require_user_shop_slug(
         current_user
     )
@@ -856,69 +862,53 @@ def list_admin_appointments(
 
 
 @router.patch(
-    "/appointments/{appointment_id}/cancel"
+    "/admin/appointments/{appointment_id}/cancel"
 )
-def cancel_appointment(
+def cancel_admin_appointment(
     appointment_id: str,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    appointment = (
-        db.query(Appointment)
-        .filter(
-            Appointment.id == appointment_id
-        )
-        .first()
+    """
+    Cancel an appointment from an authenticated
+    ChairTime admin session.
+    """
+
+    shop_slug = require_user_shop_slug(
+        current_user
     )
 
-    if not appointment:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Appointment not found.",
-        )
+    appointment = find_shop_appointment(
+        db,
+        appointment_id,
+        shop_slug,
+    )
+
+    require_appointment_modify_permission(
+        db,
+        current_user,
+        appointment,
+        shop_slug,
+    )
 
     appointment.status = "canceled"
 
-    db.commit()
-    db.refresh(appointment)
+    try:
+        db.commit()
+        db.refresh(appointment)
 
-    return appointment
+    except Exception:
+        db.rollback()
 
-
-@router.patch(
-    "/appointments/{appointment_id}/status"
-)
-def update_appointment_status(
-    appointment_id: str,
-    status_value: str,
-    db: Session = Depends(get_db),
-):
-    if (
-        status_value
-        not in ALLOWED_APPOINTMENT_STATUSES
-    ):
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid appointment status.",
+            status_code=(
+                status.HTTP_500_INTERNAL_SERVER_ERROR
+            ),
+            detail=(
+                "The appointment could not "
+                "be canceled."
+            ),
         )
-
-    appointment = (
-        db.query(Appointment)
-        .filter(
-            Appointment.id == appointment_id
-        )
-        .first()
-    )
-
-    if not appointment:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Appointment not found.",
-        )
-
-    appointment.status = status_value
-
-    db.commit()
-    db.refresh(appointment)
 
     return appointment
 
@@ -932,6 +922,11 @@ def update_admin_appointment_status(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """
+    Change appointment status from an authenticated
+    ChairTime admin session.
+    """
+
     if (
         appointment_status
         not in ALLOWED_APPOINTMENT_STATUSES
@@ -963,6 +958,7 @@ def update_admin_appointment_status(
     try:
         db.commit()
         db.refresh(appointment)
+
     except Exception:
         db.rollback()
 
@@ -980,31 +976,41 @@ def update_admin_appointment_status(
 
 
 @router.patch(
-    "/appointments/{appointment_id}/reschedule"
+    "/admin/appointments/{appointment_id}/reschedule"
 )
-def reschedule_appointment(
+def reschedule_admin_appointment(
     appointment_id: str,
     new_start_datetime: str,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    appointment = (
-        db.query(Appointment)
-        .filter(
-            Appointment.id == appointment_id
-        )
-        .first()
+    """
+    Reschedule an appointment from an authenticated
+    ChairTime admin session.
+    """
+
+    shop_slug = require_user_shop_slug(
+        current_user
     )
 
-    if not appointment:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Appointment not found.",
-        )
+    appointment = find_shop_appointment(
+        db,
+        appointment_id,
+        shop_slug,
+    )
+
+    require_appointment_modify_permission(
+        db,
+        current_user,
+        appointment,
+        shop_slug,
+    )
 
     service = (
         db.query(Service)
         .filter(
-            Service.id == appointment.service_id
+            Service.id == appointment.service_id,
+            Service.shop_slug == shop_slug,
         )
         .first()
     )
@@ -1029,7 +1035,7 @@ def reschedule_appointment(
         appointment,
         new_start,
         new_end,
-        appointment.shop_slug,
+        shop_slug,
     )
 
     return apply_reschedule(
@@ -1041,14 +1047,230 @@ def reschedule_appointment(
 
 
 @router.patch(
-    "/admin/appointments/{appointment_id}/reschedule"
+    "/admin/appointments/{appointment_id}/notes"
 )
-def reschedule_admin_appointment(
+def update_admin_appointment_notes(
+    appointment_id: str,
+    notes: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Update appointment notes from an authenticated
+    ChairTime admin session.
+    """
+
+    shop_slug = require_user_shop_slug(
+        current_user
+    )
+
+    appointment = find_shop_appointment(
+        db,
+        appointment_id,
+        shop_slug,
+    )
+
+    require_appointment_modify_permission(
+        db,
+        current_user,
+        appointment,
+        shop_slug,
+    )
+
+    appointment.notes = notes
+
+    try:
+        db.commit()
+        db.refresh(appointment)
+
+    except Exception:
+        db.rollback()
+
+        raise HTTPException(
+            status_code=(
+                status.HTTP_500_INTERNAL_SERVER_ERROR
+            ),
+            detail=(
+                "The appointment notes could "
+                "not be updated."
+            ),
+        )
+
+    return appointment
+
+# ---------------------------------------------------------
+# Authenticated compatibility routes
+# ---------------------------------------------------------
+#
+# These routes preserve the older ChairTime appointment
+# endpoint paths while removing their former unauthenticated
+# access.
+#
+# New ChairTime admin code should use /admin/appointments.
+# These compatibility routes can be removed later after all
+# frontend and integration callers have been confirmed to use
+# the admin endpoints.
+# ---------------------------------------------------------
+
+
+@router.get("/appointments")
+def list_appointments_compatibility(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Legacy appointment-list endpoint.
+
+    Authentication is now required. The caller's shop
+    determines the tenant; a shop_slug supplied by the
+    browser is no longer trusted or required.
+    """
+
+    shop_slug = require_user_shop_slug(
+        current_user
+    )
+
+    return (
+        db.query(Appointment)
+        .filter(
+            Appointment.shop_slug == shop_slug
+        )
+        .order_by(
+            Appointment.start_datetime.asc()
+        )
+        .all()
+    )
+
+
+@router.patch(
+    "/appointments/{appointment_id}/cancel"
+)
+def cancel_appointment_compatibility(
+    appointment_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Legacy cancel endpoint with authentication,
+    tenant isolation, and appointment permissions.
+    """
+
+    shop_slug = require_user_shop_slug(
+        current_user
+    )
+
+    appointment = find_shop_appointment(
+        db,
+        appointment_id,
+        shop_slug,
+    )
+
+    require_appointment_modify_permission(
+        db,
+        current_user,
+        appointment,
+        shop_slug,
+    )
+
+    appointment.status = "canceled"
+
+    try:
+        db.commit()
+        db.refresh(appointment)
+
+    except Exception:
+        db.rollback()
+
+        raise HTTPException(
+            status_code=(
+                status.HTTP_500_INTERNAL_SERVER_ERROR
+            ),
+            detail=(
+                "The appointment could not "
+                "be canceled."
+            ),
+        )
+
+    return appointment
+
+
+@router.patch(
+    "/appointments/{appointment_id}/status"
+)
+def update_appointment_status_compatibility(
+    appointment_id: str,
+    status_value: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Legacy status endpoint with authentication,
+    tenant isolation, and appointment permissions.
+    """
+
+    if (
+        status_value
+        not in ALLOWED_APPOINTMENT_STATUSES
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid appointment status.",
+        )
+
+    shop_slug = require_user_shop_slug(
+        current_user
+    )
+
+    appointment = find_shop_appointment(
+        db,
+        appointment_id,
+        shop_slug,
+    )
+
+    require_appointment_modify_permission(
+        db,
+        current_user,
+        appointment,
+        shop_slug,
+    )
+
+    appointment.status = status_value
+
+    try:
+        db.commit()
+        db.refresh(appointment)
+
+    except Exception:
+        db.rollback()
+
+        raise HTTPException(
+            status_code=(
+                status.HTTP_500_INTERNAL_SERVER_ERROR
+            ),
+            detail=(
+                "The appointment status could "
+                "not be updated."
+            ),
+        )
+
+    return appointment
+
+
+@router.patch(
+    "/appointments/{appointment_id}/reschedule"
+)
+def reschedule_appointment_compatibility(
     appointment_id: str,
     new_start_datetime: str,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """
+    Legacy reschedule endpoint with authentication,
+    tenant isolation, appointment permissions, and
+    conflict checking.
+    """
+
     shop_slug = require_user_shop_slug(
         current_user
     )
@@ -1109,28 +1331,51 @@ def reschedule_admin_appointment(
 @router.patch(
     "/appointments/{appointment_id}/notes"
 )
-def update_appointment_notes(
+def update_appointment_notes_compatibility(
     appointment_id: str,
     notes: str,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    appointment = (
-        db.query(Appointment)
-        .filter(
-            Appointment.id == appointment_id
-        )
-        .first()
+    """
+    Legacy notes endpoint with authentication,
+    tenant isolation, and appointment permissions.
+    """
+
+    shop_slug = require_user_shop_slug(
+        current_user
     )
 
-    if not appointment:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Appointment not found.",
-        )
+    appointment = find_shop_appointment(
+        db,
+        appointment_id,
+        shop_slug,
+    )
+
+    require_appointment_modify_permission(
+        db,
+        current_user,
+        appointment,
+        shop_slug,
+    )
 
     appointment.notes = notes
 
-    db.commit()
-    db.refresh(appointment)
+    try:
+        db.commit()
+        db.refresh(appointment)
+
+    except Exception:
+        db.rollback()
+
+        raise HTTPException(
+            status_code=(
+                status.HTTP_500_INTERNAL_SERVER_ERROR
+            ),
+            detail=(
+                "The appointment notes could "
+                "not be updated."
+            ),
+        )
 
     return appointment
