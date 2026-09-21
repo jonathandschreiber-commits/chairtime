@@ -483,14 +483,15 @@ export default function SetupPage() {
     }
 
     const response = await fetch(
-      `${API_BASE}/api/shop-availability-rules`,
+      `/api/shops/${encodeURIComponent(
+        shopSlug
+      )}/shop-availability-rules`,
       {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          shop_slug: shopSlug,
           weekday: WEEKDAY_MAP[shopHoursDay],
           start_time: `${shopHoursStart}:00`,
           end_time: `${shopHoursEnd}:00`,
@@ -519,7 +520,9 @@ export default function SetupPage() {
 
   async function deleteShopHours(ruleId) {
     const response = await fetch(
-      `${API_BASE}/api/shop-availability-rules/${encodeURIComponent(
+      `/api/shops/${encodeURIComponent(
+        shopSlug
+      )}/shop-availability-rules/${encodeURIComponent(
         ruleId
       )}`,
       {
@@ -566,7 +569,9 @@ export default function SetupPage() {
 
     for (const rule of rulesForDay) {
       const response = await fetch(
-        `${API_BASE}/api/shop-availability-rules/${encodeURIComponent(
+        `/api/shops/${encodeURIComponent(
+          shopSlug
+        )}/shop-availability-rules/${encodeURIComponent(
           rule.id
         )}`,
         {
