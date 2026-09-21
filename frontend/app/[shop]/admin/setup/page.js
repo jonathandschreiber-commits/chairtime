@@ -1777,19 +1777,20 @@ export default function SetupPage() {
                     </div>
 
                     <div className="flex flex-wrap gap-2 justify-end">
-                      {rules.map((rule) => (
-                        <button
-                          key={rule.id}
-                          onClick={() =>
-                            deleteShopHours(
-                              rule.id
-                            )
-                          }
-                          className="bg-red-500 text-white px-3 py-1 rounded"
-                        >
-                          Delete Hours
-                        </button>
-                      ))}
+  {rules.map((rule) => (
+    <button
+      key={rule.id}
+      onClick={() =>
+        deleteShopHours(
+          rule.id
+        )
+      }
+      className="bg-red-500 text-white px-3 py-1 rounded"
+    >
+      Delete {formatTime(rule.start_time)}–
+      {formatTime(rule.end_time)}
+    </button>
+  ))}
 
                       {rules.length > 0 && (
                         <button
