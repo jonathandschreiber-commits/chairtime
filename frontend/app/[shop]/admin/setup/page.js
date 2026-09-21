@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 
 const API_BASE = "https://chairtime-production-94da.up.railway.app";
 
@@ -37,7 +37,11 @@ const WEEKDAYS = [
 
 export default function SetupPage() {
   const params = useParams();
+  const router = useRouter();
   const shopSlug = params.shop;
+
+  const [accessChecked, setAccessChecked] = useState(false);
+  const [ownerAuthorized, setOwnerAuthorized] = useState(false);
 
   const [barbers, setBarbers] = useState([]);
   const [services, setServices] = useState([]);
@@ -322,11 +326,71 @@ export default function SetupPage() {
   }
 
   useEffect(() => {
-    if (shopSlug) {
+    if (!shopSlug) return;
+
+    let cancelled = false;
+
+    async function verifyOwnerAccess() {
+      try {
+        const response = await fetch("/api/auth/me", {
+          method: "GET",
+          cache: "no-store",
+        });
+
+        if (!response.ok) {
+          router.replace(
+            `/login?next=${encodeURIComponent(
+              `/${shopSlug}/admin/setup`
+            )}`
+          );
+          return;
+        }
+
+        const user = await response.json();
+        const userShopSlug = String(user.shop_slug || "").trim();
+        const role = String(user.role || "").trim().toLowerCase();
+
+        if (userShopSlug !== String(shopSlug)) {
+          router.replace(
+            `/login?next=${encodeURIComponent(
+              `/${shopSlug}/admin/setup`
+            )}`
+          );
+          return;
+        }
+
+        if (role !== "owner") {
+          router.replace(`/${shopSlug}/admin`);
+          return;
+        }
+
+        if (!cancelled) {
+          setOwnerAuthorized(true);
+          setAccessChecked(true);
+        }
+      } catch (error) {
+        console.error(error);
+        router.replace(
+          `/login?next=${encodeURIComponent(
+            `/${shopSlug}/admin/setup`
+          )}`
+        );
+      }
+    }
+
+    verifyOwnerAccess();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [router, shopSlug]);
+
+  useEffect(() => {
+    if (shopSlug && ownerAuthorized) {
       loadData();
       loadStaffAppointmentPermission();
     }
-  }, [shopSlug]);
+  }, [shopSlug, ownerAuthorized]);
 
   function formatTime(value) {
     if (!value) return "";
@@ -1442,6 +1506,20 @@ export default function SetupPage() {
         );
     }, [shopBlockedTimes]);
 
+  if (!accessChecked || !ownerAuthorized) {
+    return (
+      <main className="min-h-screen bg-indigo-50 p-6">
+        <div className="max-w-5xl mx-auto">
+          <div className="bg-white p-6 rounded-2xl shadow-lg border border-indigo-200">
+            <p className="font-bold text-gray-700">
+              Checking access...
+            </p>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className="min-h-screen bg-indigo-50 p-6">
       <div className="max-w-5xl mx-auto space-y-6">
@@ -2139,6 +2217,7 @@ export default function SetupPage() {
             <div className="bg-white p-6 rounded-2xl shadow-lg border border-indigo-200 space-y-4">
               <h2 className="text-2xl font-bold">
                 Services
+
               </h2>
 
               <p className="text-gray-600">
