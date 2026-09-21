@@ -2,7 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import ShopAvailabilityRule
+from app.models import ShopAvailabilityRule, User
+from app.routes.auth import get_current_user
 from app.schemas import ShopAvailabilityRuleCreate
 
 
@@ -16,6 +17,32 @@ def clean_shop_slug(value: str) -> str:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Shop is required.",
+        )
+
+    return shop_slug
+
+
+def require_owner_shop_slug(
+    current_user: User,
+) -> str:
+    shop_slug = str(
+        current_user.shop_slug or ""
+    ).strip().lower()
+
+    if not shop_slug:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Your account is not assigned to a business.",
+        )
+
+    role = str(
+        current_user.role or ""
+    ).strip().lower()
+
+    if role != "owner":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the business owner can manage shop hours.",
         )
 
     return shop_slug
@@ -47,11 +74,22 @@ def list_shop_availability_rules(
 @router.post("/shop-availability-rules")
 def create_shop_availability_rule(
     payload: ShopAvailabilityRuleCreate,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    shop_slug = clean_shop_slug(
+    owner_shop_slug = require_owner_shop_slug(
+        current_user
+    )
+
+    requested_shop_slug = clean_shop_slug(
         payload.shop_slug
     )
+
+    if requested_shop_slug != owner_shop_slug:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You cannot manage another business's shop hours.",
+        )
 
     if payload.weekday < 0 or payload.weekday > 6:
         raise HTTPException(
@@ -69,7 +107,7 @@ def create_shop_availability_rule(
         db.query(ShopAvailabilityRule)
         .filter(
             ShopAvailabilityRule.shop_slug
-            == shop_slug,
+            == owner_shop_slug,
             ShopAvailabilityRule.weekday
             == payload.weekday,
             ShopAvailabilityRule.start_time
@@ -87,7 +125,7 @@ def create_shop_availability_rule(
         )
 
     rule = ShopAvailabilityRule(
-        shop_slug=shop_slug,
+        shop_slug=owner_shop_slug,
         weekday=payload.weekday,
         start_time=payload.start_time,
         end_time=payload.end_time,
@@ -113,12 +151,19 @@ def create_shop_availability_rule(
 @router.delete("/shop-availability-rules/{rule_id}")
 def delete_shop_availability_rule(
     rule_id: str,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    owner_shop_slug = require_owner_shop_slug(
+        current_user
+    )
+
     rule = (
         db.query(ShopAvailabilityRule)
         .filter(
-            ShopAvailabilityRule.id == rule_id
+            ShopAvailabilityRule.id == rule_id,
+            ShopAvailabilityRule.shop_slug
+            == owner_shop_slug,
         )
         .first()
     )
