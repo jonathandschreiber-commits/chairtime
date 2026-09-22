@@ -225,17 +225,38 @@ def validate_no_conflict(
 @router.post("/blocked-times")
 def create_blocked_time(
     payload: BlockedTimeCreate,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    shop_slug = require_user_shop_slug(current_user)
     clean_reason = validate_reason(payload.reason)
+
+    require_shop_barber(
+        db,
+        payload.barber_id,
+        shop_slug,
+    )
+
+    require_blocked_time_modify_permission(
+        current_user,
+        payload.barber_id,
+    )
 
     validate_datetime_range(
         payload.start_datetime,
         payload.end_datetime,
     )
 
+    validate_no_conflict(
+        db,
+        shop_slug,
+        payload.barber_id,
+        payload.start_datetime,
+        payload.end_datetime,
+    )
+
     blocked_time = BlockedTime(
-        shop_slug=payload.shop_slug,
+        shop_slug=shop_slug,
         barber_id=payload.barber_id,
         reason=clean_reason,
         start_datetime=payload.start_datetime,
@@ -281,21 +302,21 @@ def list_blocked_times(
 @router.delete("/blocked-times/{blocked_time_id}")
 def delete_blocked_time(
     blocked_time_id: str,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    blocked_time = (
-        db.query(BlockedTime)
-        .filter(
-            BlockedTime.id == blocked_time_id
-        )
-        .first()
+    shop_slug = require_user_shop_slug(current_user)
+
+    blocked_time = find_shop_blocked_time(
+        db,
+        blocked_time_id,
+        shop_slug,
     )
 
-    if not blocked_time:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Blocked time not found.",
-        )
+    require_blocked_time_modify_permission(
+        current_user,
+        blocked_time.barber_id,
+    )
 
     db.delete(blocked_time)
 
