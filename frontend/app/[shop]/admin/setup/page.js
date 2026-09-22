@@ -1229,14 +1229,15 @@ export default function SetupPage() {
     }
 
     const response = await fetch(
-      `${API_BASE}/api/blocked-times`,
+      `/api/shops/${encodeURIComponent(
+        shopSlug
+      )}/blocked-times`,
       {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          shop_slug: shopSlug,
           barber_id: selectedBarberId,
           reason:
             blockReason.trim() || "Blocked",
@@ -1280,14 +1281,15 @@ export default function SetupPage() {
     }
 
     const response = await fetch(
-      `${API_BASE}/api/blocked-times`,
+      `/api/shops/${encodeURIComponent(
+        shopSlug
+      )}/blocked-times`,
       {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          shop_slug: shopSlug,
           barber_id: selectedBarberId,
           reason,
           start_datetime:
@@ -1322,7 +1324,9 @@ export default function SetupPage() {
 
   async function deleteBlockedTime(id) {
     const response = await fetch(
-      `${API_BASE}/api/blocked-times/${encodeURIComponent(
+      `/api/shops/${encodeURIComponent(
+        shopSlug
+      )}/blocked-times/${encodeURIComponent(
         id
       )}`,
       {
@@ -1331,8 +1335,15 @@ export default function SetupPage() {
     );
 
     if (!response.ok) {
+      const error = await response
+        .json()
+        .catch(() => ({}));
+
       setMessage(
-        "Could not remove blocked time."
+        getErrorMessage(
+          error,
+          "Could not remove blocked time."
+        )
       );
 
       return;
