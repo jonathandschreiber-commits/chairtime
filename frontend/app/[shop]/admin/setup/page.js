@@ -1199,7 +1199,7 @@ export default function SetupPage() {
       "Weekly availability deleted."
     );
 
-    loadData();
+     loadData();
   }
 
   /*
@@ -1797,7 +1797,8 @@ export default function SetupPage() {
                     <div className="flex flex-wrap gap-2 justify-end">
                       {rules.map((rule) => (
                         <button
-                          key={rule.id}
+                          key={rule.id} 
+
                           onClick={() =>
                             deleteShopHours(
                               rule.id
@@ -2654,6 +2655,52 @@ export default function SetupPage() {
               >
                 Block Time
               </button>
+
+              <div className="space-y-2 pt-2">
+                <h3 className="text-lg font-bold">
+                  Upcoming Blocked Times
+                </h3>
+
+                {selectedBarberBlockedTimes.length ===
+                0 ? (
+                  <p className="text-gray-500">
+                    No upcoming blocked times
+                    for{" "}
+                    {selectedBarber.name}.
+                  </p>
+                ) : (
+                  selectedBarberBlockedTimes.map(
+                    (block) => (
+                      <div
+                        key={block.id}
+                        className="border rounded-xl p-3 flex justify-between items-center gap-4"
+                      >
+                        <div>
+                          {block.reason} ·{" "}
+                          {isFullDay(block)
+                            ? formatDate(
+                                block.start_datetime
+                              )
+                            : formatDateTime(
+                                block.start_datetime
+                              )}
+                        </div>
+
+                        <button
+                          onClick={() =>
+                            deleteBlockedTime(
+                              block.id
+                            )
+                          }
+                          className="bg-red-500 text-white px-3 py-1 rounded"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    )
+                  )
+                )}
+              </div>
             </div>
 
             <div className="bg-white p-6 rounded-2xl shadow-lg border border-indigo-200 space-y-4">
@@ -2704,48 +2751,6 @@ export default function SetupPage() {
                   Closed
                 </button>
               </div>
-
-              <div className="space-y-2">
-                {selectedBarberBlockedTimes.length ===
-                0 ? (
-                  <p className="text-gray-500">
-                    No upcoming blocked times
-                    for{" "}
-                    {selectedBarber.name}.
-                  </p>
-                ) : (
-                  selectedBarberBlockedTimes.map(
-                    (block) => (
-                      <div
-                        key={block.id}
-                        className="border rounded-xl p-3 flex justify-between items-center"
-                      >
-                        <div>
-                          {block.reason} ·{" "}
-                          {isFullDay(block)
-                            ? formatDate(
-                                block.start_datetime
-                              )
-                            : formatDateTime(
-                                block.start_datetime
-                              )}
-                        </div>
-
-                        <button
-                          onClick={() =>
-                            deleteBlockedTime(
-                              block.id
-                            )
-                          }
-                          className="bg-red-500 text-white px-3 py-1 rounded"
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    )
-                  )
-                )}
-              </div>
             </div>
           </>
         )}
@@ -2759,4 +2764,4 @@ export default function SetupPage() {
       </div>
     </main>
   );
-}
+}                                
