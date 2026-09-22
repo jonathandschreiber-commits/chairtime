@@ -1,7 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import {
+  useParams,
+  useRouter,
+} from "next/navigation";
 
 const API_BASE =
   "https://chairtime-production-94da.up.railway.app";
@@ -9,7 +12,18 @@ const API_BASE =
 
 export default function StaffServicesPage() {
   const params = useParams();
+  const router = useRouter();
   const shopSlug = params.shop;
+
+  const [
+    accessChecked,
+    setAccessChecked,
+  ] = useState(false);
+
+  const [
+    ownerAuthorized,
+    setOwnerAuthorized,
+  ] = useState(false);
 
   const [barbers, setBarbers] = useState([]);
   const [services, setServices] = useState([]);
@@ -133,8 +147,84 @@ export default function StaffServicesPage() {
   }
 
 
-  async function loadData() {
+  async function checkOwnerAccess() {
     if (!shopSlug) return;
+
+    try {
+      const response = await fetch(
+        "/api/auth/me",
+        {
+          method: "GET",
+          headers: {
+            Accept: "application/json",
+          },
+          cache: "no-store",
+        }
+      );
+
+      if (!response.ok) {
+        router.replace(
+          `/login?next=${encodeURIComponent(
+            `/${shopSlug}/admin/staff`
+          )}`
+        );
+
+        return;
+      }
+
+      const user = await response.json();
+
+      const userShopSlug =
+        user.shop_slug ||
+        user.shop?.slug ||
+        "";
+
+      if (
+        !userShopSlug ||
+        userShopSlug !== shopSlug
+      ) {
+        router.replace(
+          `/login?next=${encodeURIComponent(
+            `/${shopSlug}/admin/staff`
+          )}`
+        );
+
+        return;
+      }
+
+      if (
+        String(user.role || "").toLowerCase() !==
+        "owner"
+      ) {
+        router.replace(
+          `/${shopSlug}/admin`
+        );
+
+        return;
+      }
+
+      setOwnerAuthorized(true);
+    } catch (error) {
+      console.error(
+        "Staff & Services access check error:",
+        error
+      );
+
+      router.replace(
+        `/login?next=${encodeURIComponent(
+          `/${shopSlug}/admin/staff`
+        )}`
+      );
+    } finally {
+      setAccessChecked(true);
+    }
+  }
+
+
+  async function loadData() {
+    if (!shopSlug || !ownerAuthorized) {
+      return;
+    }
 
     const [
       barbersResponse,
@@ -224,8 +314,18 @@ export default function StaffServicesPage() {
 
 
   useEffect(() => {
-    loadData();
+    setAccessChecked(false);
+    setOwnerAuthorized(false);
+
+    checkOwnerAccess();
   }, [shopSlug]);
+
+
+  useEffect(() => {
+    if (ownerAuthorized) {
+      loadData();
+    }
+  }, [shopSlug, ownerAuthorized]);
 
 
   async function addBarber() {
@@ -244,10 +344,13 @@ export default function StaffServicesPage() {
       barbers[0];
 
     const response = await fetch(
-      `${API_BASE}/api/barbers`,
+      `/api/shops/${encodeURIComponent(
+        shopSlug
+      )}/barbers`,
       {
         method: "POST",
         headers: {
+          Accept: "application/json",
           "Content-Type":
             "application/json",
         },
@@ -260,7 +363,6 @@ export default function StaffServicesPage() {
           timezone:
             existingBarber?.timezone ||
             "America/New_York",
-          shop_slug: shopSlug,
         }),
       }
     );
@@ -324,12 +426,15 @@ export default function StaffServicesPage() {
     }
 
     const response = await fetch(
-      `${API_BASE}/api/barbers/${encodeURIComponent(
+      `/api/shops/${encodeURIComponent(
+        shopSlug
+      )}/barbers/${encodeURIComponent(
         id
       )}`,
       {
         method: "PATCH",
         headers: {
+          Accept: "application/json",
           "Content-Type":
             "application/json",
         },
@@ -386,11 +491,16 @@ export default function StaffServicesPage() {
     if (!confirmed) return;
 
     const response = await fetch(
-      `${API_BASE}/api/barbers/${encodeURIComponent(
+      `/api/shops/${encodeURIComponent(
+        shopSlug
+      )}/barbers/${encodeURIComponent(
         barber.id
       )}`,
       {
         method: "DELETE",
+        headers: {
+          Accept: "application/json",
+        },
       }
     );
 
@@ -413,7 +523,6 @@ export default function StaffServicesPage() {
 
     await loadData();
   }
-
 
   function startGivingAccess(
     barber
@@ -629,6 +738,7 @@ export default function StaffServicesPage() {
     }
   }
 
+
   async function updatePaymentAccess(
     teamMember,
     canAcceptPayments
@@ -793,7 +903,6 @@ export default function StaffServicesPage() {
       );
     }
   }
-
 
   async function addService() {
     const cleanName =
@@ -982,6 +1091,23 @@ export default function StaffServicesPage() {
     await loadData();
   }
 
+
+  if (
+    !accessChecked ||
+    !ownerAuthorized
+  ) {
+    return (
+      <main className="min-h-screen bg-rose-50 p-4 sm:p-8">
+        <div className="max-w-4xl mx-auto">
+          <section className="bg-white rounded-3xl shadow-lg p-6 border border-rose-200">
+            <p className="font-bold text-gray-700">
+              Checking access...
+            </p>
+          </section>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="min-h-screen bg-rose-50 p-4 sm:p-8">
@@ -1269,7 +1395,6 @@ export default function StaffServicesPage() {
                           </div>
                         </div>
                       </div>
-
                     ) : resettingPassword ? (
                       <div className="space-y-4">
                         <div>
@@ -1549,7 +1674,6 @@ export default function StaffServicesPage() {
             )}
           </div>
         </section>
-
 
         <section className="bg-white rounded-3xl shadow-lg p-6 border border-rose-200 space-y-4">
           <div>
