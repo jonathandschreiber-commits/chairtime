@@ -5,7 +5,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Appointment, ShopBlockedTime
+from app.models import Appointment, ShopBlockedTime, User
+from app.routes.auth import get_current_user
 from app.schemas import (
     ShopBlockedTimeCreate,
     ShopRecurringBlockedTimeCreate,
@@ -27,6 +28,49 @@ def clean_shop_slug(value: str) -> str:
         )
 
     return shop_slug
+
+
+def require_owner_shop_slug(
+    current_user: User,
+) -> str:
+    user_shop_slug = clean_shop_slug(
+        current_user.shop_slug
+    )
+
+    role = str(
+        current_user.role or ""
+    ).strip().lower()
+
+    if role != "owner":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Only the business owner can manage "
+                "shop closures and breaks."
+            ),
+        )
+
+    return user_shop_slug
+
+
+def require_matching_shop_slug(
+    requested_shop_slug: str,
+    owner_shop_slug: str,
+) -> str:
+    normalized_requested_shop_slug = clean_shop_slug(
+        requested_shop_slug
+    )
+
+    if normalized_requested_shop_slug != owner_shop_slug:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "You cannot manage shop closures "
+                "or breaks for another business."
+            ),
+        )
+
+    return owner_shop_slug
 
 
 def validate_reason(reason: str) -> str:
@@ -121,12 +165,15 @@ def list_shop_blocked_times(
     shop_slug: str,
     db: Session = Depends(get_db),
 ):
-    normalized_shop_slug = clean_shop_slug(shop_slug)
+    normalized_shop_slug = clean_shop_slug(
+        shop_slug
+    )
 
     return (
         db.query(ShopBlockedTime)
         .filter(
-            ShopBlockedTime.shop_slug == normalized_shop_slug
+            ShopBlockedTime.shop_slug
+            == normalized_shop_slug
         )
         .order_by(
             ShopBlockedTime.start_datetime.asc()
@@ -139,9 +186,15 @@ def list_shop_blocked_times(
 def create_shop_blocked_time(
     payload: ShopBlockedTimeCreate,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    shop_slug = clean_shop_slug(
-        payload.shop_slug
+    owner_shop_slug = require_owner_shop_slug(
+        current_user
+    )
+
+    shop_slug = require_matching_shop_slug(
+        payload.shop_slug,
+        owner_shop_slug,
     )
 
     clean_reason = validate_reason(
@@ -201,7 +254,9 @@ def create_shop_blocked_time(
 
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Shop blocked time could not be created.",
+            detail=(
+                "Shop blocked time could not be created."
+            ),
         )
 
     return blocked_time
@@ -211,9 +266,15 @@ def create_shop_blocked_time(
 def create_recurring_shop_blocked_time(
     payload: ShopRecurringBlockedTimeCreate,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    shop_slug = clean_shop_slug(
-        payload.shop_slug
+    owner_shop_slug = require_owner_shop_slug(
+        current_user
+    )
+
+    shop_slug = require_matching_shop_slug(
+        payload.shop_slug,
+        owner_shop_slug,
     )
 
     clean_reason = validate_reason(
@@ -223,7 +284,9 @@ def create_recurring_shop_blocked_time(
     if payload.end_date < payload.start_date:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="End date must be on or after start date.",
+            detail=(
+                "End date must be on or after start date."
+            ),
         )
 
     recurrence_days = (
@@ -249,7 +312,9 @@ def create_recurring_shop_blocked_time(
     ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Weekdays must be between 0 and 6.",
+            detail=(
+                "Weekdays must be between 0 and 6."
+            ),
         )
 
     if payload.end_time <= payload.start_time:
@@ -308,7 +373,8 @@ def create_recurring_shop_blocked_time(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=(
                     "A shop-wide block conflicts with an "
-                    f"appointment on {start_datetime:%B %d, %Y}."
+                    f"appointment on "
+                    f"{start_datetime:%B %d, %Y}."
                 ),
             )
 
@@ -322,7 +388,8 @@ def create_recurring_shop_blocked_time(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=(
                     "The shop is already blocked during the "
-                    f"selected time on {start_datetime:%B %d, %Y}."
+                    f"selected time on "
+                    f"{start_datetime:%B %d, %Y}."
                 ),
             )
 
@@ -377,14 +444,22 @@ def create_recurring_shop_blocked_time(
     }
 
 
-@router.delete("/shop-blocked-times/{blocked_time_id}")
+@router.delete(
+    "/shop-blocked-times/{blocked_time_id}"
+)
 def delete_shop_blocked_time(
     blocked_time_id: str,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
+    owner_shop_slug = require_owner_shop_slug(
+        current_user
+    )
+
     blocked_time = find_shop_blocked_time(
         db,
         blocked_time_id,
+        owner_shop_slug,
     )
 
     db.delete(
@@ -409,14 +484,24 @@ def delete_shop_blocked_time(
     }
 
 
-@router.delete("/shop-blocked-time-series/{series_id}")
+@router.delete(
+    "/shop-blocked-time-series/{series_id}"
+)
 def delete_shop_blocked_time_series(
     series_id: str,
     shop_slug: str,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    normalized_shop_slug = clean_shop_slug(
-        shop_slug
+    owner_shop_slug = require_owner_shop_slug(
+        current_user
+    )
+
+    normalized_shop_slug = (
+        require_matching_shop_slug(
+            shop_slug,
+            owner_shop_slug,
+        )
     )
 
     blocked_times = (
@@ -433,7 +518,9 @@ def delete_shop_blocked_time_series(
     if not blocked_times:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Shop blocked-time series not found.",
+            detail=(
+                "Shop blocked-time series not found."
+            ),
         )
 
     deleted_count = len(
