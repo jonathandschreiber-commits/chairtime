@@ -614,14 +614,15 @@ export default function SetupPage() {
     }
 
     const response = await fetch(
-      `${API_BASE}/api/shop-blocked-times`,
+      `/api/shops/${encodeURIComponent(
+        shopSlug
+      )}/shop-blocked-times`,
       {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          shop_slug: shopSlug,
           reason:
             shopBlockReason.trim() || "Closed",
           start_datetime: shopBlockStart,
@@ -669,14 +670,15 @@ export default function SetupPage() {
       String(reason || "").trim() || "Closed";
 
     const response = await fetch(
-      `${API_BASE}/api/shop-blocked-times`,
+      `/api/shops/${encodeURIComponent(
+        shopSlug
+      )}/shop-blocked-times`,
       {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          shop_slug: shopSlug,
           reason: cleanReason,
           start_datetime:
             `${shopClosureDate}T00:00:00`,
@@ -778,14 +780,15 @@ export default function SetupPage() {
     }
 
     const response = await fetch(
-      `${API_BASE}/api/shop-blocked-times/recurring`,
+      `/api/shops/${encodeURIComponent(
+        shopSlug
+      )}/shop-blocked-times/recurring`,
       {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          shop_slug: shopSlug,
           reason: recurringReason.trim(),
           start_date: recurringStartDate,
           end_date: recurringEndDate,
@@ -832,7 +835,9 @@ export default function SetupPage() {
     if (!confirmed) return;
 
     const response = await fetch(
-      `${API_BASE}/api/shop-blocked-times/${encodeURIComponent(
+      `/api/shops/${encodeURIComponent(
+        shopSlug
+      )}/shop-blocked-times/${encodeURIComponent(
         block.id
       )}`,
       {
@@ -869,9 +874,11 @@ export default function SetupPage() {
     if (!confirmed) return;
 
     const response = await fetch(
-      `${API_BASE}/api/shop-blocked-time-series/${encodeURIComponent(
+      `/api/shops/${encodeURIComponent(
+        shopSlug
+      )}/shop-blocked-time-series/${encodeURIComponent(
         block.series_id
-      )}?shop_slug=${encodeURIComponent(shopSlug)}`,
+      )}`,
       {
         method: "DELETE",
       }
@@ -1777,20 +1784,20 @@ export default function SetupPage() {
                     </div>
 
                     <div className="flex flex-wrap gap-2 justify-end">
-  {rules.map((rule) => (
-    <button
-      key={rule.id}
-      onClick={() =>
-        deleteShopHours(
-          rule.id
-        )
-      }
-      className="bg-red-500 text-white px-3 py-1 rounded"
-    >
-      Delete {formatTime(rule.start_time)}–
-      {formatTime(rule.end_time)}
-    </button>
-  ))}
+                      {rules.map((rule) => (
+                        <button
+                          key={rule.id}
+                          onClick={() =>
+                            deleteShopHours(
+                              rule.id
+                            )
+                          }
+                          className="bg-red-500 text-white px-3 py-1 rounded"
+                        >
+                          Delete {formatTime(rule.start_time)}–
+                          {formatTime(rule.end_time)}
+                        </button>
+                      ))}
 
                       {rules.length > 0 && (
                         <button
@@ -2223,7 +2230,6 @@ export default function SetupPage() {
             <div className="bg-white p-6 rounded-2xl shadow-lg border border-indigo-200 space-y-4">
               <h2 className="text-2xl font-bold">
                 Services
-
               </h2>
 
               <p className="text-gray-600">
