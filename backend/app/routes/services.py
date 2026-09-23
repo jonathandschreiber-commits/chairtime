@@ -131,6 +131,7 @@ def get_assignment_details(
             Service.shop_slug == shop_slug,
             func.lower(Service.name)
             == normalized_name(service_name),
+            Service.is_active.is_(True),
         )
         .all()
     )
@@ -380,29 +381,6 @@ def create_service(
             detail="Service name is required",
         )
 
-    if payload.barber_id and payload.shop_slug:
-        existing_assignment = (
-            db.query(Service)
-            .filter(
-                Service.shop_slug
-                == payload.shop_slug,
-                Service.barber_id
-                == payload.barber_id,
-                func.lower(Service.name)
-                == normalized_name(service_name),
-            )
-            .first()
-        )
-
-        if existing_assignment:
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    "This service is already assigned "
-                    "to this staff member"
-                ),
-            )
-
     if payload.shop_slug:
         catalog_item = find_catalog_item_by_name(
             db=db,
@@ -424,10 +402,54 @@ def create_service(
         #
         service_name = catalog_item.name
 
+    if payload.barber_id and payload.shop_slug:
+        existing_assignment = (
+            db.query(Service)
+            .filter(
+                Service.shop_slug
+                == payload.shop_slug,
+                Service.barber_id
+                == payload.barber_id,
+                func.lower(Service.name)
+                == normalized_name(service_name),
+            )
+            .first()
+        )
+
+        if existing_assignment:
+            if existing_assignment.is_active:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "This service is already assigned "
+                        "to this staff member"
+                    ),
+                )
+
+            service_data = payload.model_dump()
+            service_data["name"] = service_name
+
+            for key, value in service_data.items():
+                setattr(
+                    existing_assignment,
+                    key,
+                    value,
+                )
+
+            existing_assignment.is_active = True
+
+            db.commit()
+            db.refresh(existing_assignment)
+
+            return existing_assignment
+
     service_data = payload.model_dump()
     service_data["name"] = service_name
 
-    service = Service(**service_data)
+    service = Service(
+        **service_data,
+        is_active=True,
+    )
 
     db.add(service)
     db.commit()
@@ -441,7 +463,9 @@ def list_services(
     shop_slug: str | None = None,
     db: Session = Depends(get_db),
 ):
-    query = db.query(Service)
+    query = db.query(Service).filter(
+        Service.is_active.is_(True)
+    )
 
     if shop_slug:
         query = query.filter(
@@ -455,7 +479,15 @@ def list_services(
 def delete_all_services(
     db: Session = Depends(get_db),
 ):
-    db.query(Service).delete()
+    db.query(Service).filter(
+        Service.is_active.is_(True)
+    ).update(
+        {
+            Service.is_active: False,
+        },
+        synchronize_session=False,
+    )
+
     db.commit()
 
     return {
@@ -472,6 +504,7 @@ def delete_service(
         db.query(Service)
         .filter(
             Service.id == service_id,
+            Service.is_active.is_(True),
         )
         .first()
     )
@@ -482,8 +515,10 @@ def delete_service(
             detail="Service not found",
         )
 
-    db.delete(service)
+    service.is_active = False
+
     db.commit()
+    db.refresh(service)
 
     return {
         "message": "Service assignment removed",
@@ -500,6 +535,7 @@ def update_service(
         db.query(Service)
         .filter(
             Service.id == service_id,
+            Service.is_active.is_(True),
         )
         .first()
     )
