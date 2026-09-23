@@ -524,6 +524,7 @@ export default function StaffServicesPage() {
     await loadData();
   }
 
+
   function startGivingAccess(
     barber
   ) {
@@ -795,7 +796,6 @@ export default function StaffServicesPage() {
     }
   }
 
-
   async function deactivateLogin(
     barber,
     teamMember
@@ -904,6 +904,7 @@ export default function StaffServicesPage() {
     }
   }
 
+
   async function addService() {
     const cleanName =
       newServiceName.trim();
@@ -917,7 +918,9 @@ export default function StaffServicesPage() {
     }
 
     const response = await fetch(
-      `${API_BASE}/api/service-catalog`,
+      `/api/shops/${encodeURIComponent(
+        shopSlug
+      )}/service-catalog`,
       {
         method: "POST",
         headers: {
@@ -925,7 +928,6 @@ export default function StaffServicesPage() {
             "application/json",
         },
         body: JSON.stringify({
-          shop_slug: shopSlug,
           name: cleanName,
         }),
       }
@@ -990,7 +992,9 @@ export default function StaffServicesPage() {
     }
 
     const response = await fetch(
-      `${API_BASE}/api/service-catalog/${encodeURIComponent(
+      `/api/shops/${encodeURIComponent(
+        shopSlug
+      )}/service-catalog/${encodeURIComponent(
         id
       )}`,
       {
@@ -1041,7 +1045,9 @@ export default function StaffServicesPage() {
     if (!confirmed) return;
 
     const response = await fetch(
-      `${API_BASE}/api/service-catalog/${encodeURIComponent(
+      `/api/shops/${encodeURIComponent(
+        shopSlug
+      )}/service-catalog/${encodeURIComponent(
         service.id
       )}`,
       {
@@ -1627,7 +1633,6 @@ export default function StaffServicesPage() {
                           </div>
                         </div>
 
-
                         {teamMember && (
                           <div className="rounded-xl border border-gray-200 bg-gray-50 p-3">
                             <label className="flex items-start gap-3">
@@ -1855,3 +1860,4 @@ export default function StaffServicesPage() {
     </main>
   );
 }
+
