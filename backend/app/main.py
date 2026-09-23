@@ -81,6 +81,16 @@ def run_startup_migrations():
             conn.execute(
                 text(
                     """
+                    ALTER TABLE services
+                    ADD COLUMN IF NOT EXISTS is_active BOOLEAN
+                    NOT NULL DEFAULT TRUE
+                    """
+                )
+            )
+
+            conn.execute(
+                text(
+                    """
                     ALTER TABLE shops
                     ADD COLUMN IF NOT EXISTS stripe_customer_id VARCHAR
                     """
@@ -339,6 +349,13 @@ def run_startup_migrations():
                     ON blocked_times (series_id)
                     """
                 )
+            )
+
+            add_sqlite_column_if_missing(
+                conn,
+                "services",
+                "is_active",
+                "BOOLEAN NOT NULL DEFAULT 1",
             )
 
             add_sqlite_column_if_missing(
