@@ -8,20 +8,80 @@ from app.models import (
     Barber,
     BlockedTime,
     Service,
+    User,
 )
+from app.routes.auth import get_current_user
 from app.schemas import BarberCreate, BarberUpdate
 
 
 router = APIRouter()
 
 
+def require_owner(
+    current_user: User,
+):
+    role = str(
+        current_user.role or ""
+    ).strip().lower()
+
+    if role != "owner":
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Only the shop owner may manage "
+                "staff members."
+            ),
+        )
+
+    shop_slug = str(
+        current_user.shop_slug or ""
+    ).strip().lower()
+
+    if not shop_slug:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Your account is not associated "
+                "with a shop."
+            ),
+        )
+
+    return shop_slug
+
+
 @router.post("/barbers")
 def create_barber(
     payload: BarberCreate,
     db: Session = Depends(get_db),
+    current_user: User = Depends(
+        get_current_user
+    ),
 ):
+    shop_slug = require_owner(
+        current_user
+    )
+
+    payload_shop_slug = str(
+        payload.shop_slug or ""
+    ).strip().lower()
+
+    if (
+        payload_shop_slug
+        and payload_shop_slug != shop_slug
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "You may only add staff members "
+                "to your own shop."
+            ),
+        )
+
+    barber_data = payload.model_dump()
+    barber_data["shop_slug"] = shop_slug
+
     barber = Barber(
-        **payload.model_dump()
+        **barber_data
     )
 
     db.add(barber)
@@ -49,12 +109,39 @@ def list_barbers(
 @router.delete("/barbers/{barber_id}")
 def delete_barber(
     barber_id: str,
+    shop_slug: str | None = None,
     db: Session = Depends(get_db),
+    current_user: User = Depends(
+        get_current_user
+    ),
 ):
+    authenticated_shop_slug = require_owner(
+        current_user
+    )
+
+    requested_shop_slug = str(
+        shop_slug or ""
+    ).strip().lower()
+
+    if (
+        requested_shop_slug
+        and requested_shop_slug
+        != authenticated_shop_slug
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "You may only delete staff members "
+                "from your own shop."
+            ),
+        )
+
     barber = (
         db.query(Barber)
         .filter(
-            Barber.id == barber_id
+            Barber.id == barber_id,
+            Barber.shop_slug
+            == authenticated_shop_slug,
         )
         .first()
     )
@@ -71,7 +158,9 @@ def delete_barber(
     appointment_count = (
         db.query(Appointment)
         .filter(
-            Appointment.barber_id == barber_id
+            Appointment.barber_id == barber_id,
+            Appointment.shop_slug
+            == authenticated_shop_slug,
         )
         .count()
     )
@@ -92,19 +181,26 @@ def delete_barber(
         # Remove staff-specific configuration first.
         #
         db.query(Service).filter(
-            Service.barber_id == barber_id
+            Service.barber_id == barber_id,
+            Service.shop_slug
+            == authenticated_shop_slug,
         ).delete(
             synchronize_session=False
         )
 
         db.query(AvailabilityRule).filter(
-            AvailabilityRule.barber_id == barber_id
+            AvailabilityRule.barber_id
+            == barber_id,
+            AvailabilityRule.shop_slug
+            == authenticated_shop_slug,
         ).delete(
             synchronize_session=False
         )
 
         db.query(BlockedTime).filter(
-            BlockedTime.barber_id == barber_id
+            BlockedTime.barber_id == barber_id,
+            BlockedTime.shop_slug
+            == authenticated_shop_slug,
         ).delete(
             synchronize_session=False
         )
@@ -137,11 +233,20 @@ def update_barber(
     barber_id: str,
     payload: BarberUpdate,
     db: Session = Depends(get_db),
+    current_user: User = Depends(
+        get_current_user
+    ),
 ):
+    authenticated_shop_slug = require_owner(
+        current_user
+    )
+
     barber = (
         db.query(Barber)
         .filter(
-            Barber.id == barber_id
+            Barber.id == barber_id,
+            Barber.shop_slug
+            == authenticated_shop_slug,
         )
         .first()
     )
@@ -154,6 +259,31 @@ def update_barber(
 
     updates = payload.model_dump(
         exclude_unset=True
+    )
+
+    requested_shop_slug = str(
+        updates.get("shop_slug") or ""
+    ).strip().lower()
+
+    if (
+        requested_shop_slug
+        and requested_shop_slug
+        != authenticated_shop_slug
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "You may only update staff members "
+                "in your own shop."
+            ),
+        )
+
+    #
+    # The authenticated account, not the browser,
+    # determines which shop owns this staff member.
+    #
+    updates["shop_slug"] = (
+        authenticated_shop_slug
     )
 
     for key, value in updates.items():
