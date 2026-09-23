@@ -355,7 +355,7 @@ def find_matching_services(
     service_name: str,
 ):
     """
-    Return every service record in this shop matching the requested
+    Return every active service record in this shop matching the requested
     service name.
 
     ChairTime stores services per provider. Therefore there may be
@@ -376,6 +376,7 @@ def find_matching_services(
         .filter(
             Service.shop_slug == shop_slug,
             Service.name.ilike(cleaned_service_name),
+            Service.is_active.is_(True),
         )
         .order_by(Service.name, Service.barber_id)
         .all()
@@ -397,7 +398,8 @@ def find_service_for_barber(
     barber: Barber,
 ):
     """
-    Find the requested service specifically for the requested provider.
+    Find the requested active service specifically for the requested
+    provider.
 
     This is the key rule for voice booking:
         Bernard + Haircut
@@ -420,6 +422,7 @@ def find_service_for_barber(
             Service.shop_slug == shop_slug,
             Service.barber_id == barber.id,
             Service.name.ilike(cleaned_service_name),
+            Service.is_active.is_(True),
         )
         .first()
     )
@@ -437,6 +440,7 @@ def find_service_for_barber(
             Service.shop_slug == shop_slug,
             Service.barber_id.is_(None),
             Service.name.ilike(cleaned_service_name),
+            Service.is_active.is_(True),
         )
         .first()
     )
@@ -1136,4 +1140,4 @@ def voice_book_appointment(
         "confirmation_sms_error": confirmation_sms_error,
         "reminder_scheduled": True,
         "reminder_sent": appointment.reminder_sent,
-    }
+    }    
