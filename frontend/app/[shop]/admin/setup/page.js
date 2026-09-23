@@ -748,6 +748,7 @@ export default function SetupPage() {
 
     if (recurringEndDate < recurringStartDate) {
       setMessage(
+
         "Recurring end date must be on or after start date."
       );
       return;
@@ -939,7 +940,7 @@ export default function SetupPage() {
     }
 
     const response = await fetch(
-      `${API_BASE}/api/services`,
+      `/api/shops/${encodeURIComponent(shopSlug)}/services`,
       {
         method: "POST",
         headers: {
@@ -1030,7 +1031,9 @@ export default function SetupPage() {
     }
 
     const response = await fetch(
-      `${API_BASE}/api/services/${encodeURIComponent(
+      `/api/shops/${encodeURIComponent(
+        shopSlug
+      )}/services/${encodeURIComponent(
         serviceId
       )}`,
       {
@@ -1076,7 +1079,9 @@ export default function SetupPage() {
     if (!confirmed) return;
 
     const response = await fetch(
-      `${API_BASE}/api/services/${encodeURIComponent(
+      `/api/shops/${encodeURIComponent(
+        shopSlug
+      )}/services/${encodeURIComponent(
         service.id
       )}`,
       {
@@ -1494,6 +1499,7 @@ export default function SetupPage() {
 
     for (
       let weekday = 0;
+
       weekday <= 6;
       weekday++
     ) {
@@ -1868,7 +1874,8 @@ export default function SetupPage() {
             />
 
             <input
-              type="datetime-local"
+              type="datetime-local"  
+
               value={shopBlockStart}
               onChange={(event) =>
                 setShopBlockStart(
@@ -2248,6 +2255,7 @@ export default function SetupPage() {
                 Assign services to{" "}
                 <strong>
                   {selectedBarber.name}
+
                 </strong>{" "}
                 from the shop&apos;s master service
                 list.
@@ -2764,4 +2772,4 @@ export default function SetupPage() {
       </div>
     </main>
   );
-}                                
+}
