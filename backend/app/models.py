@@ -278,6 +278,11 @@ class Service(Base):
         Numeric(10, 2),
         nullable=False,
     )
+    is_active = Column(
+        Boolean,
+        nullable=False,
+        default=True,
+    )
 
 
 class ShopAvailabilityRule(Base):
