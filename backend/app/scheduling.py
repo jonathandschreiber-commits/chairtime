@@ -168,6 +168,7 @@ def generate_available_slots(
         .filter(
             Service.id == service_id,
             Service.barber_id == barber_id,
+            Service.is_active.is_(True),
         )
         .first()
     )
