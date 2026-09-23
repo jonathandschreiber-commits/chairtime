@@ -197,6 +197,7 @@ def find_service_for_barber(
             Service.id == service_id,
             Service.shop_slug == shop_slug,
             Service.barber_id == barber_id,
+            Service.is_active.is_(True),
         )
         .first()
     )
@@ -1248,6 +1249,7 @@ def update_admin_appointment_status(
 @router.patch(
     "/admin/appointments/{appointment_id}/reschedule"
 )
+
 def reschedule_admin_appointment(
     appointment_id: str,
     new_start_datetime: str,
