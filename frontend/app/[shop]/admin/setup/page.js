@@ -749,7 +749,7 @@ export default function SetupPage() {
     if (recurringEndDate < recurringStartDate) {
       setMessage(
 
-        "Recurring end date must be on or after start date."
+              "Recurring end date must be on or after start date."
       );
       return;
     }
@@ -1143,14 +1143,15 @@ export default function SetupPage() {
     }
 
     const response = await fetch(
-      `${API_BASE}/api/availability-rules`,
+      `/api/shops/${encodeURIComponent(
+        shopSlug
+      )}/availability-rules`,
       {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          shop_slug: shopSlug,
           barber_id: selectedBarberId,
           weekday:
             WEEKDAY_MAP[availabilityDay],
@@ -1184,7 +1185,9 @@ export default function SetupPage() {
 
   async function deleteAvailabilityRule(id) {
     const response = await fetch(
-      `${API_BASE}/api/availability-rules/${encodeURIComponent(
+      `/api/shops/${encodeURIComponent(
+        shopSlug
+      )}/availability-rules/${encodeURIComponent(
         id
       )}`,
       {
@@ -1204,7 +1207,7 @@ export default function SetupPage() {
       "Weekly availability deleted."
     );
 
-     loadData();
+    loadData();
   }
 
   /*
@@ -1497,8 +1500,9 @@ export default function SetupPage() {
   const groupedShopHours = useMemo(() => {
     const grouped = {};
 
-    for (
-      let weekday = 0;
+    for (  
+
+          let weekday = 0;
 
       weekday <= 6;
       weekday++
@@ -1803,7 +1807,7 @@ export default function SetupPage() {
                     <div className="flex flex-wrap gap-2 justify-end">
                       {rules.map((rule) => (
                         <button
-                          key={rule.id} 
+                          key={rule.id}
 
                           onClick={() =>
                             deleteShopHours(
@@ -1874,7 +1878,7 @@ export default function SetupPage() {
             />
 
             <input
-              type="datetime-local"  
+              type="datetime-local"
 
               value={shopBlockStart}
               onChange={(event) =>
@@ -2248,7 +2252,8 @@ export default function SetupPage() {
           <>
             <div className="bg-white p-6 rounded-2xl shadow-lg border border-indigo-200 space-y-4">
               <h2 className="text-2xl font-bold">
-                Services
+
+                         Services
               </h2>
 
               <p className="text-gray-600">
@@ -2772,4 +2777,4 @@ export default function SetupPage() {
       </div>
     </main>
   );
-}
+} 
