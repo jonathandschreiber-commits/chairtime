@@ -1,3 +1,4 @@
+
 from datetime import date, datetime, timedelta
 from difflib import SequenceMatcher
 import re
@@ -6,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from app.booking_lock import lock_booking_provider
 from app.database import get_db
 from app.models import Appointment, Barber, Service, Shop
 from app.routes.reminders import send_highlevel_sms
@@ -90,8 +92,8 @@ def clean_text(value: str | None):
 
 def normalize_staff_name(value: str | None):
     """
-    Convert a spoken or transcribed staff name into a comparison-friendly
-    form.
+    Convert a spoken or transcribed staff name into a
+    comparison-friendly form.
 
     Examples:
         Barber One      -> barber 1
@@ -100,8 +102,9 @@ def normalize_staff_name(value: str | None):
         Barber Juan     -> barber 1
         Barber number 1 -> barber 1
 
-    This function is used only for matching. The canonical staff name
-    stored in ChairTime is returned to the caller.
+    This function is used only for matching. The
+    canonical staff name stored in ChairTime is
+    returned to the caller.
     """
 
     cleaned = clean_text(value)
@@ -120,7 +123,10 @@ def normalize_staff_name(value: str | None):
     cleaned = " ".join(cleaned.split())
 
     if cleaned.startswith("barbara "):
-        cleaned = "barber " + cleaned[len("barbara "):]
+        cleaned = (
+            "barber "
+            + cleaned[len("barbara "):]
+        )
 
     if cleaned == "barbara":
         cleaned = "barber"
@@ -192,13 +198,15 @@ def resolve_barber_from_roster(
     spoken_name: str,
 ):
     """
-    Resolve a possibly imperfect voice transcription against the actual
-    ChairTime staff roster for this shop.
+    Resolve a possibly imperfect voice transcription
+    against the actual ChairTime staff roster for
+    this shop.
 
     Matching order:
     1. Exact database match.
     2. Exact normalized match.
-    3. Strong fuzzy match, only when sufficiently unambiguous.
+    3. Strong fuzzy match, only when sufficiently
+       unambiguous.
     """
 
     barbers = (
@@ -213,7 +221,10 @@ def resolve_barber_from_roster(
     if not barbers:
         raise HTTPException(
             status_code=404,
-            detail="No staff members are configured for this shop",
+            detail=(
+                "No staff members are configured "
+                "for this shop"
+            ),
         )
 
     exact_barber = (
@@ -228,12 +239,17 @@ def resolve_barber_from_roster(
     if exact_barber:
         return exact_barber
 
-    normalized_input = normalize_staff_name(spoken_name)
+    normalized_input = normalize_staff_name(
+        spoken_name
+    )
 
     if not normalized_input:
         raise HTTPException(
             status_code=404,
-            detail=f"Staff member '{spoken_name}' not found",
+            detail=(
+                f"Staff member '{spoken_name}' "
+                "not found"
+            ),
         )
 
     normalized_matches = []
@@ -255,7 +271,8 @@ def resolve_barber_from_roster(
             detail={
                 "message": (
                     "The staff name is ambiguous. "
-                    "Please ask the caller which staff member they mean."
+                    "Please ask the caller which "
+                    "staff member they mean."
                 ),
                 "heard_name": spoken_name,
                 "possible_barbers": [
@@ -295,7 +312,10 @@ def resolve_barber_from_roster(
     if not scored_matches:
         raise HTTPException(
             status_code=404,
-            detail=f"Staff member '{spoken_name}' not found",
+            detail=(
+                f"Staff member '{spoken_name}' "
+                "not found"
+            ),
         )
 
     best_score, best_barber = scored_matches[0]
@@ -314,7 +334,8 @@ def resolve_barber_from_roster(
             status_code=404,
             detail={
                 "message": (
-                    "The staff name could not be matched confidently."
+                    "The staff name could not "
+                    "be matched confidently."
                 ),
                 "heard_name": spoken_name,
                 "available_barbers": [
@@ -326,7 +347,8 @@ def resolve_barber_from_roster(
 
     if (
         len(scored_matches) > 1
-        and best_score - second_best_score < minimum_margin
+        and best_score - second_best_score
+        < minimum_margin
     ):
         likely_matches = [
             barber.name
@@ -355,12 +377,12 @@ def find_matching_services(
     service_name: str,
 ):
     """
-    Return every active service record in this shop matching the requested
-    service name.
+    Return every active service record in this shop
+    matching the requested service name.
 
-    ChairTime stores services per provider. Therefore there may be
-    multiple records named "Haircut" -- one for each provider who
-    actually offers Haircut.
+    ChairTime stores services per provider. Therefore
+    there may be multiple records named "Haircut" --
+    one for each provider who actually offers Haircut.
     """
 
     cleaned_service_name = clean_text(service_name)
@@ -398,14 +420,13 @@ def find_service_for_barber(
     barber: Barber,
 ):
     """
-    Find the requested active service specifically for the requested
-    provider.
+    Find the requested active service specifically
+    for the requested provider.
 
-    This is the key rule for voice booking:
-        Bernard + Haircut
-    must resolve Bernard first and then Bernard's Haircut record.
+    Bernard + Haircut must resolve Bernard first
+    and then Bernard's Haircut record.
 
-    It must never use some other provider's Haircut record.
+    Never use another provider's service record.
     """
 
     cleaned_service_name = clean_text(service_name)
@@ -431,9 +452,10 @@ def find_service_for_barber(
         return service
 
     #
-    # Support a shop-wide service record if one ever exists without
-    # a specific barber assignment.
+    # Support a shop-wide service record if one
+    # exists without a specific barber assignment.
     #
+
     shared_service = (
         db.query(Service)
         .filter(
@@ -451,8 +473,8 @@ def find_service_for_barber(
     raise HTTPException(
         status_code=404,
         detail=(
-            f"Service '{cleaned_service_name}' is not available "
-            f"with {barber.name}"
+            f"Service '{cleaned_service_name}' "
+            f"is not available with {barber.name}"
         ),
     )
 
@@ -463,8 +485,9 @@ def get_service_barber_candidates(
     service_name: str,
 ):
     """
-    Return every valid (service, provider) combination for a requested
-    service when the caller has no provider preference.
+    Return every valid service/provider combination
+    for a requested service when the caller has
+    no provider preference.
     """
 
     services = find_matching_services(
@@ -492,12 +515,17 @@ def get_service_barber_candidates(
 
     for service in services:
         if service.barber_id:
-            barber = barber_by_id.get(service.barber_id)
+            barber = barber_by_id.get(
+                service.barber_id
+            )
 
             if not barber:
                 continue
 
-            key = (service.id, barber.id)
+            key = (
+                service.id,
+                barber.id,
+            )
 
             if key not in seen_pairs:
                 candidates.append(
@@ -510,10 +538,15 @@ def get_service_barber_candidates(
 
         else:
             #
-            # A service with no barber_id is treated as shop-wide.
+            # A service with no barber_id is treated
+            # as shop-wide.
             #
+
             for barber in barbers:
-                key = (service.id, barber.id)
+                key = (
+                    service.id,
+                    barber.id,
+                )
 
                 if key not in seen_pairs:
                     candidates.append(
@@ -528,8 +561,8 @@ def get_service_barber_candidates(
         raise HTTPException(
             status_code=404,
             detail=(
-                f"No staff member is configured to provide "
-                f"'{service_name}'"
+                "No staff member is configured "
+                f"to provide '{service_name}'"
             ),
         )
 
@@ -555,8 +588,7 @@ def slots_to_datetimes(slots):
             available_datetimes.append(
                 datetime.fromisoformat(
                     str(slot)
-
-                                    )
+                )
             )
 
         except (ValueError, TypeError):
@@ -588,28 +620,69 @@ def get_slots_for_candidate(
     return slots
 
 
+def filter_requested_slots(
+    slots,
+    time_window=None,
+    preferred_start_time=None,
+):
+    """
+    Filter real openings; never manufacture
+    appointment times.
+    """
 
-def filter_requested_slots(slots, time_window=None, preferred_start_time=None):
-    """Filter real openings; never manufacture appointment times."""
-    window = (time_window or "").strip().lower()
+    window = (
+        time_window or ""
+    ).strip().lower()
+
     bounds = {
         "morning": (0, 12 * 60),
         "afternoon": (12 * 60, 17 * 60),
         "evening": (17 * 60, 24 * 60),
     }
+
     if window and window not in bounds:
-        raise HTTPException(status_code=400, detail="Unsupported time window.")
-    requested = parse_start_time(preferred_start_time) if preferred_start_time else None
+        raise HTTPException(
+            status_code=400,
+            detail="Unsupported time window.",
+        )
+
+    requested = (
+        parse_start_time(preferred_start_time)
+        if preferred_start_time
+        else None
+    )
+
     result = []
+
     for slot in slots:
-        dt = slot if isinstance(slot, datetime) else datetime.fromisoformat(str(slot))
+        dt = (
+            slot
+            if isinstance(slot, datetime)
+            else datetime.fromisoformat(str(slot))
+        )
+
         minute = dt.hour * 60 + dt.minute
-        if window and not (bounds[window][0] <= minute < bounds[window][1]):
+
+        if window and not (
+            bounds[window][0]
+            <= minute
+            < bounds[window][1]
+        ):
             continue
-        if requested and dt.time().replace(second=0, microsecond=0) != requested:
+
+        if requested and (
+            dt.time().replace(
+                second=0,
+                microsecond=0,
+            )
+            != requested
+        ):
             continue
+
         result.append(slot)
+
     return result
+
 
 def choose_candidate_for_availability(
     db: Session,
@@ -621,13 +694,15 @@ def choose_candidate_for_availability(
     preferred_start_time: str | None = None,
 ):
     """
-    Choose the correct service/provider pair for an availability request.
+    Choose the correct service/provider pair
+    for an availability request.
 
     If the caller requests a provider:
-        provider -> that provider's service -> availability
+        provider -> provider's service -> availability
 
     If the caller has no preference:
-        all providers offering service -> availability -> earliest opening
+        all providers offering service -> availability
+        -> earliest opening
     """
 
     cleaned_barber_name = clean_barber_name(
@@ -655,7 +730,15 @@ def choose_candidate_for_availability(
             target_date=target_date,
         )
 
-        return service, barber, filter_requested_slots(slots, time_window, preferred_start_time)
+        return (
+            service,
+            barber,
+            filter_requested_slots(
+                slots,
+                time_window,
+                preferred_start_time,
+            ),
+        )
 
     candidates = get_service_barber_candidates(
         db=db,
@@ -673,7 +756,12 @@ def choose_candidate_for_availability(
             target_date=target_date,
         )
 
-        slots = filter_requested_slots(slots, time_window, preferred_start_time)
+        slots = filter_requested_slots(
+            slots,
+            time_window,
+            preferred_start_time,
+        )
+
         slot_datetimes = slots_to_datetimes(
             slots
         )
@@ -695,10 +783,14 @@ def choose_candidate_for_availability(
         )
 
     #
-    # Prefer a provider who actually has an opening that day, choosing
-    # whichever has the earliest opening. If nobody has an opening,
-    # return the first configured candidate with an empty slot list.
+    # Prefer a provider who actually has an
+    # opening that day, choosing whichever has
+    # the earliest opening.
     #
+    # If nobody has an opening, return the first
+    # configured candidate with an empty slot list.
+    #
+
     candidates_with_slots = [
         item
         for item in evaluated
@@ -713,9 +805,13 @@ def choose_candidate_for_availability(
             )
         )
 
-        _, _, service, barber, slots = (
-            candidates_with_slots[0]
-        )
+        (
+            _,
+            _,
+            service,
+            barber,
+            slots,
+        ) = candidates_with_slots[0]
 
         return service, barber, slots
 
@@ -723,7 +819,13 @@ def choose_candidate_for_availability(
         key=lambda item: item[1]
     )
 
-    _, _, service, barber, slots = evaluated[0]
+    (
+        _,
+        _,
+        service,
+        barber,
+        slots,
+    ) = evaluated[0]
 
     return service, barber, slots
 
@@ -737,14 +839,16 @@ def choose_candidate_for_booking(
     barber_name: str | None,
 ):
     """
-    Choose the exact service/provider pair for a requested appointment
-    time.
+    Choose the exact service/provider pair
+    for a requested appointment time.
 
-    With a named provider, only that provider is checked.
+    With a named provider, only that provider
+    is checked.
 
-    With no preference, every provider who offers the service is checked
-    and the first provider actually available at the requested time is
-    selected.
+    With no preference, every provider who
+    offers the service is checked and the
+    first provider actually available at
+    the requested time is selected.
     """
 
     cleaned_barber_name = clean_barber_name(
@@ -839,7 +943,9 @@ def choose_candidate_for_booking(
                 "The requested appointment time "
                 "is no longer available"
             ),
-            "requested_time": requested_start.isoformat(),
+            "requested_time": (
+                requested_start.isoformat()
+            ),
             "available_barbers": sorted(
                 set(available_barbers)
             ),
@@ -900,7 +1006,8 @@ def build_confirmation_message(
     start_datetime: datetime,
 ):
     """
-    Build the immediate SMS sent after a successful booking.
+    Build the immediate SMS sent after a
+    successful booking.
     """
 
     date_text = start_datetime.strftime(
@@ -916,7 +1023,8 @@ def build_confirmation_message(
 
     return (
         f"{business_name}: Your {service_name.lower()} with "
-        f"{barber_name} is confirmed for {date_text} at {time_text}. "
+        f"{barber_name} is confirmed for {date_text} "
+        f"at {time_text}. "
         "You'll receive a reminder before your appointment. "
         "Reply STOP to unsubscribe."
     )
@@ -1024,6 +1132,15 @@ def voice_book_appointment(
         requested_time,
     )
 
+    #
+    # Select a suitable provider using the
+    # existing scheduling logic.
+    #
+    # This initial availability check does not
+    # reserve the appointment. Another request
+    # could book the same slot immediately afterward.
+    #
+
     service, barber = choose_candidate_for_booking(
         db=db,
         shop_slug=payload.shop_slug,
@@ -1040,19 +1157,80 @@ def voice_book_appointment(
         )
     )
 
-    appointment = Appointment(
-        shop_slug=payload.shop_slug,
-        barber_id=barber.id,
-        service_id=service.id,
-        customer_name=customer_name,
-        customer_phone=customer_phone,
-        start_datetime=requested_start,
-        end_datetime=requested_end,
-        status="confirmed",
-        reminder_sent=False,
-    )
+    #
+    # Acquire the same provider lock used by
+    # the regular appointment routes.
+    #
+    # On PostgreSQL this locks the provider's
+    # database row until commit or rollback.
+    #
 
     try:
+        lock_booking_provider(
+            db=db,
+            shop_slug=payload.shop_slug,
+            barber_id=barber.id,
+        )
+
+        #
+        # Availability must be checked again
+        # AFTER the lock has been acquired.
+        #
+        # This catches an appointment created
+        # by another request while this request
+        # was waiting for the provider lock.
+        #
+
+        locked_slots = get_slots_for_candidate(
+            db=db,
+            barber=barber,
+            service=service,
+            target_date=payload.target_date,
+        )
+
+        locked_datetimes = slots_to_datetimes(
+            locked_slots
+        )
+
+        if requested_start not in locked_datetimes:
+            db.rollback()
+
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "message": (
+                        "The requested appointment time "
+                        "is no longer available"
+                    ),
+                    "barber": barber.name,
+                    "service": service.name,
+                    "requested_time": (
+                        requested_start.isoformat()
+                    ),
+                    "available_slots": [
+                        slot.isoformat()
+                        for slot in locked_datetimes
+                    ],
+                },
+            )
+
+        #
+        # Save the appointment while holding
+        # the provider lock.
+        #
+
+        appointment = Appointment(
+            shop_slug=payload.shop_slug,
+            barber_id=barber.id,
+            service_id=service.id,
+            customer_name=customer_name,
+            customer_phone=customer_phone,
+            start_datetime=requested_start,
+            end_datetime=requested_end,
+            status="confirmed",
+            reminder_sent=False,
+        )
+
         db.add(
             appointment
         )
@@ -1063,6 +1241,10 @@ def voice_book_appointment(
             appointment
         )
 
+    except HTTPException:
+        db.rollback()
+        raise
+
     except Exception:
         db.rollback()
 
@@ -1072,13 +1254,17 @@ def voice_book_appointment(
         )
 
     #
-    # The appointment has already been committed successfully.
-    # SMS failure must never undo or invalidate the booking.
+    # The appointment is committed and the
+    # provider lock has been released.
+    #
+    # SMS failure must never undo the booking.
     #
 
     shop = (
         db.query(Shop)
-        .filter(Shop.slug == payload.shop_slug)
+        .filter(
+            Shop.slug == payload.shop_slug
+        )
         .first()
     )
 
@@ -1140,4 +1326,4 @@ def voice_book_appointment(
         "confirmation_sms_error": confirmation_sms_error,
         "reminder_scheduled": True,
         "reminder_sent": appointment.reminder_sent,
-    }    
+    }
