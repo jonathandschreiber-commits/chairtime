@@ -49,6 +49,22 @@ def require_owner(
     return shop_slug
 
 
+def clean_shop_slug(
+    value: str,
+) -> str:
+    shop_slug = str(
+        value or ""
+    ).strip().lower()
+
+    if not shop_slug:
+        raise HTTPException(
+            status_code=400,
+            detail="Shop is required.",
+        )
+
+    return shop_slug
+
+
 @router.post("/barbers")
 def create_barber(
     payload: BarberCreate,
@@ -93,17 +109,32 @@ def create_barber(
 
 @router.get("/barbers")
 def list_barbers(
-    shop_slug: str | None = None,
+    shop_slug: str,
     db: Session = Depends(get_db),
 ):
-    query = db.query(Barber)
+    """
+    Return staff members for one specific
+    business.
 
-    if shop_slug:
-        query = query.filter(
-            Barber.shop_slug == shop_slug
+    A shop slug is required so an unscoped
+    request can never return staff belonging
+    to every ChairTime business.
+    """
+
+    requested_shop_slug = (
+        clean_shop_slug(
+            shop_slug
         )
+    )
 
-    return query.all()
+    return (
+        db.query(Barber)
+        .filter(
+            Barber.shop_slug
+            == requested_shop_slug
+        )
+        .all()
+    )
 
 
 @router.delete("/barbers/{barber_id}")
