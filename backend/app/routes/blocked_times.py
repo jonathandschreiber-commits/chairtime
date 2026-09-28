@@ -32,6 +32,22 @@ def require_user_shop_slug(current_user: User) -> str:
     return shop_slug
 
 
+def clean_public_shop_slug(
+    value: str,
+) -> str:
+    shop_slug = str(
+        value or ""
+    ).strip().lower()
+
+    if not shop_slug:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Shop is required.",
+        )
+
+    return shop_slug
+
+
 def require_blocked_time_modify_permission(
     current_user: User,
     barber_id: str,
@@ -282,21 +298,35 @@ def create_blocked_time(
 
 @router.get("/blocked-times")
 def list_blocked_times(
-    shop_slug: str | None = None,
+    shop_slug: str,
     db: Session = Depends(get_db),
 ):
-    query = db.query(BlockedTime)
+    """
+    Return provider blocked times for one
+    specific business.
 
-    if shop_slug:
-        clean_shop_slug = shop_slug.strip().lower()
+    shop_slug is required so an unscoped
+    request can never expose blocked-time
+    records belonging to every business.
+    """
 
-        query = query.filter(
-            BlockedTime.shop_slug == clean_shop_slug
+    requested_shop_slug = (
+        clean_public_shop_slug(
+            shop_slug
         )
+    )
 
-    return query.order_by(
-        BlockedTime.start_datetime.asc()
-    ).all()
+    return (
+        db.query(BlockedTime)
+        .filter(
+            BlockedTime.shop_slug
+            == requested_shop_slug
+        )
+        .order_by(
+            BlockedTime.start_datetime.asc()
+        )
+        .all()
+    )
 
 
 @router.delete("/blocked-times/{blocked_time_id}")
@@ -410,6 +440,7 @@ def create_admin_blocked_time(
         )
 
     return blocked_time
+
 
 @router.post("/admin/blocked-times/recurring")
 def create_recurring_admin_blocked_time(
