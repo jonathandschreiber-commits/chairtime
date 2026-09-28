@@ -1229,15 +1229,14 @@ def create_booking_setup_intent(
         )
 
     return {
-        "success": True,
-        "client_secret": setup_intent.client_secret,
-        "setup_intent_id": setup_intent.id,
-        "stripe_customer_id": stripe_customer_id,
-        "used_saved_card": bool(saved_card),
-        "stripe_connect_account_id": (
-            shop.stripe_connect_account_id
-        ),
-    }
+    "success": True,
+    "client_secret": setup_intent.client_secret,
+    "setup_intent_id": setup_intent.id,
+    "used_saved_card": bool(saved_card),
+    "stripe_connect_account_id": (
+        shop.stripe_connect_account_id
+    ),
+}
 
 
 @router.post("/webhook")
