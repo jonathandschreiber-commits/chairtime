@@ -3754,62 +3754,28 @@ export default function CalendarPage() {
                         </p>
                       </button>
 
-                              const statusStyle =
-                                STATUS_STYLES[
-                                  appointment
-                                    .status
-                                ] ||
-                                STATUS_STYLES
-                                  .confirmed;
+                      <div className="p-3 space-y-3">
+                        {items.length === 0 ? (
+                          <p className="text-sm text-gray-500">
+                            No appointments
+                          </p>
+                        ) : null}
 
-                              return (
-                                <button
-                                  key={
-                                    item.id
-                                  }
-                                  type="button"
-                                  onClick={() => {
-                                    setSelectedDate(
-                                      date
-                                    );
-
-                                    setAppointmentDate(
-                                      date
-                                    );
-
-                                    setBlockDate(
-                                      date
-                                    );
-
-                                    setViewMode(
-                                      "day"
-                                    );
-                                  }}
-                                  className={`w-full text-left rounded-xl border p-3 ${statusStyle}`}
-                                >
-                                  <p className="font-bold text-sm">
-                                    {formatTime(
-                                      appointment.start_datetime
-                                    )}
-                                  </p>
-
-                                  <p className="font-semibold text-sm mt-1">
-                                    {
-                                      appointment.customer_name
-                                    }
-                                  </p>
-
-                                  <p className="text-xs mt-1">
-                                    {serviceName(
-                                      appointment.service_id
-                                    )}
-                                  </p>
-                                </button>
-                              );
-                            }
-
-                            const block =
+                        {items.map((item) => {
+                          if (
+                            item.type ===
+                            "appointment"
+                          ) {
+                            const appointment =
                               item.data;
+
+                            const statusStyle =
+                              STATUS_STYLES[
+                                appointment
+                                  .status
+                              ] ||
+                              STATUS_STYLES
+                                .confirmed;
 
                             return (
                               <button
@@ -3834,22 +3800,70 @@ export default function CalendarPage() {
                                     "day"
                                   );
                                 }}
-                                className="w-full text-left rounded-xl border border-gray-300 bg-gray-200 p-3"
+                                className={`w-full text-left rounded-xl border p-3 ${statusStyle}`}
                               >
                                 <p className="font-bold text-sm">
                                   {formatTime(
-                                    block.start_datetime
+                                    appointment.start_datetime
                                   )}
                                 </p>
 
-                                <p className="text-sm mt-1">
-                                  {block.reason ||
-                                    "Blocked"}
+                                <p className="font-semibold text-sm mt-1">
+                                  {
+                                    appointment.customer_name
+                                  }
+                                </p>
+
+                                <p className="text-xs mt-1">
+                                  {serviceName(
+                                    appointment.service_id
+                                  )}
                                 </p>
                               </button>
                             );
                           }
-                        )}
+
+                          const block =
+                            item.data;
+
+                          return (
+                            <button
+                              key={
+                                item.id
+                              }
+                              type="button"
+                              onClick={() => {
+                                setSelectedDate(
+                                  date
+                                );
+
+                                setAppointmentDate(
+                                  date
+                                );
+
+                                setBlockDate(
+                                  date
+                                );
+
+                                setViewMode(
+                                  "day"
+                                );
+                              }}
+                              className="w-full text-left rounded-xl border border-gray-300 bg-gray-200 p-3"
+                            >
+                              <p className="font-bold text-sm">
+                                {formatTime(
+                                  block.start_datetime
+                                )}
+                              </p>
+
+                              <p className="text-sm mt-1">
+                                {block.reason ||
+                                  "Blocked"}
+                              </p>
+                            </button>
+                          );
+                        })}
 
                         {canManageSelectedBarberAppointments ? (
                           <button
@@ -3907,5 +3921,6 @@ export default function CalendarPage() {
         ) : null}
       </div>
     </main>
-  );                      
+  );
 }
+                              
