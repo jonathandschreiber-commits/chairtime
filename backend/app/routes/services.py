@@ -17,27 +17,53 @@ router = APIRouter()
 
 
 def require_owner(current_user: User):
-    role = str(current_user.role or "").strip().lower()
+    role = str(
+        current_user.role or ""
+    ).strip().lower()
 
     if role != "owner":
         raise HTTPException(
             status_code=403,
-            detail="Only the shop owner may manage services.",
+            detail=(
+                "Only the shop owner may "
+                "manage services."
+            ),
         )
 
-    shop_slug = str(current_user.shop_slug or "").strip().lower()
+    shop_slug = str(
+        current_user.shop_slug or ""
+    ).strip().lower()
 
     if not shop_slug:
         raise HTTPException(
             status_code=403,
-            detail="Your account is not associated with a shop.",
+            detail=(
+                "Your account is not "
+                "associated with a shop."
+            ),
+        )
+
+    return shop_slug
+
+
+def clean_shop_slug(value: str) -> str:
+    shop_slug = str(
+        value or ""
+    ).strip().lower()
+
+    if not shop_slug:
+        raise HTTPException(
+            status_code=400,
+            detail="Shop is required.",
         )
 
     return shop_slug
 
 
 def clean_name(value: str):
-    return " ".join(value.strip().split())
+    return " ".join(
+        value.strip().split()
+    )
 
 
 def normalized_name(value: str):
@@ -52,8 +78,11 @@ def find_catalog_item_by_name(
     return (
         db.query(ServiceCatalog)
         .filter(
-            ServiceCatalog.shop_slug == shop_slug,
-            func.lower(ServiceCatalog.name)
+            ServiceCatalog.shop_slug
+            == shop_slug,
+            func.lower(
+                ServiceCatalog.name
+            )
             == normalized_name(name),
         )
         .first()
@@ -67,7 +96,8 @@ def seed_catalog_from_existing_services(
     existing_services = (
         db.query(Service)
         .filter(
-            Service.shop_slug == shop_slug,
+            Service.shop_slug
+            == shop_slug,
         )
         .all()
     )
@@ -75,15 +105,19 @@ def seed_catalog_from_existing_services(
     added = False
 
     for service in existing_services:
-        service_name = clean_name(service.name)
+        service_name = clean_name(
+            service.name
+        )
 
         if not service_name:
             continue
 
-        existing_catalog_item = find_catalog_item_by_name(
-            db=db,
-            shop_slug=shop_slug,
-            name=service_name,
+        existing_catalog_item = (
+            find_catalog_item_by_name(
+                db=db,
+                shop_slug=shop_slug,
+                name=service_name,
+            )
         )
 
         if existing_catalog_item:
@@ -107,19 +141,24 @@ def remove_duplicate_catalog_items(
     shop_slug: str,
 ):
     """
-    Keep one catalog entry for each service name, ignoring
-    capitalization and extra spaces.
+    Keep one catalog entry for each service name,
+    ignoring capitalization and extra spaces.
 
-    Catalog IDs are not used by appointments or staff assignments,
-    so duplicate catalog rows can safely be removed.
+    Catalog IDs are not used by appointments or
+    staff assignments, so duplicate catalog rows
+    can safely be removed.
     """
 
     catalog_items = (
         db.query(ServiceCatalog)
         .filter(
-            ServiceCatalog.shop_slug == shop_slug,
+            ServiceCatalog.shop_slug
+            == shop_slug,
         )
-        .order_by(ServiceCatalog.name, ServiceCatalog.id)
+        .order_by(
+            ServiceCatalog.name,
+            ServiceCatalog.id,
+        )
         .all()
     )
 
@@ -127,10 +166,14 @@ def remove_duplicate_catalog_items(
     duplicates = []
 
     for item in catalog_items:
-        key = normalized_name(item.name)
+        key = normalized_name(
+            item.name
+        )
 
         if key in seen:
-            duplicates.append(item)
+            duplicates.append(
+                item
+            )
         else:
             seen[key] = item
 
@@ -149,9 +192,12 @@ def get_assignment_details(
     assignments = (
         db.query(Service)
         .filter(
-            Service.shop_slug == shop_slug,
+            Service.shop_slug
+            == shop_slug,
             func.lower(Service.name)
-            == normalized_name(service_name),
+            == normalized_name(
+                service_name
+            ),
             Service.is_active.is_(True),
         )
         .all()
@@ -169,10 +215,15 @@ def get_assignment_details(
     barbers = (
         db.query(Barber)
         .filter(
-            Barber.shop_slug == shop_slug,
-            Barber.id.in_(barber_ids),
+            Barber.shop_slug
+            == shop_slug,
+            Barber.id.in_(
+                barber_ids
+            ),
         )
-        .order_by(Barber.name)
+        .order_by(
+            Barber.name
+        )
         .all()
     )
 
@@ -192,41 +243,60 @@ def list_service_catalog(
     shop_slug: str,
     db: Session = Depends(get_db),
 ):
+    requested_shop_slug = (
+        clean_shop_slug(
+            shop_slug
+        )
+    )
+
     seed_catalog_from_existing_services(
         db=db,
-        shop_slug=shop_slug,
+        shop_slug=requested_shop_slug,
     )
 
     remove_duplicate_catalog_items(
         db=db,
-        shop_slug=shop_slug,
+        shop_slug=requested_shop_slug,
     )
 
     catalog_items = (
         db.query(ServiceCatalog)
         .filter(
-            ServiceCatalog.shop_slug == shop_slug,
+            ServiceCatalog.shop_slug
+            == requested_shop_slug,
         )
-        .order_by(ServiceCatalog.name)
+        .order_by(
+            ServiceCatalog.name
+        )
         .all()
     )
 
     results = []
 
     for item in catalog_items:
-        assigned_staff = get_assignment_details(
-            db=db,
-            shop_slug=shop_slug,
-            service_name=item.name,
+        assigned_staff = (
+            get_assignment_details(
+                db=db,
+                shop_slug=(
+                    requested_shop_slug
+                ),
+                service_name=item.name,
+            )
         )
 
         results.append(
             {
                 "id": item.id,
-                "shop_slug": item.shop_slug,
+                "shop_slug": (
+                    item.shop_slug
+                ),
                 "name": item.name,
-                "assignment_count": len(assigned_staff),
-                "assigned_staff": assigned_staff,
+                "assignment_count": len(
+                    assigned_staff
+                ),
+                "assigned_staff": (
+                    assigned_staff
+                ),
             }
         )
 
@@ -237,36 +307,57 @@ def list_service_catalog(
 def create_service_catalog_item(
     payload: ServiceCatalogCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(
+        get_current_user
+    ),
 ):
-    shop_slug = require_owner(current_user)
+    shop_slug = require_owner(
+        current_user
+    )
 
-    payload_shop_slug = str(payload.shop_slug or "").strip().lower()
+    payload_shop_slug = str(
+        payload.shop_slug or ""
+    ).strip().lower()
 
-    if payload_shop_slug and payload_shop_slug != shop_slug:
+    if (
+        payload_shop_slug
+        and payload_shop_slug
+        != shop_slug
+    ):
         raise HTTPException(
             status_code=403,
-            detail="You may only manage services for your own shop.",
+            detail=(
+                "You may only manage "
+                "services for your own shop."
+            ),
         )
 
-    name = clean_name(payload.name)
+    name = clean_name(
+        payload.name
+    )
 
     if not name:
         raise HTTPException(
             status_code=400,
-            detail="Service name is required",
+            detail=(
+                "Service name is required"
+            ),
         )
 
-    existing = find_catalog_item_by_name(
-        db=db,
-        shop_slug=shop_slug,
-        name=name,
+    existing = (
+        find_catalog_item_by_name(
+            db=db,
+            shop_slug=shop_slug,
+            name=name,
+        )
     )
 
     if existing:
         raise HTTPException(
             status_code=409,
-            detail="That service already exists",
+            detail=(
+                "That service already exists"
+            ),
         )
 
     catalog_item = ServiceCatalog(
@@ -274,27 +365,39 @@ def create_service_catalog_item(
         name=name,
     )
 
-    db.add(catalog_item)
+    db.add(
+        catalog_item
+    )
     db.commit()
-    db.refresh(catalog_item)
+    db.refresh(
+        catalog_item
+    )
 
     return catalog_item
 
 
-@router.patch("/service-catalog/{catalog_id}")
+@router.patch(
+    "/service-catalog/{catalog_id}"
+)
 def update_service_catalog_item(
     catalog_id: str,
     payload: ServiceCatalogUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(
+        get_current_user
+    ),
 ):
-    shop_slug = require_owner(current_user)
+    shop_slug = require_owner(
+        current_user
+    )
 
     catalog_item = (
         db.query(ServiceCatalog)
         .filter(
-            ServiceCatalog.id == catalog_id,
-            ServiceCatalog.shop_slug == shop_slug,
+            ServiceCatalog.id
+            == catalog_id,
+            ServiceCatalog.shop_slug
+            == shop_slug,
         )
         .first()
     )
@@ -305,21 +408,31 @@ def update_service_catalog_item(
             detail="Service not found",
         )
 
-    new_name = clean_name(payload.name)
+    new_name = clean_name(
+        payload.name
+    )
 
     if not new_name:
         raise HTTPException(
             status_code=400,
-            detail="Service name is required",
+            detail=(
+                "Service name is required"
+            ),
         )
 
     duplicate = (
         db.query(ServiceCatalog)
         .filter(
-            ServiceCatalog.shop_slug == shop_slug,
-            func.lower(ServiceCatalog.name)
-            == normalized_name(new_name),
-            ServiceCatalog.id != catalog_item.id,
+            ServiceCatalog.shop_slug
+            == shop_slug,
+            func.lower(
+                ServiceCatalog.name
+            )
+            == normalized_name(
+                new_name
+            ),
+            ServiceCatalog.id
+            != catalog_item.id,
         )
         .first()
     )
@@ -327,45 +440,66 @@ def update_service_catalog_item(
     if duplicate:
         raise HTTPException(
             status_code=409,
-            detail="That service already exists",
+            detail=(
+                "That service already exists"
+            ),
         )
 
-    old_name = catalog_item.name
+    old_name = (
+        catalog_item.name
+    )
 
-    catalog_item.name = new_name
+    catalog_item.name = (
+        new_name
+    )
 
     assigned_services = (
         db.query(Service)
         .filter(
-            Service.shop_slug == shop_slug,
+            Service.shop_slug
+            == shop_slug,
             func.lower(Service.name)
-            == normalized_name(old_name),
+            == normalized_name(
+                old_name
+            ),
         )
         .all()
     )
 
     for service in assigned_services:
-        service.name = new_name
+        service.name = (
+            new_name
+        )
 
     db.commit()
-    db.refresh(catalog_item)
+    db.refresh(
+        catalog_item
+    )
 
     return catalog_item
 
 
-@router.delete("/service-catalog/{catalog_id}")
+@router.delete(
+    "/service-catalog/{catalog_id}"
+)
 def delete_service_catalog_item(
     catalog_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(
+        get_current_user
+    ),
 ):
-    shop_slug = require_owner(current_user)
+    shop_slug = require_owner(
+        current_user
+    )
 
     catalog_item = (
         db.query(ServiceCatalog)
         .filter(
-            ServiceCatalog.id == catalog_id,
-            ServiceCatalog.shop_slug == shop_slug,
+            ServiceCatalog.id
+            == catalog_id,
+            ServiceCatalog.shop_slug
+            == shop_slug,
         )
         .first()
     )
@@ -376,26 +510,39 @@ def delete_service_catalog_item(
             detail="Service not found",
         )
 
-    assigned_staff = get_assignment_details(
-        db=db,
-        shop_slug=shop_slug,
-        service_name=catalog_item.name,
+    assigned_staff = (
+        get_assignment_details(
+            db=db,
+            shop_slug=shop_slug,
+            service_name=(
+                catalog_item.name
+            ),
+        )
     )
 
     if assigned_staff:
         raise HTTPException(
             status_code=409,
             detail={
-                "message": "This service is still assigned to staff.",
-                "assigned_staff": assigned_staff,
+                "message": (
+                    "This service is still "
+                    "assigned to staff."
+                ),
+                "assigned_staff": (
+                    assigned_staff
+                ),
             },
         )
 
-    db.delete(catalog_item)
+    db.delete(
+        catalog_item
+    )
     db.commit()
 
     return {
-        "message": "Service deleted",
+        "message": (
+            "Service deleted"
+        ),
     }
 
 
@@ -408,24 +555,39 @@ def delete_service_catalog_item(
 def create_service(
     payload: ServiceCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(
+        get_current_user
+    ),
 ):
-    shop_slug = require_owner(current_user)
+    shop_slug = require_owner(
+        current_user
+    )
 
-    payload_shop_slug = str(payload.shop_slug or "").strip().lower()
+    payload_shop_slug = str(
+        payload.shop_slug or ""
+    ).strip().lower()
 
-    if payload_shop_slug and payload_shop_slug != shop_slug:
+    if (
+        payload_shop_slug
+        and payload_shop_slug
+        != shop_slug
+    ):
         raise HTTPException(
             status_code=403,
-            detail="You may only manage services for your own shop.",
+            detail=(
+                "You may only manage "
+                "services for your own shop."
+            ),
         )
 
     if payload.barber_id:
         barber = (
             db.query(Barber)
             .filter(
-                Barber.id == payload.barber_id,
-                Barber.shop_slug == shop_slug,
+                Barber.id
+                == payload.barber_id,
+                Barber.shop_slug
+                == shop_slug,
             )
             .first()
         )
@@ -433,123 +595,197 @@ def create_service(
         if not barber:
             raise HTTPException(
                 status_code=404,
-                detail="Staff member not found",
+                detail=(
+                    "Staff member not found"
+                ),
             )
 
-    service_name = clean_name(payload.name)
+    service_name = clean_name(
+        payload.name
+    )
 
     if not service_name:
         raise HTTPException(
             status_code=400,
-            detail="Service name is required",
+            detail=(
+                "Service name is required"
+            ),
         )
 
-    catalog_item = find_catalog_item_by_name(
-        db=db,
-        shop_slug=shop_slug,
-        name=service_name,
+    catalog_item = (
+        find_catalog_item_by_name(
+            db=db,
+            shop_slug=shop_slug,
+            name=service_name,
+        )
     )
 
     if not catalog_item:
         raise HTTPException(
             status_code=400,
             detail=(
-                "This service is not in the shop service list. "
-                "Add it from Staff & Services first."
+                "This service is not in "
+                "the shop service list. "
+                "Add it from Staff & "
+                "Services first."
             ),
         )
 
     #
     # Always use the catalog spelling.
     #
-    service_name = catalog_item.name
+
+    service_name = (
+        catalog_item.name
+    )
 
     if payload.barber_id:
         existing_assignment = (
             db.query(Service)
             .filter(
-                Service.shop_slug == shop_slug,
-                Service.barber_id == payload.barber_id,
-                func.lower(Service.name)
-                == normalized_name(service_name),
+                Service.shop_slug
+                == shop_slug,
+                Service.barber_id
+                == payload.barber_id,
+                func.lower(
+                    Service.name
+                )
+                == normalized_name(
+                    service_name
+                ),
             )
             .first()
         )
 
         if existing_assignment:
-            if existing_assignment.is_active:
+            if (
+                existing_assignment
+                .is_active
+            ):
                 raise HTTPException(
                     status_code=409,
                     detail=(
-                        "This service is already assigned "
-                        "to this staff member"
+                        "This service is "
+                        "already assigned "
+                        "to this staff "
+                        "member"
                     ),
                 )
 
-            service_data = payload.model_dump()
-            service_data["shop_slug"] = shop_slug
-            service_data["name"] = service_name
+            service_data = (
+                payload.model_dump()
+            )
 
-            for key, value in service_data.items():
+            service_data[
+                "shop_slug"
+            ] = shop_slug
+
+            service_data[
+                "name"
+            ] = service_name
+
+            for (
+                key,
+                value,
+            ) in service_data.items():
                 setattr(
                     existing_assignment,
                     key,
                     value,
                 )
 
-            existing_assignment.is_active = True
+            existing_assignment.is_active = (
+                True
+            )
 
             db.commit()
-            db.refresh(existing_assignment)
+            db.refresh(
+                existing_assignment
+            )
 
-            return existing_assignment
+            return (
+                existing_assignment
+            )
 
-    service_data = payload.model_dump()
-    service_data["shop_slug"] = shop_slug
-    service_data["name"] = service_name
+    service_data = (
+        payload.model_dump()
+    )
+
+    service_data[
+        "shop_slug"
+    ] = shop_slug
+
+    service_data[
+        "name"
+    ] = service_name
 
     service = Service(
         **service_data,
         is_active=True,
     )
 
-    db.add(service)
+    db.add(
+        service
+    )
     db.commit()
-    db.refresh(service)
+    db.refresh(
+        service
+    )
 
     return service
 
 
 @router.get("/services")
 def list_services(
-    shop_slug: str | None = None,
+    shop_slug: str,
     db: Session = Depends(get_db),
 ):
-    query = db.query(Service).filter(
-        Service.is_active.is_(True)
+    """
+    Return active services for one specific
+    business.
+
+    A shop slug is required so an unscoped
+    request can never return services belonging
+    to every ChairTime business.
+    """
+
+    requested_shop_slug = (
+        clean_shop_slug(
+            shop_slug
+        )
     )
 
-    if shop_slug:
-        query = query.filter(
-            Service.shop_slug == shop_slug
+    return (
+        db.query(Service)
+        .filter(
+            Service.shop_slug
+            == requested_shop_slug,
+            Service.is_active.is_(True),
         )
+        .all()
+    )
 
-    return query.all()
 
-
-@router.delete("/services/{service_id}")
+@router.delete(
+    "/services/{service_id}"
+)
 def delete_service(
     service_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(
+        get_current_user
+    ),
 ):
-    shop_slug = require_owner(current_user)
+    shop_slug = require_owner(
+        current_user
+    )
 
     service = (
         db.query(Service)
         .filter(
             Service.id == service_id,
-            Service.shop_slug == shop_slug,
+            Service.shop_slug
+            == shop_slug,
             Service.is_active.is_(True),
         )
         .first()
@@ -564,27 +800,38 @@ def delete_service(
     service.is_active = False
 
     db.commit()
-    db.refresh(service)
+    db.refresh(
+        service
+    )
 
     return {
-        "message": "Service assignment removed",
+        "message": (
+            "Service assignment removed"
+        ),
     }
 
 
-@router.patch("/services/{service_id}")
+@router.patch(
+    "/services/{service_id}"
+)
 def update_service(
     service_id: str,
     payload: ServiceUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(
+        get_current_user
+    ),
 ):
-    shop_slug = require_owner(current_user)
+    shop_slug = require_owner(
+        current_user
+    )
 
     service = (
         db.query(Service)
         .filter(
             Service.id == service_id,
-            Service.shop_slug == shop_slug,
+            Service.shop_slug
+            == shop_slug,
             Service.is_active.is_(True),
         )
         .first()
@@ -601,19 +848,28 @@ def update_service(
     )
 
     requested_shop_slug = str(
-        updates.get("shop_slug") or ""
+        updates.get(
+            "shop_slug"
+        )
+        or ""
     ).strip().lower()
 
     if (
         requested_shop_slug
-        and requested_shop_slug != shop_slug
+        and requested_shop_slug
+        != shop_slug
     ):
         raise HTTPException(
             status_code=403,
-            detail="You may only manage services for your own shop.",
+            detail=(
+                "You may only manage "
+                "services for your own shop."
+            ),
         )
 
-    updates["shop_slug"] = shop_slug
+    updates[
+        "shop_slug"
+    ] = shop_slug
 
     if (
         "barber_id" in updates
@@ -622,8 +878,12 @@ def update_service(
         barber = (
             db.query(Barber)
             .filter(
-                Barber.id == updates["barber_id"],
-                Barber.shop_slug == shop_slug,
+                Barber.id
+                == updates[
+                    "barber_id"
+                ],
+                Barber.shop_slug
+                == shop_slug,
             )
             .first()
         )
@@ -631,7 +891,9 @@ def update_service(
         if not barber:
             raise HTTPException(
                 status_code=404,
-                detail="Staff member not found",
+                detail=(
+                    "Staff member not found"
+                ),
             )
 
     if "name" in updates:
@@ -642,27 +904,42 @@ def update_service(
         if not new_name:
             raise HTTPException(
                 status_code=400,
-                detail="Service name is required",
+                detail=(
+                    "Service name "
+                    "is required"
+                ),
             )
 
-        catalog_item = find_catalog_item_by_name(
-            db=db,
-            shop_slug=shop_slug,
-            name=new_name,
+        catalog_item = (
+            find_catalog_item_by_name(
+                db=db,
+                shop_slug=shop_slug,
+                name=new_name,
+            )
         )
 
         if not catalog_item:
             raise HTTPException(
                 status_code=400,
                 detail=(
-                    "This service is not in the shop service list."
+                    "This service is not "
+                    "in the shop service "
+                    "list."
                 ),
             )
 
-        new_name = catalog_item.name
-        updates["name"] = new_name
+        new_name = (
+            catalog_item.name
+        )
 
-    for key, value in updates.items():
+        updates[
+            "name"
+        ] = new_name
+
+    for (
+        key,
+        value,
+    ) in updates.items():
         setattr(
             service,
             key,
@@ -670,6 +947,8 @@ def update_service(
         )
 
     db.commit()
-    db.refresh(service)
+    db.refresh(
+        service
+    )
 
     return service
