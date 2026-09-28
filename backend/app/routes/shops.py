@@ -18,41 +18,79 @@ router = APIRouter()
 
 
 def normalize_slug(value: str) -> str:
-    slug = value.strip().lower()
-    slug = re.sub(r"[^a-z0-9]+", "-", slug)
+    slug = str(value or "").strip().lower()
+    slug = re.sub(
+        r"[^a-z0-9]+",
+        "-",
+        slug,
+    )
     slug = slug.strip("-")
 
     return slug
+
+
+def require_public_shop_slug(
+    value: str,
+) -> str:
+    clean_slug = normalize_slug(
+        value
+    )
+
+    if not clean_slug:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Business is required.",
+        )
+
+    return clean_slug
 
 
 def require_shop_access(
     shop_slug: str,
     current_user: User,
 ) -> str:
-    clean_slug = normalize_slug(shop_slug)
+    clean_slug = normalize_slug(
+        shop_slug
+    )
 
     current_user_shop_slug = normalize_slug(
-        str(current_user.shop_slug or "")
+        str(
+            current_user.shop_slug or ""
+        )
     )
 
     if not current_user_shop_slug:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Your account is not assigned to a business.",
+            detail=(
+                "Your account is not assigned "
+                "to a business."
+            ),
         )
 
     if current_user_shop_slug != clean_slug:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="You do not have access to this business.",
+            detail=(
+                "You do not have access "
+                "to this business."
+            ),
         )
 
-    role = str(current_user.role or "").strip().lower()
+    role = str(
+        current_user.role or ""
+    ).strip().lower()
 
-    if role not in {"owner", "staff"}:
+    if role not in {
+        "owner",
+        "staff",
+    }:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="You do not have access to this business.",
+            detail=(
+                "You do not have access "
+                "to this business."
+            ),
         )
 
     return clean_slug
@@ -67,7 +105,9 @@ def require_owner_for_shop(
         current_user,
     )
 
-    role = str(current_user.role or "").strip().lower()
+    role = str(
+        current_user.role or ""
+    ).strip().lower()
 
     if role != "owner":
         raise HTTPException(
@@ -78,12 +118,38 @@ def require_owner_for_shop(
     return clean_slug
 
 
+def public_shop_response(
+    shop: Shop,
+) -> dict:
+    """
+    Return only information that is safe and
+    necessary for the public booking experience.
+
+    Internal billing, Stripe, HighLevel,
+    subscription, AI receptionist, and other
+    administrative configuration must not be
+    exposed through the public shop endpoint.
+    """
+
+    return {
+        "id": str(shop.id),
+        "slug": shop.slug,
+        "name": shop.name,
+        "business_type": shop.business_type,
+        "phone": shop.phone,
+        "timezone": shop.timezone,
+        "payment_policy": shop.payment_policy,
+    }
+
+
 @router.post("/shops")
 def create_shop(
     payload: ShopCreate,
     db: Session = Depends(get_db),
 ):
-    clean_name = payload.name.strip()
+    clean_name = str(
+        payload.name or ""
+    ).strip()
 
     if not clean_name:
         raise HTTPException(
@@ -91,30 +157,48 @@ def create_shop(
             detail="Business name is required.",
         )
 
-    requested_slug = payload.slug or clean_name
-    clean_slug = normalize_slug(requested_slug)
+    requested_slug = (
+        payload.slug
+        or clean_name
+    )
+
+    clean_slug = normalize_slug(
+        requested_slug
+    )
 
     if not clean_slug:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="A valid business slug is required.",
+            detail=(
+                "A valid business slug "
+                "is required."
+            ),
         )
 
-    clean_business_type = payload.business_type.strip().lower()
+    clean_business_type = str(
+        payload.business_type or ""
+    ).strip().lower()
 
     if not clean_business_type:
-        clean_business_type = "service_business"
+        clean_business_type = (
+            "service_business"
+        )
 
     existing_shop = (
         db.query(Shop)
-        .filter(Shop.slug == clean_slug)
+        .filter(
+            Shop.slug == clean_slug
+        )
         .first()
     )
 
     if existing_shop:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="That business URL is already in use.",
+            detail=(
+                "That business URL is "
+                "already in use."
+            ),
         )
 
     shop = Shop(
@@ -137,8 +221,9 @@ def create_shop(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
-                "The business could not be created because "
-                "one of its values is already in use."
+                "The business could not be "
+                "created because one of its "
+                "values is already in use."
             ),
         )
 
@@ -146,8 +231,13 @@ def create_shop(
         db.rollback()
 
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="The business could not be created.",
+            status_code=(
+                status.HTTP_500_INTERNAL_SERVER_ERROR
+            ),
+            detail=(
+                "The business could not "
+                "be created."
+            ),
         )
 
     return shop
@@ -155,32 +245,72 @@ def create_shop(
 
 @router.get("/shops")
 def list_shops(
-    shop_slug: str | None = None,
+    shop_slug: str,
     db: Session = Depends(get_db),
 ):
-    query = db.query(Shop)
+    """
+    Public booking lookup for one specific
+    business.
 
-    if shop_slug:
-        clean_slug = normalize_slug(shop_slug)
+    shop_slug is required so an unscoped
+    request can never return every ChairTime
+    business.
 
-        query = query.filter(
+    Only fields needed by the public booking
+    experience are returned.
+    """
+
+    clean_slug = require_public_shop_slug(
+        shop_slug
+    )
+
+    shop = (
+        db.query(Shop)
+        .filter(
             Shop.slug == clean_slug
         )
+        .first()
+    )
 
-    return query.order_by(Shop.name.asc()).all()
+    if not shop:
+        return []
+
+    return [
+        public_shop_response(
+            shop
+        )
+    ]
 
 
-@router.patch("/shops/{shop_slug}/payment-policy")
+@router.patch(
+    "/shops/{shop_slug}/payment-policy"
+)
 def update_shop_payment_policy(
     shop_slug: str,
     payload: ShopPaymentPolicyUpdate,
     db: Session = Depends(get_db),
+    current_user: User = Depends(
+        get_current_user
+    ),
 ):
-    clean_slug = normalize_slug(shop_slug)
+    """
+    Change the business's reservation payment
+    policy.
+
+    Only the authenticated owner of this
+    business may change this setting.
+    """
+
+    clean_slug = require_owner_for_shop(
+        shop_slug,
+        current_user,
+    )
 
     shop = (
         db.query(Shop)
-        .filter(Shop.slug == clean_slug)
+        .filter(
+            Shop.slug == clean_slug
+        )
         .first()
     )
 
@@ -190,7 +320,9 @@ def update_shop_payment_policy(
             detail="Business not found.",
         )
 
-    shop.payment_policy = payload.payment_policy
+    shop.payment_policy = (
+        payload.payment_policy
+    )
 
     try:
         db.commit()
@@ -200,11 +332,21 @@ def update_shop_payment_policy(
         db.rollback()
 
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="The payment preference could not be saved.",
+            status_code=(
+                status.HTTP_500_INTERNAL_SERVER_ERROR
+            ),
+            detail=(
+                "The payment preference "
+                "could not be saved."
+            ),
         )
 
-    return shop
+    return {
+        "slug": shop.slug,
+        "payment_policy": (
+            shop.payment_policy
+        ),
+    }
 
 
 @router.get(
@@ -213,7 +355,9 @@ def update_shop_payment_policy(
 def get_staff_appointment_permission(
     shop_slug: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(
+        get_current_user
+    ),
 ):
     clean_slug = require_shop_access(
         shop_slug,
@@ -222,7 +366,9 @@ def get_staff_appointment_permission(
 
     shop = (
         db.query(Shop)
-        .filter(Shop.slug == clean_slug)
+        .filter(
+            Shop.slug == clean_slug
+        )
         .first()
     )
 
@@ -246,7 +392,9 @@ def update_staff_appointment_permission(
     shop_slug: str,
     payload: ShopStaffAppointmentPermissionUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(
+        get_current_user
+    ),
 ):
     clean_slug = require_owner_for_shop(
         shop_slug,
@@ -255,7 +403,9 @@ def update_staff_appointment_permission(
 
     shop = (
         db.query(Shop)
-        .filter(Shop.slug == clean_slug)
+        .filter(
+            Shop.slug == clean_slug
+        )
         .first()
     )
 
@@ -277,7 +427,9 @@ def update_staff_appointment_permission(
         db.rollback()
 
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=(
+                status.HTTP_500_INTERNAL_SERVER_ERROR
+            ),
             detail=(
                 "The staff appointment permission "
                 "could not be saved."
