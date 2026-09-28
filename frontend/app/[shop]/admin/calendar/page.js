@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useParams, useRouter } from "next/navigation";
@@ -748,6 +749,7 @@ export default function CalendarPage() {
     }
   }, [loadData, shopSlug]);
 
+
   function sameDay(
     value,
     date
@@ -1478,6 +1480,7 @@ export default function CalendarPage() {
     }
   }
 
+  
   /*
    * BLOCKED TIME
    */
@@ -2212,6 +2215,7 @@ export default function CalendarPage() {
     );
   }
 
+  
   /*
    * APPOINTMENT CARD
    */
@@ -3045,7 +3049,7 @@ export default function CalendarPage() {
           </section>
         ) : null}
 
-                  {showBlockForm &&
+        {showBlockForm &&
         canManageSelectedBarberBlockedTime ? (
           <section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-emerald-200">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -3548,8 +3552,27 @@ export default function CalendarPage() {
                       hourText
                     );
 
+                  /*
+                   * Canceled appointments remain in
+                   * history, but they no longer make
+                   * the hour unavailable.
+                   */
+                  const activeAppointmentItems =
+                    appointmentItems.filter(
+                      (appointment) =>
+                        appointment.status !==
+                        "canceled"
+                    );
+
+                  const canceledAppointmentItems =
+                    appointmentItems.filter(
+                      (appointment) =>
+                        appointment.status ===
+                        "canceled"
+                    );
+
                   const isOpen =
-                    appointmentItems.length ===
+                    activeAppointmentItems.length ===
                       0 &&
                     blockedItems.length ===
                       0;
@@ -3576,7 +3599,7 @@ export default function CalendarPage() {
                       </div>
 
                       <div className="space-y-3">
-                        {appointmentItems.map(
+                        {activeAppointmentItems.map(
                           (
                             appointment
                           ) =>
@@ -3613,6 +3636,29 @@ export default function CalendarPage() {
                           <div className="rounded-2xl border border-gray-200 bg-gray-50 px-4 py-4 text-gray-500">
                             Open
                           </div>
+                        ) : null}
+
+                        {canceledAppointmentItems.length >
+                        0 ? (
+                          <details className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
+                            <summary className="cursor-pointer text-sm font-semibold text-gray-600">
+                              {canceledAppointmentItems.length ===
+                              1
+                                ? "1 canceled appointment · View history"
+                                : `${canceledAppointmentItems.length} canceled appointments · View history`}
+                            </summary>
+
+                            <div className="mt-3 space-y-3">
+                              {canceledAppointmentItems.map(
+                                (
+                                  appointment
+                                ) =>
+                                  appointmentCard(
+                                    appointment
+                                  )
+                              )}
+                            </div>
+                          </details>
                         ) : null}
                       </div>
                     </div>
@@ -3707,23 +3753,6 @@ export default function CalendarPage() {
                           )}
                         </p>
                       </button>
-
-                      <div className="p-3 space-y-2">
-                        {items.length ===
-                        0 ? (
-                          <p className="text-sm text-gray-500">
-                            Open
-                          </p>
-                        ) : null}
-
-                        {items.map(
-                          (item) => {
-                            if (
-                              item.type ===
-                              "appointment"
-                            ) {
-                              const appointment =
-                                item.data;
 
                               const statusStyle =
                                 STATUS_STYLES[
@@ -3878,5 +3907,5 @@ export default function CalendarPage() {
         ) : null}
       </div>
     </main>
-  );
+  );                      
 }
