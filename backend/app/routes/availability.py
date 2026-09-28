@@ -4,16 +4,24 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import AvailabilityRule, Barber, User
+from app.models import (
+    AvailabilityRule,
+    Barber,
+    Service,
+    User,
+)
 from app.routes.auth import get_current_user
 from app.schemas import AvailabilityCreate
 from app.scheduling import generate_available_slots
+
 
 router = APIRouter()
 
 
 def clean_shop_slug(value: str) -> str:
-    shop_slug = str(value or "").strip().lower()
+    shop_slug = str(
+        value or ""
+    ).strip().lower()
 
     if not shop_slug:
         raise HTTPException(
@@ -34,7 +42,10 @@ def require_owner_shop_slug(
     if not shop_slug:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Your account is not assigned to a business.",
+            detail=(
+                "Your account is not assigned "
+                "to a business."
+            ),
         )
 
     role = str(
@@ -44,16 +55,114 @@ def require_owner_shop_slug(
     if role != "owner":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only the business owner can manage staff availability.",
+            detail=(
+                "Only the business owner can "
+                "manage staff availability."
+            ),
         )
 
     return shop_slug
 
 
+def find_shop_barber(
+    db: Session,
+    shop_slug: str,
+    barber_id: str,
+) -> Barber:
+    """
+    Return the requested provider only when that
+    provider belongs to the requested business.
+
+    This prevents a caller from combining one
+    business's shop slug with another business's
+    provider ID.
+    """
+
+    clean_barber_id = str(
+        barber_id or ""
+    ).strip()
+
+    if not clean_barber_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Staff member is required.",
+        )
+
+    barber = (
+        db.query(Barber)
+        .filter(
+            Barber.id == clean_barber_id,
+            Barber.shop_slug == shop_slug,
+        )
+        .first()
+    )
+
+    if not barber:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Staff member not found.",
+        )
+
+    return barber
+
+
+def find_service_for_barber(
+    db: Session,
+    shop_slug: str,
+    barber_id: str,
+    service_id: str,
+) -> Service:
+    """
+    Return the requested service only when it:
+
+    1. belongs to the requested business,
+    2. is assigned to the requested provider, and
+    3. is currently active.
+
+    The public availability endpoint must never
+    trust IDs supplied by the browser without
+    validating their tenant/provider relationship.
+    """
+
+    clean_service_id = str(
+        service_id or ""
+    ).strip()
+
+    if not clean_service_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Service is required.",
+        )
+
+    service = (
+        db.query(Service)
+        .filter(
+            Service.id == clean_service_id,
+            Service.shop_slug == shop_slug,
+            Service.barber_id == barber_id,
+            Service.is_active.is_(True),
+        )
+        .first()
+    )
+
+    if not service:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=(
+                "Service is not available for "
+                "this staff member."
+            ),
+        )
+
+    return service
+
+
 @router.post("/availability-rules")
 def create_availability_rule(
     payload: AvailabilityCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(
+        get_current_user
+    ),
     db: Session = Depends(get_db),
 ):
     owner_shop_slug = require_owner_shop_slug(
@@ -67,34 +176,32 @@ def create_availability_rule(
     if requested_shop_slug != owner_shop_slug:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="You cannot manage another business's staff availability.",
+            detail=(
+                "You cannot manage another "
+                "business's staff availability."
+            ),
         )
 
-    barber = (
-        db.query(Barber)
-        .filter(
-            Barber.id == payload.barber_id,
-            Barber.shop_slug == owner_shop_slug,
-        )
-        .first()
+    barber = find_shop_barber(
+        db=db,
+        shop_slug=owner_shop_slug,
+        barber_id=payload.barber_id,
     )
-
-    if not barber:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Staff member not found.",
-        )
 
     if payload.weekday < 0 or payload.weekday > 6:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Weekday must be between 0 and 6.",
+            detail=(
+                "Weekday must be between 0 and 6."
+            ),
         )
 
     if payload.end_time <= payload.start_time:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="End time must be after start time.",
+            detail=(
+                "End time must be after start time."
+            ),
         )
 
     existing_rule = (
@@ -103,7 +210,7 @@ def create_availability_rule(
             AvailabilityRule.shop_slug
             == owner_shop_slug,
             AvailabilityRule.barber_id
-            == payload.barber_id,
+            == barber.id,
             AvailabilityRule.weekday
             == payload.weekday,
             AvailabilityRule.start_time
@@ -119,7 +226,7 @@ def create_availability_rule(
 
     rule = AvailabilityRule(
         shop_slug=owner_shop_slug,
-        barber_id=payload.barber_id,
+        barber_id=barber.id,
         weekday=payload.weekday,
         start_time=payload.start_time,
         end_time=payload.end_time,
@@ -135,8 +242,13 @@ def create_availability_rule(
         db.rollback()
 
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Staff availability could not be saved.",
+            status_code=(
+                status.HTTP_500_INTERNAL_SERVER_ERROR
+            ),
+            detail=(
+                "Staff availability could "
+                "not be saved."
+            ),
         )
 
     return rule
@@ -144,19 +256,32 @@ def create_availability_rule(
 
 @router.get("/availability-rules")
 def list_availability_rules(
-    shop_slug: str | None = None,
+    shop_slug: str,
     db: Session = Depends(get_db),
 ):
-    query = db.query(AvailabilityRule)
+    """
+    Public availability-rule listing.
 
-    if shop_slug:
-        query = query.filter(
-            AvailabilityRule.shop_slug
-            == clean_shop_slug(shop_slug)
-        )
+    A shop slug is required so this endpoint can
+    never return availability rules belonging to
+    every ChairTime business in one request.
+
+    These records contain scheduling information,
+    not authenticated administrative data, because
+    public booking needs access to availability.
+    """
+
+    requested_shop_slug = clean_shop_slug(
+        shop_slug
+    )
 
     return (
-        query.order_by(
+        db.query(AvailabilityRule)
+        .filter(
+            AvailabilityRule.shop_slug
+            == requested_shop_slug
+        )
+        .order_by(
             AvailabilityRule.barber_id,
             AvailabilityRule.weekday,
             AvailabilityRule.start_time,
@@ -165,9 +290,13 @@ def list_availability_rules(
     )
 
 
-@router.post("/availability-rules/remove-duplicates")
+@router.post(
+    "/availability-rules/remove-duplicates"
+)
 def remove_duplicate_availability_rules(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(
+        get_current_user
+    ),
     db: Session = Depends(get_db),
 ):
     owner_shop_slug = require_owner_shop_slug(
@@ -201,7 +330,9 @@ def remove_duplicate_availability_rules(
         )
 
         if key in seen:
-            duplicate_ids.append(rule.id)
+            duplicate_ids.append(
+                rule.id
+            )
         else:
             seen.add(key)
 
@@ -227,8 +358,13 @@ def remove_duplicate_availability_rules(
             db.rollback()
 
             raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Duplicate availability rules could not be removed.",
+                status_code=(
+                    status.HTTP_500_INTERNAL_SERVER_ERROR
+                ),
+                detail=(
+                    "Duplicate availability rules "
+                    "could not be removed."
+                ),
             )
 
     return {
@@ -240,10 +376,14 @@ def remove_duplicate_availability_rules(
     }
 
 
-@router.delete("/availability-rules/{rule_id}")
+@router.delete(
+    "/availability-rules/{rule_id}"
+)
 def delete_availability_rule(
     rule_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(
+        get_current_user
+    ),
     db: Session = Depends(get_db),
 ):
     owner_shop_slug = require_owner_shop_slug(
@@ -263,7 +403,9 @@ def delete_availability_rule(
     if not rule:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Availability rule not found.",
+            detail=(
+                "Availability rule not found."
+            ),
         )
 
     db.delete(rule)
@@ -275,34 +417,86 @@ def delete_availability_rule(
         db.rollback()
 
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Staff availability could not be deleted.",
+            status_code=(
+                status.HTTP_500_INTERNAL_SERVER_ERROR
+            ),
+            detail=(
+                "Staff availability could "
+                "not be deleted."
+            ),
         )
 
     return {
-        "message": "Availability rule deleted.",
+        "message": (
+            "Availability rule deleted."
+        ),
     }
 
 
 @router.get("/availability")
 def get_availability(
+    shop_slug: str,
     barber_id: str,
     service_id: str,
     target_date: date,
     db: Session = Depends(get_db),
 ):
+    """
+    Return public booking availability for one
+    business/provider/service/date combination.
+
+    The browser supplies IDs, so all relationships
+    are validated on the server before the
+    scheduling engine is called.
+    """
+
+    requested_shop_slug = clean_shop_slug(
+        shop_slug
+    )
+
+    barber = find_shop_barber(
+        db=db,
+        shop_slug=requested_shop_slug,
+        barber_id=barber_id,
+    )
+
+    service = find_service_for_barber(
+        db=db,
+        shop_slug=requested_shop_slug,
+        barber_id=str(barber.id),
+        service_id=service_id,
+    )
+
     try:
         slots = generate_available_slots(
             db,
-            barber_id,
-            service_id,
+            str(barber.id),
+            str(service.id),
             target_date,
         )
 
-        return {"slots": slots}
+    except HTTPException:
+        raise
 
     except Exception as error:
-        raise HTTPException(
-            status_code=400,
-            detail=str(error),
+        print(
+            "Availability generation failed:",
+            error,
         )
+
+        raise HTTPException(
+            status_code=(
+                status.HTTP_500_INTERNAL_SERVER_ERROR
+            ),
+            detail=(
+                "Availability could not "
+                "be loaded."
+            ),
+        )
+
+    return {
+        "shop_slug": requested_shop_slug,
+        "barber_id": barber.id,
+        "service_id": service.id,
+        "slots": slots,
+    }
