@@ -522,7 +522,9 @@ def build_customer_profile(
             db.query(Barber)
             .filter(
                 Barber.id
-                == latest.barber_id
+                == latest.barber_id,
+                Barber.shop_slug
+                == shop.slug,
             )
             .first()
         )
@@ -532,7 +534,9 @@ def build_customer_profile(
             db.query(Service)
             .filter(
                 Service.id
-                == latest.service_id
+                == latest.service_id,
+                Service.shop_slug
+                == shop.slug,
             )
             .first()
         )
@@ -602,27 +606,13 @@ def request_verification_code(
         shop_slug=shop_slug,
     )
 
-    appointments = (
-        find_returning_appointments(
-            db=db,
-            shop_slug=shop.slug,
-            normalized_phone=(
-                normalized_phone
-            ),
-        )
-    )
-
     #
-    # Do not reveal whether a phone number
-    # belongs to an existing customer.
+    # Always use the same verification flow for
+    # every valid phone number. Do not reveal
+    # whether this phone belongs to an existing
+    # customer until possession of the phone has
+    # been verified successfully.
     #
-    if not appointments:
-        return {
-            "success": True,
-            "verification_required": False,
-            "returning_customer": False,
-        }
-
     client = get_redis_client()
 
     cooldown = cooldown_key(
@@ -761,7 +751,6 @@ def request_verification_code(
     return {
         "success": True,
         "verification_required": True,
-        "returning_customer": True,
         "expires_in_seconds": (
             CODE_LIFETIME_SECONDS
         ),
