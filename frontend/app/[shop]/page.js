@@ -697,7 +697,6 @@ export default function ShopBookingPage() {
     setCardError("");
   }
 
-
   function clearStoredVerification() {
     if (
       !SHOP_SLUG ||
@@ -734,9 +733,18 @@ export default function ShopBookingPage() {
   }
 
 
+  function clearBookingSelections() {
+    setSelectedBarberId("");
+    setSelectedServiceId("");
+    setSelectedSlot("");
+    setAvailableSlots([]);
+  }
+
+
   function resetVerification({
     clearCustomer = false,
     clearStored = true,
+    clearSelections = false,
   } = {}) {
     if (clearStored) {
       clearStoredVerification();
@@ -752,6 +760,10 @@ export default function ShopBookingPage() {
 
     if (clearCustomer) {
       setCustomerName("");
+    }
+
+    if (clearSelections) {
+      clearBookingSelections();
     }
 
     resetCardForm();
@@ -772,8 +784,9 @@ export default function ShopBookingPage() {
 
     if (
       oldCleanPhone !==
-        newCleanPhone &&
-      (
+      newCleanPhone
+    ) {
+      const hadCustomerVerification =
         verificationStatus ===
           "verified" ||
         verificationStatus ===
@@ -781,14 +794,19 @@ export default function ShopBookingPage() {
         verificationStatus ===
           "verifying" ||
         verificationStatus ===
-          "restoring"
-      )
-    ) {
-      resetVerification({
-        clearCustomer:
-          Boolean(verifiedCustomer),
-        clearStored: true,
-      });
+          "restoring" ||
+        verificationStatus ===
+          "requesting";
+
+      if (hadCustomerVerification) {
+        resetVerification({
+          clearCustomer:
+            Boolean(verifiedCustomer),
+          clearStored: true,
+          clearSelections:
+            Boolean(verifiedCustomer),
+        });
+      }
     }
   }
 
@@ -1385,6 +1403,7 @@ export default function ShopBookingPage() {
         if (response.status === 401) {
           resetVerification({
             clearStored: true,
+            clearSelections: false,
           });
 
           throw new Error(
@@ -1548,6 +1567,23 @@ export default function ShopBookingPage() {
 
 
   async function createAppointment() {
+    if (
+      verificationStatus ===
+        "requesting" ||
+      verificationStatus ===
+        "code_sent" ||
+      verificationStatus ===
+        "verifying" ||
+      verificationStatus ===
+        "restoring"
+    ) {
+      setMessage(
+        "Please complete phone verification before continuing."
+      );
+
+      return;
+    }
+
     if (!validateBookingFields()) {
       return;
     }
@@ -1637,6 +1673,16 @@ export default function ShopBookingPage() {
   const phoneReady =
     cleanPhone(customerPhone)
       .length === 10;
+
+  const verificationPending =
+    verificationStatus ===
+      "requesting" ||
+    verificationStatus ===
+      "code_sent" ||
+    verificationStatus ===
+      "verifying" ||
+    verificationStatus ===
+      "restoring";
 
   const savedCardLabel =
     savedCard
@@ -1728,7 +1774,8 @@ export default function ShopBookingPage() {
             {verificationStatus ===
               "requesting" && (
                 <p className="mt-3 text-sm font-bold text-gray-600">
-                  Checking your number...
+                  Sending verification
+                  code...
                 </p>
               )}
 
@@ -1805,7 +1852,7 @@ export default function ShopBookingPage() {
                     }
                     disabled={
                       verificationStatus ===
-                      "verifying"
+                        "verifying"
                     }
                     className="mt-3 text-sm font-bold text-indigo-700"
                   >
@@ -1816,36 +1863,45 @@ export default function ShopBookingPage() {
 
 
             {verificationStatus ===
-              "verified" &&
-              verifiedCustomer && (
+              "verified" && (
                 <div className="mt-4 rounded-2xl border border-green-200 bg-green-50 p-4">
                   <p className="font-extrabold text-green-800">
                     ✓ Verified
                   </p>
 
-                  <p className="mt-1 text-green-800">
-                    Welcome back
-                    {verifiedCustomer.name
-                      ? `, ${verifiedCustomer.name}`
-                      : ""}
-                    .
-                  </p>
-
-                  {verifiedCustomer.last_barber_name &&
-                    verifiedCustomer.last_service_name && (
-                      <p className="mt-1 text-sm text-green-800">
-                        We selected{" "}
-                        {
-                          verifiedCustomer.last_barber_name
-                        }{" "}
-                        and{" "}
-                        {
-                          verifiedCustomer.last_service_name
-                        }{" "}
-                        from your last
-                        visit.
+                  {verifiedCustomer ? (
+                    <>
+                      <p className="mt-1 text-green-800">
+                        Welcome back
+                        {verifiedCustomer.name
+                          ? `, ${verifiedCustomer.name}`
+                          : ""}
+                        .
                       </p>
-                    )}
+
+                      {verifiedCustomer.last_barber_name &&
+                        verifiedCustomer.last_service_name && (
+                          <p className="mt-1 text-sm text-green-800">
+                            We selected{" "}
+                            {
+                              verifiedCustomer.last_barber_name
+                            }{" "}
+                            and{" "}
+                            {
+                              verifiedCustomer.last_service_name
+                            }{" "}
+                            from your last
+                            visit.
+                          </p>
+                        )}
+                    </>
+                  ) : (
+                    <p className="mt-1 text-green-800">
+                      Phone verified. Continue
+                      below to book your
+                      appointment.
+                    </p>
+                  )}
                 </div>
               )}
 
@@ -1858,380 +1914,397 @@ export default function ShopBookingPage() {
           </div>
 
 
-          <div>
-            <label className="block font-bold mb-2">
-              Name
-            </label>
-
-            <input
-              className="w-full border rounded-2xl p-5 text-xl"
-              value={customerName}
-              onChange={(event) =>
-                setCustomerName(
-                  event.target.value
-                )
-              }
-              placeholder="Your name"
-              autoComplete="name"
-            />
-          </div>
-
-
-          <div>
-            <label className="block font-bold mb-2">
-              Staff Member
-            </label>
-
-            <select
-              className="w-full border rounded-2xl p-5 text-xl"
-              value={
-                selectedBarberId
-              }
-              onChange={(event) => {
-                setSelectedBarberId(
-                  event.target.value
-                );
-
-                setSelectedServiceId(
-                  ""
-                );
-
-                setSelectedSlot("");
-
-                setAvailableSlots(
-                  []
-                );
-              }}
-            >
-              <option value="">
-                Select staff member
-              </option>
-
-              {barbers.map(
-                (barber) => (
-                  <option
-                    key={barber.id}
-                    value={barber.id}
-                  >
-                    {barber.name}
-                  </option>
-                )
-              )}
-            </select>
-          </div>
-
-
-          <div>
-            <label className="block font-bold mb-2">
-              Service
-            </label>
-
-            <select
-              className="w-full border rounded-2xl p-5 text-xl"
-              value={
-                selectedServiceId
-              }
-              disabled={
-                !selectedBarberId
-              }
-              onChange={(event) => {
-                setSelectedServiceId(
-                  event.target.value
-                );
-
-                setSelectedSlot("");
-              }}
-            >
-              <option value="">
-                {selectedBarberId
-                  ? "Select service"
-                  : "Select staff member first"}
-              </option>
-
-              {availableServices.map(
-                (service) => (
-                  <option
-                    key={service.id}
-                    value={service.id}
-                  >
-                    {service.name}
-
-                    {service.price !==
-                      undefined &&
-                    service.price !==
-                      null
-                      ? ` — $${Number(
-                          service.price
-                        ).toFixed(2)}`
-                      : ""}
-                  </option>
-                )
-              )}
-            </select>
-
-            {selectedService && (
-              <p className="mt-2 text-sm text-gray-600">
-                {selectedService.duration_minutes
-                  ? `${selectedService.duration_minutes} minutes`
-                  : ""}
-
-                {selectedService.duration_minutes &&
-                selectedService.price !==
-                  undefined &&
-                selectedService.price !==
-                  null
-                  ? " • "
-                  : ""}
-
-                {selectedService.price !==
-                  undefined &&
-                selectedService.price !==
-                  null
-                  ? `$${Number(
-                      selectedService.price
-                    ).toFixed(2)}`
-                  : ""}
+          {verificationPending && (
+            <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-4">
+              <p className="font-bold text-slate-800">
+                Complete phone verification
+                to continue.
               </p>
-            )}
-          </div>
 
-
-          <div>
-            <label className="block font-bold mb-2">
-              Date
-            </label>
-
-            <input
-              type="date"
-              min={today}
-              className="w-full border rounded-2xl p-5 text-xl"
-              value={selectedDate}
-              onChange={(event) => {
-                setSelectedDate(
-                  event.target.value
-                );
-
-                setSelectedSlot("");
-              }}
-            />
-          </div>
-
-
-          <div>
-            <label className="block font-bold mb-2">
-              Available Times
-            </label>
-
-            <div className="grid grid-cols-2 gap-3">
-              {availableSlots.map(
-                (slot) => (
-                  <button
-                    key={slot}
-                    type="button"
-                    onClick={() =>
-                      setSelectedSlot(
-                        slot
-                      )
-                    }
-                    className={`rounded-2xl p-4 font-bold border ${
-                      selectedSlot ===
-                      slot
-                        ? "bg-black text-white"
-                        : "bg-white"
-                    }`}
-                  >
-                    {formatTime(slot)}
-                  </button>
-                )
-              )}
-            </div>
-
-            {availableSlots.length ===
-              0 && (
-                <p className="mt-3 text-gray-900">
-                  Choose a staff member,
-                  service, and date to see
-                  times.
-                </p>
-              )}
-          </div>
-
-
-          <div>
-            <label className="block font-bold mb-2">
-              Notes
-            </label>
-
-            <textarea
-              className="w-full border rounded-2xl p-5 min-h-28"
-              value={notes}
-              onChange={(event) =>
-                setNotes(
-                  event.target.value
-                )
-              }
-              placeholder="Optional notes"
-            />
-          </div>
-
-
-          {cardRequired && (
-            <div className="rounded-2xl border border-violet-200 bg-violet-50 p-5">
-              <div className="flex gap-3">
-                <div className="text-2xl">
-                  🛡️
-                </div>
-
-                <div>
-                  <p className="font-extrabold text-slate-900">
-                    Card required to
-                    reserve
-                  </p>
-
-                  <p className="mt-1 text-sm text-slate-700">
-                    This business asks
-                    for a card to help
-                    protect against
-                    no-shows. Your card
-                    is not charged just
-                    for making this
-                    reservation.
-                  </p>
-                </div>
-              </div>
-
-
-              {savedCard &&
-                verificationStatus ===
-                  "verified" &&
-                useSavedCard && (
-                  <div className="mt-5 rounded-2xl border border-green-200 bg-white p-4">
-                    <p className="text-sm font-bold text-gray-600">
-                      Card on file
-                    </p>
-
-                    <p className="mt-1 text-xl font-extrabold text-slate-900">
-                      {savedCardLabel}
-                    </p>
-
-                    <p className="mt-1 text-sm text-gray-600">
-                      Your saved card will
-                      be used to secure
-                      this reservation.
-                    </p>
-
-                    <button
-                      type="button"
-                      onClick={
-                        useDifferentCard
-                      }
-                      disabled={
-                        booking ||
-                        preparingCard
-                      }
-                      className="mt-3 text-sm font-bold text-indigo-700"
-                    >
-                      Use a different card
-                    </button>
-                  </div>
-                )}
-
-
-              {savedCard &&
-                verificationStatus ===
-                  "verified" &&
-                !useSavedCard && (
-                  <button
-                    type="button"
-                    onClick={
-                      switchBackToSavedCard
-                    }
-                    disabled={
-                      booking ||
-                      preparingCard
-                    }
-                    className="mt-4 text-sm font-bold text-indigo-700"
-                  >
-                    Use {savedCardLabel}{" "}
-                    instead
-                  </button>
-                )}
-
-
-              {cardFormReady &&
-                (
-                  !savedCard ||
-                  !useSavedCard
-                ) && (
-                  <div className="mt-5 rounded-xl bg-white border border-violet-200 p-4">
-                    <p className="font-bold mb-3 text-slate-900">
-                      Card information
-                    </p>
-
-                    <div
-                      ref={
-                        cardElementContainerRef
-                      }
-                      className="min-h-10 py-2"
-                    />
-
-                    {!cardElementReady && (
-                      <p className="mt-3 text-sm text-gray-500">
-                        Loading secure card
-                        entry...
-                      </p>
-                    )}
-                  </div>
-                )}
-
-
-              {cardError && (
-                <p className="mt-4 font-bold text-red-700">
-                  {cardError}
-                </p>
-              )}
+              <p className="mt-1 text-sm text-slate-600">
+                Your booking options will
+                appear after verification is
+                complete.
+              </p>
             </div>
           )}
 
 
-          <button
-            type="button"
-            onClick={
-              createAppointment
-            }
-            disabled={
-              booking ||
-              preparingCard ||
-              verificationStatus ===
-                "restoring"
-            }
-            className="w-full bg-black text-white rounded-2xl p-5 text-xl font-bold disabled:opacity-50"
-          >
-            {booking
-              ? cardRequired
-                ? "Reserving..."
-                : "Booking..."
-              : preparingCard
-                ? "Opening Secure Card Entry..."
-                : cardRequired &&
-                    savedCard &&
-                    useSavedCard
-                  ? "Reserve Appointment"
-                  : cardRequired &&
-                      !cardFormReady
-                    ? "Continue to Card"
-                    : cardRequired
+          {!verificationPending && (
+            <>
+              <div>
+                <label className="block font-bold mb-2">
+                  Name
+                </label>
+
+                <input
+                  className="w-full border rounded-2xl p-5 text-xl"
+                  value={customerName}
+                  onChange={(event) =>
+                    setCustomerName(
+                      event.target.value
+                    )
+                  }
+                  placeholder="Your name"
+                  autoComplete="name"
+                />
+              </div>
+
+
+              <div>
+                <label className="block font-bold mb-2">
+                  Staff Member
+                </label>
+
+                <select
+                  className="w-full border rounded-2xl p-5 text-xl"
+                  value={
+                    selectedBarberId
+                  }
+                  onChange={(event) => {
+                    setSelectedBarberId(
+                      event.target.value
+                    );
+
+                    setSelectedServiceId(
+                      ""
+                    );
+
+                    setSelectedSlot("");
+
+                    setAvailableSlots(
+                      []
+                    );
+                  }}
+                >
+                  <option value="">
+                    Select staff member
+                  </option>
+
+                  {barbers.map(
+                    (barber) => (
+                      <option
+                        key={barber.id}
+                        value={barber.id}
+                      >
+                        {barber.name}
+                      </option>
+                    )
+                  )}
+                </select>
+              </div>
+
+
+              <div>
+                <label className="block font-bold mb-2">
+                  Service
+                </label>
+
+                <select
+                  className="w-full border rounded-2xl p-5 text-xl"
+                  value={
+                    selectedServiceId
+                  }
+                  disabled={
+                    !selectedBarberId
+                  }
+                  onChange={(event) => {
+                    setSelectedServiceId(
+                      event.target.value
+                    );
+
+                    setSelectedSlot("");
+                  }}
+                >
+                  <option value="">
+                    {selectedBarberId
+                      ? "Select service"
+                      : "Select staff member first"}
+                  </option>
+
+                  {availableServices.map(
+                    (service) => (
+                      <option
+                        key={service.id}
+                        value={service.id}
+                      >
+                        {service.name}
+
+                        {service.price !==
+                          undefined &&
+                        service.price !==
+                          null
+                          ? ` — $${Number(
+                              service.price
+                            ).toFixed(2)}`
+                          : ""}
+                      </option>
+                    )
+                  )}
+                </select>
+
+                {selectedService && (
+                  <p className="mt-2 text-sm text-gray-600">
+                    {selectedService.duration_minutes
+                      ? `${selectedService.duration_minutes} minutes`
+                      : ""}
+
+                    {selectedService.duration_minutes &&
+                    selectedService.price !==
+                      undefined &&
+                    selectedService.price !==
+                      null
+                      ? " • "
+                      : ""}
+
+                    {selectedService.price !==
+                      undefined &&
+                    selectedService.price !==
+                      null
+                      ? `$${Number(
+                          selectedService.price
+                        ).toFixed(2)}`
+                      : ""}
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <label className="block font-bold mb-2">
+                  Date
+                </label>
+
+                <input
+                  type="date"
+                  min={today}
+                  className="w-full border rounded-2xl p-5 text-xl"
+                  value={selectedDate}
+                  onChange={(event) => {
+                    setSelectedDate(
+                      event.target.value
+                    );
+
+                    setSelectedSlot("");
+                  }}
+                />
+              </div>
+
+
+              <div>
+                <label className="block font-bold mb-2">
+                  Available Times
+                </label>
+
+                <div className="grid grid-cols-2 gap-3">
+                  {availableSlots.map(
+                    (slot) => (
+                      <button
+                        key={slot}
+                        type="button"
+                        onClick={() =>
+                          setSelectedSlot(
+                            slot
+                          )
+                        }
+                        className={`rounded-2xl p-4 font-bold border ${
+                          selectedSlot ===
+                          slot
+                            ? "bg-black text-white"
+                            : "bg-white"
+                        }`}
+                      >
+                        {formatTime(slot)}
+                      </button>
+                    )
+                  )}
+                </div>
+
+                {availableSlots.length ===
+                  0 && (
+                    <p className="mt-3 text-gray-900">
+                      Choose a staff member,
+                      service, and date to see
+                      times.
+                    </p>
+                  )}
+              </div>
+
+
+              <div>
+                <label className="block font-bold mb-2">
+                  Notes
+                </label>
+
+                <textarea
+                  className="w-full border rounded-2xl p-5 min-h-28"
+                  value={notes}
+                  onChange={(event) =>
+                    setNotes(
+                      event.target.value
+                    )
+                  }
+                  placeholder="Optional notes"
+                />
+              </div>
+
+
+              {cardRequired && (
+                <div className="rounded-2xl border border-violet-200 bg-violet-50 p-5">
+                  <div className="flex gap-3">
+                    <div className="text-2xl">
+                      🛡️
+                    </div>
+
+                    <div>
+                      <p className="font-extrabold text-slate-900">
+                        Card required to
+                        reserve
+                      </p>
+
+                      <p className="mt-1 text-sm text-slate-700">
+                        This business asks
+                        for a card to help
+                        protect against
+                        no-shows. Your card
+                        is not charged just
+                        for making this
+                        reservation.
+                      </p>
+                    </div>
+                  </div>
+
+
+                  {savedCard &&
+                    verificationStatus ===
+                      "verified" &&
+                    useSavedCard && (
+                      <div className="mt-5 rounded-2xl border border-green-200 bg-white p-4">
+                        <p className="text-sm font-bold text-gray-600">
+                          Card on file
+                        </p>
+
+                        <p className="mt-1 text-xl font-extrabold text-slate-900">
+                          {savedCardLabel}
+                        </p>
+
+                        <p className="mt-1 text-sm text-gray-600">
+                          Your saved card will
+                          be used to secure
+                          this reservation.
+                        </p>
+
+                        <button
+                          type="button"
+                          onClick={
+                            useDifferentCard
+                          }
+                          disabled={
+                            booking ||
+                            preparingCard
+                          }
+                          className="mt-3 text-sm font-bold text-indigo-700"
+                        >
+                          Use a different card
+                        </button>
+                      </div>
+                    )}
+
+
+                  {savedCard &&
+                    verificationStatus ===
+                      "verified" &&
+                    !useSavedCard && (
+                      <button
+                        type="button"
+                        onClick={
+                          switchBackToSavedCard
+                        }
+                        disabled={
+                          booking ||
+                          preparingCard
+                        }
+                        className="mt-4 text-sm font-bold text-indigo-700"
+                      >
+                        Use {savedCardLabel}{" "}
+                        instead
+                      </button>
+                    )}
+
+
+                  {cardFormReady &&
+                    (
+                      !savedCard ||
+                      !useSavedCard
+                    ) && (
+                      <div className="mt-5 rounded-xl bg-white border border-violet-200 p-4">
+                        <p className="font-bold mb-3 text-slate-900">
+                          Card information
+                        </p>
+
+                        <div
+                          ref={
+                            cardElementContainerRef
+                          }
+                          className="min-h-10 py-2"
+                        />
+
+                        {!cardElementReady && (
+                          <p className="mt-3 text-sm text-gray-500">
+                            Loading secure card
+                            entry...
+                          </p>
+                        )}
+                      </div>
+                    )}
+
+
+                  {cardError && (
+                    <p className="mt-4 font-bold text-red-700">
+                      {cardError}
+                    </p>
+                  )}
+                </div>
+              )}
+
+
+              <button
+                type="button"
+                onClick={
+                  createAppointment
+                }
+                disabled={
+                  booking ||
+                  preparingCard
+                }
+                className="w-full bg-black text-white rounded-2xl p-5 text-xl font-bold disabled:opacity-50"
+              >
+                {booking
+                  ? cardRequired
+                    ? "Reserving..."
+                    : "Booking..."
+                  : preparingCard
+                    ? "Opening Secure Card Entry..."
+                    : cardRequired &&
+                        savedCard &&
+                        useSavedCard
                       ? "Reserve Appointment"
-                      : "Book Appointment"}
-          </button>
+                      : cardRequired &&
+                          !cardFormReady
+                        ? "Continue to Card"
+                        : cardRequired
+                          ? "Reserve Appointment"
+                          : "Book Appointment"}
+              </button>
 
 
-          {cardRequired && (
-            <p className="text-center text-xs text-gray-500">
-              Card information is
-              handled securely by
-              Stripe.
-            </p>
+              {cardRequired && (
+                <p className="text-center text-xs text-gray-500">
+                  Card information is
+                  handled securely by
+                  Stripe.
+                </p>
+              )}
+            </>
           )}
         </section>
       </div>
