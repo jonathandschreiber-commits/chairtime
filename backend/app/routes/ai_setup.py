@@ -748,6 +748,7 @@ def verify_production_webhook_secret(
     request: Request,
 ) -> None:
     expected_secret = str(
+
         shop.highlevel_webhook_secret or ""
     ).strip()
 
@@ -1053,6 +1054,7 @@ def tenant_booking_webhook_url(
         f"/api/ai-setup/webhook/"
         f"{shop.slug}/book"
     )
+
 
 def build_availability_action_payload(
     shop: Shop,
@@ -1497,10 +1499,16 @@ async def tenant_voice_availability(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=(
-                "The legacy provisioning-test webhook is "
+
+                            "The legacy provisioning-test webhook is "
                 "disabled for production AI shops."
             ),
         )
+
+    verify_production_webhook_secret(
+        shop=shop,
+        request=request,
+    )
 
     incoming = {}
 
@@ -1542,9 +1550,11 @@ async def tenant_voice_availability(
     service_name = incoming.get(
         "service_name"
     )
+
     target_date = incoming.get(
         "target_date"
     )
+
     barber_name = normalize_barber_name(
         incoming.get("barber_name")
     )
@@ -1648,6 +1658,11 @@ async def tenant_voice_booking(
                 "disabled for production AI shops."
             ),
         )
+
+    verify_production_webhook_secret(
+        shop=shop,
+        request=request,
+    )
 
     incoming = {}
 
@@ -1821,9 +1836,11 @@ async def production_tenant_voice_availability(
     service_name = incoming.get(
         "service_name"
     )
+
     target_date = incoming.get(
         "target_date"
     )
+
     barber_name = normalize_barber_name(
         incoming.get("barber_name")
     )
@@ -2040,6 +2057,7 @@ async def production_tenant_voice_booking(
         payload=request_payload,
     )
 
+
 @router.get("/agents")
 def get_highlevel_voice_agents(
     current_user: User = Depends(get_current_user),
@@ -2069,6 +2087,7 @@ def get_highlevel_voice_agents(
         }
 
     location_id = production_location_id(shop)
+
     agent = get_agent_detail(
         agent_id=agent_id,
         location_id=location_id,
@@ -2082,7 +2101,9 @@ def get_highlevel_voice_agents(
             "name": shop.name,
         },
         "agent_count": 1,
-        "agents": [safe_agent_summary(agent)],
+        "agents": [
+            safe_agent_summary(agent)
+        ],
     }
 
 
@@ -2140,9 +2161,15 @@ def get_highlevel_voice_agent(
             "agent_prompt": data.get(
                 "agentPrompt"
             ),
-            "language": data.get("language"),
-            "voice_id": data.get("voiceId"),
-            "timezone": data.get("timezone"),
+            "language": data.get(
+                "language"
+            ),
+            "voice_id": data.get(
+                "voiceId"
+            ),
+            "timezone": data.get(
+                "timezone"
+            ),
             "patience_level": data.get(
                 "patienceLevel"
             ),
@@ -2268,7 +2295,6 @@ def get_phone_inbound_service(
         return {}
 
     return service
-
 
 def find_phone_numbers_routed_to_agent(
     phone_numbers: list,
@@ -2778,6 +2804,13 @@ def provision_tenant_safe_availability(
             ),
         )
 
+    webhook_secret = (
+        ensure_shop_webhook_secret(
+            shop=shop,
+            db=db,
+        )
+    )
+
     location_id = (
         get_highlevel_location_id()
     )
@@ -2830,6 +2863,8 @@ def provision_tenant_safe_availability(
                     shop=shop,
                     agent_id=agent_id,
                     location_id=location_id,
+                    webhook_url=webhook_url,
+                    webhook_secret=webhook_secret,
                 )
             ),
             expected_url=webhook_url,
@@ -2893,6 +2928,13 @@ def provision_tenant_safe_booking(
                 "have a slug."
             ),
         )
+
+    webhook_secret = (
+        ensure_shop_webhook_secret(
+            shop=shop,
+            db=db,
+        )
+    )
 
     location_id = (
         get_highlevel_location_id()
@@ -2970,6 +3012,8 @@ def provision_tenant_safe_booking(
                     shop=shop,
                     agent_id=agent_id,
                     location_id=location_id,
+                    webhook_url=webhook_url,
+                    webhook_secret=webhook_secret,
                 )
             ),
             expected_url=webhook_url,
@@ -3018,8 +3062,10 @@ def provision_tenant_safe_booking(
         "working_receptionist_modified": False,
     }
 
+
 @router.post("/provisioning-test/full")
 def provision_tenant_safe_voice_test(
+
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -3037,6 +3083,13 @@ def provision_tenant_safe_voice_test(
                 "The ChairTime shop does not have a slug."
             ),
         )
+
+    webhook_secret = (
+        ensure_shop_webhook_secret(
+            shop=shop,
+            db=db,
+        )
+    )
 
     location_id = get_highlevel_location_id()
 
@@ -3088,6 +3141,8 @@ def provision_tenant_safe_voice_test(
                     shop=shop,
                     agent_id=agent_id,
                     location_id=location_id,
+                    webhook_url=availability_url,
+                    webhook_secret=webhook_secret,
                 )
             ),
             expected_url=availability_url,
@@ -3104,6 +3159,8 @@ def provision_tenant_safe_voice_test(
                     shop=shop,
                     agent_id=agent_id,
                     location_id=location_id,
+                    webhook_url=booking_url,
+                    webhook_secret=webhook_secret,
                 )
             ),
             expected_url=booking_url,
@@ -3719,7 +3776,8 @@ def get_phone_purchase_credentials(
         )
 
     if not payment_method_id:
-        missing.append(
+
+            missing.append(
             "HIGHLEVEL_PHONE_PAYMENT_METHOD_ID"
         )
 
@@ -3830,6 +3888,7 @@ def get_fresh_available_phone_records(
         )
 
     return []
+
 
 def wait_for_purchased_phone_number(
     location_id: str,
@@ -4433,6 +4492,7 @@ def purchase_shop_ai_phone_number(
 
     raise_highlevel_error(response)
 
+
 def diagnostic_utc_timestamp() -> str:
     return (
         datetime.now(timezone.utc)
@@ -4469,7 +4529,8 @@ def redact_diagnostic_value(
     if isinstance(value, list):
         return [
             redact_diagnostic_value(
-                item,
+
+                  item,
                 clean_sensitive_values,
             )
             for item in value
@@ -5219,7 +5280,8 @@ def run_phone_purchase_support_diagnostic(
 
     try:
         # IMPORTANT:
-        # Exactly ONE purchase request.
+
+           # Exactly ONE purchase request.
         # No retry and no fallback number.
         purchase_response = requests.post(
             purchase_url,
@@ -5490,4 +5552,4 @@ def test_highlevel_internal_phone_host(
         ),
         "location_id": location_id,
         "response": body,
-    }
+    }     
