@@ -2007,9 +2007,9 @@ export default function OnboardingPage() {
 
     try {
       const response = await fetch(
-        `${API_BASE}/api/shops/${encodeURIComponent(
-          shopSlug
-        )}/payment-policy`,
+  `/api/shops/${encodeURIComponent(
+    shopSlug
+  )}/payment-policy`,
         {
           method: "PATCH",
 
