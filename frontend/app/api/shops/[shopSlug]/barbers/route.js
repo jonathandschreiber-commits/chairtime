@@ -3,24 +3,97 @@ import { cookies } from "next/headers";
 const API_BASE =
   "https://chairtime-production-94da.up.railway.app";
 
-export async function POST(request, context) {
-  try {
-    const { shopSlug } = await context.params;
 
-    const cookieStore = await cookies();
-    const token = cookieStore.get(
-      "chairtime_token"
-    )?.value;
+async function getToken() {
+  const cookieStore = await cookies();
+
+  return cookieStore.get(
+    "chairtime_token"
+  )?.value;
+}
+
+
+function unauthorizedResponse() {
+  return Response.json(
+    {
+      detail: "Not authenticated",
+    },
+    {
+      status: 401,
+    }
+  );
+}
+
+
+export async function GET(
+  request,
+  context
+) {
+  try {
+    const { shopSlug } =
+      await context.params;
+
+    const token = await getToken();
 
     if (!token) {
-      return Response.json(
-        {
-          detail: "Not authenticated",
+      return unauthorizedResponse();
+    }
+
+    const response = await fetch(
+      `${API_BASE}/api/barbers?shop_slug=${encodeURIComponent(
+        shopSlug
+      )}`,
+      {
+        method: "GET",
+        headers: {
+          Accept: "application/json",
+          Authorization: `Bearer ${token}`,
         },
-        {
-          status: 401,
-        }
-      );
+        cache: "no-store",
+      }
+    );
+
+    const data = await response
+      .json()
+      .catch(() => ({}));
+
+    return Response.json(
+      data,
+      {
+        status: response.status,
+      }
+    );
+  } catch (error) {
+    console.error(
+      "Load staff proxy error:",
+      error
+    );
+
+    return Response.json(
+      {
+        detail:
+          "Could not load staff.",
+      },
+      {
+        status: 500,
+      }
+    );
+  }
+}
+
+
+export async function POST(
+  request,
+  context
+) {
+  try {
+    const { shopSlug } =
+      await context.params;
+
+    const token = await getToken();
+
+    if (!token) {
+      return unauthorizedResponse();
     }
 
     const body = await request
@@ -33,8 +106,10 @@ export async function POST(request, context) {
         method: "POST",
         headers: {
           Accept: "application/json",
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
+          "Content-Type":
+            "application/json",
+          Authorization:
+            `Bearer ${token}`,
         },
         body: JSON.stringify({
           ...body,
