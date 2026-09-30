@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 const API_BASE =
   "https://chairtime-production-94da.up.railway.app";
 
+
 async function getToken() {
   const cookieStore = await cookies();
 
@@ -10,6 +11,7 @@ async function getToken() {
     "chairtime_token"
   )?.value;
 }
+
 
 async function proxyResponse(response) {
   const data = await response
@@ -24,21 +26,80 @@ async function proxyResponse(response) {
   );
 }
 
-export async function POST(request, context) {
+
+function unauthorizedResponse() {
+  return Response.json(
+    {
+      detail: "Not authenticated",
+    },
+    {
+      status: 401,
+    }
+  );
+}
+
+
+export async function GET(
+  request,
+  context
+) {
   try {
-    const { shopSlug } = await context.params;
+    const { shopSlug } =
+      await context.params;
 
     const token = await getToken();
 
     if (!token) {
-      return Response.json(
-        {
-          detail: "Not authenticated",
+      return unauthorizedResponse();
+    }
+
+    const response = await fetch(
+      `${API_BASE}/api/service-catalog?shop_slug=${encodeURIComponent(
+        shopSlug
+      )}`,
+      {
+        method: "GET",
+        headers: {
+          Accept: "application/json",
+          Authorization:
+            `Bearer ${token}`,
         },
-        {
-          status: 401,
-        }
-      );
+        cache: "no-store",
+      }
+    );
+
+    return proxyResponse(response);
+  } catch (error) {
+    console.error(
+      "Load service catalog proxy error:",
+      error
+    );
+
+    return Response.json(
+      {
+        detail:
+          "Could not load service catalog.",
+      },
+      {
+        status: 500,
+      }
+    );
+  }
+}
+
+
+export async function POST(
+  request,
+  context
+) {
+  try {
+    const { shopSlug } =
+      await context.params;
+
+    const token = await getToken();
+
+    if (!token) {
+      return unauthorizedResponse();
     }
 
     const body = await request
