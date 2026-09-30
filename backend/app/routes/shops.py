@@ -142,6 +142,32 @@ def public_shop_response(
     }
 
 
+def authenticated_shop_response(
+    shop: Shop,
+) -> dict:
+    """
+    Return shop information needed by an
+    authenticated ChairTime user.
+
+    This response may include administrative
+    configuration that must not be exposed
+    through the public shop endpoint.
+    """
+
+    return {
+        "id": str(shop.id),
+        "slug": shop.slug,
+        "name": shop.name,
+        "business_type": shop.business_type,
+        "phone": shop.phone,
+        "timezone": shop.timezone,
+        "payment_policy": shop.payment_policy,
+        "ai_voice_enabled": bool(
+            shop.ai_voice_enabled
+        ),
+    }
+
+
 @router.post("/shops")
 def create_shop(
     payload: ShopCreate,
@@ -280,6 +306,45 @@ def list_shops(
             shop
         )
     ]
+
+
+@router.get(
+    "/shops/{shop_slug}/account"
+)
+def get_authenticated_shop(
+    shop_slug: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(
+        get_current_user
+    ),
+):
+    """
+    Authenticated shop lookup for ChairTime
+    administration and onboarding.
+    """
+
+    clean_slug = require_shop_access(
+        shop_slug,
+        current_user,
+    )
+
+    shop = (
+        db.query(Shop)
+        .filter(
+            Shop.slug == clean_slug
+        )
+        .first()
+    )
+
+    if not shop:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Business not found.",
+        )
+
+    return authenticated_shop_response(
+        shop
+    )
 
 
 @router.patch(
