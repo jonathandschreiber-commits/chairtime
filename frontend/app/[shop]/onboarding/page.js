@@ -1,5 +1,5 @@
 "use client";
-
+ 
 import {
   useCallback,
   useEffect,
@@ -8,10 +8,10 @@ import {
 } from "react";
 import { useParams, useRouter } from "next/navigation";
 import styles from "./onboarding.module.css";
-
+ 
 const API_BASE =
   "https://chairtime-production-94da.up.railway.app";
-
+ 
 const DAYS = [
   { name: "Monday", weekday: 0 },
   { name: "Tuesday", weekday: 1 },
@@ -21,7 +21,7 @@ const DAYS = [
   { name: "Saturday", weekday: 5 },
   { name: "Sunday", weekday: 6 },
 ];
-
+ 
 function makeDefaultHours() {
   return DAYS.map((day) => ({
     ...day,
@@ -30,132 +30,137 @@ function makeDefaultHours() {
     end: "17:00",
   }));
 }
-
+ 
 export default function OnboardingPage() {
   const params = useParams();
   const router = useRouter();
-
+ 
   const shopSlug = params.shop;
-
+ 
   const [currentStep, setCurrentStep] = useState(1);
-
+ 
   const [hours, setHours] = useState(
     makeDefaultHours()
   );
-
+ 
   const [existingRules, setExistingRules] =
     useState([]);
-
+ 
   const [staff, setStaff] = useState([]);
   const [services, setServices] = useState([]);
-
+ 
   const [newStaffName, setNewStaffName] =
     useState("");
-
+ 
   const [newServiceName, setNewServiceName] =
     useState("");
-
+ 
   const [loading, setLoading] = useState(true);
-
+ 
   const [savingHours, setSavingHours] =
     useState(false);
-
+ 
   const [addingStaff, setAddingStaff] =
     useState(false);
-
+ 
   const [addingService, setAddingService] =
     useState(false);
-
+ 
   const [message, setMessage] = useState("");
-
+ 
   const [assignedServices, setAssignedServices] =
     useState([]);
-
+ 
   const [availabilityRules, setAvailabilityRules] =
     useState([]);
-
+ 
   const [currentStaffIndex, setCurrentStaffIndex] =
     useState(0);
-
+ 
   const [staffServiceForm, setStaffServiceForm] =
     useState({});
-
+ 
   const [staffHours, setStaffHours] = useState(
     makeDefaultHours()
   );
-
+ 
   const [savingStaffSetup, setSavingStaffSetup] =
     useState(false);
-
+ 
   const [paymentPolicy, setPaymentPolicy] =
     useState("none");
-
+ 
   const [savingPaymentPolicy, setSavingPaymentPolicy] =
     useState(false);
-
+ 
   const [connectStatus, setConnectStatus] =
     useState(null);
-
+ 
   const [
     loadingConnectStatus,
     setLoadingConnectStatus,
   ] = useState(false);
-
+ 
   const [
     connectStatusError,
     setConnectStatusError,
   ] = useState("");
-
+ 
   const [aiVoiceEnabled, setAiVoiceEnabled] =
     useState(false);
-
+ 
   const [aiProvisionStatus, setAiProvisionStatus] =
     useState(null);
-
+ 
   const [
     loadingAiProvisionStatus,
     setLoadingAiProvisionStatus,
   ] = useState(false);
-
+ 
   const [
     aiProvisionStatusError,
     setAiProvisionStatusError,
   ] = useState("");
-
+ 
   const [provisioningAi, setProvisioningAi] =
     useState(false);
-
+ 
   // AI Receptionist phone-number chooser.
   // Selection is intentionally temporary at this stage.
   // Nothing here purchases, assigns, routes, or saves a number.
   const [aiAreaCode, setAiAreaCode] =
     useState("");
-
+ 
   const [
     availableAiNumbers,
     setAvailableAiNumbers,
   ] = useState([]);
-
+ 
   const [
     loadingAiNumbers,
     setLoadingAiNumbers,
   ] = useState(false);
-
+ 
   const [aiNumberError, setAiNumberError] =
     useState("");
-
+ 
   const [
     selectedAiNumber,
     setSelectedAiNumber,
   ] = useState("");
-
+ 
+  const [
+    activatingAiNumber,
+    setActivatingAiNumber,
+  ] = useState(false);
+ 
   const totalSteps = aiVoiceEnabled ? 7 : 6;
   const reviewStep = aiVoiceEnabled ? 7 : 6;
-
+ 
   const openDayCount = useMemo(() => {
     return hours.filter((day) => day.open).length;
   }, [hours]);
-
+ 
   const loadConnectStatus = useCallback(
     async () => {
       if (
@@ -166,10 +171,10 @@ export default function OnboardingPage() {
         setConnectStatusError("");
         return;
       }
-
+ 
       setLoadingConnectStatus(true);
       setConnectStatusError("");
-
+ 
       try {
         const response = await fetch(
           "/api/billing/connect/status",
@@ -181,21 +186,21 @@ export default function OnboardingPage() {
             cache: "no-store",
           }
         );
-
+ 
         const data = await response
           .json()
           .catch(() => ({}));
-
+ 
         if (response.status === 401) {
           router.replace(
             `/login?next=${encodeURIComponent(
               `/${shopSlug}/onboarding`
             )}`
           );
-
+ 
           return;
         }
-
+ 
         if (!response.ok) {
           throw new Error(
             data.error ||
@@ -203,11 +208,11 @@ export default function OnboardingPage() {
               "Could not check your payment account."
           );
         }
-
+ 
         setConnectStatus(data);
       } catch (error) {
         console.error(error);
-
+ 
         setConnectStatusError(
           error instanceof Error
             ? error.message
@@ -223,7 +228,7 @@ export default function OnboardingPage() {
       shopSlug,
     ]
   );
-
+ 
   const loadAiProvisionStatus = useCallback(
     async () => {
       if (!shopSlug || !aiVoiceEnabled) {
@@ -231,10 +236,10 @@ export default function OnboardingPage() {
         setAiProvisionStatusError("");
         return;
       }
-
+ 
       setLoadingAiProvisionStatus(true);
       setAiProvisionStatusError("");
-
+ 
       try {
         const response = await fetch(
           "/api/ai-setup/provision/status",
@@ -246,21 +251,21 @@ export default function OnboardingPage() {
             cache: "no-store",
           }
         );
-
+ 
         const data = await response
           .json()
           .catch(() => ({}));
-
+ 
         if (response.status === 401) {
           router.replace(
             `/login?next=${encodeURIComponent(
               `/${shopSlug}/onboarding`
             )}`
           );
-
+ 
           return;
         }
-
+ 
         if (!response.ok) {
           throw new Error(
             data.error ||
@@ -268,11 +273,11 @@ export default function OnboardingPage() {
               "Could not check your AI Receptionist setup."
           );
         }
-
+ 
         setAiProvisionStatus(data);
       } catch (error) {
         console.error(error);
-
+ 
         setAiProvisionStatusError(
           error instanceof Error
             ? error.message
@@ -284,14 +289,14 @@ export default function OnboardingPage() {
     },
     [aiVoiceEnabled, router, shopSlug]
   );
-
+ 
   async function provisionAiReceptionist() {
     if (provisioningAi || !aiVoiceEnabled) return;
-
+ 
     setProvisioningAi(true);
     setAiProvisionStatusError("");
     setMessage("");
-
+ 
     try {
       const response = await fetch(
         "/api/ai-setup/provision",
@@ -302,11 +307,11 @@ export default function OnboardingPage() {
           },
         }
       );
-
+ 
       const data = await response
         .json()
         .catch(() => ({}));
-
+ 
       if (response.status === 401) {
         router.replace(
           `/login?next=${encodeURIComponent(
@@ -315,25 +320,25 @@ export default function OnboardingPage() {
         );
         return;
       }
-
+ 
       if (!response.ok) {
         const detail =
           typeof data.detail === "string"
             ? data.detail
             : data.detail?.message;
-
+ 
         throw new Error(
           data.error ||
             detail ||
             "Could not set up your AI Receptionist."
         );
       }
-
+ 
       await loadAiProvisionStatus();
       setMessage("Your AI Receptionist is ready.");
     } catch (error) {
       console.error(error);
-
+ 
       setAiProvisionStatusError(
         error instanceof Error
           ? error.message
@@ -343,14 +348,14 @@ export default function OnboardingPage() {
       setProvisioningAi(false);
     }
   }
-
+ 
   async function loadAvailableAiNumbers() {
     if (loadingAiNumbers) return;
-
+ 
     const cleanAreaCode = String(
       aiAreaCode || ""
     ).replace(/\D/g, "");
-
+ 
     if (cleanAreaCode.length !== 3) {
       setAiNumberError(
         "Enter a valid 3-digit area code."
@@ -358,12 +363,12 @@ export default function OnboardingPage() {
       setAvailableAiNumbers([]);
       return;
     }
-
+ 
     setLoadingAiNumbers(true);
     setAiNumberError("");
     setAvailableAiNumbers([]);
     setSelectedAiNumber("");
-
+ 
     try {
       const response = await fetch(
         `/api/ai-setup/phone-numbers/available?area_code=${encodeURIComponent(
@@ -377,11 +382,11 @@ export default function OnboardingPage() {
           cache: "no-store",
         }
       );
-
+ 
       const data = await response
         .json()
         .catch(() => ({}));
-
+ 
       if (response.status === 401) {
         router.replace(
           `/login?next=${encodeURIComponent(
@@ -390,28 +395,28 @@ export default function OnboardingPage() {
         );
         return;
       }
-
+ 
       if (!response.ok) {
         const detail =
           typeof data.detail === "string"
             ? data.detail
             : data.detail?.message;
-
+ 
         throw new Error(
           data.error ||
             detail ||
             "Could not find available phone numbers."
         );
       }
-
+ 
       const numbers = Array.isArray(
         data.available_numbers
       )
         ? data.available_numbers
         : [];
-
+ 
       setAvailableAiNumbers(numbers);
-
+ 
       if (numbers.length === 0) {
         setAiNumberError(
           `No available numbers were found for area code ${cleanAreaCode}. Try another nearby area code.`
@@ -419,9 +424,9 @@ export default function OnboardingPage() {
       }
     } catch (error) {
       console.error(error);
-
+ 
       setAvailableAiNumbers([]);
-
+ 
       setAiNumberError(
         error instanceof Error
           ? error.message
@@ -431,13 +436,102 @@ export default function OnboardingPage() {
       setLoadingAiNumbers(false);
     }
   }
-
+ 
+  async function activateAiNumberAndContinue() {
+    if (activatingAiNumber) return;
+ 
+    const activePhoneNumber =
+      aiProvisionStatus?.phone_number ||
+      aiProvisionStatus?.agent?.inbound_number ||
+      "";
+ 
+    if (activePhoneNumber) {
+      setMessage("");
+      goToStep(7);
+      return;
+    }
+ 
+    if (!selectedAiNumber) {
+      setAiNumberError(
+        "Choose an AI Receptionist phone number before continuing."
+      );
+      return;
+    }
+ 
+    setActivatingAiNumber(true);
+    setAiNumberError("");
+    setMessage("");
+ 
+    try {
+      const response = await fetch(
+        "/api/ai-setup/phone-number/purchase",
+        {
+          method: "POST",
+          headers: {
+            Accept: "application/json",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            phone_number: selectedAiNumber,
+          }),
+        }
+      );
+ 
+      const data = await response
+        .json()
+        .catch(() => ({}));
+ 
+      if (response.status === 401) {
+        router.replace(
+          `/login?next=${encodeURIComponent(
+            `/${shopSlug}/onboarding`
+          )}`
+        );
+        return;
+      }
+ 
+      if (!response.ok) {
+        const detail =
+          typeof data.detail === "string"
+            ? data.detail
+            : data.detail?.message;
+ 
+        throw new Error(
+          data.error ||
+            detail ||
+            "Could not activate your AI Receptionist phone number."
+        );
+      }
+ 
+      if (!data.success || !data.phone_number) {
+        throw new Error(
+          "ChairTime could not verify your AI Receptionist phone number."
+        );
+      }
+ 
+      await loadAiProvisionStatus();
+      setSelectedAiNumber(data.phone_number);
+      setMessage("");
+      goToStep(7);
+    } catch (error) {
+      console.error(error);
+ 
+      setAiNumberError(
+        error instanceof Error
+          ? error.message
+          : "Could not activate your AI Receptionist phone number."
+      );
+    } finally {
+      setActivatingAiNumber(false);
+    }
+  }
+ 
   useEffect(() => {
     if (!shopSlug) return;
-
+ 
     loadOnboardingData();
   }, [shopSlug]);
-
+ 
   useEffect(() => {
     if (
       !shopSlug ||
@@ -446,7 +540,7 @@ export default function OnboardingPage() {
     ) {
       return;
     }
-
+ 
     loadConnectStatus();
   }, [
     currentStep,
@@ -454,7 +548,7 @@ export default function OnboardingPage() {
     paymentPolicy,
     shopSlug,
   ]);
-
+ 
   useEffect(() => {
     if (
       !shopSlug ||
@@ -463,7 +557,7 @@ export default function OnboardingPage() {
     ) {
       return;
     }
-
+ 
     loadAiProvisionStatus();
   }, [
     aiVoiceEnabled,
@@ -471,7 +565,7 @@ export default function OnboardingPage() {
     loadAiProvisionStatus,
     shopSlug,
   ]);
-
+ 
   async function loadOnboardingData() {
     try {
       const [
@@ -531,7 +625,7 @@ export default function OnboardingPage() {
           }
         ),
       ]);
-
+ 
       if (
         hoursResponse.status === 401 ||
         staffResponse.status === 401 ||
@@ -545,132 +639,132 @@ export default function OnboardingPage() {
             `/${shopSlug}/onboarding`
           )}`
         );
-
+ 
         return;
       }
-
+ 
       if (!hoursResponse.ok) {
         throw new Error(
           "Could not load your shop hours."
         );
       }
-
+ 
       if (!staffResponse.ok) {
         throw new Error(
           "Could not load your staff."
         );
       }
-
+ 
       if (!servicesResponse.ok) {
         throw new Error(
           "Could not load your services."
         );
       }
-
+ 
       if (!assignedServicesResponse.ok) {
         throw new Error(
           "Could not load staff services."
         );
       }
-
+ 
       if (!availabilityResponse.ok) {
         throw new Error(
           "Could not load staff schedules."
         );
       }
-
+ 
       if (!shopResponse.ok) {
         throw new Error(
           "Could not load your payment preference."
         );
       }
-
+ 
       const hoursData =
         await hoursResponse.json();
-
+ 
       const staffData =
         await staffResponse.json();
-
+ 
       const servicesData =
         await servicesResponse.json();
-
+ 
       const assignedServicesData =
         await assignedServicesResponse.json();
-
+ 
       const availabilityData =
         await availabilityResponse.json();
-
+ 
       const shopData =
         await shopResponse.json();
-
+ 
       const currentShop =
         Array.isArray(shopData)
           ? shopData[0] || null
           : shopData?.shop || shopData || null;
-
+ 
       setPaymentPolicy(
         currentShop?.payment_policy || "none"
       );
-
+ 
       setAiVoiceEnabled(
         Boolean(currentShop?.ai_voice_enabled)
       );
-
+ 
       setExistingRules(
         Array.isArray(hoursData)
           ? hoursData
           : []
       );
-
+ 
       setStaff(
         Array.isArray(staffData)
           ? staffData
           : []
       );
-
+ 
       setServices(
         Array.isArray(servicesData)
           ? servicesData
           : []
       );
-
+ 
       setAssignedServices(
         Array.isArray(assignedServicesData)
           ? assignedServicesData
           : []
       );
-
+ 
       setAvailabilityRules(
         Array.isArray(availabilityData)
           ? availabilityData
           : []
       );
-
+ 
       const safeHoursData =
         Array.isArray(hoursData)
           ? hoursData
           : [];
-
+ 
       const safeStaffData =
         Array.isArray(staffData)
           ? staffData
           : [];
-
+ 
       const safeServicesData =
         Array.isArray(servicesData)
           ? servicesData
           : [];
-
+ 
       const safeAssignedServicesData =
         Array.isArray(assignedServicesData)
           ? assignedServicesData
           : [];
-
+ 
       const safeAvailabilityData =
         Array.isArray(availabilityData)
           ? availabilityData
           : [];
-
+ 
       const normalizedHours =
         safeHoursData.length > 0
           ? DAYS.map((day) => {
@@ -680,7 +774,7 @@ export default function OnboardingPage() {
                     item.weekday ===
                     day.weekday
                 );
-
+ 
               if (!rule) {
                 return {
                   ...day,
@@ -689,24 +783,24 @@ export default function OnboardingPage() {
                   end: "17:00",
                 };
               }
-
+ 
               return {
                 ...day,
                 open: true,
-
+ 
                 start: String(
                   rule.start_time
                 ).slice(0, 5),
-
+ 
                 end: String(
                   rule.end_time
                 ).slice(0, 5),
               };
             })
           : makeDefaultHours();
-
+ 
       setHours(normalizedHours);
-
+ 
       if (safeHoursData.length === 0) {
         setCurrentStep(1);
       } else if (safeStaffData.length === 0) {
@@ -723,27 +817,27 @@ export default function OnboardingPage() {
                     service.barber_id ===
                     person.id
                 );
-
+ 
               const hasHours =
                 safeAvailabilityData.some(
                   (rule) =>
                     rule.barber_id ===
                     person.id
                 );
-
+ 
               return !hasService || !hasHours;
             }
           );
-
+ 
         if (firstIncompleteIndex === -1) {
           setCurrentStep(5);
         } else {
           setCurrentStep(4);
-
+ 
           setCurrentStaffIndex(
             firstIncompleteIndex
           );
-
+ 
           prepareStaffEditor(
             safeStaffData[firstIncompleteIndex],
             safeServicesData,
@@ -755,7 +849,7 @@ export default function OnboardingPage() {
       }
     } catch (error) {
       console.error(error);
-
+ 
       setMessage(
         error instanceof Error
           ? error.message
@@ -765,7 +859,7 @@ export default function OnboardingPage() {
       setLoading(false);
     }
   }
-
+ 
   function prepareStaffEditor(
     person,
     catalogServices = services,
@@ -774,9 +868,9 @@ export default function OnboardingPage() {
     shopHours = hours
   ) {
     if (!person) return;
-
+ 
     const nextServiceForm = {};
-
+ 
     for (const catalogService of catalogServices) {
       const existing =
         currentAssignments.find(
@@ -789,16 +883,16 @@ export default function OnboardingPage() {
                 .trim()
                 .toLowerCase()
         );
-
+ 
       nextServiceForm[
         catalogService.id
       ] = {
         selected: Boolean(existing),
-
+ 
         duration: String(
           existing?.duration_minutes ?? 30
         ),
-
+ 
         price:
           existing?.price === undefined ||
           existing?.price === null
@@ -806,17 +900,17 @@ export default function OnboardingPage() {
             : String(existing.price),
       };
     }
-
+ 
     setStaffServiceForm(
       nextServiceForm
     );
-
+ 
     const personRules =
       currentAvailability.filter(
         (rule) =>
           rule.barber_id === person.id
       );
-
+ 
     if (personRules.length > 0) {
       setStaffHours(
         DAYS.map((day) => {
@@ -824,7 +918,7 @@ export default function OnboardingPage() {
             (item) =>
               item.weekday === day.weekday
           );
-
+ 
           if (!rule) {
             return {
               ...day,
@@ -833,15 +927,15 @@ export default function OnboardingPage() {
               end: "17:00",
             };
           }
-
+ 
           return {
             ...day,
             open: true,
-
+ 
             start: String(
               rule.start_time
             ).slice(0, 5),
-
+ 
             end: String(
               rule.end_time
             ).slice(0, 5),
@@ -856,7 +950,7 @@ export default function OnboardingPage() {
       );
     }
   }
-
+ 
   function updateDay(
     weekday,
     field,
@@ -872,13 +966,13 @@ export default function OnboardingPage() {
           : day
       )
     );
-
+ 
     setMessage("");
   }
-
+ 
   async function saveHours() {
     if (savingHours) return;
-
+ 
     const invalidDay = hours.find(
       (day) =>
         day.open &&
@@ -886,26 +980,26 @@ export default function OnboardingPage() {
           !day.end ||
           day.start >= day.end)
     );
-
+ 
     if (invalidDay) {
       setMessage(
         `${invalidDay.name}: closing time must be later than opening time.`
       );
-
+ 
       return;
     }
-
+ 
     if (openDayCount === 0) {
       setMessage(
         "Choose at least one day your business is open."
       );
-
+ 
       return;
     }
-
+ 
     setSavingHours(true);
     setMessage("");
-
+ 
     try {
       for (const rule of existingRules) {
         const deleteResponse = await fetch(
@@ -918,39 +1012,39 @@ export default function OnboardingPage() {
             method: "DELETE",
           }
         );
-
+ 
         if (deleteResponse.status === 401) {
           router.replace(
             `/login?next=${encodeURIComponent(
               `/${shopSlug}/onboarding`
             )}`
           );
-
+ 
           return;
         }
-
+ 
         if (!deleteResponse.ok) {
           throw new Error(
             "Could not update your shop hours."
           );
         }
       }
-
+ 
       for (const day of hours) {
         if (!day.open) continue;
-
+ 
         const response = await fetch(
           `/api/shops/${encodeURIComponent(
             shopSlug
           )}/shop-availability-rules`,
           {
             method: "POST",
-
+ 
             headers: {
               "Content-Type":
                 "application/json",
             },
-
+ 
             body: JSON.stringify({
               shop_slug: shopSlug,
               weekday: day.weekday,
@@ -959,22 +1053,22 @@ export default function OnboardingPage() {
             }),
           }
         );
-
+ 
         if (response.status === 401) {
           router.replace(
             `/login?next=${encodeURIComponent(
               `/${shopSlug}/onboarding`
             )}`
           );
-
+ 
           return;
         }
-
+ 
         if (!response.ok) {
           const error = await response
             .json()
             .catch(() => ({}));
-
+ 
           throw new Error(
             typeof error.detail === "string"
               ? error.detail
@@ -982,7 +1076,7 @@ export default function OnboardingPage() {
           );
         }
       }
-
+ 
       const refreshedResponse =
         await fetch(
           `/api/shops/${encodeURIComponent(
@@ -992,33 +1086,33 @@ export default function OnboardingPage() {
             cache: "no-store",
           }
         );
-
+ 
       if (refreshedResponse.status === 401) {
         router.replace(
           `/login?next=${encodeURIComponent(
             `/${shopSlug}/onboarding`
           )}`
         );
-
+ 
         return;
       }
-
+ 
       if (refreshedResponse.ok) {
         const refreshedData =
           await refreshedResponse.json();
-
+ 
         setExistingRules(
           Array.isArray(refreshedData)
             ? refreshedData
             : []
         );
       }
-
+ 
       setMessage("");
       setCurrentStep(2);
     } catch (error) {
       console.error(error);
-
+ 
       setMessage(
         error instanceof Error
           ? error.message
@@ -1028,92 +1122,92 @@ export default function OnboardingPage() {
       setSavingHours(false);
     }
   }
-
+ 
   async function addStaffMember(event) {
     event?.preventDefault();
-
+ 
     if (addingStaff) return;
-
+ 
     const cleanName =
       newStaffName.trim();
-
+ 
     if (!cleanName) {
       setMessage(
         "Enter the staff member's name."
       );
-
+ 
       return;
     }
-
+ 
     setAddingStaff(true);
     setMessage("");
-
+ 
     try {
       const existingStaff =
         staff[0];
-
+ 
       const response = await fetch(
         `/api/shops/${encodeURIComponent(
           shopSlug
         )}/barbers`,
         {
           method: "POST",
-
+ 
           headers: {
             "Content-Type":
               "application/json",
           },
-
+ 
           body: JSON.stringify({
             name: cleanName,
-
+ 
             shop_name:
               existingStaff?.shop_name ||
               shopSlug,
-
+ 
             phone: "",
-
+ 
             timezone:
               existingStaff?.timezone ||
               "America/New_York",
-
+ 
             shop_slug: shopSlug,
           }),
         }
       );
-
+ 
       if (response.status === 401) {
         router.replace(
           `/login?next=${encodeURIComponent(
             `/${shopSlug}/onboarding`
           )}`
         );
-
+ 
         return;
       }
-
+ 
       if (!response.ok) {
         const error = await response
           .json()
           .catch(() => ({}));
-
+ 
         throw new Error(
           typeof error.detail === "string"
             ? error.detail
             : "Could not add staff member."
         );
       }
-
+ 
       setNewStaffName("");
-
+ 
       await reloadStaff();
-
+ 
       setMessage(
         `${cleanName} added.`
       );
     } catch (error) {
       console.error(error);
-
+ 
       setMessage(
         error instanceof Error
           ? error.message
@@ -1123,7 +1217,7 @@ export default function OnboardingPage() {
       setAddingStaff(false);
     }
   }
-
+ 
   async function reloadStaff() {
     const response = await fetch(
       `/api/shops/${encodeURIComponent(
@@ -1133,44 +1227,44 @@ export default function OnboardingPage() {
         cache: "no-store",
       }
     );
-
+ 
     if (response.status === 401) {
       router.replace(
         `/login?next=${encodeURIComponent(
           `/${shopSlug}/onboarding`
         )}`
       );
-
+ 
       return;
     }
-
+ 
     if (!response.ok) {
       throw new Error(
         "Could not reload your staff."
       );
     }
-
+ 
     const staffData =
       await response.json();
-
+ 
     setStaff(
       Array.isArray(staffData)
         ? staffData
         : []
     );
   }
-
+ 
   async function removeStaffMember(
     person
   ) {
     const confirmed = window.confirm(
       `Remove ${person.name} from your staff?`
     );
-
+ 
     if (!confirmed) return;
-
+ 
     setMessage("");
-
+ 
     try {
       const response = await fetch(
         `/api/shops/${encodeURIComponent(
@@ -1182,37 +1276,37 @@ export default function OnboardingPage() {
           method: "DELETE",
         }
       );
-
+ 
       if (response.status === 401) {
         router.replace(
           `/login?next=${encodeURIComponent(
             `/${shopSlug}/onboarding`
           )}`
         );
-
+ 
         return;
       }
-
+ 
       if (!response.ok) {
         const error = await response
           .json()
           .catch(() => ({}));
-
+ 
         throw new Error(
           typeof error.detail === "string"
             ? error.detail
             : "Could not remove staff member."
         );
       }
-
+ 
       await reloadStaff();
-
+ 
       setMessage(
         `${person.name} removed.`
       );
     } catch (error) {
       console.error(error);
-
+ 
       setMessage(
         error instanceof Error
           ? error.message
@@ -1220,39 +1314,39 @@ export default function OnboardingPage() {
       );
     }
   }
-
+ 
   function continueFromStaff() {
     if (staff.length === 0) {
       setMessage(
         "Add at least one person who customers can book with."
       );
-
+ 
       return;
     }
-
+ 
     setMessage("");
     setCurrentStep(3);
   }
-
+ 
   async function addService(event) {
     event?.preventDefault();
-
+ 
     if (addingService) return;
-
+ 
     const cleanName =
       newServiceName.trim();
-
+ 
     if (!cleanName) {
       setMessage(
         "Enter a service name."
       );
-
+ 
       return;
     }
-
+ 
     setAddingService(true);
     setMessage("");
-
+ 
     try {
       const response = await fetch(
         `/api/shops/${encodeURIComponent(
@@ -1260,51 +1354,51 @@ export default function OnboardingPage() {
         )}/service-catalog`,
         {
           method: "POST",
-
+ 
           headers: {
             "Content-Type":
               "application/json",
           },
-
+ 
           body: JSON.stringify({
             shop_slug: shopSlug,
             name: cleanName,
           }),
         }
       );
-
+ 
       if (response.status === 401) {
         router.replace(
           `/login?next=${encodeURIComponent(
             `/${shopSlug}/onboarding`
           )}`
         );
-
+ 
         return;
       }
-
+ 
       if (!response.ok) {
         const error = await response
           .json()
           .catch(() => ({}));
-
+ 
         throw new Error(
           typeof error.detail === "string"
             ? error.detail
             : "Could not add service."
         );
       }
-
+ 
       setNewServiceName("");
-
+ 
       await reloadServices();
-
+ 
       setMessage(
         `${cleanName} added.`
       );
     } catch (error) {
       console.error(error);
-
+ 
       setMessage(
         error instanceof Error
           ? error.message
@@ -1314,7 +1408,7 @@ export default function OnboardingPage() {
       setAddingService(false);
     }
   }
-
+ 
   async function reloadServices() {
     const response = await fetch(
       `/api/shops/${encodeURIComponent(
@@ -1324,44 +1418,44 @@ export default function OnboardingPage() {
         cache: "no-store",
       }
     );
-
+ 
     if (response.status === 401) {
       router.replace(
         `/login?next=${encodeURIComponent(
           `/${shopSlug}/onboarding`
         )}`
       );
-
+ 
       return;
     }
-
+ 
     if (!response.ok) {
       throw new Error(
         "Could not reload your services."
       );
     }
-
+ 
     const servicesData =
       await response.json();
-
+ 
     setServices(
       Array.isArray(servicesData)
         ? servicesData
         : []
     );
   }
-
+ 
   async function removeService(
     service
   ) {
     const confirmed = window.confirm(
       `Remove ${service.name} from your service list?`
     );
-
+ 
     if (!confirmed) return;
-
+ 
     setMessage("");
-
+ 
     try {
       const response = await fetch(
         `/api/shops/${encodeURIComponent(
@@ -1373,29 +1467,29 @@ export default function OnboardingPage() {
           method: "DELETE",
         }
       );
-
+ 
       if (response.status === 401) {
         router.replace(
           `/login?next=${encodeURIComponent(
             `/${shopSlug}/onboarding`
           )}`
         );
-
+ 
         return;
       }
-
+ 
       if (!response.ok) {
         const error = await response
           .json()
           .catch(() => ({}));
-
+ 
         if (
           error.detail &&
           typeof error.detail === "object"
         ) {
           const assignedStaff =
             error.detail.assigned_staff || [];
-
+ 
           if (
             assignedStaff.length > 0
           ) {
@@ -1406,22 +1500,22 @@ export default function OnboardingPage() {
             );
           }
         }
-
+ 
         throw new Error(
           typeof error.detail === "string"
             ? error.detail
             : "Could not remove service."
         );
       }
-
+ 
       await reloadServices();
-
+ 
       setMessage(
         `${service.name} removed.`
       );
     } catch (error) {
       console.error(error);
-
+ 
       setMessage(
         error instanceof Error
           ? error.message
@@ -1429,19 +1523,19 @@ export default function OnboardingPage() {
       );
     }
   }
-
+ 
   function continueFromServices() {
     if (services.length === 0) {
       setMessage(
         "Add at least one service customers can book."
       );
-
+ 
       return;
     }
-
+ 
     setMessage("");
     setCurrentStaffIndex(0);
-
+ 
     prepareStaffEditor(
       staff[0],
       services,
@@ -1449,15 +1543,15 @@ export default function OnboardingPage() {
       availabilityRules,
       hours
     );
-
+ 
     setCurrentStep(4);
   }
-
+ 
   function goToStep(step) {
     setMessage("");
     setCurrentStep(step);
   }
-
+ 
   function updateStaffService(
     catalogServiceId,
     field,
@@ -1466,20 +1560,20 @@ export default function OnboardingPage() {
     setStaffServiceForm(
       (current) => ({
         ...current,
-
+ 
         [catalogServiceId]: {
           ...current[
             catalogServiceId
           ],
-
+ 
           [field]: value,
         },
       })
     );
-
+ 
     setMessage("");
   }
-
+ 
   function updateStaffHours(
     weekday,
     field,
@@ -1495,10 +1589,10 @@ export default function OnboardingPage() {
           : day
       )
     );
-
+ 
     setMessage("");
   }
-
+ 
   async function refreshStaffSetupData() {
     const [
       servicesResponse,
@@ -1512,7 +1606,7 @@ export default function OnboardingPage() {
           cache: "no-store",
         }
       ),
-
+ 
       fetch(
         `/api/shops/${encodeURIComponent(
           shopSlug
@@ -1522,7 +1616,7 @@ export default function OnboardingPage() {
         }
       ),
     ]);
-
+ 
     if (
       servicesResponse.status === 401 ||
       availabilityResponse.status === 401
@@ -1532,12 +1626,12 @@ export default function OnboardingPage() {
           `/${shopSlug}/onboarding`
         )}`
       );
-
+ 
       throw new Error(
         "Your session has expired."
       );
     }
-
+ 
     if (
       !servicesResponse.ok ||
       !availabilityResponse.ok
@@ -1546,71 +1640,71 @@ export default function OnboardingPage() {
         "Could not reload staff setup."
       );
     }
-
+ 
     const nextAssignedServices =
       await servicesResponse.json();
-
+ 
     const nextAvailabilityRules =
       await availabilityResponse.json();
-
+ 
     const safeAssignedServices =
       Array.isArray(nextAssignedServices)
         ? nextAssignedServices
         : [];
-
+ 
     const safeAvailabilityRules =
       Array.isArray(nextAvailabilityRules)
         ? nextAvailabilityRules
         : [];
-
+ 
     setAssignedServices(
       safeAssignedServices
     );
-
+ 
     setAvailabilityRules(
       safeAvailabilityRules
     );
-
+ 
     return {
       nextAssignedServices:
         safeAssignedServices,
-
+ 
       nextAvailabilityRules:
         safeAvailabilityRules,
     };
   }
-
+ 
   async function saveCurrentStaffSetup() {
     if (savingStaffSetup) return;
-
+ 
     const person =
       staff[currentStaffIndex];
-
+ 
     if (!person) {
       setMessage(
         "Could not identify the staff member."
       );
-
+ 
       return;
     }
-
+ 
     const selectedCatalogServices =
       services.filter(
         (service) =>
           staffServiceForm[service.id]
             ?.selected
       );
-
+ 
     if (
       selectedCatalogServices.length === 0
     ) {
       setMessage(
         `Choose at least one service for ${person.name}.`
       );
-
+ 
       return;
     }
-
+ 
     for (
       const catalogService
       of selectedCatalogServices
@@ -1619,13 +1713,13 @@ export default function OnboardingPage() {
         staffServiceForm[
           catalogService.id
         ];
-
+ 
       const duration =
         Number(form?.duration);
-
+ 
       const price =
         Number(form?.price);
-
+ 
       if (
         !duration ||
         duration <= 0
@@ -1633,10 +1727,10 @@ export default function OnboardingPage() {
         setMessage(
           `Enter a valid duration for ${catalogService.name}.`
         );
-
+ 
         return;
       }
-
+ 
       if (
         form?.price === "" ||
         Number.isNaN(price) ||
@@ -1645,11 +1739,11 @@ export default function OnboardingPage() {
         setMessage(
           `Enter a valid price for ${catalogService.name}.`
         );
-
+ 
         return;
       }
     }
-
+ 
     const invalidDay =
       staffHours.find(
         (day) =>
@@ -1658,15 +1752,15 @@ export default function OnboardingPage() {
             !day.end ||
             day.start >= day.end)
       );
-
+ 
     if (invalidDay) {
       setMessage(
         `${person.name} — ${invalidDay.name}: closing time must be later than opening time.`
       );
-
+ 
       return;
     }
-
+ 
     if (
       !staffHours.some(
         (day) => day.open
@@ -1675,13 +1769,13 @@ export default function OnboardingPage() {
       setMessage(
         `Choose at least one working day for ${person.name}.`
       );
-
+ 
       return;
     }
-
+ 
     setSavingStaffSetup(true);
     setMessage("");
-
+ 
     try {
       for (const catalogService of services) {
         const form =
@@ -1692,7 +1786,7 @@ export default function OnboardingPage() {
             duration: "30",
             price: "",
           };
-
+ 
         const existing =
           assignedServices.find(
             (service) =>
@@ -1707,20 +1801,20 @@ export default function OnboardingPage() {
                   .trim()
                   .toLowerCase()
           );
-
+ 
         if (form.selected) {
           const payload = {
             name: catalogService.name,
-
+ 
             duration_minutes: Number(
               form.duration
             ),
-
+ 
             price: Number(
               form.price
             ),
           };
-
+ 
           if (existing) {
             const response =
               await fetch(
@@ -1731,28 +1825,28 @@ export default function OnboardingPage() {
                 )}`,
                 {
                   method: "PATCH",
-
+ 
                   headers: {
                     "Content-Type":
                       "application/json",
                   },
-
+ 
                   body: JSON.stringify(
                     payload
                   ),
                 }
               );
-
+ 
             if (response.status === 401) {
               router.replace(
                 `/login?next=${encodeURIComponent(
                   `/${shopSlug}/onboarding`
                 )}`
               );
-
+ 
               return;
             }
-
+ 
             if (!response.ok) {
               throw new Error(
                 `Could not update ${catalogService.name} for ${person.name}.`
@@ -1766,12 +1860,12 @@ export default function OnboardingPage() {
                 )}/services`,
                 {
                   method: "POST",
-
+ 
                   headers: {
                     "Content-Type":
                       "application/json",
                   },
-
+ 
                   body: JSON.stringify({
                     shop_slug: shopSlug,
                     barber_id: person.id,
@@ -1779,23 +1873,23 @@ export default function OnboardingPage() {
                   }),
                 }
               );
-
+ 
             if (response.status === 401) {
               router.replace(
                 `/login?next=${encodeURIComponent(
                   `/${shopSlug}/onboarding`
                 )}`
               );
-
+ 
               return;
             }
-
+ 
             if (!response.ok) {
               const error =
                 await response
                   .json()
                   .catch(() => ({}));
-
+ 
               throw new Error(
                 typeof error.detail ===
                   "string"
@@ -1816,17 +1910,17 @@ export default function OnboardingPage() {
                 method: "DELETE",
               }
             );
-
+ 
           if (response.status === 401) {
             router.replace(
               `/login?next=${encodeURIComponent(
                 `/${shopSlug}/onboarding`
               )}`
             );
-
+ 
             return;
           }
-
+ 
           if (!response.ok) {
             throw new Error(
               `Could not remove ${catalogService.name} from ${person.name}.`
@@ -1834,19 +1928,19 @@ export default function OnboardingPage() {
           }
         }
       }
-
+ 
       const existingPersonRules =
         availabilityRules.filter(
           (rule) =>
             rule.barber_id ===
             person.id
         );
-
+ 
       for (
         const rule
         of existingPersonRules
       ) {
-
+ 
            const response =
           await fetch(
             `/api/shops/${encodeURIComponent(
@@ -1858,27 +1952,27 @@ export default function OnboardingPage() {
               method: "DELETE",
             }
           );
-
+ 
         if (response.status === 401) {
           router.replace(
             `/login?next=${encodeURIComponent(
               `/${shopSlug}/onboarding`
             )}`
           );
-
+ 
           return;
         }
-
+ 
         if (!response.ok) {
           throw new Error(
             `Could not update ${person.name}'s schedule.`
           );
         }
       }
-
+ 
       for (const day of staffHours) {
         if (!day.open) continue;
-
+ 
         const response =
           await fetch(
             `/api/shops/${encodeURIComponent(
@@ -1886,42 +1980,42 @@ export default function OnboardingPage() {
             )}/availability-rules`,
             {
               method: "POST",
-
+ 
               headers: {
                 "Content-Type":
                   "application/json",
               },
-
+ 
               body: JSON.stringify({
                 shop_slug: shopSlug,
                 barber_id: person.id,
                 weekday: day.weekday,
-
+ 
                 start_time:
                   `${day.start}:00`,
-
+ 
                 end_time:
                   `${day.end}:00`,
               }),
             }
           );
-
+ 
         if (response.status === 401) {
           router.replace(
             `/login?next=${encodeURIComponent(
               `/${shopSlug}/onboarding`
             )}`
           );
-
+ 
           return;
         }
-
+ 
         if (!response.ok) {
           const error =
             await response
               .json()
               .catch(() => ({}));
-
+ 
           throw new Error(
             typeof error.detail ===
               "string"
@@ -1930,21 +2024,21 @@ export default function OnboardingPage() {
           );
         }
       }
-
+ 
       const {
         nextAssignedServices,
         nextAvailabilityRules,
       } =
         await refreshStaffSetupData();
-
+ 
       const nextIndex =
         currentStaffIndex + 1;
-
+ 
       if (nextIndex < staff.length) {
         setCurrentStaffIndex(
           nextIndex
         );
-
+ 
         prepareStaffEditor(
           staff[nextIndex],
           services,
@@ -1952,7 +2046,7 @@ export default function OnboardingPage() {
           nextAvailabilityRules,
           hours
         );
-
+ 
         setMessage(
           `${person.name} is ready. Now set up ${staff[nextIndex].name}.`
         );
@@ -1962,7 +2056,7 @@ export default function OnboardingPage() {
       }
     } catch (error) {
       console.error(error);
-
+ 
       setMessage(
         error instanceof Error
           ? error.message
@@ -1972,20 +2066,20 @@ export default function OnboardingPage() {
       setSavingStaffSetup(false);
     }
   }
-
+ 
   function goBackFromStaffSetup() {
     if (currentStaffIndex === 0) {
       goToStep(3);
       return;
     }
-
+ 
     const previousIndex =
       currentStaffIndex - 1;
-
+ 
     setCurrentStaffIndex(
       previousIndex
     );
-
+ 
     prepareStaffEditor(
       staff[previousIndex],
       services,
@@ -1993,18 +2087,18 @@ export default function OnboardingPage() {
       availabilityRules,
       hours
     );
-
+ 
     setMessage("");
   }
-
+ 
   async function savePaymentPreference(
     continueToReview = true
   ) {
     if (savingPaymentPolicy) return false;
-
+ 
     setSavingPaymentPolicy(true);
     setMessage("");
-
+ 
     try {
       const response = await fetch(
   `/api/shops/${encodeURIComponent(
@@ -2012,51 +2106,51 @@ export default function OnboardingPage() {
   )}/payment-policy`,
         {
           method: "PATCH",
-
+ 
           headers: {
             "Content-Type": "application/json",
           },
-
+ 
           body: JSON.stringify({
             payment_policy: paymentPolicy,
           }),
         }
       );
-
+ 
       if (!response.ok) {
         const error = await response
           .json()
           .catch(() => ({}));
-
+ 
         throw new Error(
           typeof error.detail === "string"
             ? error.detail
             : "Could not save your payment preference."
         );
       }
-
+ 
       setMessage("");
-
+ 
       if (continueToReview) {
         setCurrentStep(6);
       }
-
+ 
       return true;
     } catch (error) {
       console.error(error);
-
+ 
       setMessage(
         error instanceof Error
           ? error.message
           : "Could not save your payment preference."
       );
-
+ 
       return false;
     } finally {
       setSavingPaymentPolicy(false);
     }
   }
-
+ 
   function openBookingPage() {
     window.open(
       `/${shopSlug}`,
@@ -2064,13 +2158,13 @@ export default function OnboardingPage() {
       "noopener,noreferrer"
     );
   }
-
+ 
   function finishOnboarding() {
     router.push(
       `/${shopSlug}/admin`
     );
   }
-
+ 
   if (loading) {
     return (
       <main className={styles.page}>
@@ -2080,7 +2174,7 @@ export default function OnboardingPage() {
       </main>
     );
   }
-
+ 
   return (
     <main className={styles.page}>
       <div className={styles.container}>
@@ -2089,28 +2183,28 @@ export default function OnboardingPage() {
             <p className={styles.eyebrow}>
               LET&apos;S GET YOU READY
             </p>
-
+ 
             <h1 className={styles.title}>
               Set up your business
             </h1>
-
+ 
             <p className={styles.subtitle}>
               We&apos;ll walk you through
               everything. It only takes a few
               minutes.
             </p>
           </div>
-
+ 
           <div className={styles.stepBadge}>
             Step {currentStep} of {totalSteps}
           </div>
         </header>
-
+ 
         <Progress
           currentStep={currentStep}
           aiVoiceEnabled={aiVoiceEnabled}
         />
-
+ 
         {currentStep === 1 && (
           <HoursStep
             hours={hours}
@@ -2121,7 +2215,7 @@ export default function OnboardingPage() {
             message={message}
           />
         )}
-
+ 
         {currentStep === 2 && (
           <StaffStep
             staff={staff}
@@ -2143,7 +2237,7 @@ export default function OnboardingPage() {
             message={message}
           />
         )}
-
+ 
         {currentStep === 3 && (
           <ServicesStep
             services={services}
@@ -2167,7 +2261,7 @@ export default function OnboardingPage() {
             message={message}
           />
         )}
-
+ 
         {currentStep === 4 && (
           <ScheduleStep
             staff={staff}
@@ -2197,7 +2291,7 @@ export default function OnboardingPage() {
             message={message}
           />
         )}
-
+ 
         {currentStep === 5 && (
           <PaymentsStep
             paymentPolicy={paymentPolicy}
@@ -2227,11 +2321,11 @@ export default function OnboardingPage() {
                   staff.length - 1,
                   0
                 );
-
+ 
               setCurrentStaffIndex(
                 lastIndex
               );
-
+ 
               prepareStaffEditor(
                 staff[lastIndex],
                 services,
@@ -2239,13 +2333,13 @@ export default function OnboardingPage() {
                 availabilityRules,
                 hours
               );
-
+ 
               goToStep(4);
             }}
             message={message}
           />
         )}
-
+ 
         {aiVoiceEnabled && currentStep === 6 && (
           <AiReceptionistStep
             provisionStatus={aiProvisionStatus}
@@ -2263,53 +2357,55 @@ export default function OnboardingPage() {
               loadAiProvisionStatus
             }
             goBack={() => goToStep(5)}
-            continueToReview={() => {
-              setMessage("");
-              goToStep(7);
-            }}
-
+            continueToReview={
+              activateAiNumberAndContinue
+            }
+            activatingAiNumber={
+              activatingAiNumber
+            }
+ 
             aiAreaCode={aiAreaCode}
-
+ 
             setAiAreaCode={(value) => {
               setAiAreaCode(
                 String(value)
                   .replace(/\D/g, "")
                   .slice(0, 3)
               );
-
+ 
               setAiNumberError("");
               setAvailableAiNumbers([]);
               setSelectedAiNumber("");
             }}
-
+ 
             availableAiNumbers={
               availableAiNumbers
             }
-
+ 
             loadingAiNumbers={
               loadingAiNumbers
             }
-
+ 
             aiNumberError={
               aiNumberError
             }
-
+ 
             selectedAiNumber={
               selectedAiNumber
             }
-
+ 
             setSelectedAiNumber={
               setSelectedAiNumber
             }
-
+ 
             loadAvailableAiNumbers={
               loadAvailableAiNumbers
             }
-
+ 
             message={message}
           />
         )}
-
+ 
         {currentStep === reviewStep && (
           <ReviewStep
             shopSlug={shopSlug}
@@ -2330,7 +2426,7 @@ export default function OnboardingPage() {
             stepNumber={reviewStep}
           />
         )}
-
+ 
         <p className={styles.helpText}>
           Don&apos;t worry — everything here
           can be changed later from your
@@ -2340,7 +2436,7 @@ export default function OnboardingPage() {
     </main>
   );
 }
-
+ 
 function Progress({
   currentStep,
   aiVoiceEnabled,
@@ -2356,18 +2452,18 @@ function Progress({
       : []),
     "Review",
   ];
-
+ 
   return (
     <section className={styles.progressCard}>
       {steps.map((label, index) => {
         const stepNumber = index + 1;
-
+ 
         const isActive =
           stepNumber === currentStep;
-
+ 
         const isDone =
           stepNumber < currentStep;
-
+ 
         return (
           <div
             key={label}
@@ -2378,11 +2474,11 @@ function Progress({
             <div
               className={[
                 styles.progressStep,
-
+ 
                 isActive
                   ? styles.progressActive
                   : "",
-
+ 
                 isDone
                   ? styles.progressDone
                   : "",
@@ -2395,16 +2491,16 @@ function Progress({
                   ? "✓"
                   : stepNumber}
               </span>
-
+ 
               <strong>{label}</strong>
             </div>
-
+ 
             {index <
               steps.length - 1 && (
               <div
                 className={[
                   styles.progressLine,
-
+ 
                   isDone
                     ? styles.progressLineDone
                     : "",
@@ -2419,7 +2515,7 @@ function Progress({
     </section>
   );
 }
-
+ 
 function HoursStep({
   hours,
   openDayCount,
@@ -2434,25 +2530,25 @@ function HoursStep({
         <div className={styles.icon}>
           🕒
         </div>
-
+ 
         <div>
           <p className={styles.stepLabel}>
             STEP 1
           </p>
-
+ 
           <h2 className={styles.cardTitle}>
             When is your business open?
           </h2>
-
+ 
           <p className={styles.cardText}>
             Choose your normal weekly hours.
             You can always change them later.
           </p>
         </div>
       </div>
-
+ 
       <Message message={message} />
-
+ 
       <div className={styles.days}>
         {hours.map((day) => (
           <div
@@ -2470,7 +2566,7 @@ function HoursStep({
                 >
                   {day.name}
                 </strong>
-
+ 
                 <p
                   className={
                     day.open
@@ -2483,7 +2579,7 @@ function HoursStep({
                     : "Closed"}
                 </p>
               </div>
-
+ 
               <label
                 className={styles.switch}
               >
@@ -2498,7 +2594,7 @@ function HoursStep({
                     )
                   }
                 />
-
+ 
                 <span
                   className={
                     styles.slider
@@ -2506,7 +2602,7 @@ function HoursStep({
                 />
               </label>
             </div>
-
+ 
             {day.open ? (
               <div
                 className={
@@ -2515,7 +2611,7 @@ function HoursStep({
               >
                 <label>
                   <span>Opens</span>
-
+ 
                   <input
                     type="time"
                     value={day.start}
@@ -2528,10 +2624,10 @@ function HoursStep({
                     }
                   />
                 </label>
-
+ 
                 <label>
                   <span>Closes</span>
-
+ 
                   <input
                     type="time"
                     value={day.end}
@@ -2558,19 +2654,19 @@ function HoursStep({
           </div>
         ))}
       </div>
-
+ 
       <div className={styles.footer}>
         <div>
           <strong>
             {openDayCount} days open
           </strong>
-
+ 
           <p>
             These become your normal shop
             hours.
           </p>
         </div>
-
+ 
         <button
           type="button"
           onClick={saveHours}
@@ -2587,7 +2683,7 @@ function HoursStep({
     </section>
   );
 }
-
+ 
 function StaffStep({
   staff,
   newStaffName,
@@ -2609,27 +2705,27 @@ function StaffStep({
         >
           👥
         </div>
-
+ 
         <div>
           <p
             className={`${styles.stepLabel} ${styles.staffStepLabel}`}
           >
             STEP 2
           </p>
-
+ 
           <h2 className={styles.cardTitle}>
             Who takes appointments?
           </h2>
-
+ 
           <p className={styles.cardText}>
             Add yourself and anyone else
             customers can book with.
           </p>
         </div>
       </div>
-
+ 
       <Message message={message} />
-
+ 
       <form
         className={
           styles.addPersonCard
@@ -2642,24 +2738,24 @@ function StaffStep({
         >
           Staff member&apos;s name
         </label>
-
+ 
         <div className={styles.addRow}>
           <input
             id="staffName"
             type="text"
             value={newStaffName}
-
+ 
             onChange={(event) =>
               setNewStaffName(
                 event.target.value
               )
             }
-
+ 
             placeholder="Example: Maria"
             className={styles.textInput}
             disabled={addingStaff}
           />
-
+ 
           <button
             type="submit"
             disabled={addingStaff}
@@ -2671,10 +2767,10 @@ function StaffStep({
               ? "Adding..."
               : "+ Add Staff"}
           </button>
-
+ 
         </div>
       </form>
-
+ 
       <div className={styles.peopleList}>
         {staff.length === 0 ? (
           <div
@@ -2687,11 +2783,11 @@ function StaffStep({
             >
               👋
             </div>
-
+ 
             <strong>
               Start with yourself
             </strong>
-
+ 
             <p>
               Add the first person customers
               can book with.
@@ -2715,7 +2811,7 @@ function StaffStep({
                   .slice(0, 1)
                   .toUpperCase()}
               </div>
-
+ 
               <div
                 className={
                   styles.personInfo
@@ -2724,13 +2820,13 @@ function StaffStep({
                 <strong>
                   {person.name}
                 </strong>
-
+ 
                 <span>
                   Ready for services and
                   schedule
                 </span>
               </div>
-
+ 
               <div
                 className={
                   styles.readyBadge
@@ -2738,7 +2834,7 @@ function StaffStep({
               >
                 ✓ Added
               </div>
-
+ 
               <button
                 type="button"
                 onClick={() =>
@@ -2756,7 +2852,7 @@ function StaffStep({
           ))
         )}
       </div>
-
+ 
       <div className={styles.footer}>
         <button
           type="button"
@@ -2765,7 +2861,7 @@ function StaffStep({
         >
           ← Back
         </button>
-
+ 
         <div
           className={
             styles.footerRight
@@ -2779,12 +2875,12 @@ function StaffStep({
                 : "people"}{" "}
               added
             </strong>
-
+ 
             <p>
               You can add more staff later.
             </p>
           </div>
-
+ 
           <button
             type="button"
             onClick={
@@ -2801,7 +2897,7 @@ function StaffStep({
     </section>
   );
 }
-
+ 
 function ServicesStep({
   services,
   newServiceName,
@@ -2823,18 +2919,18 @@ function ServicesStep({
         >
           ✨
         </div>
-
+ 
         <div>
           <p
             className={`${styles.stepLabel} ${styles.serviceStepLabel}`}
           >
             STEP 3
           </p>
-
+ 
           <h2 className={styles.cardTitle}>
             What services do you offer?
           </h2>
-
+ 
           <p className={styles.cardText}>
             Add each service customers should
             be able to book. We&apos;ll connect
@@ -2842,9 +2938,9 @@ function ServicesStep({
           </p>
         </div>
       </div>
-
+ 
       <Message message={message} />
-
+ 
       <form
         className={
           styles.addServiceCard
@@ -2857,24 +2953,24 @@ function ServicesStep({
         >
           Service name
         </label>
-
+ 
         <div className={styles.addRow}>
           <input
             id="serviceName"
             type="text"
             value={newServiceName}
-
+ 
             onChange={(event) =>
               setNewServiceName(
                 event.target.value
               )
             }
-
+ 
             placeholder="Example: Haircut"
             className={styles.textInput}
             disabled={addingService}
           />
-
+ 
           <button
             type="submit"
             disabled={addingService}
@@ -2887,7 +2983,7 @@ function ServicesStep({
               : "+ Add Service"}
           </button>
         </div>
-
+ 
         <div
           className={
             styles.serviceExamples
@@ -2898,7 +2994,7 @@ function ServicesStep({
           Training
         </div>
       </form>
-
+ 
       <div
         className={styles.serviceList}
       >
@@ -2913,11 +3009,11 @@ function ServicesStep({
             >
               ✨
             </div>
-
+ 
             <strong>
               Add your first service
             </strong>
-
+ 
             <p>
               Start with the service customers
               book most often.
@@ -2938,7 +3034,7 @@ function ServicesStep({
               >
                 ✓
               </div>
-
+ 
               <div
                 className={
                   styles.personInfo
@@ -2947,12 +3043,12 @@ function ServicesStep({
                 <strong>
                   {service.name}
                 </strong>
-
+ 
                 <span>
                   Duration and price come next
                 </span>
               </div>
-
+ 
               <button
                 type="button"
                 onClick={() =>
@@ -2970,7 +3066,7 @@ function ServicesStep({
           ))
         )}
       </div>
-
+ 
       <div className={styles.footer}>
         <button
           type="button"
@@ -2979,7 +3075,7 @@ function ServicesStep({
         >
           ← Back
         </button>
-
+ 
         <div
           className={
             styles.footerRight
@@ -2993,12 +3089,12 @@ function ServicesStep({
                 : "services"}{" "}
               added
             </strong>
-
+ 
             <p>
               You can change these later.
             </p>
           </div>
-
+ 
           <button
             type="button"
             onClick={
@@ -3015,7 +3111,7 @@ function ServicesStep({
     </section>
   );
 }
-
+ 
 function ScheduleStep({
   staff,
   services,
@@ -3031,18 +3127,18 @@ function ScheduleStep({
 }) {
   const person =
     staff[currentStaffIndex];
-
+ 
   if (!person) {
     return null;
   }
-
+ 
   const selectedCount =
     services.filter(
       (service) =>
         staffServiceForm[service.id]
           ?.selected
     ).length;
-
+ 
   return (
     <section
       className={`${styles.mainCard} ${styles.scheduleCard}`}
@@ -3053,18 +3149,18 @@ function ScheduleStep({
         >
           📅
         </div>
-
+ 
         <div>
           <p
             className={`${styles.stepLabel} ${styles.scheduleStepLabel}`}
           >
             STEP 4
           </p>
-
+ 
           <h2 className={styles.cardTitle}>
             Set up {person.name}
           </h2>
-
+ 
           <p className={styles.cardText}>
             Choose what {person.name} does,
             what each service costs, and when
@@ -3072,7 +3168,7 @@ function ScheduleStep({
           </p>
         </div>
       </div>
-
+ 
       <div
         style={{
           display: "flex",
@@ -3099,7 +3195,7 @@ function ScheduleStep({
             {currentStaffIndex + 1} of{" "}
             {staff.length}
           </strong>
-
+ 
           <p
             style={{
               margin: "4px 0 0",
@@ -3111,7 +3207,7 @@ function ScheduleStep({
             time to keep setup simple.
           </p>
         </div>
-
+ 
         <div
           style={{
             minWidth: "42px",
@@ -3132,9 +3228,9 @@ function ScheduleStep({
             .toUpperCase()}
         </div>
       </div>
-
+ 
       <Message message={message} />
-
+ 
       <div
         style={{
           marginBottom: "26px",
@@ -3153,7 +3249,7 @@ function ScheduleStep({
           >
             Services
           </strong>
-
+ 
           <p
             style={{
               margin: "5px 0 0",
@@ -3166,7 +3262,7 @@ function ScheduleStep({
             the normal duration and price.
           </p>
         </div>
-
+ 
         <div
           style={{
             display: "grid",
@@ -3182,7 +3278,7 @@ function ScheduleStep({
                 duration: "30",
                 price: "",
               };
-
+ 
             return (
               <div
                 key={service.id}
@@ -3222,7 +3318,7 @@ function ScheduleStep({
                       height: "18px",
                     }}
                   />
-
+ 
                   <strong
                     style={{
                       color: "#1e293b",
@@ -3232,7 +3328,7 @@ function ScheduleStep({
                     {service.name}
                   </strong>
                 </label>
-
+ 
                 {form.selected && (
                   <div
                     style={{
@@ -3255,7 +3351,7 @@ function ScheduleStep({
                       >
                         Duration (minutes)
                       </span>
-
+ 
                       <input
                         type="number"
                         min="1"
@@ -3279,7 +3375,7 @@ function ScheduleStep({
                         }}
                       />
                     </label>
-
+ 
                     <label>
                       <span
                         style={{
@@ -3292,7 +3388,7 @@ function ScheduleStep({
                       >
                         Price ($)
                       </span>
-
+ 
                       <input
                         type="number"
                         min="0"
@@ -3323,7 +3419,7 @@ function ScheduleStep({
             );
           })}
         </div>
-
+ 
         <p
           style={{
             margin: "10px 0 0",
@@ -3338,7 +3434,7 @@ function ScheduleStep({
           selected for {person.name}.
         </p>
       </div>
-
+ 
       <div>
         <div
           style={{
@@ -3353,7 +3449,7 @@ function ScheduleStep({
           >
             Working hours
           </strong>
-
+ 
           <p
             style={{
               margin: "5px 0 0",
@@ -3366,7 +3462,7 @@ function ScheduleStep({
             different for {person.name}.
           </p>
         </div>
-
+ 
         <div className={styles.days}>
           {staffHours.map((day) => (
             <div
@@ -3384,7 +3480,7 @@ function ScheduleStep({
                   >
                     {day.name}
                   </strong>
-
+ 
                   <p
                     className={
                       day.open
@@ -3397,7 +3493,7 @@ function ScheduleStep({
                       : "Off"}
                   </p>
                 </div>
-
+ 
                 <label
                   className={styles.switch}
                 >
@@ -3412,20 +3508,20 @@ function ScheduleStep({
                       )
                     }
                   />
-
+ 
                   <span
                     className={styles.slider}
                   />
                 </label>
               </div>
-
+ 
               {day.open ? (
                 <div
                   className={styles.timeGrid}
                 >
                   <label>
                     <span>Starts</span>
-
+ 
                     <input
                       type="time"
                       value={day.start}
@@ -3438,10 +3534,10 @@ function ScheduleStep({
                       }
                     />
                   </label>
-
+ 
                   <label>
                     <span>Ends</span>
-
+ 
                     <input
                       type="time"
                       value={day.end}
@@ -3469,10 +3565,10 @@ function ScheduleStep({
           ))}
         </div>
       </div>
-
+ 
       <div className={styles.footer}>
         <button
-
+ 
           type="button"
           onClick={goBack}
           disabled={savingStaffSetup}
@@ -3480,7 +3576,7 @@ function ScheduleStep({
         >
           ← Back
         </button>
-
+ 
         <button
           type="button"
           onClick={saveCurrentStaffSetup}
@@ -3498,7 +3594,7 @@ function ScheduleStep({
     </section>
   );
 }
-
+ 
 function PaymentsStep({
   paymentPolicy,
   setPaymentPolicy,
@@ -3513,12 +3609,12 @@ function PaymentsStep({
 }) {
   const [startingConnect, setStartingConnect] =
     useState(false);
-
+ 
   const [
     connectActionError,
     setConnectActionError,
   ] = useState("");
-
+ 
   async function startStripeSetup() {
     if (
       startingConnect ||
@@ -3526,18 +3622,18 @@ function PaymentsStep({
     ) {
       return;
     }
-
+ 
     setStartingConnect(true);
     setConnectActionError("");
-
+ 
     try {
       const saved =
         await savePaymentPreference(false);
-
+ 
       if (!saved) {
         return;
       }
-
+ 
       const response = await fetch(
         "/api/billing/connect/start",
         {
@@ -3547,17 +3643,17 @@ function PaymentsStep({
           },
         }
       );
-
+ 
       const data = await response
         .json()
         .catch(() => ({}));
-
+ 
       if (response.status === 401) {
         throw new Error(
           "Your login has expired. Please sign in again."
         );
       }
-
+ 
       if (!response.ok) {
         throw new Error(
           data.error ||
@@ -3565,18 +3661,18 @@ function PaymentsStep({
             "Could not start Stripe setup."
         );
       }
-
+ 
       if (!data.onboarding_url) {
         throw new Error(
           "Stripe did not return a setup link."
         );
       }
-
+ 
       window.location.href =
         data.onboarding_url;
     } catch (error) {
       console.error(error);
-
+ 
       setConnectActionError(
         error instanceof Error
           ? error.message
@@ -3586,7 +3682,7 @@ function PaymentsStep({
       setStartingConnect(false);
     }
   }
-
+ 
   const options = [
     {
       value: "none",
@@ -3628,44 +3724,44 @@ function PaymentsStep({
       selectedBorder: "#7c3aed",
     },
   ];
-
+ 
   const hasConnectedAccount =
     Boolean(
       connectStatus
         ?.connected_account_exists
     );
-
+ 
   const detailsSubmitted =
     Boolean(
       connectStatus?.details_submitted
     );
-
+ 
   const chargesEnabled =
     Boolean(
       connectStatus?.charges_enabled
     );
-
+ 
   const payoutsEnabled =
     Boolean(
       connectStatus?.payouts_enabled
     );
-
+ 
   const paymentAccountReady =
     hasConnectedAccount &&
     detailsSubmitted &&
     chargesEnabled &&
     payoutsEnabled;
-
+ 
   const paymentAccountInReview =
     hasConnectedAccount &&
     detailsSubmitted &&
     !paymentAccountReady;
-
+ 
   function renderConnectStatus() {
     if (paymentPolicy === "none") {
       return null;
     }
-
+ 
     if (loadingConnectStatus) {
       return (
         <div
@@ -3686,7 +3782,7 @@ function PaymentsStep({
         </div>
       );
     }
-
+ 
     if (connectStatusError) {
       return (
         <div
@@ -3707,7 +3803,7 @@ function PaymentsStep({
             payment account.
           </strong>{" "}
           {connectStatusError}
-
+ 
           <div
             style={{
               marginTop: "10px",
@@ -3735,7 +3831,7 @@ function PaymentsStep({
         </div>
       );
     }
-
+ 
     if (paymentAccountReady) {
       return (
         <div
@@ -3761,7 +3857,7 @@ function PaymentsStep({
         </div>
       );
     }
-
+ 
     if (paymentAccountInReview) {
       return (
         <div
@@ -3786,7 +3882,7 @@ function PaymentsStep({
           Card payments and payouts will
           become available after Stripe
           finishes its review.
-
+ 
           <div
             style={{
               marginTop: "10px",
@@ -3814,7 +3910,7 @@ function PaymentsStep({
         </div>
       );
     }
-
+ 
     return (
       <div
         style={{
@@ -3840,7 +3936,7 @@ function PaymentsStep({
       </div>
     );
   }
-
+ 
   return (
     <section
       className={`${styles.mainCard} ${styles.scheduleCard}`}
@@ -3857,7 +3953,7 @@ function PaymentsStep({
         >
           💳
         </div>
-
+ 
         <div>
           <p
             className={
@@ -3869,7 +3965,7 @@ function PaymentsStep({
           >
             STEP 5
           </p>
-
+ 
           <h2
             className={
               styles.cardTitle
@@ -3878,7 +3974,7 @@ function PaymentsStep({
             Do you want to accept
             credit cards?
           </h2>
-
+ 
           <p
             className={
               styles.cardText
@@ -3891,9 +3987,9 @@ function PaymentsStep({
           </p>
         </div>
       </div>
-
+ 
       <Message message={message} />
-
+ 
       <div
         style={{
           display: "grid",
@@ -3904,7 +4000,7 @@ function PaymentsStep({
           const selected =
             paymentPolicy ===
             option.value;
-
+ 
           return (
             <button
               key={option.value}
@@ -3965,7 +4061,7 @@ function PaymentsStep({
                 >
                   {option.icon}
                 </div>
-
+ 
                 <div
                   style={{
                     flex: 1,
@@ -3991,7 +4087,7 @@ function PaymentsStep({
                     >
                       {option.title}
                     </strong>
-
+ 
                     <span
                       style={{
                         width: "24px",
@@ -4028,7 +4124,7 @@ function PaymentsStep({
                         : ""}
                     </span>
                   </div>
-
+ 
                   <p
                     style={{
                       margin:
@@ -4043,7 +4139,7 @@ function PaymentsStep({
                   >
                     {option.description}
                   </p>
-
+ 
                   <p
                     style={{
                       margin:
@@ -4064,9 +4160,9 @@ function PaymentsStep({
           );
         })}
       </div>
-
+ 
       {renderConnectStatus()}
-
+ 
       {connectActionError && (
         <div
           style={{
@@ -4084,7 +4180,7 @@ function PaymentsStep({
           {connectActionError}
         </div>
       )}
-
+ 
       <div className={styles.footer}>
         <button
           type="button"
@@ -4097,7 +4193,7 @@ function PaymentsStep({
         >
           ← Back
         </button>
-
+ 
         <button
           type="button"
           onClick={() => {
@@ -4108,7 +4204,7 @@ function PaymentsStep({
               startStripeSetup();
               return;
             }
-
+ 
             savePaymentPreference();
           }}
           disabled={
@@ -4138,7 +4234,7 @@ function PaymentsStep({
     </section>
   );
 }
-
+ 
 function AiReceptionistStep({
   provisionStatus,
   loadingStatus,
@@ -4148,6 +4244,7 @@ function AiReceptionistStep({
   refreshStatus,
   goBack,
   continueToReview,
+  activatingAiNumber,
   aiAreaCode,
   setAiAreaCode,
   availableAiNumbers,
@@ -4161,12 +4258,17 @@ function AiReceptionistStep({
   const provisioned = Boolean(
     provisionStatus?.provisioned
   );
-
+ 
+  const activePhoneNumber =
+    provisionStatus?.phone_number ||
+    provisionStatus?.agent?.inbound_number ||
+    "";
+ 
   const agentName =
     provisionStatus?.agent?.agent_name ||
     provisionStatus?.agent?.name ||
     "Your AI Receptionist";
-
+ 
   return (
     <section
       className={`${styles.mainCard} ${styles.scheduleCard}`}
@@ -4181,7 +4283,7 @@ function AiReceptionistStep({
         >
           ☎️
         </div>
-
+ 
         <div>
           <p
             className={styles.stepLabel}
@@ -4189,11 +4291,11 @@ function AiReceptionistStep({
           >
             STEP 6
           </p>
-
+ 
           <h2 className={styles.cardTitle}>
             Set up your AI Receptionist
           </h2>
-
+ 
           <p className={styles.cardText}>
             Your plan includes an AI receptionist that can
             answer calls, check your real ChairTime
@@ -4201,9 +4303,9 @@ function AiReceptionistStep({
           </p>
         </div>
       </div>
-
+ 
       <Message message={message} />
-
+ 
       <div
         style={{
           padding: "20px",
@@ -4241,7 +4343,7 @@ function AiReceptionistStep({
           >
             {provisioned ? "✓" : "🤖"}
           </div>
-
+ 
           <div style={{ flex: 1 }}>
             <strong
               style={{
@@ -4258,7 +4360,7 @@ function AiReceptionistStep({
                   ? `${agentName} is ready`
                   : "Ready to create your AI Receptionist"}
             </strong>
-
+ 
             <p
               style={{
                 margin: "7px 0 0",
@@ -4273,11 +4375,11 @@ function AiReceptionistStep({
                 ? "Your dedicated AI receptionist is connected to your real availability, services, staff, and booking actions."
                 : "ChairTime will create a dedicated AI receptionist for this business."}
             </p>
-
+ 
           </div>
         </div>
       </div>
-
+ 
       {!provisioned && !loadingStatus && (
         <div
           style={{
@@ -4297,7 +4399,7 @@ function AiReceptionistStep({
           >
             What happens next
           </strong>
-
+ 
           <p
             style={{
               margin: "6px 0 0",
@@ -4312,8 +4414,8 @@ function AiReceptionistStep({
           </p>
         </div>
       )}
-
-      {provisioned && (
+ 
+      {provisioned && !activePhoneNumber && (
         <div
           style={{
             marginTop: "18px",
@@ -4333,7 +4435,7 @@ function AiReceptionistStep({
             >
               Choose your local phone number
             </strong>
-
+ 
             <p
               style={{
                 margin: "6px 0 0",
@@ -4346,7 +4448,7 @@ function AiReceptionistStep({
               when they call your AI receptionist.
             </p>
           </div>
-
+ 
           <div
             style={{
               display: "flex",
@@ -4372,13 +4474,12 @@ function AiReceptionistStep({
               >
                 Area code
               </span>
-
+ 
               <input
                 type="text"
                 inputMode="numeric"
                 value={aiAreaCode}
                 maxLength={3}
-                placeholder="240"
                 onChange={(event) =>
                   setAiAreaCode(event.target.value)
                 }
@@ -4391,6 +4492,10 @@ function AiReceptionistStep({
                     loadAvailableAiNumbers();
                   }
                 }}
+                disabled={
+                  loadingAiNumbers ||
+                  activatingAiNumber
+                }
                 style={{
                   width: "130px",
                   padding: "11px 12px",
@@ -4401,12 +4506,13 @@ function AiReceptionistStep({
                 }}
               />
             </label>
-
+ 
             <button
               type="button"
               onClick={loadAvailableAiNumbers}
               disabled={
                 loadingAiNumbers ||
+                activatingAiNumber ||
                 aiAreaCode.length !== 3
               }
               className={styles.continueButton}
@@ -4416,7 +4522,7 @@ function AiReceptionistStep({
                 : "Find Numbers"}
             </button>
           </div>
-
+ 
           {aiNumberError && (
             <div
               style={{
@@ -4433,7 +4539,7 @@ function AiReceptionistStep({
               {aiNumberError}
             </div>
           )}
-
+ 
           {availableAiNumbers.length > 0 && (
             <div
               style={{
@@ -4446,7 +4552,7 @@ function AiReceptionistStep({
                 const selected =
                   selectedAiNumber ===
                   number.phone_number;
-
+ 
                 const place = [
                   number.locality,
                   number.region &&
@@ -4456,7 +4562,7 @@ function AiReceptionistStep({
                 ]
                   .filter(Boolean)
                   .join(", ");
-
+ 
                 return (
                   <label
                     key={number.phone_number}
@@ -4480,13 +4586,14 @@ function AiReceptionistStep({
                       name="aiPhoneNumber"
                       value={number.phone_number}
                       checked={selected}
+                      disabled={activatingAiNumber}
                       onChange={() =>
                         setSelectedAiNumber(
                           number.phone_number
                         )
                       }
                     />
-
+ 
                     <div
                       style={{
                         display: "flex",
@@ -4503,7 +4610,7 @@ function AiReceptionistStep({
                         {number.friendly_name ||
                           number.phone_number}
                       </strong>
-
+ 
                       {place && (
                         <span
                           style={{
@@ -4520,7 +4627,7 @@ function AiReceptionistStep({
               })}
             </div>
           )}
-
+ 
           {selectedAiNumber && (
             <div
               style={{
@@ -4538,9 +4645,27 @@ function AiReceptionistStep({
               purchased or activated yet.
             </div>
           )}
+ 
+          {activatingAiNumber && (
+            <div
+              style={{
+                marginTop: "14px",
+                padding: "12px 14px",
+                background: "#f8fafc",
+                border: "1px solid #cbd5e1",
+                borderRadius: "12px",
+                color: "#334155",
+                fontSize: "14px",
+                fontWeight: 700,
+              }}
+            >
+              Activating your AI Receptionist phone number.
+              Please do not leave this page.
+            </div>
+          )}
         </div>
       )}
-
+ 
       {statusError && (
         <div
           style={{
@@ -4557,17 +4682,19 @@ function AiReceptionistStep({
           {statusError}
         </div>
       )}
-
+ 
       <div className={styles.footer}>
         <button
           type="button"
           onClick={goBack}
-          disabled={provisioning}
+          disabled={
+            provisioning || activatingAiNumber
+          }
           className={styles.backButton}
         >
           ← Back
         </button>
-
+ 
         <div
           style={{
             display: "flex",
@@ -4591,7 +4718,7 @@ function AiReceptionistStep({
                 : "Check Again"}
             </button>
           )}
-
+ 
           {!provisioned ? (
             <button
               type="button"
@@ -4611,9 +4738,18 @@ function AiReceptionistStep({
             <button
               type="button"
               onClick={continueToReview}
+              disabled={
+                activatingAiNumber ||
+                (!activePhoneNumber &&
+                  !selectedAiNumber)
+              }
               className={styles.continueButton}
             >
-              Continue to Review →
+              {activatingAiNumber
+                ? "Activating Phone Number..."
+                : activePhoneNumber
+                  ? "Continue to Review →"
+                  : "Activate Number & Continue →"}
             </button>
           )}
         </div>
@@ -4621,7 +4757,7 @@ function AiReceptionistStep({
     </section>
   );
 }
-
+ 
 function ReviewStep({
   shopSlug,
   staff,
@@ -4646,7 +4782,7 @@ function ReviewStep({
         >
           🎉
         </div>
-
+ 
         <div>
           <p
             className={styles.stepLabel}
@@ -4656,12 +4792,12 @@ function ReviewStep({
           >
             STEP {stepNumber}
           </p>
-
+ 
           <h2 className={styles.cardTitle}>
             You&apos;re ready to take
             appointments
           </h2>
-
+ 
           <p className={styles.cardText}>
             Review the basics below, then
             open your booking page and make
@@ -4669,7 +4805,7 @@ function ReviewStep({
           </p>
         </div>
       </div>
-
+ 
       <div
         style={{
           display: "grid",
@@ -4687,7 +4823,7 @@ function ReviewStep({
               : "Staff members"
           }
         />
-
+ 
         <SummaryBox
           value={services.length}
           label={
@@ -4697,7 +4833,7 @@ function ReviewStep({
           }
         />
       </div>
-
+ 
       <div
         style={{
           padding: "20px",
@@ -4717,7 +4853,7 @@ function ReviewStep({
         >
           Your public booking page
         </strong>
-
+ 
         <p
           style={{
             margin: "7px 0 0",
@@ -4728,7 +4864,7 @@ function ReviewStep({
         >
           www.chairtimehq.com/{shopSlug}
         </p>
-
+ 
         <button
           type="button"
           onClick={openBookingPage}
@@ -4748,7 +4884,7 @@ function ReviewStep({
           Open My Booking Page ↗
         </button>
       </div>
-
+ 
       <div className={styles.footer}>
         <button
           type="button"
@@ -4757,7 +4893,7 @@ function ReviewStep({
         >
           ← Back
         </button>
-
+ 
         <button
           type="button"
           onClick={finishOnboarding}
@@ -4769,7 +4905,7 @@ function ReviewStep({
     </section>
   );
 }
-
+ 
 function SummaryBox({
   value,
   label,
@@ -4794,7 +4930,7 @@ function SummaryBox({
       >
         {value}
       </strong>
-
+ 
       <span
         style={{
           display: "block",
@@ -4808,16 +4944,15 @@ function SummaryBox({
     </div>
   );
 }
-
+ 
 function Message({
   message,
 }) {
   if (!message) return null;
-
+ 
   return (
     <div className={styles.message}>
       {message}
     </div>
   );
 }
-
