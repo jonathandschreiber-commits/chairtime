@@ -474,10 +474,6 @@ export default function OnboardingPage() {
 
   async function loadOnboardingData() {
     try {
-      const query =
-        "?shop_slug=" +
-        encodeURIComponent(shopSlug);
-
       const [
         hoursResponse,
         staffResponse,
@@ -487,42 +483,71 @@ export default function OnboardingPage() {
         shopResponse,
       ] = await Promise.all([
         fetch(
-          `${API_BASE}/api/shop-availability-rules${query}`,
+          `/api/shops/${encodeURIComponent(
+            shopSlug
+          )}/shop-availability-rules`,
           {
             cache: "no-store",
           }
         ),
         fetch(
-          `${API_BASE}/api/barbers${query}`,
+          `/api/shops/${encodeURIComponent(
+            shopSlug
+          )}/barbers`,
           {
             cache: "no-store",
           }
         ),
         fetch(
-          `${API_BASE}/api/service-catalog${query}`,
+          `/api/shops/${encodeURIComponent(
+            shopSlug
+          )}/service-catalog`,
           {
             cache: "no-store",
           }
         ),
         fetch(
-          `${API_BASE}/api/services${query}`,
+          `/api/shops/${encodeURIComponent(
+            shopSlug
+          )}/services`,
           {
             cache: "no-store",
           }
         ),
         fetch(
-          `${API_BASE}/api/availability-rules${query}`,
+          `/api/shops/${encodeURIComponent(
+            shopSlug
+          )}/availability-rules`,
           {
             cache: "no-store",
           }
         ),
         fetch(
-          `${API_BASE}/api/shops${query}`,
+          `/api/shops/${encodeURIComponent(
+            shopSlug
+          )}`,
           {
             cache: "no-store",
           }
         ),
       ]);
+
+      if (
+        hoursResponse.status === 401 ||
+        staffResponse.status === 401 ||
+        servicesResponse.status === 401 ||
+        assignedServicesResponse.status === 401 ||
+        availabilityResponse.status === 401 ||
+        shopResponse.status === 401
+      ) {
+        router.replace(
+          `/login?next=${encodeURIComponent(
+            `/${shopSlug}/onboarding`
+          )}`
+        );
+
+        return;
+      }
 
       if (!hoursResponse.ok) {
         throw new Error(
@@ -579,10 +604,9 @@ export default function OnboardingPage() {
         await shopResponse.json();
 
       const currentShop =
-        Array.isArray(shopData) &&
-        shopData.length > 0
-          ? shopData[0]
-          : null;
+        Array.isArray(shopData)
+          ? shopData[0] || null
+          : shopData?.shop || shopData || null;
 
       setPaymentPolicy(
         currentShop?.payment_policy || "none"
@@ -592,23 +616,66 @@ export default function OnboardingPage() {
         Boolean(currentShop?.ai_voice_enabled)
       );
 
-      setExistingRules(hoursData);
-      setStaff(staffData);
-      setServices(servicesData);
+      setExistingRules(
+        Array.isArray(hoursData)
+          ? hoursData
+          : []
+      );
+
+      setStaff(
+        Array.isArray(staffData)
+          ? staffData
+          : []
+      );
+
+      setServices(
+        Array.isArray(servicesData)
+          ? servicesData
+          : []
+      );
 
       setAssignedServices(
-        assignedServicesData
+        Array.isArray(assignedServicesData)
+          ? assignedServicesData
+          : []
       );
 
       setAvailabilityRules(
-        availabilityData
+        Array.isArray(availabilityData)
+          ? availabilityData
+          : []
       );
 
+      const safeHoursData =
+        Array.isArray(hoursData)
+          ? hoursData
+          : [];
+
+      const safeStaffData =
+        Array.isArray(staffData)
+          ? staffData
+          : [];
+
+      const safeServicesData =
+        Array.isArray(servicesData)
+          ? servicesData
+          : [];
+
+      const safeAssignedServicesData =
+        Array.isArray(assignedServicesData)
+          ? assignedServicesData
+          : [];
+
+      const safeAvailabilityData =
+        Array.isArray(availabilityData)
+          ? availabilityData
+          : [];
+
       const normalizedHours =
-        hoursData.length > 0
+        safeHoursData.length > 0
           ? DAYS.map((day) => {
               const rule =
-                hoursData.find(
+                safeHoursData.find(
                   (item) =>
                     item.weekday ===
                     day.weekday
@@ -640,25 +707,25 @@ export default function OnboardingPage() {
 
       setHours(normalizedHours);
 
-      if (hoursData.length === 0) {
+      if (safeHoursData.length === 0) {
         setCurrentStep(1);
-      } else if (staffData.length === 0) {
+      } else if (safeStaffData.length === 0) {
         setCurrentStep(2);
-      } else if (servicesData.length === 0) {
+      } else if (safeServicesData.length === 0) {
         setCurrentStep(3);
       } else {
         const firstIncompleteIndex =
-          staffData.findIndex(
+          safeStaffData.findIndex(
             (person) => {
               const hasService =
-                assignedServicesData.some(
+                safeAssignedServicesData.some(
                   (service) =>
                     service.barber_id ===
                     person.id
                 );
 
               const hasHours =
-                availabilityData.some(
+                safeAvailabilityData.some(
                   (rule) =>
                     rule.barber_id ===
                     person.id
@@ -678,10 +745,10 @@ export default function OnboardingPage() {
           );
 
           prepareStaffEditor(
-            staffData[firstIncompleteIndex],
-            servicesData,
-            assignedServicesData,
-            availabilityData,
+            safeStaffData[firstIncompleteIndex],
+            safeServicesData,
+            safeAssignedServicesData,
+            safeAvailabilityData,
             normalizedHours
           );
         }
@@ -842,13 +909,25 @@ export default function OnboardingPage() {
     try {
       for (const rule of existingRules) {
         const deleteResponse = await fetch(
-          `${API_BASE}/api/shop-availability-rules/${encodeURIComponent(
+          `/api/shops/${encodeURIComponent(
+            shopSlug
+          )}/shop-availability-rules/${encodeURIComponent(
             rule.id
           )}`,
           {
             method: "DELETE",
           }
         );
+
+        if (deleteResponse.status === 401) {
+          router.replace(
+            `/login?next=${encodeURIComponent(
+              `/${shopSlug}/onboarding`
+            )}`
+          );
+
+          return;
+        }
 
         if (!deleteResponse.ok) {
           throw new Error(
@@ -861,7 +940,9 @@ export default function OnboardingPage() {
         if (!day.open) continue;
 
         const response = await fetch(
-          `${API_BASE}/api/shop-availability-rules`,
+          `/api/shops/${encodeURIComponent(
+            shopSlug
+          )}/shop-availability-rules`,
           {
             method: "POST",
 
@@ -879,6 +960,16 @@ export default function OnboardingPage() {
           }
         );
 
+        if (response.status === 401) {
+          router.replace(
+            `/login?next=${encodeURIComponent(
+              `/${shopSlug}/onboarding`
+            )}`
+          );
+
+          return;
+        }
+
         if (!response.ok) {
           const error = await response
             .json()
@@ -894,17 +985,32 @@ export default function OnboardingPage() {
 
       const refreshedResponse =
         await fetch(
-          `${API_BASE}/api/shop-availability-rules?shop_slug=${encodeURIComponent(
+          `/api/shops/${encodeURIComponent(
             shopSlug
-          )}`,
+          )}/shop-availability-rules`,
           {
             cache: "no-store",
           }
         );
 
+      if (refreshedResponse.status === 401) {
+        router.replace(
+          `/login?next=${encodeURIComponent(
+            `/${shopSlug}/onboarding`
+          )}`
+        );
+
+        return;
+      }
+
       if (refreshedResponse.ok) {
+        const refreshedData =
+          await refreshedResponse.json();
+
         setExistingRules(
-          await refreshedResponse.json()
+          Array.isArray(refreshedData)
+            ? refreshedData
+            : []
         );
       }
 
@@ -947,7 +1053,9 @@ export default function OnboardingPage() {
         staff[0];
 
       const response = await fetch(
-        `${API_BASE}/api/barbers`,
+        `/api/shops/${encodeURIComponent(
+          shopSlug
+        )}/barbers`,
         {
           method: "POST",
 
@@ -973,6 +1081,16 @@ export default function OnboardingPage() {
           }),
         }
       );
+
+      if (response.status === 401) {
+        router.replace(
+          `/login?next=${encodeURIComponent(
+            `/${shopSlug}/onboarding`
+          )}`
+        );
+
+        return;
+      }
 
       if (!response.ok) {
         const error = await response
@@ -1008,13 +1126,23 @@ export default function OnboardingPage() {
 
   async function reloadStaff() {
     const response = await fetch(
-      `${API_BASE}/api/barbers?shop_slug=${encodeURIComponent(
+      `/api/shops/${encodeURIComponent(
         shopSlug
-      )}`,
+      )}/barbers`,
       {
         cache: "no-store",
       }
     );
+
+    if (response.status === 401) {
+      router.replace(
+        `/login?next=${encodeURIComponent(
+          `/${shopSlug}/onboarding`
+        )}`
+      );
+
+      return;
+    }
 
     if (!response.ok) {
       throw new Error(
@@ -1022,8 +1150,13 @@ export default function OnboardingPage() {
       );
     }
 
+    const staffData =
+      await response.json();
+
     setStaff(
-      await response.json()
+      Array.isArray(staffData)
+        ? staffData
+        : []
     );
   }
 
@@ -1040,13 +1173,25 @@ export default function OnboardingPage() {
 
     try {
       const response = await fetch(
-        `${API_BASE}/api/barbers/${encodeURIComponent(
+        `/api/shops/${encodeURIComponent(
+          shopSlug
+        )}/barbers/${encodeURIComponent(
           person.id
         )}`,
         {
           method: "DELETE",
         }
       );
+
+      if (response.status === 401) {
+        router.replace(
+          `/login?next=${encodeURIComponent(
+            `/${shopSlug}/onboarding`
+          )}`
+        );
+
+        return;
+      }
 
       if (!response.ok) {
         const error = await response
@@ -1110,7 +1255,9 @@ export default function OnboardingPage() {
 
     try {
       const response = await fetch(
-        `${API_BASE}/api/service-catalog`,
+        `/api/shops/${encodeURIComponent(
+          shopSlug
+        )}/service-catalog`,
         {
           method: "POST",
 
@@ -1125,6 +1272,16 @@ export default function OnboardingPage() {
           }),
         }
       );
+
+      if (response.status === 401) {
+        router.replace(
+          `/login?next=${encodeURIComponent(
+            `/${shopSlug}/onboarding`
+          )}`
+        );
+
+        return;
+      }
 
       if (!response.ok) {
         const error = await response
@@ -1160,13 +1317,23 @@ export default function OnboardingPage() {
 
   async function reloadServices() {
     const response = await fetch(
-      `${API_BASE}/api/service-catalog?shop_slug=${encodeURIComponent(
+      `/api/shops/${encodeURIComponent(
         shopSlug
-      )}`,
+      )}/service-catalog`,
       {
         cache: "no-store",
       }
     );
+
+    if (response.status === 401) {
+      router.replace(
+        `/login?next=${encodeURIComponent(
+          `/${shopSlug}/onboarding`
+        )}`
+      );
+
+      return;
+    }
 
     if (!response.ok) {
       throw new Error(
@@ -1174,8 +1341,13 @@ export default function OnboardingPage() {
       );
     }
 
+    const servicesData =
+      await response.json();
+
     setServices(
-      await response.json()
+      Array.isArray(servicesData)
+        ? servicesData
+        : []
     );
   }
 
@@ -1192,13 +1364,25 @@ export default function OnboardingPage() {
 
     try {
       const response = await fetch(
-        `${API_BASE}/api/service-catalog/${encodeURIComponent(
+        `/api/shops/${encodeURIComponent(
+          shopSlug
+        )}/service-catalog/${encodeURIComponent(
           service.id
         )}`,
         {
           method: "DELETE",
         }
       );
+
+      if (response.status === 401) {
+        router.replace(
+          `/login?next=${encodeURIComponent(
+            `/${shopSlug}/onboarding`
+          )}`
+        );
+
+        return;
+      }
 
       if (!response.ok) {
         const error = await response
@@ -1316,28 +1500,43 @@ export default function OnboardingPage() {
   }
 
   async function refreshStaffSetupData() {
-    const query =
-      "?shop_slug=" +
-      encodeURIComponent(shopSlug);
-
     const [
       servicesResponse,
       availabilityResponse,
     ] = await Promise.all([
       fetch(
-        `${API_BASE}/api/services${query}`,
+        `/api/shops/${encodeURIComponent(
+          shopSlug
+        )}/services`,
         {
           cache: "no-store",
         }
       ),
 
       fetch(
-        `${API_BASE}/api/availability-rules${query}`,
+        `/api/shops/${encodeURIComponent(
+          shopSlug
+        )}/availability-rules`,
         {
           cache: "no-store",
         }
       ),
     ]);
+
+    if (
+      servicesResponse.status === 401 ||
+      availabilityResponse.status === 401
+    ) {
+      router.replace(
+        `/login?next=${encodeURIComponent(
+          `/${shopSlug}/onboarding`
+        )}`
+      );
+
+      throw new Error(
+        "Your session has expired."
+      );
+    }
 
     if (
       !servicesResponse.ok ||
@@ -1354,17 +1553,30 @@ export default function OnboardingPage() {
     const nextAvailabilityRules =
       await availabilityResponse.json();
 
+    const safeAssignedServices =
+      Array.isArray(nextAssignedServices)
+        ? nextAssignedServices
+        : [];
+
+    const safeAvailabilityRules =
+      Array.isArray(nextAvailabilityRules)
+        ? nextAvailabilityRules
+        : [];
+
     setAssignedServices(
-      nextAssignedServices
+      safeAssignedServices
     );
 
     setAvailabilityRules(
-      nextAvailabilityRules
+      safeAvailabilityRules
     );
 
     return {
-      nextAssignedServices,
-      nextAvailabilityRules,
+      nextAssignedServices:
+        safeAssignedServices,
+
+      nextAvailabilityRules:
+        safeAvailabilityRules,
     };
   }
 
@@ -1512,7 +1724,9 @@ export default function OnboardingPage() {
           if (existing) {
             const response =
               await fetch(
-                `${API_BASE}/api/services/${encodeURIComponent(
+                `/api/shops/${encodeURIComponent(
+                  shopSlug
+                )}/services/${encodeURIComponent(
                   existing.id
                 )}`,
                 {
@@ -1529,6 +1743,16 @@ export default function OnboardingPage() {
                 }
               );
 
+            if (response.status === 401) {
+              router.replace(
+                `/login?next=${encodeURIComponent(
+                  `/${shopSlug}/onboarding`
+                )}`
+              );
+
+              return;
+            }
+
             if (!response.ok) {
               throw new Error(
                 `Could not update ${catalogService.name} for ${person.name}.`
@@ -1537,7 +1761,9 @@ export default function OnboardingPage() {
           } else {
             const response =
               await fetch(
-                `${API_BASE}/api/services`,
+                `/api/shops/${encodeURIComponent(
+                  shopSlug
+                )}/services`,
                 {
                   method: "POST",
 
@@ -1553,6 +1779,16 @@ export default function OnboardingPage() {
                   }),
                 }
               );
+
+            if (response.status === 401) {
+              router.replace(
+                `/login?next=${encodeURIComponent(
+                  `/${shopSlug}/onboarding`
+                )}`
+              );
+
+              return;
+            }
 
             if (!response.ok) {
               const error =
@@ -1571,13 +1807,25 @@ export default function OnboardingPage() {
         } else if (existing) {
           const response =
             await fetch(
-              `${API_BASE}/api/services/${encodeURIComponent(
+              `/api/shops/${encodeURIComponent(
+                shopSlug
+              )}/services/${encodeURIComponent(
                 existing.id
               )}`,
               {
                 method: "DELETE",
               }
             );
+
+          if (response.status === 401) {
+            router.replace(
+              `/login?next=${encodeURIComponent(
+                `/${shopSlug}/onboarding`
+              )}`
+            );
+
+            return;
+          }
 
           if (!response.ok) {
             throw new Error(
@@ -1598,15 +1846,28 @@ export default function OnboardingPage() {
         const rule
         of existingPersonRules
       ) {
-        const response =
+
+           const response =
           await fetch(
-            `${API_BASE}/api/availability-rules/${encodeURIComponent(
+            `/api/shops/${encodeURIComponent(
+              shopSlug
+            )}/availability-rules/${encodeURIComponent(
               rule.id
             )}`,
             {
               method: "DELETE",
             }
           );
+
+        if (response.status === 401) {
+          router.replace(
+            `/login?next=${encodeURIComponent(
+              `/${shopSlug}/onboarding`
+            )}`
+          );
+
+          return;
+        }
 
         if (!response.ok) {
           throw new Error(
@@ -1620,7 +1881,9 @@ export default function OnboardingPage() {
 
         const response =
           await fetch(
-            `${API_BASE}/api/availability-rules`,
+            `/api/shops/${encodeURIComponent(
+              shopSlug
+            )}/availability-rules`,
             {
               method: "POST",
 
@@ -1642,6 +1905,16 @@ export default function OnboardingPage() {
               }),
             }
           );
+
+        if (response.status === 401) {
+          router.replace(
+            `/login?next=${encodeURIComponent(
+              `/${shopSlug}/onboarding`
+            )}`
+          );
+
+          return;
+        }
 
         if (!response.ok) {
           const error =
@@ -2398,6 +2671,7 @@ function StaffStep({
               ? "Adding..."
               : "+ Add Staff"}
           </button>
+
         </div>
       </form>
 
@@ -3198,6 +3472,7 @@ function ScheduleStep({
 
       <div className={styles.footer}>
         <button
+
           type="button"
           onClick={goBack}
           disabled={savingStaffSetup}
@@ -3998,6 +4273,7 @@ function AiReceptionistStep({
                 ? "Your dedicated AI receptionist is connected to your real availability, services, staff, and booking actions."
                 : "ChairTime will create a dedicated AI receptionist for this business."}
             </p>
+
           </div>
         </div>
       </div>
@@ -4544,3 +4820,4 @@ function Message({
     </div>
   );
 }
+
