@@ -5209,14 +5209,83 @@ def run_phone_purchase_support_diagnostic(
         ),
     }
 
-    # -------------------------------------------------
+        # -------------------------------------------------
     # STEP 2
-    # Immediately make ONE purchase request for the
-    # exact first number returned above.
+    # Use the EXACT fingerprintId returned by the
+    # immediately preceding available-numbers response.
+    #
+    # HighLevel Development specifically requires the
+    # purchase request to use data.fingerprintId from
+    # that same response. ChairTime must not generate
+    # its own fingerprintId.
     # -------------------------------------------------
 
+    search_data = search_body.get("data")
+
+    if not isinstance(search_data, dict):
+        return {
+            "success": False,
+            "diagnostic_stage": (
+                "availability_search"
+            ),
+            "purchase_attempted": False,
+            "purchase_attempt_count": 0,
+            "chairtime_shop": {
+                "id": str(shop.id),
+                "slug": shop.slug,
+                "name": shop.name,
+            },
+            "location_id": location_id,
+            "area_code": clean_area_code,
+            "search": search_evidence,
+            "selected_number": (
+                selected_number_evidence
+            ),
+            "message": (
+                "HighLevel's available-numbers "
+                "response did not contain a data "
+                "object. No purchase request was "
+                "made."
+            ),
+        }
+
     fingerprint_id = str(
-        int(time.time() * 1000)
+        search_data.get("fingerprintId")
+        or ""
+    ).strip()
+
+    if not fingerprint_id:
+        return {
+            "success": False,
+            "diagnostic_stage": (
+                "availability_search"
+            ),
+            "purchase_attempted": False,
+            "purchase_attempt_count": 0,
+            "chairtime_shop": {
+                "id": str(shop.id),
+                "slug": shop.slug,
+                "name": shop.name,
+            },
+            "location_id": location_id,
+            "area_code": clean_area_code,
+            "search": search_evidence,
+            "selected_number": (
+                selected_number_evidence
+            ),
+            "message": (
+                "HighLevel's available-numbers "
+                "response did not contain "
+                "data.fingerprintId. No purchase "
+                "request was made."
+            ),
+        }
+
+    selected_number_evidence[
+        "fingerprint_id_source"
+    ] = (
+        "data.fingerprintId from the immediately "
+        "preceding available-numbers response"
     )
 
     purchase_url = (
