@@ -27,7 +27,7 @@ function unauthorizedResponse() {
 }
 
 
-export async function DELETE(
+export async function GET(
   request,
   context
 ) {
@@ -37,19 +37,63 @@ export async function DELETE(
     return unauthorizedResponse();
   }
 
-  const {
-    ruleId,
-  } = await context.params;
+  const { shopSlug } =
+    await context.params;
 
   const response = await fetch(
-    `${API_BASE}/api/shop-availability-rules/${encodeURIComponent(
-      ruleId
+    `${API_BASE}/api/shop-availability-rules?shop_slug=${encodeURIComponent(
+      shopSlug
     )}`,
     {
-      method: "DELETE",
+      method: "GET",
       headers: {
         Authorization: `Bearer ${token}`,
+        Accept: "application/json",
       },
+      cache: "no-store",
+    }
+  );
+
+  const data = await response
+    .json()
+    .catch(() => ({}));
+
+  return NextResponse.json(
+    data,
+    {
+      status: response.status,
+    }
+  );
+}
+
+
+export async function POST(
+  request,
+  context
+) {
+  const token = await getToken();
+
+  if (!token) {
+    return unauthorizedResponse();
+  }
+
+  const { shopSlug } =
+    await context.params;
+
+  const body = await request.json();
+
+  const response = await fetch(
+    `${API_BASE}/api/shop-availability-rules`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        ...body,
+        shop_slug: shopSlug,
+      }),
       cache: "no-store",
     }
   );
