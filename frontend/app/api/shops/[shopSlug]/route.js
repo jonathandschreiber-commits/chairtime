@@ -42,7 +42,7 @@ export async function GET(
       await context.params;
 
     const response = await fetch(
-      `${API_BASE}/api/shops/${encodeURIComponent(
+      `${API_BASE}/api/shops?shop_slug=${encodeURIComponent(
         shopSlug
       )}`,
       {
