@@ -42,9 +42,9 @@ export async function GET(
       await context.params;
 
     const response = await fetch(
-      `${API_BASE}/api/shops?shop_slug=${encodeURIComponent(
+      `${API_BASE}/api/shops/${encodeURIComponent(
         shopSlug
-      )}`,
+      )}/account`,
       {
         method: "GET",
         headers: {
@@ -67,7 +67,7 @@ export async function GET(
     );
   } catch (error) {
     console.error(
-      "Load shop proxy error:",
+      "Load shop account proxy error:",
       error
     );
 
