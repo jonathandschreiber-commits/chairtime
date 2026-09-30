@@ -27,6 +27,46 @@ function unauthorizedResponse() {
 }
 
 
+export async function GET(
+  request,
+  context
+) {
+  const token = await getToken();
+
+  if (!token) {
+    return unauthorizedResponse();
+  }
+
+  const { shopSlug } =
+    await context.params;
+
+  const response = await fetch(
+    `${API_BASE}/api/shop-availability-rules?shop_slug=${encodeURIComponent(
+      shopSlug
+    )}`,
+    {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/json",
+      },
+      cache: "no-store",
+    }
+  );
+
+  const data = await response
+    .json()
+    .catch(() => ({}));
+
+  return NextResponse.json(
+    data,
+    {
+      status: response.status,
+    }
+  );
+}
+
+
 export async function POST(
   request,
   context
