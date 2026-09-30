@@ -3832,7 +3832,7 @@ def get_fresh_available_phone_records(
     location_id: str,
     area_code: str,
     attempts: int = 3,
-) -> list:
+) -> tuple[list, str]:
     last_response = None
 
     for attempt in range(attempts):
@@ -3867,8 +3867,36 @@ def get_fresh_available_phone_records(
                 )
             )
 
-            if records:
-                return records
+            response_data = data.get("data")
+
+            fingerprint_id = ""
+
+            if isinstance(response_data, dict):
+                fingerprint_id = str(
+                    response_data.get(
+                        "fingerprintId"
+                    )
+                    or ""
+                ).strip()
+
+            if records and fingerprint_id:
+                return (
+                    records,
+                    fingerprint_id,
+                )
+
+            if records and not fingerprint_id:
+                raise HTTPException(
+                    status_code=(
+                        status.HTTP_502_BAD_GATEWAY
+                    ),
+                    detail=(
+                        "HighLevel returned available "
+                        "phone numbers without the "
+                        "fingerprintId required to "
+                        "purchase them."
+                    ),
+                )
 
         elif response.status_code < 500:
             raise_highlevel_error(
@@ -3887,8 +3915,10 @@ def get_fresh_available_phone_records(
             last_response
         )
 
-    return []
-
+    return (
+        [],
+        "",
+    )
 
 def wait_for_purchased_phone_number(
     location_id: str,
@@ -3949,6 +3979,7 @@ def phone_purchase_error_is_unavailable(
 def purchase_one_highlevel_phone_number(
     location_id: str,
     available_record: dict,
+    fingerprint_id: str,
     stripe_account_id: str,
     payment_method_id: str,
 ) -> tuple[
@@ -3957,6 +3988,7 @@ def purchase_one_highlevel_phone_number(
     str,
     str,
 ]:
+    
     phone_number = (
         normalize_us_phone_number(
             str(
@@ -3994,10 +4026,6 @@ def purchase_one_highlevel_phone_number(
                 "phone number."
             ),
         )
-
-    fingerprint_id = str(
-        int(time.time() * 1000)
-    )
 
     purchase_url = (
         f"{HIGHLEVEL_API_BASE_URL}"
@@ -4242,11 +4270,12 @@ def purchase_shop_ai_phone_number(
     # before purchasing. ChairTime will purchase
     # ONLY the exact number selected by the
     # customer.
-    available_records = (
-        get_fresh_available_phone_records(
-            location_id=location_id,
-            area_code=area_code,
-        )
+    (
+        available_records,
+        fingerprint_id,
+    ) = get_fresh_available_phone_records(
+        location_id=location_id,
+        area_code=area_code,
     )
 
     if not available_records:
@@ -4295,9 +4324,10 @@ def purchase_shop_ai_phone_number(
         purchased_number,
         locality,
         region,
-    ) = purchase_one_highlevel_phone_number(
+        ) = purchase_one_highlevel_phone_number(
         location_id=location_id,
         available_record=requested_record,
+        fingerprint_id=fingerprint_id,
         stripe_account_id=(
             stripe_account_id
         ),
