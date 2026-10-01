@@ -150,6 +150,11 @@ export default function OnboardingPage() {
   ] = useState("");
  
   const [
+    recoveryAiNumber,
+    setRecoveryAiNumber,
+  ] = useState("");
+ 
+  const [
     activatingAiNumber,
     setActivatingAiNumber,
   ] = useState(false);
@@ -368,6 +373,7 @@ export default function OnboardingPage() {
     setAiNumberError("");
     setAvailableAiNumbers([]);
     setSelectedAiNumber("");
+    setRecoveryAiNumber("");
  
     try {
       const response = await fetch(
@@ -451,9 +457,26 @@ export default function OnboardingPage() {
       return;
     }
  
-    if (!selectedAiNumber) {
+    const recoveryDigits = String(
+      recoveryAiNumber || ""
+    ).replace(/\D/g, "");
+ 
+    const recoveryPhoneNumber =
+      recoveryDigits.length === 10
+        ? `+1${recoveryDigits}`
+        : recoveryDigits.length === 11 &&
+            recoveryDigits.startsWith("1")
+          ? `+${recoveryDigits}`
+          : "";
+ 
+    const phoneNumberToActivate =
+      selectedAiNumber || recoveryPhoneNumber;
+ 
+    if (!phoneNumberToActivate) {
       setAiNumberError(
-        "Choose an AI Receptionist phone number before continuing."
+        recoveryDigits.length > 0
+          ? "Enter a valid 10-digit AI Receptionist phone number."
+          : "Choose an AI Receptionist phone number before continuing."
       );
       return;
     }
@@ -472,7 +495,7 @@ export default function OnboardingPage() {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            phone_number: selectedAiNumber,
+            phone_number: phoneNumberToActivate,
           }),
         }
       );
@@ -2398,6 +2421,14 @@ export default function OnboardingPage() {
               setSelectedAiNumber
             }
  
+            recoveryAiNumber={
+              recoveryAiNumber
+            }
+ 
+            setRecoveryAiNumber={
+              setRecoveryAiNumber
+            }
+ 
             loadAvailableAiNumbers={
               loadAvailableAiNumbers
             }
@@ -4252,6 +4283,8 @@ function AiReceptionistStep({
   aiNumberError,
   selectedAiNumber,
   setSelectedAiNumber,
+  recoveryAiNumber,
+  setRecoveryAiNumber,
   loadAvailableAiNumbers,
   message,
 }) {
@@ -4587,11 +4620,12 @@ function AiReceptionistStep({
                       value={number.phone_number}
                       checked={selected}
                       disabled={activatingAiNumber}
-                      onChange={() =>
+                      onChange={() => {
                         setSelectedAiNumber(
                           number.phone_number
-                        )
-                      }
+                        );
+                        setRecoveryAiNumber("");
+                      }}
                     />
  
                     <div
@@ -4628,6 +4662,84 @@ function AiReceptionistStep({
             </div>
           )}
  
+          <div
+            style={{
+              marginTop: "18px",
+              paddingTop: "18px",
+              borderTop: "1px solid #e2e8f0",
+            }}
+          >
+            <strong
+              style={{
+                display: "block",
+                color: "#0f172a",
+                fontSize: "14px",
+              }}
+            >
+              Already purchased a ChairTime AI number?
+            </strong>
+ 
+            <p
+              style={{
+                margin: "6px 0 10px",
+                color: "#64748b",
+                fontSize: "13px",
+                lineHeight: "1.5",
+              }}
+            >
+              If ChairTime previously purchased a number for
+              this business but setup was interrupted, enter
+              that exact number here. ChairTime will reconnect
+              the owned number instead of purchasing it again.
+            </p>
+ 
+            <input
+              type="tel"
+              inputMode="tel"
+              value={recoveryAiNumber}
+              placeholder="2025550123"
+              onChange={(event) => {
+                const digits = String(
+                  event.target.value || ""
+                )
+                  .replace(/\D/g, "")
+                  .slice(0, 11);
+ 
+                setRecoveryAiNumber(digits);
+                setSelectedAiNumber("");
+                setAiNumberError("");
+              }}
+              disabled={activatingAiNumber}
+              style={{
+                width: "220px",
+                maxWidth: "100%",
+                padding: "11px 12px",
+                border: "1px solid #cbd5e1",
+                borderRadius: "10px",
+                fontSize: "16px",
+                outline: "none",
+              }}
+            />
+          </div>
+ 
+          {recoveryAiNumber && (
+            <div
+              style={{
+                marginTop: "14px",
+                padding: "12px 14px",
+                background: "#eff6ff",
+                border: "1px solid #bfdbfe",
+                borderRadius: "12px",
+                color: "#1e40af",
+                fontSize: "14px",
+                fontWeight: 700,
+              }}
+            >
+              ChairTime will verify this number is already
+              owned before activating it.
+            </div>
+          )}
+ 
           {selectedAiNumber && (
             <div
               style={{
@@ -4641,8 +4753,8 @@ function AiReceptionistStep({
                 fontWeight: 700,
               }}
             >
-              ✓ Number selected. No number has been
-              purchased or activated yet.
+              ✓ Number selected. ChairTime will verify the
+              number before purchasing or activating it.
             </div>
           )}
  
@@ -4741,7 +4853,10 @@ function AiReceptionistStep({
               disabled={
                 activatingAiNumber ||
                 (!activePhoneNumber &&
-                  !selectedAiNumber)
+                  !selectedAiNumber &&
+                  String(recoveryAiNumber || "")
+                    .replace(/\D/g, "")
+                    .length < 10)
               }
               className={styles.continueButton}
             >
