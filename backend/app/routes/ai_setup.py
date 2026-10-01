@@ -2535,13 +2535,8 @@ def get_production_provision_status(
             shop.ai_voice_enabled
         ),
         "provisioned": bool(agent_id),
-        "phone_number": (
-            str(
-                shop.highlevel_phone_number
-                or ""
-            ).strip()
-            or None
-        ),
+        "phone_number": None,
+        "phone_routed": False,
         "agent": None,
     }
  
@@ -2557,12 +2552,70 @@ def get_production_provision_status(
         location_id=location_id,
     )
  
-    response["agent"] = (
-        safe_agent_summary(agent)
+    agent_summary = safe_agent_summary(
+        agent
     )
  
-    return response
+    # The HighLevel Phone System route is authoritative.
+    # An agent inboundNumber or a phone number stored in the
+    # ChairTime database does not by itself prove that calls
+    # are actually routed to this Voice AI agent.
+    _, _, matched_phone = (
+        get_shop_routed_phone_record(
+            shop=shop,
+        )
+    )
  
+    routed_phone_number = None
+ 
+    if matched_phone is not None:
+        routed_phone_number = str(
+            matched_phone.get("phoneNumber")
+            or ""
+        ).strip() or None
+ 
+    response["phone_number"] = (
+        routed_phone_number
+    )
+    response["phone_routed"] = bool(
+        routed_phone_number
+    )
+ 
+    # Do not let a stale agent inboundNumber make the
+    # frontend believe the phone route is active.
+    agent_summary["inbound_number"] = (
+        routed_phone_number
+    )
+ 
+    response["agent"] = agent_summary
+ 
+    # Keep ChairTime's stored copy synchronized with the
+    # authoritative HighLevel route. If no route exists,
+    # clear a stale stored phone number.
+    stored_phone_number = str(
+        shop.highlevel_phone_number or ""
+    ).strip()
+ 
+    desired_phone_number = (
+        routed_phone_number
+    )
+ 
+    if stored_phone_number != str(
+        desired_phone_number or ""
+    ).strip():
+        shop.highlevel_phone_number = (
+            desired_phone_number
+        )
+ 
+        try:
+            db.add(shop)
+            db.commit()
+            db.refresh(shop)
+        except Exception:
+            db.rollback()
+            raise
+ 
+    return response
  
  
 @router.post("/provision")
@@ -4198,7 +4251,7 @@ def route_phone_number_to_shop_agent(
     """
     Publish one exact HighLevel phone number to this shop's
     exact Voice AI agent and verify the Phone System route.
-
+ 
     HighLevel's UI publishes the Voice AI agent with a PUT
     request using publishAgent=true and mode=update. The
     published payload uses inboundNumbers and
@@ -4210,12 +4263,12 @@ def route_phone_number_to_shop_agent(
         shop=shop,
         agent_id=agent_id,
     )
-
+ 
     current_agent = get_agent_detail(
         agent_id=agent_id,
         location_id=location_id,
     )
-
+ 
     # These are the editable Voice AI agent fields sent by
     # HighLevel's own Deploy -> Save request. Copy their
     # current values so publishing the phone assignment does
@@ -4281,13 +4334,13 @@ def route_phone_number_to_shop_agent(
         "welcomeMessage",
         "welcomeMessageMode",
     )
-
+ 
     publish_payload = {
         field: current_agent.get(field)
         for field in publish_fields
         if field in current_agent
     }
-
+ 
     publish_payload["locationId"] = location_id
     publish_payload["inboundNumbers"] = [
         phone_number
@@ -4295,7 +4348,7 @@ def route_phone_number_to_shop_agent(
     publish_payload["inboundPhoneNumber"] = (
         phone_number
     )
-
+ 
     response = highlevel_raw_request(
         method="PUT",
         path=f"/voice-ai/agents/{agent_id}",
@@ -4305,56 +4358,56 @@ def route_phone_number_to_shop_agent(
         },
         json_body=publish_payload,
     )
-
+ 
     if response.status_code >= 400:
         raise_highlevel_error(response)
-
+ 
     # Do not treat the agent-side number alone as proof that
     # calls will reach Voice AI. HighLevel's Phone System
     # record must show this exact number routed to this exact
     # agent through inboundCallService.
     matched_phone = None
-
+ 
     for attempt in range(12):
         _, phone_numbers = (
             get_location_phone_numbers(
                 location_id=location_id,
             )
         )
-
+ 
         matched_phone = (
             find_phone_record_by_number(
                 phone_numbers=phone_numbers,
                 phone_number=phone_number,
             )
         )
-
+ 
         if matched_phone:
             inbound_service = (
                 get_phone_inbound_service(
                     matched_phone
                 )
             )
-
+ 
             service_type = str(
                 inbound_service.get("type")
                 or ""
             ).strip()
-
+ 
             service_value = str(
                 inbound_service.get("value")
                 or ""
             ).strip()
-
+ 
             if (
                 service_type == "voice_ai"
                 and service_value == agent_id
             ):
                 return matched_phone
-
+ 
         if attempt < 11:
             time.sleep(0.5)
-
+ 
     raise HTTPException(
         status_code=(
             status.HTTP_502_BAD_GATEWAY
@@ -4366,7 +4419,7 @@ def route_phone_number_to_shop_agent(
             "AI Receptionist in HighLevel Phone System."
         ),
     )
-
+ 
 def activate_owned_phone_number(
     shop: Shop,
     db: Session,
