@@ -4196,117 +4196,177 @@ def route_phone_number_to_shop_agent(
     phone_number: str,
 ) -> dict:
     """
-    Route one exact HighLevel phone number to this shop's
-    exact Voice AI agent.
- 
-    HighLevel's Voice AI agent record is authoritative for
-    the inbound-number assignment. The location phone-number
-    record is checked as a secondary consistency signal
-    because HighLevel can lag or represent Voice AI routing
-    differently there.
+    Publish one exact HighLevel phone number to this shop's
+    exact Voice AI agent and verify the Phone System route.
+
+    HighLevel's UI publishes the Voice AI agent with a PUT
+    request using publishAgent=true and mode=update. The
+    published payload uses inboundNumbers and
+    inboundPhoneNumber. ChairTime mirrors that operation,
+    then requires the location phone-number record to confirm
+    that inboundCallService is actually routed to this agent.
     """
     require_shop_agent(
         shop=shop,
         agent_id=agent_id,
     )
- 
-    response = highlevel_raw_request(
-        method="PATCH",
-        path=f"/voice-ai/agents/{agent_id}",
-        params={
-            "locationId": location_id,
-        },
-        json_body={
-            "inboundNumber": phone_number,
-        },
-    )
- 
-    if response.status_code >= 400:
-        raise_highlevel_error(response)
- 
-    refreshed_agent = get_agent_detail(
+
+    current_agent = get_agent_detail(
         agent_id=agent_id,
         location_id=location_id,
     )
- 
-    inbound_number = str(
-        refreshed_agent.get("inboundNumber")
-        or ""
-    ).strip()
- 
-    if not phone_numbers_match(
-        inbound_number,
-        phone_number,
-    ):
-        raise HTTPException(
-            status_code=(
-                status.HTTP_502_BAD_GATEWAY
-            ),
-            detail=(
-                "HighLevel did not attach the "
-                "phone number to this AI "
-                "Receptionist."
-            ),
-        )
- 
+
+    # These are the editable Voice AI agent fields sent by
+    # HighLevel's own Deploy -> Save request. Copy their
+    # current values so publishing the phone assignment does
+    # not overwrite the shop's existing receptionist setup.
+    publish_fields = (
+        "advancedSettingsEnabled",
+        "agentName",
+        "agentPrompt",
+        "agentWorkingHours",
+        "aiDisclaimerConfiguration",
+        "ambientSoundVolume",
+        "backchannelFrequency",
+        "backchannelWords",
+        "backgroundSound",
+        "beginMessageDelayMs",
+        "boostedKeywords",
+        "businessName",
+        "callEndWorkflowIds",
+        "customSttConfig",
+        "denoisingMode",
+        "disabledPrompts",
+        "enableBackchannel",
+        "enableDynamicResponsiveness",
+        "enableDynamicVoiceSpeed",
+        "endCallAfterSilenceMs",
+        "endCallConfig",
+        "interruptionSensitivity",
+        "isAgentAsBackupDisabled",
+        "ivrOption",
+        "knowledgeBaseIds",
+        "knowledgeBasePrompt",
+        "language",
+        "languages",
+        "llmModel",
+        "locationId",
+        "maxCallDuration",
+        "modelTemperature",
+        "noResponseConfig",
+        "normalizeForSpeech",
+        "numberPoolId",
+        "prompts",
+        "pronunciationDictionary",
+        "provider",
+        "reminderAfterIdleTimeSeconds",
+        "reminderFrequency",
+        "responsiveness",
+        "ringDurationSeconds",
+        "saveCallSummaryAsNote",
+        "sendPostCallNotificationTo",
+        "sendUserIdleReminders",
+        "sessionVariables",
+        "spamConfig",
+        "sttMode",
+        "timezone",
+        "translation",
+        "vocabSpecialization",
+        "voiceId",
+        "voiceModel",
+        "voiceSpeed",
+        "voiceTemperature",
+        "voiceVolume",
+        "voicemailOption",
+        "welcomeMessage",
+        "welcomeMessageMode",
+    )
+
+    publish_payload = {
+        field: current_agent.get(field)
+        for field in publish_fields
+        if field in current_agent
+    }
+
+    publish_payload["locationId"] = location_id
+    publish_payload["inboundNumbers"] = [
+        phone_number
+    ]
+    publish_payload["inboundPhoneNumber"] = (
+        phone_number
+    )
+
+    response = highlevel_raw_request(
+        method="PUT",
+        path=f"/voice-ai/agents/{agent_id}",
+        params={
+            "publishAgent": "true",
+            "mode": "update",
+        },
+        json_body=publish_payload,
+    )
+
+    if response.status_code >= 400:
+        raise_highlevel_error(response)
+
+    # Do not treat the agent-side number alone as proof that
+    # calls will reach Voice AI. HighLevel's Phone System
+    # record must show this exact number routed to this exact
+    # agent through inboundCallService.
     matched_phone = None
- 
-    for attempt in range(8):
+
+    for attempt in range(12):
         _, phone_numbers = (
             get_location_phone_numbers(
                 location_id=location_id,
             )
         )
- 
+
         matched_phone = (
             find_phone_record_by_number(
                 phone_numbers=phone_numbers,
                 phone_number=phone_number,
             )
         )
- 
+
         if matched_phone:
             inbound_service = (
                 get_phone_inbound_service(
                     matched_phone
                 )
             )
- 
+
             service_type = str(
                 inbound_service.get("type")
                 or ""
             ).strip()
- 
+
             service_value = str(
                 inbound_service.get("value")
                 or ""
             ).strip()
- 
+
             if (
                 service_type == "voice_ai"
                 and service_value == agent_id
             ):
                 return matched_phone
- 
-        if attempt < 7:
+
+        if attempt < 11:
             time.sleep(0.5)
- 
-    # The Voice AI API's agent.inboundNumber is HighLevel's
-    # documented inbound-number field for the agent. If that
-    # exact value is retained after PATCH + GET, activation is
-    # verified even when the location phone-number record has
-    # not exposed the same routing metadata yet.
-    if matched_phone:
-        return matched_phone
- 
-    return {
-        "phoneNumber": phone_number,
-        "verificationSource": (
-            "voice_ai_agent_inbound_number"
+
+    raise HTTPException(
+        status_code=(
+            status.HTTP_502_BAD_GATEWAY
         ),
-    }
- 
- 
+        detail=(
+            "HighLevel accepted the AI agent publish "
+            "request, but ChairTime could not verify "
+            "that the phone number is routed to this "
+            "AI Receptionist in HighLevel Phone System."
+        ),
+    )
+
 def activate_owned_phone_number(
     shop: Shop,
     db: Session,
