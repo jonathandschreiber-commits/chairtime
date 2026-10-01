@@ -1,4 +1,4 @@
-import asyncio
+Import asyncio
 import hmac
 import json
 import os
@@ -148,6 +148,7 @@ def highlevel_phone_purchase_headers() -> dict:
             f"Bearer {get_highlevel_api_token()}"
         ),
         "Version": "v3",
+
         "Accept": "application/json",
         "Content-Type": "application/json",
         "User-Agent": "ChairTime/1.0",
@@ -299,6 +300,7 @@ def safe_action(action: dict) -> dict:
     if not isinstance(action, dict):
         return {}
 
+
     return {
         "id": (
             action.get("_id")
@@ -447,6 +449,7 @@ def chairtime_voice_request(
             status_code=response.status_code,
             detail=data,
         )
+
 
     if not isinstance(data, dict):
         raise HTTPException(
@@ -598,6 +601,7 @@ def get_or_create_test_agent(
         path="/voice-ai/agents",
         json_body=build_test_agent_payload(
             shop=shop,
+
             location_id=location_id,
         ),
     )
@@ -749,6 +753,7 @@ def verify_production_webhook_secret(
 ) -> None:
     expected_secret = str(
 
+
         shop.highlevel_webhook_secret or ""
     ).strip()
 
@@ -898,6 +903,7 @@ def get_or_create_production_agent(
 
     try:
         db.commit()
+
         db.refresh(shop)
 
     except Exception:
@@ -1048,6 +1054,7 @@ def tenant_availability_webhook_url(
 
 def tenant_booking_webhook_url(
     shop: Shop,
+
 ) -> str:
     return (
         f"{CHAIRTIME_PUBLIC_API_BASE_URL}"
@@ -1198,6 +1205,7 @@ def build_booking_action_payload(
         "name": "book_appointment",
         "actionParameters": {
             "triggerPrompt": (
+
                 "Use this action only after the caller "
                 "chooses an appointment time returned by "
                 "check_availability and explicitly confirms "
@@ -1350,6 +1358,7 @@ def verify_action_after_warning(
     return refreshed_action
 
 
+
 def create_or_update_action(
     agent_id: str,
     location_id: str,
@@ -1498,6 +1507,7 @@ async def tenant_voice_availability(
     if shop.highlevel_agent_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
+
             detail=(
 
                             "The legacy provisioning-test webhook is "
@@ -1648,6 +1658,7 @@ async def tenant_voice_booking(
     shop = get_shop_by_slug(
         shop_slug=shop_slug,
         db=db,
+
     )
 
     if shop.highlevel_agent_id:
@@ -1798,6 +1809,7 @@ async def production_tenant_voice_availability(
         json_data = await request.json()
 
         if isinstance(json_data, dict):
+
             incoming.update(json_data)
 
     except Exception:
@@ -1947,6 +1959,7 @@ async def production_tenant_voice_booking(
                 "is not configured."
             ),
         )
+
 
     verify_production_webhook_secret(
         shop=shop,
@@ -2098,6 +2111,7 @@ def get_highlevel_voice_agents(
         "chairtime_shop": {
             "id": str(shop.id),
             "slug": shop.slug,
+
             "name": shop.name,
         },
         "agent_count": 1,
@@ -2248,6 +2262,7 @@ def extract_location_phone_numbers(
     raw_numbers = payload.get("numbers")
 
     if not isinstance(raw_numbers, list):
+
         return []
 
     return [
@@ -2399,6 +2414,7 @@ def get_shop_routed_phone_record(
         )
     )
 
+
     if len(matches) > 1:
         raise HTTPException(
             status_code=(
@@ -2546,6 +2562,7 @@ def get_production_provision_status(
     )
 
     return response
+
 
 
 @router.post("/provision")
@@ -2698,6 +2715,7 @@ def provision_production_ai_receptionist(
                     webhook_url=booking_url,
                     webhook_secret=(
                         webhook_secret
+
                     ),
                 )
             ),
@@ -2848,6 +2866,7 @@ def provision_tenant_safe_availability(
     webhook_url = (
         tenant_availability_webhook_url(
             shop
+
         )
     )
 
@@ -2998,6 +3017,7 @@ def provision_tenant_safe_booking(
         tenant_booking_webhook_url(
             shop
         )
+
     )
 
     booking_result = (
@@ -3149,6 +3169,7 @@ def provision_tenant_safe_voice_test(
         )
     )
 
+
     booking_result = (
         create_or_update_action(
             agent_id=agent_id,
@@ -3298,6 +3319,7 @@ def get_shop_highlevel_phone_numbers(
             ).strip()
             or None
         ),
+
         "routed_phone_record": routed_phone,
         "highlevel_response": highlevel_data,
     }
@@ -3448,6 +3470,7 @@ def get_phone_number_current_agent(
         db=db,
     )
 
+
     if not shop.ai_voice_enabled:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -3597,6 +3620,7 @@ def get_available_highlevel_phone_numbers(
                 dict,
             ):
                 continue
+
 
             phone_number = str(
                 number.get("phoneNumber")
@@ -3750,6 +3774,7 @@ def find_phone_record_by_number(
     return None
 
 
+
 def get_phone_purchase_credentials(
 ) -> tuple[str, str]:
     stripe_account_id = str(
@@ -3897,6 +3922,7 @@ def get_fresh_available_phone_records(
                         "purchase them."
                     ),
                 )
+
 
         elif response.status_code < 500:
             raise_highlevel_error(
@@ -4048,6 +4074,7 @@ def purchase_one_highlevel_phone_number(
             stripe_account_id
         ),
         "paymentMethodId": (
+
             payment_method_id
         ),
         "locality": locality,
@@ -4162,6 +4189,229 @@ def purchase_one_highlevel_phone_number(
     )
 
 
+def route_phone_number_to_shop_agent(
+    shop: Shop,
+    location_id: str,
+    agent_id: str,
+    phone_number: str,
+) -> dict:
+    """
+    Route one exact HighLevel phone number to this shop's
+    exact Voice AI agent and verify both sides retained it.
+    """
+    require_shop_agent(
+        shop=shop,
+        agent_id=agent_id,
+    )
+
+    response = highlevel_raw_request(
+        method="PATCH",
+        path=f"/voice-ai/agents/{agent_id}",
+        params={
+            "locationId": location_id,
+        },
+        json_body={
+            "inboundNumber": phone_number,
+        },
+    )
+
+    if response.status_code >= 400:
+        raise_highlevel_error(response)
+
+    refreshed_agent = get_agent_detail(
+        agent_id=agent_id,
+        location_id=location_id,
+    )
+
+    inbound_number = str(
+        refreshed_agent.get("inboundNumber")
+
+        or ""
+    ).strip()
+
+    if not phone_numbers_match(
+        inbound_number,
+        phone_number,
+    ):
+        raise HTTPException(
+            status_code=(
+                status.HTTP_502_BAD_GATEWAY
+            ),
+            detail=(
+                "HighLevel did not attach the "
+                "phone number to this AI "
+                "Receptionist."
+            ),
+        )
+
+    for attempt in range(8):
+        _, phone_numbers = (
+            get_location_phone_numbers(
+                location_id=location_id,
+            )
+        )
+
+        matched_phone = (
+            find_phone_record_by_number(
+                phone_numbers=phone_numbers,
+                phone_number=phone_number,
+            )
+        )
+
+        if matched_phone:
+            inbound_service = (
+                get_phone_inbound_service(
+                    matched_phone
+                )
+            )
+
+            service_type = str(
+                inbound_service.get("type")
+                or ""
+            ).strip()
+
+            service_value = str(
+                inbound_service.get("value")
+                or ""
+            ).strip()
+
+            if (
+                service_type == "voice_ai"
+                and service_value == agent_id
+            ):
+                return matched_phone
+
+        if attempt < 7:
+            time.sleep(0.5)
+
+    raise HTTPException(
+        status_code=(
+            status.HTTP_502_BAD_GATEWAY
+        ),
+        detail=(
+            "HighLevel attached the number to "
+            "the AI agent, but ChairTime could "
+            "not verify the phone routing."
+        ),
+    )
+
+
+def activate_owned_phone_number(
+    shop: Shop,
+    db: Session,
+    location_id: str,
+    agent_id: str,
+    phone_number: str,
+    phone_record: dict,
+    purchased_this_request: bool,
+    purchase_result=None,
+) -> dict:
+    """
+    Safely finish activation for an already-owned number.
+
+    This function never purchases a phone number. It checks
+    that the number is not assigned to a different Voice AI
+    agent, routes it to this shop's exact agent, verifies the
+    route, and only then stores it in ChairTime.
+    """
+    inbound_service = (
+        get_phone_inbound_service(
+            phone_record
+        )
+    )
+
+    service_type = str(
+        inbound_service.get("type")
+        or ""
+    ).strip()
+
+    service_value = str(
+        inbound_service.get("value")
+        or ""
+    ).strip()
+
+    if (
+        service_type == "voice_ai"
+        and service_value
+        and service_value != agent_id
+    ):
+        raise HTTPException(
+            status_code=(
+                status.HTTP_409_CONFLICT
+            ),
+            detail=(
+                "This HighLevel phone number is "
+                "already routed to a different "
+                "Voice AI agent."
+            ),
+        )
+
+    routed_phone = (
+        route_phone_number_to_shop_agent(
+            shop=shop,
+            location_id=location_id,
+            agent_id=agent_id,
+            phone_number=phone_number,
+        )
+    )
+
+    shop.highlevel_phone_number = (
+        phone_number
+    )
+
+    try:
+        db.add(shop)
+        db.commit()
+        db.refresh(shop)
+    except Exception:
+        db.rollback()
+        raise
+
+    refreshed_agent = get_agent_detail(
+        agent_id=agent_id,
+        location_id=location_id,
+    )
+
+    return {
+        "success": True,
+        "purchased": bool(
+            purchased_this_request
+
+        ),
+        "already_owned": not bool(
+            purchased_this_request
+        ),
+        "chairtime_shop": {
+            "id": str(shop.id),
+            "slug": shop.slug,
+            "name": shop.name,
+        },
+        "location_id": location_id,
+        "agent_id": agent_id,
+        "requested_phone_number": (
+            phone_number
+        ),
+        "phone_number": phone_number,
+        "fallback_used": False,
+        "message": (
+            "Your AI Receptionist phone number "
+            "is active."
+        ),
+        "agent": safe_agent_summary(
+            refreshed_agent
+        ),
+        "routed_phone_record": (
+            routed_phone
+        ),
+        "purchased_this_request": bool(
+            purchased_this_request
+        ),
+        "purchase_result": (
+            purchase_result
+        ),
+    }
+
+
 @router.post("/phone-number/purchase")
 def purchase_shop_ai_phone_number(
     payload: PhoneNumberPurchaseRequest,
@@ -4223,9 +4473,11 @@ def purchase_shop_ai_phone_number(
         production_location_id(shop)
     )
 
-    # First make sure the selected number is
-    # not already active in this HighLevel
-    # location.
+    # IMPORTANT:
+    # Always check owned inventory first. This makes
+    # retries safe. If the exact requested number is
+    # already owned, ChairTime must route that number
+    # instead of trying to purchase another one.
     _, active_phone_numbers = (
         get_location_phone_numbers(
             location_id=location_id,
@@ -4244,32 +4496,27 @@ def purchase_shop_ai_phone_number(
     )
 
     if existing_phone:
-        return {
-            "success": True,
-            "purchased": False,
-            "already_owned": True,
-            "requested_phone_number": (
+        return activate_owned_phone_number(
+            shop=shop,
+            db=db,
+            location_id=location_id,
+            agent_id=agent_id,
+            phone_number=(
                 requested_phone_number
             ),
-            "phone_number": (
-                requested_phone_number
-            ),
-            "fallback_used": False,
-            "message": (
-                "This phone number is already "
-                "active in the HighLevel location."
-            ),
-        }
+            phone_record=existing_phone,
+            purchased_this_request=False,
+            purchase_result=None,
+        )
 
     (
         stripe_account_id,
         payment_method_id,
     ) = get_phone_purchase_credentials()
 
-    # Refresh HighLevel inventory immediately
-    # before purchasing. ChairTime will purchase
-    # ONLY the exact number selected by the
-    # customer.
+    # Refresh HighLevel inventory immediately before
+    # purchasing. ChairTime purchases ONLY the exact
+    # number selected by the customer.
     (
         available_records,
         fingerprint_id,
@@ -4280,6 +4527,7 @@ def purchase_shop_ai_phone_number(
 
     if not available_records:
         raise HTTPException(
+
             status_code=(
                 status.HTTP_409_CONFLICT
             ),
@@ -4324,7 +4572,7 @@ def purchase_shop_ai_phone_number(
         purchased_number,
         locality,
         region,
-        ) = purchase_one_highlevel_phone_number(
+    ) = purchase_one_highlevel_phone_number(
         location_id=location_id,
         available_record=requested_record,
         fingerprint_id=fingerprint_id,
@@ -4336,7 +4584,8 @@ def purchase_shop_ai_phone_number(
         ),
     )
 
-    # HighLevel reported success.
+    # HighLevel reported success. Verify that the exact
+    # selected number became active, then route it.
     if response.status_code < 400:
         purchase_data = response_json(
             response
@@ -4367,49 +4616,20 @@ def purchase_shop_ai_phone_number(
                 ),
             )
 
-        return {
-            "success": True,
-            "purchased": True,
-            "already_owned": False,
-            "chairtime_shop": {
-                "id": str(shop.id),
-                "slug": shop.slug,
-                "name": shop.name,
-            },
-            "location_id": location_id,
-            "agent_id": agent_id,
-            "requested_phone_number": (
-                requested_phone_number
-            ),
-            "phone_number": (
-                purchased_number
-            ),
-            "friendly_name": (
-                purchased_phone.get(
-                    "friendlyName"
-                )
-            ),
-            "locality": locality,
-            "region": region,
-            "fallback_used": False,
-            "attempted_numbers": [
-                purchased_number
-            ],
-            "message": (
-                "HighLevel phone number "
-                "purchased and verified. It "
-                "has not yet been routed to "
-                "the AI Receptionist."
-            ),
-            "highlevel_purchase_confirmed": (
-                bool(purchase_data)
-            ),
-        }
+        return activate_owned_phone_number(
+            shop=shop,
+            db=db,
+            location_id=location_id,
+            agent_id=agent_id,
+            phone_number=purchased_number,
+            phone_record=purchased_phone,
+            purchased_this_request=True,
+            purchase_result=purchase_data,
+        )
 
-    # A server-side HighLevel error can be
-    # ambiguous. Verify the exact selected number
-    # before declaring failure, but NEVER try a
-    # replacement number.
+    # A server-side HighLevel error can be ambiguous.
+    # Verify the exact selected number before declaring
+    # failure. NEVER try a replacement number.
     if response.status_code >= 500:
         purchased_phone = (
             wait_for_purchased_phone_number(
@@ -4421,49 +4641,16 @@ def purchase_shop_ai_phone_number(
         )
 
         if purchased_phone:
-            return {
-                "success": True,
-                "purchased": True,
-                "already_owned": False,
-                "chairtime_shop": {
-                    "id": str(shop.id),
-                    "slug": shop.slug,
-                    "name": shop.name,
-                },
-                "location_id": (
-                    location_id
-                ),
-                "agent_id": agent_id,
-                "requested_phone_number": (
-                    requested_phone_number
-                ),
-                "phone_number": (
-                    purchased_number
-                ),
-                "friendly_name": (
-                    purchased_phone.get(
-                        "friendlyName"
-                    )
-                ),
-                "locality": locality,
-                "region": region,
-                "fallback_used": False,
-                "attempted_numbers": [
-                    purchased_number
-                ],
-                "message": (
-                    "The HighLevel purchase "
-                    "response was ambiguous, "
-                    "but ChairTime verified "
-                    "that the selected number "
-                    "became active. It has not "
-                    "yet been routed to the AI "
-                    "Receptionist."
-                ),
-                "highlevel_purchase_confirmed": (
-                    False
-                ),
-            }
+            return activate_owned_phone_number(
+                shop=shop,
+                db=db,
+                location_id=location_id,
+                agent_id=agent_id,
+                phone_number=purchased_number,
+                phone_record=purchased_phone,
+                purchased_this_request=True,
+                purchase_result=None,
+            )
 
         raise HTTPException(
             status_code=(
@@ -4492,9 +4679,9 @@ def purchase_shop_ai_phone_number(
             },
         )
 
-    # For any other HighLevel rejection, report
-    # the failure. Never substitute another phone
-    # number.
+
+    # For any other HighLevel rejection, report the
+    # failure. Never substitute another phone number.
     if phone_purchase_error_is_unavailable(
         response
     ):
@@ -4521,7 +4708,6 @@ def purchase_shop_ai_phone_number(
         )
 
     raise_highlevel_error(response)
-
 
 def diagnostic_utc_timestamp() -> str:
     return (
@@ -4643,6 +4829,7 @@ def diagnostic_trace_identifiers(
         "cf-ray",
         "x-correlation-id",
         "correlation-id",
+
     )
 
     for header_name in header_names:
@@ -4793,6 +4980,7 @@ def diagnostic_available_record_summary(
         "locality": (
             record.get("locality")
             or record.get("city")
+
         ),
         "region": (
             record.get("region")
@@ -4943,6 +5131,7 @@ def run_phone_purchase_support_diagnostic(
             area_code or ""
         )
         if character.isdigit()
+
     )
 
     if len(clean_area_code) != 3:
@@ -5093,6 +5282,7 @@ def run_phone_purchase_support_diagnostic(
             "chairtime_shop": {
                 "id": str(shop.id),
                 "slug": shop.slug,
+
                 "name": shop.name,
             },
             "location_id": location_id,
@@ -5243,6 +5433,7 @@ def run_phone_purchase_support_diagnostic(
     # STEP 2
     # Use the EXACT fingerprintId returned by the
     # immediately preceding available-numbers response.
+
     #
     # HighLevel Development specifically requires the
     # purchase request to use data.fingerprintId from
@@ -5393,6 +5584,7 @@ def run_phone_purchase_support_diagnostic(
         verification = (
             diagnostic_verify_active_number(
                 location_id=location_id,
+
                 phone_number=(
                     selected_phone_number
                 ),
@@ -5543,6 +5735,7 @@ def run_phone_purchase_support_diagnostic(
             ),
             "trace_identifiers": (
                 trace_identifiers
+
             ),
             "raw_response": (
                 purchase_body
