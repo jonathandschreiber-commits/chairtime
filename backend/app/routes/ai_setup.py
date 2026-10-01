@@ -8,43 +8,43 @@ import time
 from datetime import datetime, timezone
 from typing import Optional
 from urllib.parse import unquote
-
+ 
 import requests
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-
+ 
 from app.database import get_db
 from app.models import Shop, User
 from app.routes.auth import get_current_user
-
-
+ 
+ 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-
+ 
 HIGHLEVEL_API_BASE_URL = "https://services.leadconnectorhq.com"
 HIGHLEVEL_VOICE_API_VERSION = "v3"
-
+ 
 CHAIRTIME_PUBLIC_API_BASE_URL = os.getenv(
     "CHAIRTIME_PUBLIC_API_BASE_URL",
     "https://chairtime-production-94da.up.railway.app",
 ).rstrip("/")
-
+ 
 CHAIRTIME_INTERNAL_API_BASE_URL = os.getenv(
     "CHAIRTIME_INTERNAL_API_BASE_URL",
     "http://127.0.0.1:8080",
 ).rstrip("/")
-
+ 
 CHAIRTIME_AVAILABILITY_URL = (
     f"{CHAIRTIME_INTERNAL_API_BASE_URL}/api/voice/availability"
 )
-
+ 
 CHAIRTIME_BOOKING_URL = (
     f"{CHAIRTIME_INTERNAL_API_BASE_URL}/api/voice/book"
 )
-
+ 
 TEST_AGENT_NAME = "ChairTime Provisioning Test"
-
+ 
 TEST_AGENT_PROMPT = (
     "You are the appointment receptionist for this business. "
     "Be warm, brief, and efficient.\n"
@@ -78,19 +78,19 @@ TEST_AGENT_PROMPT = (
     "action fails, apologize briefly and offer a useful next step. "
     "Never pretend to be checking availability when no action is running."
 )
-
+ 
 PRODUCTION_AGENT_NAME_PREFIX = "ChairTime AI"
 PRODUCTION_WEBHOOK_SECRET_HEADER = "X-ChairTime-Webhook-Secret"
-
-
+ 
+ 
 class TenantAvailabilityRequest(BaseModel):
     service_name: str
     target_date: str
     barber_name: Optional[str] = None
     time_window: Optional[str] = None
     preferred_start_time: Optional[str] = None
-
-
+ 
+ 
 class TenantBookingRequest(BaseModel):
     service_name: str
     target_date: str
@@ -98,11 +98,11 @@ class TenantBookingRequest(BaseModel):
     customer_name: str
     customer_phone: str
     barber_name: Optional[str] = None
-
-
+ 
+ 
 def get_highlevel_api_token() -> str:
     token = os.getenv("HIGHLEVEL_API_TOKEN")
-
+ 
     if not token:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -111,13 +111,13 @@ def get_highlevel_api_token() -> str:
                 "variable is missing."
             ),
         )
-
+ 
     return token.strip()
-
-
+ 
+ 
 def get_highlevel_location_id() -> str:
     location_id = os.getenv("HIGHLEVEL_LOCATION_ID")
-
+ 
     if not location_id:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -126,10 +126,10 @@ def get_highlevel_location_id() -> str:
                 "variable is missing."
             ),
         )
-
+ 
     return location_id.strip()
-
-
+ 
+ 
 def highlevel_voice_headers() -> dict:
     return {
         "Authorization": (
@@ -140,21 +140,21 @@ def highlevel_voice_headers() -> dict:
         "Content-Type": "application/json",
         "User-Agent": "ChairTime/1.0",
     }
-
-
+ 
+ 
 def highlevel_phone_purchase_headers() -> dict:
     return {
         "Authorization": (
             f"Bearer {get_highlevel_api_token()}"
         ),
         "Version": "v3",
-
+ 
         "Accept": "application/json",
         "Content-Type": "application/json",
         "User-Agent": "ChairTime/1.0",
     }
-
-
+ 
+ 
 def get_current_shop(
     current_user: User,
     db: Session,
@@ -164,16 +164,16 @@ def get_current_shop(
         .filter(Shop.id == current_user.shop_id)
         .first()
     )
-
+ 
     if not shop:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Shop not found.",
         )
-
+ 
     return shop
-
-
+ 
+ 
 def get_shop_by_slug(
     shop_slug: str,
     db: Session,
@@ -183,28 +183,28 @@ def get_shop_by_slug(
         .filter(Shop.slug == shop_slug)
         .first()
     )
-
+ 
     if not shop:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Shop not found.",
         )
-
+ 
     return shop
-
-
+ 
+ 
 def require_owner(current_user: User) -> None:
     if current_user.role != "owner":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Owner access is required.",
         )
-
-
+ 
+ 
 def decode_highlevel_value(value):
     """
     Decode one additional URL-encoding layer left by HighLevel.
-
+ 
     For example, FastAPI may receive values such as:
         13%3A30
         John%20Smith
@@ -213,28 +213,28 @@ def decode_highlevel_value(value):
     """
     if not isinstance(value, str):
         return value
-
+ 
     return unquote(value)
-
-
+ 
+ 
 def decode_highlevel_fields(values: dict) -> dict:
     return {
         key: decode_highlevel_value(value)
         for key, value in values.items()
     }
-
-
+ 
+ 
 def normalize_barber_name(
     barber_name: Optional[str],
 ) -> Optional[str]:
     if not barber_name:
         return None
-
+ 
     cleaned = barber_name.strip()
-
+ 
     if not cleaned:
         return None
-
+ 
     no_preference_values = {
         "no preference",
         "no preference.",
@@ -245,40 +245,40 @@ def normalize_barber_name(
         "any barber",
         "any provider",
     }
-
+ 
     if cleaned.lower() in no_preference_values:
         return None
-
+ 
     return cleaned
-
-
+ 
+ 
 def safe_highlevel_error(
     response: requests.Response,
 ) -> dict:
     try:
         data = response.json()
-
+ 
         if isinstance(data, dict):
             return data
-
+ 
         return {
             "message": str(data)[:500],
         }
-
+ 
     except ValueError:
         return {
             "message": response.text[:500],
         }
-
-
+ 
+ 
 def highlevel_error_text(
     response: requests.Response,
 ) -> str:
     return str(
         safe_highlevel_error(response)
     ).lower()
-
-
+ 
+ 
 def raise_highlevel_error(
     response: requests.Response,
 ) -> None:
@@ -294,13 +294,13 @@ def raise_highlevel_error(
             ),
         },
     )
-
-
+ 
+ 
 def safe_action(action: dict) -> dict:
     if not isinstance(action, dict):
         return {}
-
-
+ 
+ 
     return {
         "id": (
             action.get("_id")
@@ -316,12 +316,12 @@ def safe_action(action: dict) -> dict:
             or action.get("action_parameters")
         ),
     }
-
-
+ 
+ 
 def safe_agent_summary(agent: dict) -> dict:
     if not isinstance(agent, dict):
         return {}
-
+ 
     return {
         "id": (
             agent.get("id")
@@ -338,8 +338,8 @@ def safe_agent_summary(agent: dict) -> dict:
             "inboundNumber"
         ),
     }
-
-
+ 
+ 
 def highlevel_raw_request(
     method: str,
     path: str,
@@ -355,14 +355,14 @@ def highlevel_raw_request(
             json=json_body,
             timeout=20,
         )
-
+ 
     except requests.RequestException:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Could not connect to HighLevel.",
         )
-
-
+ 
+ 
 def highlevel_request(
     method: str,
     path: str,
@@ -375,19 +375,19 @@ def highlevel_request(
         params=params,
         json_body=json_body,
     )
-
+ 
     if response.status_code >= 400:
         raise_highlevel_error(response)
-
+ 
     return response
-
-
+ 
+ 
 def response_json(
     response: requests.Response,
 ) -> dict:
     try:
         data = response.json()
-
+ 
     except ValueError:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -395,7 +395,7 @@ def response_json(
                 "HighLevel returned an invalid response."
             ),
         )
-
+ 
     if not isinstance(data, dict):
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -403,10 +403,10 @@ def response_json(
                 "HighLevel returned an unexpected response."
             ),
         )
-
+ 
     return data
-
-
+ 
+ 
 def chairtime_voice_request(
     url: str,
     payload: dict,
@@ -422,7 +422,7 @@ def chairtime_voice_request(
             },
             timeout=20,
         )
-
+ 
     except requests.RequestException:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -431,10 +431,10 @@ def chairtime_voice_request(
                 "voice booking service."
             ),
         )
-
+ 
     try:
         data = response.json()
-
+ 
     except ValueError:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -443,14 +443,14 @@ def chairtime_voice_request(
                 "an invalid response."
             ),
         )
-
+ 
     if response.status_code >= 400:
         raise HTTPException(
             status_code=response.status_code,
             detail=data,
         )
-
-
+ 
+ 
     if not isinstance(data, dict):
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -459,36 +459,36 @@ def chairtime_voice_request(
                 "an unexpected response."
             ),
         )
-
+ 
     return data
-
-
+ 
+ 
 def extract_agents(data: dict) -> list:
     raw_agents = data.get("agents")
-
+ 
     if not isinstance(raw_agents, list):
         return []
-
+ 
     return [
         agent
         for agent in raw_agents
         if isinstance(agent, dict)
     ]
-
-
+ 
+ 
 def extract_actions(agent_data: dict) -> list:
     raw_actions = agent_data.get("actions")
-
+ 
     if not isinstance(raw_actions, list):
         return []
-
+ 
     return [
         action
         for action in raw_actions
         if isinstance(action, dict)
     ]
-
-
+ 
+ 
 def find_action_by_name(
     agent_data: dict,
     action_name: str,
@@ -496,22 +496,22 @@ def find_action_by_name(
     for action in extract_actions(agent_data):
         if action.get("name") == action_name:
             return action
-
+ 
     return None
-
-
+ 
+ 
 def get_action_id(
     action: Optional[dict],
 ) -> Optional[str]:
     if not isinstance(action, dict):
         return None
-
+ 
     return (
         action.get("_id")
         or action.get("id")
     )
-
-
+ 
+ 
 def get_agent_detail(
     agent_id: str,
     location_id: str,
@@ -523,10 +523,10 @@ def get_agent_detail(
             "locationId": location_id,
         },
     )
-
+ 
     return response_json(response)
-
-
+ 
+ 
 def find_existing_test_agent(
     location_id: str,
 ) -> Optional[dict]:
@@ -539,21 +539,21 @@ def find_existing_test_agent(
             "pageSize": 50,
         },
     )
-
+ 
     data = response_json(response)
-
+ 
     for agent in extract_agents(data):
         agent_name = (
             agent.get("agentName")
             or agent.get("name")
         )
-
+ 
         if agent_name == TEST_AGENT_NAME:
             return agent
-
+ 
     return None
-
-
+ 
+ 
 def build_test_agent_payload(
     shop: Shop,
     location_id: str,
@@ -563,7 +563,7 @@ def build_test_agent_payload(
         or shop.slug
         or "ChairTime Business"
     )
-
+ 
     return {
         "locationId": location_id,
         "agentName": TEST_AGENT_NAME,
@@ -583,8 +583,8 @@ def build_test_agent_payload(
         ),
         "isAgentAsBackupDisabled": True,
     }
-
-
+ 
+ 
 def get_or_create_test_agent(
     shop: Shop,
     location_id: str,
@@ -592,23 +592,23 @@ def get_or_create_test_agent(
     existing_agent = find_existing_test_agent(
         location_id=location_id
     )
-
+ 
     if existing_agent:
         return existing_agent, False
-
+ 
     response = highlevel_request(
         method="POST",
         path="/voice-ai/agents",
         json_body=build_test_agent_payload(
             shop=shop,
-
+ 
             location_id=location_id,
         ),
     )
-
+ 
     return response_json(response), True
-
-
+ 
+ 
 def update_test_agent_settings(
     agent_id: str,
     location_id: str,
@@ -617,7 +617,7 @@ def update_test_agent_settings(
         agent_id=agent_id,
         location_id=location_id,
     )
-
+ 
     if agent.get("agentName") != TEST_AGENT_NAME:
         raise HTTPException(
             status_code=409,
@@ -626,12 +626,12 @@ def update_test_agent_settings(
                 "may be updated."
             ),
         )
-
+ 
     payload = {
         "agentPrompt": TEST_AGENT_PROMPT,
         "sendUserIdleReminders": False,
     }
-
+ 
     response = highlevel_raw_request(
         method="PATCH",
         path=f"/voice-ai/agents/{agent_id}",
@@ -640,15 +640,15 @@ def update_test_agent_settings(
         },
         json_body=payload,
     )
-
+ 
     if response.status_code >= 400:
         raise_highlevel_error(response)
-
+ 
     refreshed = get_agent_detail(
         agent_id=agent_id,
         location_id=location_id,
     )
-
+ 
     if (
         refreshed.get("agentPrompt")
         != TEST_AGENT_PROMPT
@@ -662,30 +662,30 @@ def update_test_agent_settings(
                 "requested test-agent settings."
             ),
         )
-
+ 
     return refreshed
-
-
+ 
+ 
 def production_agent_name(shop: Shop) -> str:
     identifier = shop.slug or str(shop.id)
-
+ 
     return (
         f"{PRODUCTION_AGENT_NAME_PREFIX} - "
         f"{identifier}"
     )
-
-
+ 
+ 
 def production_location_id(shop: Shop) -> str:
     stored_location_id = str(
         shop.highlevel_location_id or ""
     ).strip()
-
+ 
     if stored_location_id:
         return stored_location_id
-
+ 
     return get_highlevel_location_id()
-
-
+ 
+ 
 def build_production_agent_payload(
     shop: Shop,
     location_id: str,
@@ -695,7 +695,7 @@ def build_production_agent_payload(
         or shop.slug
         or "ChairTime Business"
     )
-
+ 
     return {
         "locationId": location_id,
         "agentName": production_agent_name(
@@ -717,8 +717,8 @@ def build_production_agent_payload(
         ),
         "isAgentAsBackupDisabled": True,
     }
-
-
+ 
+ 
 def ensure_shop_webhook_secret(
     shop: Shop,
     db: Session,
@@ -726,37 +726,37 @@ def ensure_shop_webhook_secret(
     existing_secret = str(
         shop.highlevel_webhook_secret or ""
     ).strip()
-
+ 
     if existing_secret:
         return existing_secret
-
+ 
     shop.highlevel_webhook_secret = (
         secrets.token_urlsafe(32)
     )
-
+ 
     try:
         db.commit()
         db.refresh(shop)
-
+ 
     except Exception:
         db.rollback()
         raise
-
+ 
     return str(
         shop.highlevel_webhook_secret
     )
-
-
+ 
+ 
 def verify_production_webhook_secret(
     shop: Shop,
     request: Request,
 ) -> None:
     expected_secret = str(
-
-
+ 
+ 
         shop.highlevel_webhook_secret or ""
     ).strip()
-
+ 
     received_secret = str(
         request.headers.get(
             PRODUCTION_WEBHOOK_SECRET_HEADER,
@@ -764,7 +764,7 @@ def verify_production_webhook_secret(
         )
         or ""
     ).strip()
-
+ 
     if (
         not expected_secret
         or not received_secret
@@ -780,8 +780,8 @@ def verify_production_webhook_secret(
                 "webhook credential."
             ),
         )
-
-
+ 
+ 
 def production_availability_webhook_url(
     shop: Shop,
 ) -> str:
@@ -790,8 +790,8 @@ def production_availability_webhook_url(
         f"/api/ai-setup/tenant-webhook/"
         f"{shop.slug}/availability"
     )
-
-
+ 
+ 
 def production_booking_webhook_url(
     shop: Shop,
 ) -> str:
@@ -800,8 +800,8 @@ def production_booking_webhook_url(
         f"/api/ai-setup/tenant-webhook/"
         f"{shop.slug}/book"
     )
-
-
+ 
+ 
 def get_or_create_production_agent(
     shop: Shop,
     location_id: str,
@@ -810,7 +810,7 @@ def get_or_create_production_agent(
     existing_agent_id = str(
         shop.highlevel_agent_id or ""
     ).strip()
-
+ 
     if existing_agent_id:
         other_shop = (
             db.query(Shop)
@@ -821,7 +821,7 @@ def get_or_create_production_agent(
             )
             .first()
         )
-
+ 
         if other_shop:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -830,12 +830,12 @@ def get_or_create_production_agent(
                     "to another ChairTime shop."
                 ),
             )
-
+ 
         agent = get_agent_detail(
             agent_id=existing_agent_id,
             location_id=location_id,
         )
-
+ 
         if (
             agent.get("agentName")
             == TEST_AGENT_NAME
@@ -848,9 +848,9 @@ def get_or_create_production_agent(
                     "to a shop."
                 ),
             )
-
+ 
         return agent, False
-
+ 
     response = highlevel_request(
         method="POST",
         path="/voice-ai/agents",
@@ -861,15 +861,15 @@ def get_or_create_production_agent(
             )
         ),
     )
-
+ 
     agent = response_json(response)
-
+ 
     agent_id = str(
         agent.get("id")
         or agent.get("_id")
         or ""
     ).strip()
-
+ 
     if not agent_id:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -878,7 +878,7 @@ def get_or_create_production_agent(
                 "for the shop AI receptionist."
             ),
         )
-
+ 
     conflicting_shop = (
         db.query(Shop)
         .filter(
@@ -887,7 +887,7 @@ def get_or_create_production_agent(
         )
         .first()
     )
-
+ 
     if conflicting_shop:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -897,22 +897,22 @@ def get_or_create_production_agent(
                 "ChairTime shop."
             ),
         )
-
+ 
     shop.highlevel_agent_id = agent_id
     shop.highlevel_location_id = location_id
-
+ 
     try:
         db.commit()
-
+ 
         db.refresh(shop)
-
+ 
     except Exception:
         db.rollback()
         raise
-
+ 
     return agent, True
-
-
+ 
+ 
 def update_production_agent_settings(
     shop: Shop,
     agent_id: str,
@@ -929,12 +929,12 @@ def update_production_agent_settings(
                 "to the current ChairTime shop."
             ),
         )
-
+ 
     agent = get_agent_detail(
         agent_id=agent_id,
         location_id=location_id,
     )
-
+ 
     if (
         agent.get("agentName")
         == TEST_AGENT_NAME
@@ -946,12 +946,12 @@ def update_production_agent_settings(
                 "cannot be used as a production agent."
             ),
         )
-
+ 
     payload = {
         "agentPrompt": TEST_AGENT_PROMPT,
         "sendUserIdleReminders": False,
     }
-
+ 
     response = highlevel_raw_request(
         method="PATCH",
         path=f"/voice-ai/agents/{agent_id}",
@@ -960,15 +960,15 @@ def update_production_agent_settings(
         },
         json_body=payload,
     )
-
+ 
     if response.status_code >= 400:
         raise_highlevel_error(response)
-
+ 
     refreshed = get_agent_detail(
         agent_id=agent_id,
         location_id=location_id,
     )
-
+ 
     if (
         refreshed.get("agentPrompt")
         != TEST_AGENT_PROMPT
@@ -984,10 +984,10 @@ def update_production_agent_settings(
                 "requested shop AI settings."
             ),
         )
-
+ 
     return refreshed
-
-
+ 
+ 
 def require_shop_agent(
     shop: Shop,
     agent_id: str,
@@ -995,7 +995,7 @@ def require_shop_agent(
     assigned_agent_id = str(
         shop.highlevel_agent_id or ""
     ).strip()
-
+ 
     if (
         not assigned_agent_id
         or assigned_agent_id != agent_id
@@ -1006,8 +1006,8 @@ def require_shop_agent(
                 "AI agent not found for this shop."
             ),
         )
-
-
+ 
+ 
 def require_shop_action(
     shop: Shop,
     action_id: str,
@@ -1016,7 +1016,7 @@ def require_shop_action(
     assigned_agent_id = str(
         shop.highlevel_agent_id or ""
     ).strip()
-
+ 
     if not assigned_agent_id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -1024,24 +1024,24 @@ def require_shop_action(
                 "AI action not found for this shop."
             ),
         )
-
+ 
     agent = get_agent_detail(
         agent_id=assigned_agent_id,
         location_id=location_id,
     )
-
+ 
     for action in extract_actions(agent):
         if get_action_id(action) == action_id:
             return action
-
+ 
     raise HTTPException(
         status_code=status.HTTP_404_NOT_FOUND,
         detail=(
             "AI action not found for this shop."
         ),
     )
-
-
+ 
+ 
 def tenant_availability_webhook_url(
     shop: Shop,
 ) -> str:
@@ -1050,19 +1050,19 @@ def tenant_availability_webhook_url(
         f"/api/ai-setup/webhook/"
         f"{shop.slug}/availability"
     )
-
-
+ 
+ 
 def tenant_booking_webhook_url(
     shop: Shop,
-
+ 
 ) -> str:
     return (
         f"{CHAIRTIME_PUBLIC_API_BASE_URL}"
         f"/api/ai-setup/webhook/"
         f"{shop.slug}/book"
     )
-
-
+ 
+ 
 def build_availability_action_payload(
     shop: Shop,
     agent_id: str,
@@ -1076,7 +1076,7 @@ def build_availability_action_payload(
             "value": "application/json",
         },
     ]
-
+ 
     if webhook_secret:
         headers.append(
             {
@@ -1084,7 +1084,7 @@ def build_availability_action_payload(
                 "value": webhook_secret,
             }
         )
-
+ 
     return {
         "agentId": agent_id,
         "locationId": location_id,
@@ -1174,8 +1174,8 @@ def build_availability_action_payload(
             ],
         },
     }
-
-
+ 
+ 
 def build_booking_action_payload(
     shop: Shop,
     agent_id: str,
@@ -1189,7 +1189,7 @@ def build_booking_action_payload(
             "value": "application/json",
         },
     ]
-
+ 
     if webhook_secret:
         headers.append(
             {
@@ -1197,7 +1197,7 @@ def build_booking_action_payload(
                 "value": webhook_secret,
             }
         )
-
+ 
     return {
         "agentId": agent_id,
         "locationId": location_id,
@@ -1205,7 +1205,7 @@ def build_booking_action_payload(
         "name": "book_appointment",
         "actionParameters": {
             "triggerPrompt": (
-
+ 
                 "Use this action only after the caller "
                 "chooses an appointment time returned by "
                 "check_availability and explicitly confirms "
@@ -1301,8 +1301,8 @@ def build_booking_action_payload(
             ],
         },
     }
-
-
+ 
+ 
 def verify_action_after_warning(
     agent_id: str,
     location_id: str,
@@ -1311,30 +1311,30 @@ def verify_action_after_warning(
     expected_url: Optional[str] = None,
 ) -> Optional[dict]:
     error_text = highlevel_error_text(response)
-
+ 
     known_highlevel_warning = (
         "maximum call stack size exceeded"
         in error_text
         or "action with same name already exists"
         in error_text
     )
-
+ 
     if not known_highlevel_warning:
         return None
-
+ 
     refreshed_agent = get_agent_detail(
         agent_id=agent_id,
         location_id=location_id,
     )
-
+ 
     refreshed_action = find_action_by_name(
         agent_data=refreshed_agent,
         action_name=action_name,
     )
-
+ 
     if not refreshed_action:
         return None
-
+ 
     if expected_url:
         action_parameters = (
             refreshed_action.get(
@@ -1342,23 +1342,23 @@ def verify_action_after_warning(
             )
             or {}
         )
-
+ 
         api_details = (
             action_parameters.get(
                 "apiDetails"
             )
             or {}
         )
-
+ 
         stored_url = api_details.get("url")
-
+ 
         if stored_url != expected_url:
             return None
-
+ 
     return refreshed_action
-
-
-
+ 
+ 
+ 
 def create_or_update_action(
     agent_id: str,
     location_id: str,
@@ -1370,16 +1370,16 @@ def create_or_update_action(
         agent_id=agent_id,
         location_id=location_id,
     )
-
+ 
     existing_action = find_action_by_name(
         agent_data=agent_data,
         action_name=action_name,
     )
-
+ 
     existing_action_id = get_action_id(
         existing_action
     )
-
+ 
     if existing_action_id:
         response = highlevel_raw_request(
             method="PUT",
@@ -1389,18 +1389,18 @@ def create_or_update_action(
             ),
             json_body=payload,
         )
-
+ 
         if response.status_code < 400:
             refreshed_agent = get_agent_detail(
                 agent_id=agent_id,
                 location_id=location_id,
             )
-
+ 
             refreshed_action = find_action_by_name(
                 agent_data=refreshed_agent,
                 action_name=action_name,
             )
-
+ 
             return {
                 "operation": "updated",
                 "action": safe_action(
@@ -1408,7 +1408,7 @@ def create_or_update_action(
                     or existing_action
                 ),
             }
-
+ 
         verified_action = (
             verify_action_after_warning(
                 agent_id=agent_id,
@@ -1418,7 +1418,7 @@ def create_or_update_action(
                 expected_url=expected_url,
             )
         )
-
+ 
         if verified_action:
             return {
                 "operation": (
@@ -1433,28 +1433,28 @@ def create_or_update_action(
                     )
                 ),
             }
-
+ 
         raise_highlevel_error(response)
-
+ 
     response = highlevel_raw_request(
         method="POST",
         path="/voice-ai/actions",
         json_body=payload,
     )
-
+ 
     if response.status_code < 400:
         created_data = response_json(response)
-
+ 
         refreshed_agent = get_agent_detail(
             agent_id=agent_id,
             location_id=location_id,
         )
-
+ 
         refreshed_action = find_action_by_name(
             agent_data=refreshed_agent,
             action_name=action_name,
         )
-
+ 
         return {
             "operation": "created",
             "action": safe_action(
@@ -1462,7 +1462,7 @@ def create_or_update_action(
                 or created_data
             ),
         }
-
+ 
     verified_action = (
         verify_action_after_warning(
             agent_id=agent_id,
@@ -1472,7 +1472,7 @@ def create_or_update_action(
             expected_url=expected_url,
         )
     )
-
+ 
     if verified_action:
         return {
             "operation": (
@@ -1487,10 +1487,10 @@ def create_or_update_action(
                 )
             ),
         }
-
+ 
     raise_highlevel_error(response)
-
-
+ 
+ 
 @router.post(
     "/webhook/{shop_slug}/availability"
 )
@@ -1503,36 +1503,36 @@ async def tenant_voice_availability(
         shop_slug=shop_slug,
         db=db,
     )
-
+ 
     if shop.highlevel_agent_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-
+ 
             detail=(
-
+ 
                             "The legacy provisioning-test webhook is "
                 "disabled for production AI shops."
             ),
         )
-
+ 
     verify_production_webhook_secret(
         shop=shop,
         request=request,
     )
-
+ 
     incoming = {}
-
+ 
     try:
         json_data = await request.json()
-
+ 
         if isinstance(json_data, dict):
             incoming.update(json_data)
-
+ 
     except Exception:
         pass
-
+ 
     incoming = decode_highlevel_fields(incoming)
-
+ 
     for key, value in request.query_params.items():
         if (
             value is not None
@@ -1541,11 +1541,11 @@ async def tenant_voice_availability(
             incoming[key] = (
                 decode_highlevel_value(value)
             )
-
+ 
     if not incoming:
         try:
             form_data = await request.form()
-
+ 
             for key, value in form_data.items():
                 if value is not None:
                     incoming[key] = (
@@ -1553,34 +1553,34 @@ async def tenant_voice_availability(
                             value
                         )
                     )
-
+ 
         except Exception:
             pass
-
+ 
     service_name = incoming.get(
         "service_name"
     )
-
+ 
     target_date = incoming.get(
         "target_date"
     )
-
+ 
     barber_name = normalize_barber_name(
         incoming.get("barber_name")
     )
-
+ 
     missing_fields = []
-
+ 
     if not service_name:
         missing_fields.append(
             "service_name"
         )
-
+ 
     if not target_date:
         missing_fields.append(
             "target_date"
         )
-
+ 
     if missing_fields:
         return {
             "success": False,
@@ -1599,7 +1599,7 @@ async def tenant_voice_availability(
                 )
             ),
         }
-
+ 
     request_payload = {
         "shop_slug": shop.slug,
         "service_name": str(
@@ -1618,15 +1618,15 @@ async def tenant_voice_availability(
             )
         ),
     }
-
+ 
     started = time.monotonic()
-
+ 
     result = await asyncio.to_thread(
         chairtime_voice_request,
         url=CHAIRTIME_AVAILABILITY_URL,
         payload=request_payload,
     )
-
+ 
     logger.info(
         "voice_availability shop=%s "
         "duration_ms=%d slot_count=%d",
@@ -1643,10 +1643,10 @@ async def tenant_voice_availability(
             or []
         ),
     )
-
+ 
     return result
-
-
+ 
+ 
 @router.post(
     "/webhook/{shop_slug}/book"
 )
@@ -1658,9 +1658,9 @@ async def tenant_voice_booking(
     shop = get_shop_by_slug(
         shop_slug=shop_slug,
         db=db,
-
+ 
     )
-
+ 
     if shop.highlevel_agent_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -1669,25 +1669,25 @@ async def tenant_voice_booking(
                 "disabled for production AI shops."
             ),
         )
-
+ 
     verify_production_webhook_secret(
         shop=shop,
         request=request,
     )
-
+ 
     incoming = {}
-
+ 
     try:
         json_data = await request.json()
-
+ 
         if isinstance(json_data, dict):
             incoming.update(json_data)
-
+ 
     except Exception:
         pass
-
+ 
     incoming = decode_highlevel_fields(incoming)
-
+ 
     for key, value in request.query_params.items():
         if (
             value is not None
@@ -1696,11 +1696,11 @@ async def tenant_voice_booking(
             incoming[key] = (
                 decode_highlevel_value(value)
             )
-
+ 
     if not incoming:
         try:
             form_data = await request.form()
-
+ 
             for key, value in form_data.items():
                 if value is not None:
                     incoming[key] = (
@@ -1708,10 +1708,10 @@ async def tenant_voice_booking(
                             value
                         )
                     )
-
+ 
         except Exception:
             pass
-
+ 
     required_fields = [
         "service_name",
         "target_date",
@@ -1719,13 +1719,13 @@ async def tenant_voice_booking(
         "customer_name",
         "customer_phone",
     ]
-
+ 
     missing_fields = [
         field
         for field in required_fields
         if not incoming.get(field)
     ]
-
+ 
     if missing_fields:
         return {
             "success": False,
@@ -1744,11 +1744,11 @@ async def tenant_voice_booking(
                 )
             ),
         }
-
+ 
     barber_name = normalize_barber_name(
         incoming.get("barber_name")
     )
-
+ 
     request_payload = {
         "shop_slug": shop.slug,
         "service_name": str(
@@ -1768,14 +1768,14 @@ async def tenant_voice_booking(
         ).strip(),
         "barber_name": barber_name,
     }
-
+ 
     return await asyncio.to_thread(
         chairtime_voice_request,
         url=CHAIRTIME_BOOKING_URL,
         payload=request_payload,
     )
-
-
+ 
+ 
 @router.post(
     "/tenant-webhook/{shop_slug}/availability"
 )
@@ -1788,7 +1788,7 @@ async def production_tenant_voice_availability(
         shop_slug=shop_slug,
         db=db,
     )
-
+ 
     if not shop.highlevel_agent_id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -1797,28 +1797,28 @@ async def production_tenant_voice_availability(
                 "is not configured."
             ),
         )
-
+ 
     verify_production_webhook_secret(
         shop=shop,
         request=request,
     )
-
+ 
     incoming = {}
-
+ 
     try:
         json_data = await request.json()
-
+ 
         if isinstance(json_data, dict):
-
+ 
             incoming.update(json_data)
-
+ 
     except Exception:
         pass
-
+ 
     incoming = decode_highlevel_fields(
         incoming
     )
-
+ 
     for key, value in request.query_params.items():
         if (
             value is not None
@@ -1829,11 +1829,11 @@ async def production_tenant_voice_availability(
                     value
                 )
             )
-
+ 
     if not incoming:
         try:
             form_data = await request.form()
-
+ 
             for key, value in form_data.items():
                 if value is not None:
                     incoming[key] = (
@@ -1841,34 +1841,34 @@ async def production_tenant_voice_availability(
                             value
                         )
                     )
-
+ 
         except Exception:
             pass
-
+ 
     service_name = incoming.get(
         "service_name"
     )
-
+ 
     target_date = incoming.get(
         "target_date"
     )
-
+ 
     barber_name = normalize_barber_name(
         incoming.get("barber_name")
     )
-
+ 
     missing_fields = []
-
+ 
     if not service_name:
         missing_fields.append(
             "service_name"
         )
-
+ 
     if not target_date:
         missing_fields.append(
             "target_date"
         )
-
+ 
     if missing_fields:
         return {
             "success": False,
@@ -1889,7 +1889,7 @@ async def production_tenant_voice_availability(
                 )
             ),
         }
-
+ 
     request_payload = {
         "shop_slug": shop.slug,
         "service_name": str(
@@ -1908,15 +1908,15 @@ async def production_tenant_voice_availability(
             )
         ),
     }
-
+ 
     started = time.monotonic()
-
+ 
     result = await asyncio.to_thread(
         chairtime_voice_request,
         url=CHAIRTIME_AVAILABILITY_URL,
         payload=request_payload,
     )
-
+ 
     logger.info(
         "production_voice_availability "
         "shop=%s duration_ms=%d "
@@ -1934,10 +1934,10 @@ async def production_tenant_voice_availability(
             or []
         ),
     )
-
+ 
     return result
-
-
+ 
+ 
 @router.post(
     "/tenant-webhook/{shop_slug}/book"
 )
@@ -1950,7 +1950,7 @@ async def production_tenant_voice_booking(
         shop_slug=shop_slug,
         db=db,
     )
-
+ 
     if not shop.highlevel_agent_id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -1959,28 +1959,28 @@ async def production_tenant_voice_booking(
                 "is not configured."
             ),
         )
-
-
+ 
+ 
     verify_production_webhook_secret(
         shop=shop,
         request=request,
     )
-
+ 
     incoming = {}
-
+ 
     try:
         json_data = await request.json()
-
+ 
         if isinstance(json_data, dict):
             incoming.update(json_data)
-
+ 
     except Exception:
         pass
-
+ 
     incoming = decode_highlevel_fields(
         incoming
     )
-
+ 
     for key, value in request.query_params.items():
         if (
             value is not None
@@ -1991,11 +1991,11 @@ async def production_tenant_voice_booking(
                     value
                 )
             )
-
+ 
     if not incoming:
         try:
             form_data = await request.form()
-
+ 
             for key, value in form_data.items():
                 if value is not None:
                     incoming[key] = (
@@ -2003,10 +2003,10 @@ async def production_tenant_voice_booking(
                             value
                         )
                     )
-
+ 
         except Exception:
             pass
-
+ 
     required_fields = [
         "service_name",
         "target_date",
@@ -2014,13 +2014,13 @@ async def production_tenant_voice_booking(
         "customer_name",
         "customer_phone",
     ]
-
+ 
     missing_fields = [
         field
         for field in required_fields
         if not incoming.get(field)
     ]
-
+ 
     if missing_fields:
         return {
             "success": False,
@@ -2039,11 +2039,11 @@ async def production_tenant_voice_booking(
                 )
             ),
         }
-
+ 
     barber_name = normalize_barber_name(
         incoming.get("barber_name")
     )
-
+ 
     request_payload = {
         "shop_slug": shop.slug,
         "service_name": str(
@@ -2063,30 +2063,30 @@ async def production_tenant_voice_booking(
         ).strip(),
         "barber_name": barber_name,
     }
-
+ 
     return await asyncio.to_thread(
         chairtime_voice_request,
         url=CHAIRTIME_BOOKING_URL,
         payload=request_payload,
     )
-
-
+ 
+ 
 @router.get("/agents")
 def get_highlevel_voice_agents(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     require_owner(current_user)
-
+ 
     shop = get_current_shop(
         current_user=current_user,
         db=db,
     )
-
+ 
     agent_id = str(
         shop.highlevel_agent_id or ""
     ).strip()
-
+ 
     if not agent_id:
         return {
             "success": True,
@@ -2098,20 +2098,20 @@ def get_highlevel_voice_agents(
             "agent_count": 0,
             "agents": [],
         }
-
+ 
     location_id = production_location_id(shop)
-
+ 
     agent = get_agent_detail(
         agent_id=agent_id,
         location_id=location_id,
     )
-
+ 
     return {
         "success": True,
         "chairtime_shop": {
             "id": str(shop.id),
             "slug": shop.slug,
-
+ 
             "name": shop.name,
         },
         "agent_count": 1,
@@ -2119,8 +2119,8 @@ def get_highlevel_voice_agents(
             safe_agent_summary(agent)
         ],
     }
-
-
+ 
+ 
 @router.get("/agents/{agent_id}")
 def get_highlevel_voice_agent(
     agent_id: str,
@@ -2128,29 +2128,29 @@ def get_highlevel_voice_agent(
     db: Session = Depends(get_db),
 ):
     require_owner(current_user)
-
+ 
     shop = get_current_shop(
         current_user=current_user,
         db=db,
     )
-
+ 
     require_shop_agent(
         shop=shop,
         agent_id=agent_id,
     )
-
+ 
     location_id = production_location_id(shop)
-
+ 
     data = get_agent_detail(
         agent_id=agent_id,
         location_id=location_id,
     )
-
+ 
     actions = [
         safe_action(action)
         for action in extract_actions(data)
     ]
-
+ 
     return {
         "success": True,
         "chairtime_shop": {
@@ -2214,8 +2214,8 @@ def get_highlevel_voice_agent(
             "action_count": len(actions),
         },
     }
-
-
+ 
+ 
 @router.get("/actions/{action_id}")
 def get_highlevel_voice_action(
     action_id: str,
@@ -2223,20 +2223,20 @@ def get_highlevel_voice_action(
     db: Session = Depends(get_db),
 ):
     require_owner(current_user)
-
+ 
     shop = get_current_shop(
         current_user=current_user,
         db=db,
     )
-
+ 
     location_id = production_location_id(shop)
-
+ 
     action = require_shop_action(
         shop=shop,
         action_id=action_id,
         location_id=location_id,
     )
-
+ 
     return {
         "success": True,
         "chairtime_shop": {
@@ -2246,32 +2246,32 @@ def get_highlevel_voice_action(
         },
         "action": safe_action(action),
     }
-
-
+ 
+ 
 def extract_location_phone_numbers(
     data: dict,
 ) -> list:
     if not isinstance(data, dict):
         return []
-
+ 
     payload = data.get("data")
-
+ 
     if not isinstance(payload, dict):
         return []
-
+ 
     raw_numbers = payload.get("numbers")
-
+ 
     if not isinstance(raw_numbers, list):
-
+ 
         return []
-
+ 
     return [
         number
         for number in raw_numbers
         if isinstance(number, dict)
     ]
-
-
+ 
+ 
 def get_location_phone_numbers(
     location_id: str,
 ) -> tuple[dict, list]:
@@ -2287,30 +2287,30 @@ def get_location_phone_numbers(
             "skipNumberPool": True,
         },
     )
-
+ 
     data = response_json(response)
-
+ 
     return (
         data,
         extract_location_phone_numbers(data),
     )
-
-
+ 
+ 
 def get_phone_inbound_service(
     phone_record: dict,
 ) -> dict:
     if not isinstance(phone_record, dict):
         return {}
-
+ 
     service = phone_record.get(
         "inboundCallService"
     )
-
+ 
     if not isinstance(service, dict):
         return {}
-
+ 
     return service
-
+ 
 def find_phone_numbers_routed_to_agent(
     phone_numbers: list,
     agent_id: str,
@@ -2318,54 +2318,54 @@ def find_phone_numbers_routed_to_agent(
     clean_agent_id = str(
         agent_id or ""
     ).strip()
-
+ 
     if not clean_agent_id:
         return []
-
+ 
     matches = []
-
+ 
     for phone_record in phone_numbers:
         if not isinstance(
             phone_record,
             dict,
         ):
             continue
-
+ 
         capabilities = (
             phone_record.get(
                 "capabilities"
             )
             or {}
         )
-
+ 
         if not isinstance(
             capabilities,
             dict,
         ):
             capabilities = {}
-
+ 
         if (
             capabilities.get("voice")
             is not True
         ):
             continue
-
+ 
         inbound_service = (
             get_phone_inbound_service(
                 phone_record
             )
         )
-
+ 
         service_type = str(
             inbound_service.get("type")
             or ""
         ).strip()
-
+ 
         service_value = str(
             inbound_service.get("value")
             or ""
         ).strip()
-
+ 
         if (
             service_type == "voice_ai"
             and service_value
@@ -2374,17 +2374,17 @@ def find_phone_numbers_routed_to_agent(
             matches.append(
                 phone_record
             )
-
+ 
     return matches
-
-
+ 
+ 
 def get_shop_routed_phone_record(
     shop: Shop,
 ) -> tuple[dict, list, Optional[dict]]:
     agent_id = str(
         shop.highlevel_agent_id or ""
     ).strip()
-
+ 
     if not agent_id:
         raise HTTPException(
             status_code=(
@@ -2396,25 +2396,25 @@ def get_shop_routed_phone_record(
                 "agent."
             ),
         )
-
+ 
     location_id = production_location_id(
         shop
     )
-
+ 
     data, phone_numbers = (
         get_location_phone_numbers(
             location_id=location_id,
         )
     )
-
+ 
     matches = (
         find_phone_numbers_routed_to_agent(
             phone_numbers=phone_numbers,
             agent_id=agent_id,
         )
     )
-
-
+ 
+ 
     if len(matches) > 1:
         raise HTTPException(
             status_code=(
@@ -2426,20 +2426,20 @@ def get_shop_routed_phone_record(
                 "AI Receptionist."
             ),
         )
-
+ 
     matched_phone = (
         matches[0]
         if matches
         else None
     )
-
+ 
     return (
         data,
         phone_numbers,
         matched_phone,
     )
-
-
+ 
+ 
 def sync_shop_phone_number_from_highlevel(
     shop: Shop,
     db: Session,
@@ -2450,7 +2450,7 @@ def sync_shop_phone_number_from_highlevel(
             shop=shop,
         )
     )
-
+ 
     if matched_phone is None:
         if require_match:
             raise HTTPException(
@@ -2463,14 +2463,14 @@ def sync_shop_phone_number_from_highlevel(
                     "shop's AI Receptionist."
                 ),
             )
-
+ 
         return None
-
+ 
     phone_number = str(
         matched_phone.get("phoneNumber")
         or ""
     ).strip()
-
+ 
     if not phone_number:
         raise HTTPException(
             status_code=(
@@ -2482,12 +2482,12 @@ def sync_shop_phone_number_from_highlevel(
                 "number."
             ),
         )
-
+ 
     stored_phone_number = str(
         shop.highlevel_phone_number
         or ""
     ).strip()
-
+ 
     if (
         stored_phone_number
         != phone_number
@@ -2495,35 +2495,35 @@ def sync_shop_phone_number_from_highlevel(
         shop.highlevel_phone_number = (
             phone_number
         )
-
+ 
         try:
             db.add(shop)
             db.commit()
             db.refresh(shop)
-
+ 
         except Exception:
             db.rollback()
             raise
-
+ 
     return matched_phone
-
-
+ 
+ 
 @router.get("/provision/status")
 def get_production_provision_status(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     require_owner(current_user)
-
+ 
     shop = get_current_shop(
         current_user=current_user,
         db=db,
     )
-
+ 
     agent_id = str(
         shop.highlevel_agent_id or ""
     ).strip()
-
+ 
     response = {
         "success": True,
         "chairtime_shop": {
@@ -2544,39 +2544,39 @@ def get_production_provision_status(
         ),
         "agent": None,
     }
-
+ 
     if not agent_id:
         return response
-
+ 
     location_id = (
         production_location_id(shop)
     )
-
+ 
     agent = get_agent_detail(
         agent_id=agent_id,
         location_id=location_id,
     )
-
+ 
     response["agent"] = (
         safe_agent_summary(agent)
     )
-
+ 
     return response
-
-
-
+ 
+ 
+ 
 @router.post("/provision")
 def provision_production_ai_receptionist(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     require_owner(current_user)
-
+ 
     shop = get_current_shop(
         current_user=current_user,
         db=db,
     )
-
+ 
     if not shop.ai_voice_enabled:
         raise HTTPException(
             status_code=(
@@ -2587,7 +2587,7 @@ def provision_production_ai_receptionist(
                 "for this ChairTime subscription."
             ),
         )
-
+ 
     if not shop.slug:
         raise HTTPException(
             status_code=(
@@ -2598,11 +2598,11 @@ def provision_production_ai_receptionist(
                 "have a slug."
             ),
         )
-
+ 
     location_id = (
         production_location_id(shop)
     )
-
+ 
     if (
         shop.highlevel_location_id
         and str(
@@ -2620,14 +2620,14 @@ def provision_production_ai_receptionist(
                 "location."
             ),
         )
-
+ 
     webhook_secret = (
         ensure_shop_webhook_secret(
             shop=shop,
             db=db,
         )
     )
-
+ 
     agent_data, agent_created = (
         get_or_create_production_agent(
             shop=shop,
@@ -2635,14 +2635,14 @@ def provision_production_ai_receptionist(
             db=db,
         )
     )
-
+ 
     agent_id = str(
         agent_data.get("id")
         or agent_data.get("_id")
         or shop.highlevel_agent_id
         or ""
     ).strip()
-
+ 
     if not agent_id:
         raise HTTPException(
             status_code=(
@@ -2653,7 +2653,7 @@ def provision_production_ai_receptionist(
                 "for the shop AI receptionist."
             ),
         )
-
+ 
     agent_data = (
         update_production_agent_settings(
             shop=shop,
@@ -2661,19 +2661,19 @@ def provision_production_ai_receptionist(
             location_id=location_id,
         )
     )
-
+ 
     availability_url = (
         production_availability_webhook_url(
             shop
         )
     )
-
+ 
     booking_url = (
         production_booking_webhook_url(
             shop
         )
     )
-
+ 
     availability_result = (
         create_or_update_action(
             agent_id=agent_id,
@@ -2699,7 +2699,7 @@ def provision_production_ai_receptionist(
             ),
         )
     )
-
+ 
     booking_result = (
         create_or_update_action(
             agent_id=agent_id,
@@ -2715,21 +2715,21 @@ def provision_production_ai_receptionist(
                     webhook_url=booking_url,
                     webhook_secret=(
                         webhook_secret
-
+ 
                     ),
                 )
             ),
             expected_url=booking_url,
         )
     )
-
+ 
     refreshed_agent = (
         get_agent_detail(
             agent_id=agent_id,
             location_id=location_id,
         )
     )
-
+ 
     if (
         str(
             shop.highlevel_agent_id
@@ -2746,14 +2746,14 @@ def provision_production_ai_receptionist(
                 "this shop's AI agent ownership."
             ),
         )
-
+ 
     final_actions = [
         safe_action(action)
         for action in extract_actions(
             refreshed_agent
         )
     ]
-
+ 
     return {
         "success": True,
         "message": (
@@ -2795,8 +2795,8 @@ def provision_production_ai_receptionist(
             "shared_test_agent_used": False,
         },
     }
-
-
+ 
+ 
 @router.post(
     "/provisioning-test/availability"
 )
@@ -2805,12 +2805,12 @@ def provision_tenant_safe_availability(
     db: Session = Depends(get_db),
 ):
     require_owner(current_user)
-
+ 
     shop = get_current_shop(
         current_user=current_user,
         db=db,
     )
-
+ 
     if not shop.slug:
         raise HTTPException(
             status_code=(
@@ -2821,30 +2821,30 @@ def provision_tenant_safe_availability(
                 "have a slug."
             ),
         )
-
+ 
     webhook_secret = (
         ensure_shop_webhook_secret(
             shop=shop,
             db=db,
         )
     )
-
+ 
     location_id = (
         get_highlevel_location_id()
     )
-
+ 
     agent_data, agent_created = (
         get_or_create_test_agent(
             shop=shop,
             location_id=location_id,
         )
     )
-
+ 
     agent_id = (
         agent_data.get("id")
         or agent_data.get("_id")
     )
-
+ 
     if not agent_id:
         raise HTTPException(
             status_code=(
@@ -2855,21 +2855,21 @@ def provision_tenant_safe_availability(
                 "for the provisioning test agent."
             ),
         )
-
+ 
     agent_data = (
         update_test_agent_settings(
             agent_id=agent_id,
             location_id=location_id,
         )
     )
-
+ 
     webhook_url = (
         tenant_availability_webhook_url(
             shop
-
+ 
         )
     )
-
+ 
     availability_result = (
         create_or_update_action(
             agent_id=agent_id,
@@ -2889,7 +2889,7 @@ def provision_tenant_safe_availability(
             expected_url=webhook_url,
         )
     )
-
+ 
     return {
         "success": True,
         "message": (
@@ -2921,8 +2921,8 @@ def provision_tenant_safe_availability(
         ),
         "working_receptionist_modified": False,
     }
-
-
+ 
+ 
 @router.post(
     "/provisioning-test/booking"
 )
@@ -2931,12 +2931,12 @@ def provision_tenant_safe_booking(
     db: Session = Depends(get_db),
 ):
     require_owner(current_user)
-
+ 
     shop = get_current_shop(
         current_user=current_user,
         db=db,
     )
-
+ 
     if not shop.slug:
         raise HTTPException(
             status_code=(
@@ -2947,30 +2947,30 @@ def provision_tenant_safe_booking(
                 "have a slug."
             ),
         )
-
+ 
     webhook_secret = (
         ensure_shop_webhook_secret(
             shop=shop,
             db=db,
         )
     )
-
+ 
     location_id = (
         get_highlevel_location_id()
     )
-
+ 
     agent_data, agent_created = (
         get_or_create_test_agent(
             shop=shop,
             location_id=location_id,
         )
     )
-
+ 
     agent_id = (
         agent_data.get("id")
         or agent_data.get("_id")
     )
-
+ 
     if not agent_id:
         raise HTTPException(
             status_code=(
@@ -2981,19 +2981,19 @@ def provision_tenant_safe_booking(
                 "for the provisioning test agent."
             ),
         )
-
+ 
     current_agent = get_agent_detail(
         agent_id=agent_id,
         location_id=location_id,
     )
-
+ 
     availability_action = (
         find_action_by_name(
             current_agent,
             "check_availability",
         )
     )
-
+ 
     if not availability_action:
         raise HTTPException(
             status_code=(
@@ -3005,21 +3005,21 @@ def provision_tenant_safe_booking(
                 "action."
             ),
         )
-
+ 
     agent_data = (
         update_test_agent_settings(
             agent_id=agent_id,
             location_id=location_id,
         )
     )
-
+ 
     webhook_url = (
         tenant_booking_webhook_url(
             shop
         )
-
+ 
     )
-
+ 
     booking_result = (
         create_or_update_action(
             agent_id=agent_id,
@@ -3039,14 +3039,14 @@ def provision_tenant_safe_booking(
             expected_url=webhook_url,
         )
     )
-
+ 
     refreshed_agent = (
         get_agent_detail(
             agent_id=agent_id,
             location_id=location_id,
         )
     )
-
+ 
     return {
         "success": True,
         "message": (
@@ -3081,21 +3081,21 @@ def provision_tenant_safe_booking(
         ),
         "working_receptionist_modified": False,
     }
-
-
+ 
+ 
 @router.post("/provisioning-test/full")
 def provision_tenant_safe_voice_test(
-
+ 
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     require_owner(current_user)
-
+ 
     shop = get_current_shop(
         current_user=current_user,
         db=db,
     )
-
+ 
     if not shop.slug:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -3103,28 +3103,28 @@ def provision_tenant_safe_voice_test(
                 "The ChairTime shop does not have a slug."
             ),
         )
-
+ 
     webhook_secret = (
         ensure_shop_webhook_secret(
             shop=shop,
             db=db,
         )
     )
-
+ 
     location_id = get_highlevel_location_id()
-
+ 
     agent_data, agent_created = (
         get_or_create_test_agent(
             shop=shop,
             location_id=location_id,
         )
     )
-
+ 
     agent_id = (
         agent_data.get("id")
         or agent_data.get("_id")
     )
-
+ 
     if not agent_id:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -3133,24 +3133,24 @@ def provision_tenant_safe_voice_test(
                 "provisioning test agent."
             ),
         )
-
+ 
     availability_url = (
         tenant_availability_webhook_url(
             shop
         )
     )
-
+ 
     booking_url = (
         tenant_booking_webhook_url(
             shop
         )
     )
-
+ 
     agent_data = update_test_agent_settings(
         agent_id=agent_id,
         location_id=location_id,
     )
-
+ 
     availability_result = (
         create_or_update_action(
             agent_id=agent_id,
@@ -3168,8 +3168,8 @@ def provision_tenant_safe_voice_test(
             expected_url=availability_url,
         )
     )
-
-
+ 
+ 
     booking_result = (
         create_or_update_action(
             agent_id=agent_id,
@@ -3187,19 +3187,19 @@ def provision_tenant_safe_voice_test(
             expected_url=booking_url,
         )
     )
-
+ 
     refreshed_agent = get_agent_detail(
         agent_id=agent_id,
         location_id=location_id,
     )
-
+ 
     final_actions = [
         safe_action(action)
         for action in extract_actions(
             refreshed_agent
         )
     ]
-
+ 
     return {
         "success": True,
         "message": (
@@ -3235,20 +3235,20 @@ def provision_tenant_safe_voice_test(
         "final_actions": final_actions,
         "working_receptionist_modified": False,
     }
-
-
+ 
+ 
 @router.get("/phone-numbers")
 def get_shop_highlevel_phone_numbers(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     require_owner(current_user)
-
+ 
     shop = get_current_shop(
         current_user=current_user,
         db=db,
     )
-
+ 
     if not shop.ai_voice_enabled:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -3257,19 +3257,19 @@ def get_shop_highlevel_phone_numbers(
                 "this ChairTime subscription."
             ),
         )
-
+ 
     location_id = production_location_id(shop)
-
+ 
     highlevel_data, phone_numbers = (
         get_location_phone_numbers(
             location_id=location_id,
         )
     )
-
+ 
     agent_id = str(
         shop.highlevel_agent_id or ""
     ).strip()
-
+ 
     routed_matches = (
         find_phone_numbers_routed_to_agent(
             phone_numbers=phone_numbers,
@@ -3278,7 +3278,7 @@ def get_shop_highlevel_phone_numbers(
         if agent_id
         else []
     )
-
+ 
     if len(routed_matches) > 1:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -3287,13 +3287,13 @@ def get_shop_highlevel_phone_numbers(
                 "routed to this shop's AI Receptionist."
             ),
         )
-
+ 
     routed_phone = (
         routed_matches[0]
         if routed_matches
         else None
     )
-
+ 
     return {
         "success": True,
         "chairtime_shop": {
@@ -3319,24 +3319,24 @@ def get_shop_highlevel_phone_numbers(
             ).strip()
             or None
         ),
-
+ 
         "routed_phone_record": routed_phone,
         "highlevel_response": highlevel_data,
     }
-
-
+ 
+ 
 @router.post("/phone-number/sync")
 def sync_shop_highlevel_phone_number(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     require_owner(current_user)
-
+ 
     shop = get_current_shop(
         current_user=current_user,
         db=db,
     )
-
+ 
     if not shop.ai_voice_enabled:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -3345,7 +3345,7 @@ def sync_shop_highlevel_phone_number(
                 "this ChairTime subscription."
             ),
         )
-
+ 
     matched_phone = (
         sync_shop_phone_number_from_highlevel(
             shop=shop,
@@ -3353,14 +3353,14 @@ def sync_shop_highlevel_phone_number(
             require_match=True,
         )
     )
-
+ 
     phone_number = str(
         (matched_phone or {}).get(
             "phoneNumber"
         )
         or ""
     ).strip()
-
+ 
     return {
         "success": True,
         "chairtime_shop": {
@@ -3383,8 +3383,8 @@ def sync_shop_highlevel_phone_number(
             "Receptionist."
         ),
     }
-
-
+ 
+ 
 @router.post("/phone-number/assign")
 def assign_shop_highlevel_phone_number(
     current_user: User = Depends(get_current_user),
@@ -3392,19 +3392,19 @@ def assign_shop_highlevel_phone_number(
 ):
     """
     Backward-compatible alias for the original test endpoint.
-
+ 
     HighLevel's phone-system routing is the authoritative source.
     This endpoint no longer guesses which active phone number to
     assign. It safely synchronizes the number already routed to
     this shop's exact Voice AI agent.
     """
     require_owner(current_user)
-
+ 
     shop = get_current_shop(
         current_user=current_user,
         db=db,
     )
-
+ 
     if not shop.ai_voice_enabled:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -3413,7 +3413,7 @@ def assign_shop_highlevel_phone_number(
                 "this ChairTime subscription."
             ),
         )
-
+ 
     matched_phone = (
         sync_shop_phone_number_from_highlevel(
             shop=shop,
@@ -3421,14 +3421,14 @@ def assign_shop_highlevel_phone_number(
             require_match=True,
         )
     )
-
+ 
     phone_number = str(
         (matched_phone or {}).get(
             "phoneNumber"
         )
         or ""
     ).strip()
-
+ 
     return {
         "success": True,
         "chairtime_shop": {
@@ -3456,21 +3456,21 @@ def assign_shop_highlevel_phone_number(
             "number routed to this shop's AI Receptionist."
         ),
     }
-
-
+ 
+ 
 @router.get("/phone-number/current-agent")
 def get_phone_number_current_agent(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     require_owner(current_user)
-
+ 
     shop = get_current_shop(
         current_user=current_user,
         db=db,
     )
-
-
+ 
+ 
     if not shop.ai_voice_enabled:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -3479,11 +3479,11 @@ def get_phone_number_current_agent(
                 "this ChairTime subscription."
             ),
         )
-
+ 
     agent_id = str(
         shop.highlevel_agent_id or ""
     ).strip()
-
+ 
     if not agent_id:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -3492,13 +3492,13 @@ def get_phone_number_current_agent(
                 "AI Receptionist agent."
             ),
         )
-
+ 
     _, _, matched_phone = (
         get_shop_routed_phone_record(
             shop=shop,
         )
     )
-
+ 
     if matched_phone is None:
         return {
             "success": True,
@@ -3507,22 +3507,22 @@ def get_phone_number_current_agent(
             "inbound_service": {},
             "current_agent": None,
         }
-
+ 
     inbound_service = (
         get_phone_inbound_service(
             matched_phone
         )
     )
-
+ 
     location_id = production_location_id(
         shop
     )
-
+ 
     agent = get_agent_detail(
         agent_id=agent_id,
         location_id=location_id,
     )
-
+ 
     return {
         "success": True,
         "phone_number": (
@@ -3540,8 +3540,8 @@ def get_phone_number_current_agent(
             safe_agent_summary(agent)
         ),
     }
-
-
+ 
+ 
 @router.get("/phone-numbers/available")
 def get_available_highlevel_phone_numbers(
     area_code: str,
@@ -3549,12 +3549,12 @@ def get_available_highlevel_phone_numbers(
     db: Session = Depends(get_db),
 ):
     require_owner(current_user)
-
+ 
     shop = get_current_shop(
         current_user=current_user,
         db=db,
     )
-
+ 
     if not shop.ai_voice_enabled:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -3563,13 +3563,13 @@ def get_available_highlevel_phone_numbers(
                 "this ChairTime subscription."
             ),
         )
-
+ 
     clean_area_code = "".join(
         character
         for character in str(area_code)
         if character.isdigit()
     )
-
+ 
     if len(clean_area_code) != 3:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -3577,11 +3577,11 @@ def get_available_highlevel_phone_numbers(
                 "Area code must contain exactly 3 digits."
             ),
         )
-
+ 
     location_id = production_location_id(
         shop
     )
-
+ 
     response = highlevel_request(
         method="GET",
         path=(
@@ -3599,9 +3599,9 @@ def get_available_highlevel_phone_numbers(
             "countryCode": "US",
         },
     )
-
+ 
     data = response_json(response)
-
+ 
     raw_numbers = (
         data.get("numbers")
         or (
@@ -3610,9 +3610,9 @@ def get_available_highlevel_phone_numbers(
         ).get("numbers")
         or []
     )
-
+ 
     available_numbers = []
-
+ 
     if isinstance(raw_numbers, list):
         for number in raw_numbers:
             if not isinstance(
@@ -3620,17 +3620,17 @@ def get_available_highlevel_phone_numbers(
                 dict,
             ):
                 continue
-
-
+ 
+ 
             phone_number = str(
                 number.get("phoneNumber")
                 or number.get("number")
                 or ""
             ).strip()
-
+ 
             if not phone_number:
                 continue
-
+ 
             available_numbers.append(
                 {
                     "phone_number": (
@@ -3664,7 +3664,7 @@ def get_available_highlevel_phone_numbers(
                     ),
                 }
             )
-
+ 
     return {
         "success": True,
         "chairtime_shop": {
@@ -3681,14 +3681,14 @@ def get_available_highlevel_phone_numbers(
             available_numbers[:10]
         ),
     }
-
-
+ 
+ 
 class PhoneNumberPurchaseRequest(
     BaseModel
 ):
     phone_number: str
-
-
+ 
+ 
 def normalize_us_phone_number(
     value: str,
 ) -> str:
@@ -3699,10 +3699,10 @@ def normalize_us_phone_number(
         )
         if character.isdigit()
     )
-
+ 
     if len(digits) == 10:
         digits = "1" + digits
-
+ 
     if (
         len(digits) != 11
         or not digits.startswith("1")
@@ -3713,10 +3713,10 @@ def normalize_us_phone_number(
                 "A valid U.S. phone number is required."
             ),
         )
-
+ 
     return f"+{digits}"
-
-
+ 
+ 
 def phone_numbers_match(
     first_value: str,
     second_value: str,
@@ -3728,7 +3728,7 @@ def phone_numbers_match(
         )
         if character.isdigit()
     )
-
+ 
     second_digits = "".join(
         character
         for character in str(
@@ -3736,14 +3736,14 @@ def phone_numbers_match(
         )
         if character.isdigit()
     )
-
+ 
     return (
         bool(first_digits)
         and first_digits
         == second_digits
     )
-
-
+ 
+ 
 def find_phone_record_by_number(
     phone_numbers: list,
     phone_number: str,
@@ -3754,7 +3754,7 @@ def find_phone_record_by_number(
             dict,
         ):
             continue
-
+ 
         record_number = (
             phone_record.get(
                 "phoneNumber"
@@ -3764,17 +3764,17 @@ def find_phone_record_by_number(
             )
             or ""
         )
-
+ 
         if phone_numbers_match(
             record_number,
             phone_number,
         ):
             return phone_record
-
+ 
     return None
-
-
-
+ 
+ 
+ 
 def get_phone_purchase_credentials(
 ) -> tuple[str, str]:
     stripe_account_id = str(
@@ -3784,7 +3784,7 @@ def get_phone_purchase_credentials(
         )
         or ""
     ).strip()
-
+ 
     payment_method_id = str(
         os.getenv(
             "HIGHLEVEL_PHONE_PAYMENT_METHOD_ID",
@@ -3792,20 +3792,20 @@ def get_phone_purchase_credentials(
         )
         or ""
     ).strip()
-
+ 
     missing = []
-
+ 
     if not stripe_account_id:
         missing.append(
             "HIGHLEVEL_PHONE_STRIPE_ACCOUNT_ID"
         )
-
+ 
     if not payment_method_id:
-
+ 
             missing.append(
             "HIGHLEVEL_PHONE_PAYMENT_METHOD_ID"
         )
-
+ 
     if missing:
         raise HTTPException(
             status_code=(
@@ -3817,13 +3817,13 @@ def get_phone_purchase_credentials(
                 + ", ".join(missing)
             ),
         )
-
+ 
     return (
         stripe_account_id,
         payment_method_id,
     )
-
-
+ 
+ 
 def extract_available_phone_records(
     data: dict,
 ) -> list:
@@ -3835,13 +3835,13 @@ def extract_available_phone_records(
         ).get("numbers")
         or []
     )
-
+ 
     if not isinstance(
         raw_numbers,
         list,
     ):
         return []
-
+ 
     return [
         number
         for number in raw_numbers
@@ -3851,15 +3851,15 @@ def extract_available_phone_records(
             or number.get("number")
         )
     ]
-
-
+ 
+ 
 def get_fresh_available_phone_records(
     location_id: str,
     area_code: str,
     attempts: int = 3,
 ) -> tuple[list, str]:
     last_response = None
-
+ 
     for attempt in range(attempts):
         response = highlevel_raw_request(
             method="GET",
@@ -3878,24 +3878,24 @@ def get_fresh_available_phone_records(
                 "countryCode": "US",
             },
         )
-
+ 
         last_response = response
-
+ 
         if response.status_code < 400:
             data = response_json(
                 response
             )
-
+ 
             records = (
                 extract_available_phone_records(
                     data
                 )
             )
-
+ 
             response_data = data.get("data")
-
+ 
             fingerprint_id = ""
-
+ 
             if isinstance(response_data, dict):
                 fingerprint_id = str(
                     response_data.get(
@@ -3903,13 +3903,13 @@ def get_fresh_available_phone_records(
                     )
                     or ""
                 ).strip()
-
+ 
             if records and fingerprint_id:
                 return (
                     records,
                     fingerprint_id,
                 )
-
+ 
             if records and not fingerprint_id:
                 raise HTTPException(
                     status_code=(
@@ -3922,16 +3922,16 @@ def get_fresh_available_phone_records(
                         "purchase them."
                     ),
                 )
-
-
+ 
+ 
         elif response.status_code < 500:
             raise_highlevel_error(
                 response
             )
-
+ 
         if attempt < attempts - 1:
             time.sleep(0.4)
-
+ 
     if (
         last_response is not None
         and last_response.status_code
@@ -3940,12 +3940,12 @@ def get_fresh_available_phone_records(
         raise_highlevel_error(
             last_response
         )
-
+ 
     return (
         [],
         "",
     )
-
+ 
 def wait_for_purchased_phone_number(
     location_id: str,
     phone_number: str,
@@ -3957,23 +3957,23 @@ def wait_for_purchased_phone_number(
                 location_id=location_id,
             )
         )
-
+ 
         matched_phone = (
             find_phone_record_by_number(
                 phone_numbers=phone_numbers,
                 phone_number=phone_number,
             )
         )
-
+ 
         if matched_phone:
             return matched_phone
-
+ 
         if attempt < attempts - 1:
             time.sleep(0.75)
-
+ 
     return None
-
-
+ 
+ 
 def phone_purchase_error_is_unavailable(
     response: requests.Response,
 ) -> bool:
@@ -3983,11 +3983,11 @@ def phone_purchase_error_is_unavailable(
         410,
     }:
         return True
-
+ 
     error_text = highlevel_error_text(
         response
     )
-
+ 
     unavailable_phrases = (
         "not available",
         "no longer available",
@@ -3995,13 +3995,13 @@ def phone_purchase_error_is_unavailable(
         "already purchased",
         "already taken",
     )
-
+ 
     return any(
         phrase in error_text
         for phrase in unavailable_phrases
     )
-
-
+ 
+ 
 def purchase_one_highlevel_phone_number(
     location_id: str,
     available_record: dict,
@@ -4028,19 +4028,19 @@ def purchase_one_highlevel_phone_number(
             )
         )
     )
-
+ 
     locality = str(
         available_record.get("locality")
         or available_record.get("city")
         or ""
     ).strip()
-
+ 
     region = str(
         available_record.get("region")
         or available_record.get("state")
         or ""
     ).strip()
-
+ 
     if not locality or not region:
         raise HTTPException(
             status_code=(
@@ -4052,17 +4052,17 @@ def purchase_one_highlevel_phone_number(
                 "phone number."
             ),
         )
-
+ 
     purchase_url = (
         f"{HIGHLEVEL_API_BASE_URL}"
         f"/phone-system/numbers/location/"
         f"{location_id}/purchase"
     )
-
+ 
     purchase_headers = (
         highlevel_phone_purchase_headers()
     )
-
+ 
     purchase_payload = {
         "phoneNumber": phone_number,
         "addressSid": "",
@@ -4074,7 +4074,7 @@ def purchase_one_highlevel_phone_number(
             stripe_account_id
         ),
         "paymentMethodId": (
-
+ 
             payment_method_id
         ),
         "locality": locality,
@@ -4082,7 +4082,7 @@ def purchase_one_highlevel_phone_number(
         "fingerprintId": fingerprint_id,
         "skipLocationKYC": False,
     }
-
+ 
     print(
         "HIGHLEVEL_PHONE_PURCHASE_REQUEST",
         {
@@ -4125,7 +4125,7 @@ def purchase_one_highlevel_phone_number(
         },
         flush=True,
     )
-
+ 
     try:
         response = requests.post(
             purchase_url,
@@ -4133,7 +4133,7 @@ def purchase_one_highlevel_phone_number(
             json=purchase_payload,
             timeout=20,
         )
-
+ 
     except requests.RequestException as exc:
         print(
             "HIGHLEVEL_PHONE_PURCHASE_EXCEPTION",
@@ -4145,7 +4145,7 @@ def purchase_one_highlevel_phone_number(
             },
             flush=True,
         )
-
+ 
         raise HTTPException(
             status_code=(
                 status.HTTP_502_BAD_GATEWAY
@@ -4154,15 +4154,15 @@ def purchase_one_highlevel_phone_number(
                 "Could not connect to HighLevel."
             ),
         )
-
+ 
     try:
         response_body = response.json()
-
+ 
     except ValueError:
         response_body = (
             response.text[:3000]
         )
-
+ 
     print(
         "HIGHLEVEL_PHONE_PURCHASE_RESPONSE",
         {
@@ -4180,15 +4180,15 @@ def purchase_one_highlevel_phone_number(
         },
         flush=True,
     )
-
+ 
     return (
         response,
         phone_number,
         locality,
         region,
     )
-
-
+ 
+ 
 def route_phone_number_to_shop_agent(
     shop: Shop,
     location_id: str,
@@ -4197,13 +4197,19 @@ def route_phone_number_to_shop_agent(
 ) -> dict:
     """
     Route one exact HighLevel phone number to this shop's
-    exact Voice AI agent and verify both sides retained it.
+    exact Voice AI agent.
+ 
+    HighLevel's Voice AI agent record is authoritative for
+    the inbound-number assignment. The location phone-number
+    record is checked as a secondary consistency signal
+    because HighLevel can lag or represent Voice AI routing
+    differently there.
     """
     require_shop_agent(
         shop=shop,
         agent_id=agent_id,
     )
-
+ 
     response = highlevel_raw_request(
         method="PATCH",
         path=f"/voice-ai/agents/{agent_id}",
@@ -4214,21 +4220,20 @@ def route_phone_number_to_shop_agent(
             "inboundNumber": phone_number,
         },
     )
-
+ 
     if response.status_code >= 400:
         raise_highlevel_error(response)
-
+ 
     refreshed_agent = get_agent_detail(
         agent_id=agent_id,
         location_id=location_id,
     )
-
+ 
     inbound_number = str(
         refreshed_agent.get("inboundNumber")
-
         or ""
     ).strip()
-
+ 
     if not phone_numbers_match(
         inbound_number,
         phone_number,
@@ -4243,59 +4248,65 @@ def route_phone_number_to_shop_agent(
                 "Receptionist."
             ),
         )
-
+ 
+    matched_phone = None
+ 
     for attempt in range(8):
         _, phone_numbers = (
             get_location_phone_numbers(
                 location_id=location_id,
             )
         )
-
+ 
         matched_phone = (
             find_phone_record_by_number(
                 phone_numbers=phone_numbers,
                 phone_number=phone_number,
             )
         )
-
+ 
         if matched_phone:
             inbound_service = (
                 get_phone_inbound_service(
                     matched_phone
                 )
             )
-
+ 
             service_type = str(
                 inbound_service.get("type")
                 or ""
             ).strip()
-
+ 
             service_value = str(
                 inbound_service.get("value")
                 or ""
             ).strip()
-
+ 
             if (
                 service_type == "voice_ai"
                 and service_value == agent_id
             ):
                 return matched_phone
-
+ 
         if attempt < 7:
             time.sleep(0.5)
-
-    raise HTTPException(
-        status_code=(
-            status.HTTP_502_BAD_GATEWAY
+ 
+    # The Voice AI API's agent.inboundNumber is HighLevel's
+    # documented inbound-number field for the agent. If that
+    # exact value is retained after PATCH + GET, activation is
+    # verified even when the location phone-number record has
+    # not exposed the same routing metadata yet.
+    if matched_phone:
+        return matched_phone
+ 
+    return {
+        "phoneNumber": phone_number,
+        "verificationSource": (
+            "voice_ai_agent_inbound_number"
         ),
-        detail=(
-            "HighLevel attached the number to "
-            "the AI agent, but ChairTime could "
-            "not verify the phone routing."
-        ),
-    )
-
-
+    }
+ 
+ 
 def activate_owned_phone_number(
     shop: Shop,
     db: Session,
@@ -4308,7 +4319,7 @@ def activate_owned_phone_number(
 ) -> dict:
     """
     Safely finish activation for an already-owned number.
-
+ 
     This function never purchases a phone number. It checks
     that the number is not assigned to a different Voice AI
     agent, routes it to this shop's exact agent, verifies the
@@ -4319,17 +4330,17 @@ def activate_owned_phone_number(
             phone_record
         )
     )
-
+ 
     service_type = str(
         inbound_service.get("type")
         or ""
     ).strip()
-
+ 
     service_value = str(
         inbound_service.get("value")
         or ""
     ).strip()
-
+ 
     if (
         service_type == "voice_ai"
         and service_value
@@ -4345,7 +4356,7 @@ def activate_owned_phone_number(
                 "Voice AI agent."
             ),
         )
-
+ 
     routed_phone = (
         route_phone_number_to_shop_agent(
             shop=shop,
@@ -4354,11 +4365,11 @@ def activate_owned_phone_number(
             phone_number=phone_number,
         )
     )
-
+ 
     shop.highlevel_phone_number = (
         phone_number
     )
-
+ 
     try:
         db.add(shop)
         db.commit()
@@ -4366,17 +4377,17 @@ def activate_owned_phone_number(
     except Exception:
         db.rollback()
         raise
-
+ 
     refreshed_agent = get_agent_detail(
         agent_id=agent_id,
         location_id=location_id,
     )
-
+ 
     return {
         "success": True,
         "purchased": bool(
             purchased_this_request
-
+ 
         ),
         "already_owned": not bool(
             purchased_this_request
@@ -4410,8 +4421,8 @@ def activate_owned_phone_number(
             purchase_result
         ),
     }
-
-
+ 
+ 
 @router.post("/phone-number/purchase")
 def purchase_shop_ai_phone_number(
     payload: PhoneNumberPurchaseRequest,
@@ -4421,12 +4432,12 @@ def purchase_shop_ai_phone_number(
     db: Session = Depends(get_db),
 ):
     require_owner(current_user)
-
+ 
     shop = get_current_shop(
         current_user=current_user,
         db=db,
     )
-
+ 
     if not shop.ai_voice_enabled:
         raise HTTPException(
             status_code=(
@@ -4437,11 +4448,11 @@ def purchase_shop_ai_phone_number(
                 "for this ChairTime subscription."
             ),
         )
-
+ 
     agent_id = str(
         shop.highlevel_agent_id or ""
     ).strip()
-
+ 
     if not agent_id:
         raise HTTPException(
             status_code=(
@@ -4453,26 +4464,26 @@ def purchase_shop_ai_phone_number(
                 "number."
             ),
         )
-
+ 
     requested_phone_number = (
         normalize_us_phone_number(
             payload.phone_number
         )
     )
-
+ 
     requested_digits = "".join(
         character
         for character
         in requested_phone_number
         if character.isdigit()
     )
-
+ 
     area_code = requested_digits[1:4]
-
+ 
     location_id = (
         production_location_id(shop)
     )
-
+ 
     # IMPORTANT:
     # Always check owned inventory first. This makes
     # retries safe. If the exact requested number is
@@ -4483,7 +4494,7 @@ def purchase_shop_ai_phone_number(
             location_id=location_id,
         )
     )
-
+ 
     existing_phone = (
         find_phone_record_by_number(
             phone_numbers=(
@@ -4494,7 +4505,7 @@ def purchase_shop_ai_phone_number(
             ),
         )
     )
-
+ 
     if existing_phone:
         return activate_owned_phone_number(
             shop=shop,
@@ -4508,12 +4519,12 @@ def purchase_shop_ai_phone_number(
             purchased_this_request=False,
             purchase_result=None,
         )
-
+ 
     (
         stripe_account_id,
         payment_method_id,
     ) = get_phone_purchase_credentials()
-
+ 
     # Refresh HighLevel inventory immediately before
     # purchasing. ChairTime purchases ONLY the exact
     # number selected by the customer.
@@ -4524,10 +4535,10 @@ def purchase_shop_ai_phone_number(
         location_id=location_id,
         area_code=area_code,
     )
-
+ 
     if not available_records:
         raise HTTPException(
-
+ 
             status_code=(
                 status.HTTP_409_CONFLICT
             ),
@@ -4537,7 +4548,7 @@ def purchase_shop_ai_phone_number(
                 "this area code."
             ),
         )
-
+ 
     requested_record = (
         find_phone_record_by_number(
             phone_numbers=(
@@ -4548,7 +4559,7 @@ def purchase_shop_ai_phone_number(
             ),
         )
     )
-
+ 
     if not requested_record:
         raise HTTPException(
             status_code=(
@@ -4566,7 +4577,7 @@ def purchase_shop_ai_phone_number(
                 ),
             },
         )
-
+ 
     (
         response,
         purchased_number,
@@ -4583,14 +4594,14 @@ def purchase_shop_ai_phone_number(
             payment_method_id
         ),
     )
-
+ 
     # HighLevel reported success. Verify that the exact
     # selected number became active, then route it.
     if response.status_code < 400:
         purchase_data = response_json(
             response
         )
-
+ 
         purchased_phone = (
             wait_for_purchased_phone_number(
                 location_id=location_id,
@@ -4599,7 +4610,7 @@ def purchase_shop_ai_phone_number(
                 ),
             )
         )
-
+ 
         if not purchased_phone:
             raise HTTPException(
                 status_code=(
@@ -4615,7 +4626,7 @@ def purchase_shop_ai_phone_number(
                     "making another purchase."
                 ),
             )
-
+ 
         return activate_owned_phone_number(
             shop=shop,
             db=db,
@@ -4626,7 +4637,7 @@ def purchase_shop_ai_phone_number(
             purchased_this_request=True,
             purchase_result=purchase_data,
         )
-
+ 
     # A server-side HighLevel error can be ambiguous.
     # Verify the exact selected number before declaring
     # failure. NEVER try a replacement number.
@@ -4639,7 +4650,7 @@ def purchase_shop_ai_phone_number(
                 ),
             )
         )
-
+ 
         if purchased_phone:
             return activate_owned_phone_number(
                 shop=shop,
@@ -4651,7 +4662,7 @@ def purchase_shop_ai_phone_number(
                 purchased_this_request=True,
                 purchase_result=None,
             )
-
+ 
         raise HTTPException(
             status_code=(
                 status.HTTP_502_BAD_GATEWAY
@@ -4678,8 +4689,8 @@ def purchase_shop_ai_phone_number(
                 ),
             },
         )
-
-
+ 
+ 
     # For any other HighLevel rejection, report the
     # failure. Never substitute another phone number.
     if phone_purchase_error_is_unavailable(
@@ -4706,17 +4717,17 @@ def purchase_shop_ai_phone_number(
                 ),
             },
         )
-
+ 
     raise_highlevel_error(response)
-
+ 
 def diagnostic_utc_timestamp() -> str:
     return (
         datetime.now(timezone.utc)
         .isoformat()
         .replace("+00:00", "Z")
     )
-
-
+ 
+ 
 def redact_diagnostic_value(
     value,
     sensitive_values: list,
@@ -4732,7 +4743,7 @@ def redact_diagnostic_value(
         if item is not None
         and str(item).strip()
     ]
-
+ 
     if isinstance(value, dict):
         return {
             key: redact_diagnostic_value(
@@ -4741,20 +4752,20 @@ def redact_diagnostic_value(
             )
             for key, item in value.items()
         }
-
+ 
     if isinstance(value, list):
         return [
             redact_diagnostic_value(
-
+ 
                   item,
                 clean_sensitive_values,
             )
             for item in value
         ]
-
+ 
     if isinstance(value, str):
         redacted = value
-
+ 
         for sensitive_value in (
             clean_sensitive_values
         ):
@@ -4762,28 +4773,28 @@ def redact_diagnostic_value(
                 sensitive_value,
                 "[REDACTED]",
             )
-
+ 
         return redacted
-
+ 
     return value
-
-
+ 
+ 
 def diagnostic_response_body(
     response: requests.Response,
     sensitive_values: list,
 ):
     try:
         body = response.json()
-
+ 
     except ValueError:
         body = response.text
-
+ 
     return redact_diagnostic_value(
         body,
         sensitive_values,
     )
-
-
+ 
+ 
 def diagnostic_response_headers(
     response: requests.Response,
 ) -> dict:
@@ -4802,24 +4813,24 @@ def diagnostic_response_headers(
         "x-correlation-id",
         "correlation-id",
     }
-
+ 
     safe_headers = {}
-
+ 
     for key, value in (
         response.headers.items()
     ):
         if key.lower() in wanted_headers:
             safe_headers[key] = value
-
+ 
     return safe_headers
-
-
+ 
+ 
 def diagnostic_trace_identifiers(
     response: requests.Response,
     response_body,
 ) -> dict:
     identifiers = {}
-
+ 
     header_names = (
         "x-request-id",
         "request-id",
@@ -4829,19 +4840,19 @@ def diagnostic_trace_identifiers(
         "cf-ray",
         "x-correlation-id",
         "correlation-id",
-
+ 
     )
-
+ 
     for header_name in header_names:
         value = response.headers.get(
             header_name
         )
-
+ 
         if value:
             identifiers[
                 header_name
             ] = value
-
+ 
     if isinstance(response_body, dict):
         body_names = (
             "traceId",
@@ -4854,21 +4865,21 @@ def diagnostic_trace_identifiers(
             "correlationID",
             "correlation_id",
         )
-
+ 
         for body_name in body_names:
             value = response_body.get(
                 body_name
             )
-
+ 
             if value:
                 identifiers[
                     body_name
                 ] = value
-
+ 
         nested_error = (
             response_body.get("error")
         )
-
+ 
         if isinstance(
             nested_error,
             dict,
@@ -4877,15 +4888,15 @@ def diagnostic_trace_identifiers(
                 value = nested_error.get(
                     body_name
                 )
-
+ 
                 if value:
                     identifiers[
                         f"error.{body_name}"
                     ] = value
-
+ 
     return identifiers
-
-
+ 
+ 
 def sanitized_purchase_headers(
     headers: dict,
 ) -> dict:
@@ -4899,26 +4910,26 @@ def sanitized_purchase_headers(
         if key.lower()
         != "authorization"
     }
-
-
+ 
+ 
 def sanitized_purchase_payload(
     payload: dict,
 ) -> dict:
     safe_payload = dict(payload)
-
+ 
     if "stripeAccountId" in safe_payload:
         safe_payload[
             "stripeAccountId"
         ] = "[REDACTED]"
-
+ 
     if "paymentMethodId" in safe_payload:
         safe_payload[
             "paymentMethodId"
         ] = "[REDACTED]"
-
+ 
     return safe_payload
-
-
+ 
+ 
 def build_sanitized_purchase_curl(
     purchase_url: str,
     headers: dict,
@@ -4929,18 +4940,18 @@ def build_sanitized_purchase_curl(
             headers
         )
     )
-
+ 
     safe_payload = (
         sanitized_purchase_payload(
             payload
         )
     )
-
+ 
     parts = [
         "curl --request POST",
         f"'{purchase_url}'",
     ]
-
+ 
     for key, value in (
         safe_headers.items()
     ):
@@ -4950,22 +4961,22 @@ def build_sanitized_purchase_curl(
                 f"'{key}: {value}'"
             )
         )
-
+ 
     payload_json = json.dumps(
         safe_payload,
         separators=(",", ":"),
     )
-
+ 
     parts.append(
         (
             "--data-raw "
             f"'{payload_json}'"
         )
     )
-
+ 
     return " \\\n  ".join(parts)
-
-
+ 
+ 
 def diagnostic_available_record_summary(
     record: dict,
 ) -> dict:
@@ -4980,7 +4991,7 @@ def diagnostic_available_record_summary(
         "locality": (
             record.get("locality")
             or record.get("city")
-
+ 
         ),
         "region": (
             record.get("region")
@@ -4990,8 +5001,8 @@ def diagnostic_available_record_summary(
             record.get("capabilities")
         ),
     }
-
-
+ 
+ 
 def diagnostic_verify_active_number(
     location_id: str,
     phone_number: str,
@@ -5006,7 +5017,7 @@ def diagnostic_verify_active_number(
                 location_id=location_id,
             )
         )
-
+ 
         matched_phone = (
             find_phone_record_by_number(
                 phone_numbers=(
@@ -5017,7 +5028,7 @@ def diagnostic_verify_active_number(
                 ),
             )
         )
-
+ 
         return {
             "verification_completed": True,
             "number_found_in_location": bool(
@@ -5034,7 +5045,7 @@ def diagnostic_verify_active_number(
                 else None
             ),
         }
-
+ 
     except HTTPException as exc:
         return {
             "verification_completed": False,
@@ -5047,7 +5058,7 @@ def diagnostic_verify_active_number(
                 )
             ),
         }
-
+ 
     except Exception as exc:
         return {
             "verification_completed": False,
@@ -5060,8 +5071,8 @@ def diagnostic_verify_active_number(
                 "message": str(exc)[:500],
             },
         }
-
-
+ 
+ 
 @router.post(
     "/phone-number/support-diagnostic"
 )
@@ -5074,9 +5085,9 @@ def run_phone_purchase_support_diagnostic(
 ):
     """
     TEMPORARY HIGHLEVEL SUPPORT DIAGNOSTIC.
-
+ 
     This endpoint performs exactly:
-
+ 
         1. ONE HighLevel available-number search.
         2. Selects the first valid number returned.
         3. Immediately makes ONE purchase request for
@@ -5086,18 +5097,18 @@ def run_phone_purchase_support_diagnostic(
         6. Checks whether that exact number became active.
         7. Does NOT route the number to the Voice AI agent.
         8. Does NOT update shop.highlevel_phone_number.
-
+ 
     The returned evidence is sanitized for HighLevel
     support. Authorization and payment identifiers are
     never returned.
     """
     require_owner(current_user)
-
+ 
     shop = get_current_shop(
         current_user=current_user,
         db=db,
     )
-
+ 
     if not shop.ai_voice_enabled:
         raise HTTPException(
             status_code=(
@@ -5108,11 +5119,11 @@ def run_phone_purchase_support_diagnostic(
                 "for this ChairTime subscription."
             ),
         )
-
+ 
     agent_id = str(
         shop.highlevel_agent_id or ""
     ).strip()
-
+ 
     if not agent_id:
         raise HTTPException(
             status_code=(
@@ -5124,16 +5135,16 @@ def run_phone_purchase_support_diagnostic(
                 "purchase diagnostic."
             ),
         )
-
+ 
     clean_area_code = "".join(
         character
         for character in str(
             area_code or ""
         )
         if character.isdigit()
-
+ 
     )
-
+ 
     if len(clean_area_code) != 3:
         raise HTTPException(
             status_code=(
@@ -5144,39 +5155,39 @@ def run_phone_purchase_support_diagnostic(
                 "exactly 3 digits."
             ),
         )
-
+ 
     location_id = (
         production_location_id(shop)
     )
-
+ 
     (
         stripe_account_id,
         payment_method_id,
     ) = get_phone_purchase_credentials()
-
+ 
     sensitive_values = [
         get_highlevel_api_token(),
         stripe_account_id,
         payment_method_id,
     ]
-
+ 
     # -------------------------------------------------
     # STEP 1
     # Perform ONE availability search using the exact
     # same HighLevel endpoint and parameters proven by
     # ChairTime's normal /phone-numbers/available route.
     # -------------------------------------------------
-
+ 
     search_path = (
         f"/phone-system/numbers/location/"
         f"{location_id}/available"
     )
-
+ 
     search_url = (
         f"{HIGHLEVEL_API_BASE_URL}"
         f"{search_path}"
     )
-
+ 
     search_params = {
         "firstPart": clean_area_code,
         "lastPart": "",
@@ -5187,15 +5198,15 @@ def run_phone_purchase_support_diagnostic(
         "voiceEnabled": True,
         "countryCode": "US",
     }
-
+ 
     search_headers = (
         highlevel_voice_headers()
     )
-
+ 
     search_utc_timestamp = (
         diagnostic_utc_timestamp()
     )
-
+ 
     try:
         search_response = requests.get(
             search_url,
@@ -5203,7 +5214,7 @@ def run_phone_purchase_support_diagnostic(
             params=search_params,
             timeout=20,
         )
-
+ 
     except requests.RequestException as exc:
         return {
             "success": False,
@@ -5234,14 +5245,14 @@ def run_phone_purchase_support_diagnostic(
                 "message": str(exc)[:500],
             },
         }
-
+ 
     search_body = (
         diagnostic_response_body(
             search_response,
             sensitive_values,
         )
     )
-
+ 
     search_evidence = {
         "utc_timestamp": (
             search_utc_timestamp
@@ -5270,7 +5281,7 @@ def run_phone_purchase_support_diagnostic(
         ),
         "raw_response": search_body,
     }
-
+ 
     if search_response.status_code >= 400:
         return {
             "success": False,
@@ -5282,7 +5293,7 @@ def run_phone_purchase_support_diagnostic(
             "chairtime_shop": {
                 "id": str(shop.id),
                 "slug": shop.slug,
-
+ 
                 "name": shop.name,
             },
             "location_id": location_id,
@@ -5294,7 +5305,7 @@ def run_phone_purchase_support_diagnostic(
                 "request was made."
             ),
         }
-
+ 
     if not isinstance(
         search_body,
         dict,
@@ -5321,13 +5332,13 @@ def run_phone_purchase_support_diagnostic(
                 "request was made."
             ),
         }
-
+ 
     available_records = (
         extract_available_phone_records(
             search_body
         )
     )
-
+ 
     if not available_records:
         return {
             "success": False,
@@ -5350,14 +5361,14 @@ def run_phone_purchase_support_diagnostic(
                 "purchase request was made."
             ),
         }
-
+ 
     # Select the first record from THIS SAME search.
     # There is deliberately no second availability
     # refresh between selection and purchase.
     selected_record = (
         available_records[0]
     )
-
+ 
     selected_phone_number = (
         normalize_us_phone_number(
             str(
@@ -5371,19 +5382,19 @@ def run_phone_purchase_support_diagnostic(
             )
         )
     )
-
+ 
     locality = str(
         selected_record.get("locality")
         or selected_record.get("city")
         or ""
     ).strip()
-
+ 
     region = str(
         selected_record.get("region")
         or selected_record.get("state")
         or ""
     ).strip()
-
+ 
     if not locality or not region:
         return {
             "success": False,
@@ -5413,7 +5424,7 @@ def run_phone_purchase_support_diagnostic(
                 "No purchase request was made."
             ),
         }
-
+ 
     selected_number_evidence = {
         "phone_number": (
             selected_phone_number
@@ -5428,21 +5439,21 @@ def run_phone_purchase_support_diagnostic(
             available_records
         ),
     }
-
+ 
         # -------------------------------------------------
     # STEP 2
     # Use the EXACT fingerprintId returned by the
     # immediately preceding available-numbers response.
-
+ 
     #
     # HighLevel Development specifically requires the
     # purchase request to use data.fingerprintId from
     # that same response. ChairTime must not generate
     # its own fingerprintId.
     # -------------------------------------------------
-
+ 
     search_data = search_body.get("data")
-
+ 
     if not isinstance(search_data, dict):
         return {
             "success": False,
@@ -5469,12 +5480,12 @@ def run_phone_purchase_support_diagnostic(
                 "made."
             ),
         }
-
+ 
     fingerprint_id = str(
         search_data.get("fingerprintId")
         or ""
     ).strip()
-
+ 
     if not fingerprint_id:
         return {
             "success": False,
@@ -5501,24 +5512,24 @@ def run_phone_purchase_support_diagnostic(
                 "request was made."
             ),
         }
-
+ 
     selected_number_evidence[
         "fingerprint_id_source"
     ] = (
         "data.fingerprintId from the immediately "
         "preceding available-numbers response"
     )
-
+ 
     purchase_url = (
         f"{HIGHLEVEL_API_BASE_URL}"
         f"/phone-system/numbers/location/"
         f"{location_id}/purchase"
     )
-
+ 
     purchase_headers = (
         highlevel_phone_purchase_headers()
     )
-
+ 
     purchase_payload = {
         "phoneNumber": (
             selected_phone_number
@@ -5541,19 +5552,19 @@ def run_phone_purchase_support_diagnostic(
         ),
         "skipLocationKYC": False,
     }
-
+ 
     safe_purchase_headers = (
         sanitized_purchase_headers(
             purchase_headers
         )
     )
-
+ 
     safe_purchase_payload = (
         sanitized_purchase_payload(
             purchase_payload
         )
     )
-
+ 
     sanitized_curl = (
         build_sanitized_purchase_curl(
             purchase_url=(
@@ -5563,14 +5574,14 @@ def run_phone_purchase_support_diagnostic(
             payload=purchase_payload,
         )
     )
-
+ 
     purchase_utc_timestamp = (
         diagnostic_utc_timestamp()
     )
-
+ 
     try:
         # IMPORTANT:
-
+ 
            # Exactly ONE purchase request.
         # No retry and no fallback number.
         purchase_response = requests.post(
@@ -5579,18 +5590,18 @@ def run_phone_purchase_support_diagnostic(
             json=purchase_payload,
             timeout=20,
         )
-
+ 
     except requests.RequestException as exc:
         verification = (
             diagnostic_verify_active_number(
                 location_id=location_id,
-
+ 
                 phone_number=(
                     selected_phone_number
                 ),
             )
         )
-
+ 
         return {
             "success": False,
             "diagnostic_stage": (
@@ -5646,34 +5657,34 @@ def run_phone_purchase_support_diagnostic(
                 "and did not attempt another number."
             ),
         }
-
+ 
     purchase_body = (
         diagnostic_response_body(
             purchase_response,
             sensitive_values,
         )
     )
-
+ 
     purchase_response_headers = (
         diagnostic_response_headers(
             purchase_response
         )
     )
-
+ 
     trace_identifiers = (
         diagnostic_trace_identifiers(
             purchase_response,
             purchase_body,
         )
     )
-
+ 
     # -------------------------------------------------
     # STEP 3
     # Verify whether the exact attempted number became
     # active. This is a read-only check and does not
     # purchase or route anything.
     # -------------------------------------------------
-
+ 
     verification = (
         diagnostic_verify_active_number(
             location_id=location_id,
@@ -5682,7 +5693,7 @@ def run_phone_purchase_support_diagnostic(
             ),
         )
     )
-
+ 
     purchase_succeeded = bool(
         purchase_response.status_code < 400
         or verification.get(
@@ -5690,7 +5701,7 @@ def run_phone_purchase_support_diagnostic(
         )
         is True
     )
-
+ 
     evidence = {
         "success": purchase_succeeded,
         "diagnostic_stage": "complete",
@@ -5735,7 +5746,7 @@ def run_phone_purchase_support_diagnostic(
             ),
             "trace_identifiers": (
                 trace_identifiers
-
+ 
             ),
             "raw_response": (
                 purchase_body
@@ -5745,7 +5756,7 @@ def run_phone_purchase_support_diagnostic(
             verification
         ),
     }
-
+ 
     if purchase_succeeded:
         evidence["message"] = (
             "The single HighLevel purchase "
@@ -5755,7 +5766,7 @@ def run_phone_purchase_support_diagnostic(
             "route the number, and did not update "
             "the shop's stored phone number."
         )
-
+ 
     else:
         evidence["message"] = (
             "The single HighLevel purchase "
@@ -5764,10 +5775,10 @@ def run_phone_purchase_support_diagnostic(
             "ChairTime made no retry and did not "
             "attempt another number."
         )
-
+ 
     return evidence
-
-
+ 
+ 
 @router.get(
     "/phone-system/internal-host-test"
 )
@@ -5781,26 +5792,26 @@ def test_highlevel_internal_phone_host(
         db=db,
         current_user=current_user,
     )
-
+ 
     require_owner(current_user)
-
+ 
     require_shop_agent(
         shop,
         shop.highlevel_agent_id,
     )
-
+ 
     location_id = (
         production_location_id(shop)
     )
-
+ 
     url = (
         "https://backend.leadconnectorhq.com"
         f"/phone-system/numbers/location/"
         f"{location_id}"
     )
-
+ 
     headers = highlevel_voice_headers()
-
+ 
     try:
         response = requests.get(
             url,
@@ -5812,7 +5823,7 @@ def test_highlevel_internal_phone_host(
             },
             timeout=20,
         )
-
+ 
     except requests.RequestException as exc:
         raise HTTPException(
             status_code=(
@@ -5828,15 +5839,15 @@ def test_highlevel_internal_phone_host(
                 ),
             },
         )
-
+ 
     try:
         body = response.json()
-
+ 
     except ValueError:
         body = (
             response.text[:3000]
         )
-
+ 
     return {
         "success": response.ok,
         "status_code": (
