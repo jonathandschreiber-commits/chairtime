@@ -1,27 +1,27 @@
 import { cookies } from "next/headers";
 import AdminUserBar from "./AdminUserBar";
-
+ 
 const COOKIE_NAME = "chairtime_token";
-
-
+ 
+ 
 export default async function AdminHome({
   shop = "",
 }) {
   const basePath = shop
     ? "/" + shop + "/admin"
     : "/admin";
-
+ 
   let businessName = "";
   let aiVoiceEnabled = false;
-
+ 
   let currentUser = null;
   let isOwner = false;
   let isStaff = false;
-
+ 
   const apiUrl =
     process.env.CHAIRTIME_API_URL;
-
-
+ 
+ 
   /*
    * Load the authenticated ChairTime user.
    *
@@ -31,12 +31,12 @@ export default async function AdminHome({
   try {
     const cookieStore =
       await cookies();
-
+ 
     const token =
       cookieStore.get(
         COOKIE_NAME
       )?.value;
-
+ 
     if (apiUrl && token) {
       const response = await fetch(
         `${apiUrl}/api/auth/me`,
@@ -50,15 +50,15 @@ export default async function AdminHome({
           cache: "no-store",
         }
       );
-
+ 
       if (response.ok) {
         currentUser =
           await response.json();
-
+ 
         isOwner =
           currentUser?.role ===
           "owner";
-
+ 
         isStaff =
           currentUser?.role ===
           "staff";
@@ -70,41 +70,49 @@ export default async function AdminHome({
       error
     );
   }
-
-
+ 
+ 
   /*
    * Load the business information.
    */
   if (shop) {
     try {
       if (apiUrl) {
-        const response = await fetch(
-          `${apiUrl}/api/shops?shop_slug=${encodeURIComponent(
-            shop
-          )}`,
-          {
-            cache: "no-store",
-          }
-        );
-
-        if (response.ok) {
-          const shops =
-            await response.json();
-
-          if (
-            Array.isArray(shops) &&
-            shops.length > 0
-          ) {
+        const cookieStore =
+          await cookies();
+ 
+        const token =
+          cookieStore.get(
+            COOKIE_NAME
+          )?.value;
+ 
+        if (token) {
+          const response = await fetch(
+            `${apiUrl}/api/shops/${encodeURIComponent(
+              shop
+            )}/account`,
+            {
+              method: "GET",
+              headers: {
+                Accept: "application/json",
+                Authorization:
+                  `Bearer ${token}`,
+              },
+              cache: "no-store",
+            }
+          );
+ 
+          if (response.ok) {
             const currentShop =
-              shops[0];
-
+              await response.json();
+ 
             if (
               currentShop?.name
             ) {
               businessName =
                 currentShop.name;
             }
-
+ 
             aiVoiceEnabled =
               Boolean(
                 currentShop
@@ -120,8 +128,8 @@ export default async function AdminHome({
       );
     }
   }
-
-
+ 
+ 
   if (!businessName && shop) {
     businessName = shop
       .split("-")
@@ -135,24 +143,24 @@ export default async function AdminHome({
       )
       .join(" ");
   }
-
-
+ 
+ 
   const title =
     businessName || "ChairTime";
-
+ 
   const currentUserName =
     String(
       currentUser?.name || ""
     ).trim();
-
+ 
   const currentUserRole =
     isOwner
       ? "Owner"
       : isStaff
         ? "Staff"
         : "";
-
-
+ 
+ 
   /*
    * These pages are available to both owners
    * and employees.
@@ -177,7 +185,7 @@ export default async function AdminHome({
       arrowClass:
         "text-violet-600 border-violet-300 hover:bg-violet-100",
     },
-
+ 
     {
       name: "Customers",
       description:
@@ -194,7 +202,7 @@ export default async function AdminHome({
       arrowClass:
         "text-emerald-600 border-emerald-300 hover:bg-emerald-100",
     },
-
+ 
     {
       name: "Calendar",
       description:
@@ -212,8 +220,8 @@ export default async function AdminHome({
         "text-blue-600 border-blue-300 hover:bg-blue-100",
     },
   ];
-
-
+ 
+ 
   /*
    * Owner-only business administration.
    */
@@ -232,7 +240,7 @@ export default async function AdminHome({
       arrowClass:
         "text-orange-600 border-orange-300 hover:bg-orange-100",
     },
-
+ 
     {
       name: "Staff & Services",
       description:
@@ -247,7 +255,7 @@ export default async function AdminHome({
       arrowClass:
         "text-pink-600 border-pink-300 hover:bg-pink-100",
     },
-
+ 
     ...(aiVoiceEnabled
       ? [
           {
@@ -268,7 +276,7 @@ export default async function AdminHome({
           },
         ]
       : []),
-
+ 
     {
       name: "Account Options",
       description:
@@ -284,8 +292,8 @@ export default async function AdminHome({
         "text-slate-700 border-slate-300 hover:bg-slate-100",
     },
   ];
-
-
+ 
+ 
   /*
    * Owners receive all controls.
    * Staff receive only operational controls.
@@ -299,32 +307,32 @@ export default async function AdminHome({
         ...ownerButtons,
       ]
     : operationalButtons;
-
-
+ 
+ 
   return (
     <main className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-sky-50 px-6 py-10">
       <div className="max-w-5xl mx-auto">
         <div className="mb-4">
           <AdminUserBar />
         </div>
-
+ 
         <div className="bg-white/90 rounded-3xl shadow-lg p-7 border border-indigo-100 mb-6">
           <div className="flex items-start gap-5">
             <div className="w-16 h-16 shrink-0 rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center text-3xl shadow-md">
               🪑
             </div>
-
+ 
             <div className="flex-1 min-w-0">
               <p className="text-sm font-extrabold tracking-wider text-indigo-600 uppercase mb-1">
                 {isStaff
                   ? "Staff Dashboard"
                   : "Admin Dashboard"}
               </p>
-
+ 
               <h1 className="text-4xl sm:text-5xl font-extrabold text-slate-900 leading-tight">
                 {title}
               </h1>
-
+ 
               {currentUserName &&
                 currentUserRole && (
                   <p className="mt-2 text-lg font-bold text-indigo-700">
@@ -333,7 +341,7 @@ export default async function AdminHome({
                     {currentUserRole}
                   </p>
                 )}
-
+ 
               <p className="text-gray-600 mt-2 text-base">
                 {isStaff
                   ? "Appointments and customer information for your workday."
@@ -342,8 +350,8 @@ export default async function AdminHome({
             </div>
           </div>
         </div>
-
-
+ 
+ 
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {buttons.map(
             (button) => (
@@ -358,19 +366,19 @@ export default async function AdminHome({
                   >
                     {button.icon}
                   </div>
-
+ 
                   <div className="flex-1 min-w-0">
                     <h2 className="text-xl font-extrabold text-slate-900">
                       {button.name}
                     </h2>
-
+ 
                     <p className="text-sm text-slate-600 mt-1 leading-relaxed">
                       {
                         button.description
                       }
                     </p>
                   </div>
-
+ 
                   <div
                     className={`w-10 h-10 shrink-0 rounded-full border-2 flex items-center justify-center text-xl font-bold transition-colors ${button.arrowClass}`}
                   >
@@ -381,8 +389,8 @@ export default async function AdminHome({
             )
           )}
         </div>
-
-
+ 
+ 
         <p className="text-center text-sm text-slate-500 mt-8">
           Simple scheduling for busy businesses.
         </p>
