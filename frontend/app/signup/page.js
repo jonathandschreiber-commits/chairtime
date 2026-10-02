@@ -877,13 +877,14 @@ export default function SignupPage() {
 
                       <div
                         style={{
-                          marginTop: "3px",
-                          color: "#64748b",
-                          fontSize: "12px",
-                          fontWeight: "700",
+                          marginTop: "7px",
+                          color: "#5b21b6",
+                          fontSize: "15px",
+                          fontWeight: "900",
+                          lineHeight: "1.35",
                         }}
                       >
-                        Includes Business Management
+                        Includes Business Management AND:
                       </div>
                     </div>
 
@@ -918,18 +919,6 @@ export default function SignupPage() {
                     Never lose a customer because you
                     couldn&apos;t answer the phone.
                   </div>
-
-                  <p
-                    style={{
-                      color: "#475569",
-                      fontWeight: "700",
-                      lineHeight: "1.5",
-                      marginBottom: "13px",
-                    }}
-                  >
-                    Everything in Business Management,
-                    plus:
-                  </p>
 
                   <div
                     style={{
