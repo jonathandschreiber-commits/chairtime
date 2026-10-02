@@ -128,7 +128,14 @@ def send_highlevel_sms(phone: str, message: str):
             "error": "No contact ID returned",
         }
 
+    # Explicitly use the verified ChairTime SMS number.
+    from_number = (
+        os.getenv("HIGHLEVEL_SMS_FROM_NUMBER", "").strip()
+        or "+12405949454"
+    )
+
     message_payload = {
+        "fromNumber": from_number,
         "type": "SMS",
         "contactId": contact_id,
         "message": message,
