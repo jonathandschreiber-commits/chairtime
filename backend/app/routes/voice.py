@@ -1523,3 +1523,4 @@ def voice_book_appointment(
         "price": str(service.price),
         "duration_minutes": service.duration_minutes,
         "timezone": shop.timezone,
+    }
