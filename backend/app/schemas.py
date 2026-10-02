@@ -26,6 +26,7 @@ class ShopStaffAppointmentPermissionUpdate(BaseModel):
 
 class SignupCreate(BaseModel):
     business_name: str
+    slug: Optional[str] = None
     business_type: str = "service_business"
     phone: Optional[str] = None
     timezone: str = "America/New_York"
