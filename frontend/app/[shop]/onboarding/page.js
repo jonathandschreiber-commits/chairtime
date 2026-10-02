@@ -913,7 +913,7 @@ export default function OnboardingPage() {
         selected: Boolean(existing),
  
         duration: String(
-          existing?.duration_minutes ?? 30
+          existing?.duration_minutes ?? ""
         ),
  
         price:
@@ -1806,7 +1806,7 @@ export default function OnboardingPage() {
             catalogService.id
           ] || {
             selected: false,
-            duration: "30",
+            duration: "",
             price: "",
           };
  
@@ -3306,7 +3306,7 @@ function ScheduleStep({
                 service.id
               ] || {
                 selected: false,
-                duration: "30",
+                duration: "",
                 price: "",
               };
  
@@ -3417,7 +3417,7 @@ function ScheduleStep({
                           fontWeight: "800",
                         }}
                       >
-                        Price ($)
+                        Price ($0.00)
                       </span>
  
                       <input
@@ -3432,7 +3432,7 @@ function ScheduleStep({
                             event.target.value
                           )
                         }
-                        placeholder="35"
+                        placeholder=""
                         style={{
                           width: "100%",
                           minHeight: "44px",
