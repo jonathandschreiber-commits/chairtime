@@ -1,4 +1,438 @@
-our
+"use client";
+
+import Link from "next/link";
+import { useState } from "react";
+import styles from "./signup.module.css";
+
+function normalizeSlug(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\'’]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+export default function SignupPage() {
+  const [businessName, setBusinessName] = useState("");
+  const [shopSlug, setShopSlug] = useState("");
+  const [shopSlugEdited, setShopSlugEdited] = useState(false);
+  const [businessType, setBusinessType] =
+    useState("service_business");
+  const [phone, setPhone] = useState("");
+
+  const [ownerName, setOwnerName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] =
+    useState("");
+
+  const [selectedPlan, setSelectedPlan] =
+    useState("scheduling");
+
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+
+    if (loading) {
+      return;
+    }
+
+    const cleanBusinessName = businessName.trim();
+    const cleanShopSlug = normalizeSlug(
+      shopSlug || cleanBusinessName
+    );
+    const cleanOwnerName = ownerName.trim();
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanPhone = phone.trim();
+
+    if (!cleanBusinessName) {
+      setError("Please enter your business name.");
+      return;
+    }
+
+    if (!cleanShopSlug) {
+      setError("Please choose a valid booking page URL.");
+      return;
+    }
+
+    if (!cleanOwnerName) {
+      setError("Please enter your name.");
+      return;
+    }
+
+    if (!cleanEmail) {
+      setError("Please enter your email address.");
+      return;
+    }
+
+    if (password.length < 8) {
+      setError(
+        "Your password must be at least 8 characters."
+      );
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      setError("The passwords do not match.");
+      return;
+    }
+
+    setLoading(true);
+    setError("");
+
+    try {
+      const signupResponse = await fetch(
+        "/api/auth/signup",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify({
+            business_name: cleanBusinessName,
+            slug: cleanShopSlug,
+            business_type: businessType,
+            phone: cleanPhone || null,
+            timezone:
+              Intl.DateTimeFormat()
+                .resolvedOptions()
+                .timeZone ||
+              "America/New_York",
+            owner_name: cleanOwnerName,
+            email: cleanEmail,
+            password,
+          }),
+        }
+      );
+
+      let signupData = {};
+
+      try {
+        signupData =
+          await signupResponse.json();
+      } catch {
+        signupData = {};
+      }
+
+      if (!signupResponse.ok) {
+        throw new Error(
+          signupData.detail ||
+            signupData.error ||
+            "Unable to create your account."
+        );
+      }
+
+      const shopSlug =
+        signupData?.shop?.slug ||
+        signupData?.user?.shop_slug;
+
+      if (!shopSlug) {
+        throw new Error(
+          "Your account was created, but ChairTime could not identify your business."
+        );
+      }
+
+      /*
+       * Stripe must accept the owner's payment
+       * method and create the trial subscription
+       * before the owner proceeds to setup.
+       */
+      const checkoutResponse = await fetch(
+        "/api/billing/create-checkout-session",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify({
+            plan: selectedPlan,
+          }),
+        }
+      );
+
+      let checkoutData = {};
+
+      try {
+        checkoutData =
+          await checkoutResponse.json();
+      } catch {
+        checkoutData = {};
+      }
+
+      if (!checkoutResponse.ok) {
+        throw new Error(
+          checkoutData.detail ||
+            checkoutData.error ||
+            "Your account was created, but we could not open the secure payment page. Please sign in and try again."
+        );
+      }
+
+      const checkoutUrl =
+        checkoutData.checkout_url ||
+        checkoutData.url;
+
+      if (!checkoutUrl) {
+        throw new Error(
+          "Your account was created, but Stripe did not return the secure payment page."
+        );
+      }
+
+      sessionStorage.setItem(
+        "chairtime_signup_shop_slug",
+        shopSlug
+      );
+      sessionStorage.setItem(
+        "chairtime_signup_plan",
+        selectedPlan
+      );
+
+      window.location.href = checkoutUrl;
+    } catch (error) {
+      setError(
+        error instanceof Error
+          ? error.message
+          : "Unable to create your account. Please try again."
+      );
+
+      setLoading(false);
+    }
+  }
+
+  const businessFeatures = [
+    "Online booking 24/7",
+    "Daily schedule and calendar",
+    "Customer records and history",
+    "Text confirmations and reminders",
+    "Staff schedules and availability",
+    "Services, pricing and appointment times",
+    "Customer notes",
+    "Easy appointment changes and cancellations",
+    "Optional card-on-file to reduce no-shows",
+  ];
+
+  const aiFeatures = [
+    "Answers calls when you're busy",
+    "Answers calls when you're closed",
+    "Books appointments directly into your schedule",
+    "Text confirmations and reminders",
+    "Answers common scheduling questions",
+    "Helps turn missed calls into appointments",
+    "Keep your existing business phone number",
+  ];
+
+  return (
+    <main className={styles.page}>
+      <div className={styles.container}>
+        <Link href="/" className={styles.backLink}>
+          ← Back to ChairTime
+        </Link>
+
+        <section className={styles.card}>
+          <div className={styles.brand}>
+            <h1 className={styles.brandName}>
+              Start your free month
+            </h1>
+
+            <p className={styles.brandText}>
+              Tell us about your business, choose the
+              plan that works best for you, and start
+              your first 30 days free.
+            </p>
+          </div>
+
+          <div
+            className={styles.trial}
+            style={{
+              background:
+                "linear-gradient(135deg, #fff7ed 0%, #fef3c7 100%)",
+              border: "2px solid #f59e0b",
+              borderRadius: "16px",
+              padding: "18px 20px",
+              color: "#78350f",
+              boxShadow:
+                "0 4px 14px rgba(245, 158, 11, 0.14)",
+            }}
+          >
+            <div
+              style={{
+                fontSize: "17px",
+                fontWeight: "900",
+                color: "#b45309",
+                marginBottom: "6px",
+              }}
+            >
+              YOUR FIRST 30 DAYS ARE FREE — $0 TODAY
+            </div>
+
+            <div
+              style={{
+                fontWeight: "700",
+                lineHeight: "1.55",
+              }}
+            >
+              A credit card is required to start your
+              free trial. You will not be charged
+              today. Your selected plan begins billing
+              after your 30-day trial unless you
+              cancel.
+            </div>
+          </div>
+
+          <form
+            className={styles.form}
+            onSubmit={handleSubmit}
+          >
+            {error ? (
+              <p
+                className={styles.error}
+                role="alert"
+              >
+                {error}
+              </p>
+            ) : null}
+
+            <section className={styles.section}>
+              <h2 className={styles.sectionTitle}>
+                Your business
+              </h2>
+
+              <div className={styles.grid}>
+                <div className={styles.fullWidth}>
+                  <div className={styles.field}>
+                    <label
+                      className={styles.label}
+                      htmlFor="businessName"
+                    >
+                      Business Name
+                    </label>
+
+                    <p
+                      style={{
+                        margin: "-2px 0 7px",
+                        color: "#64748b",
+                        fontSize: "13px",
+                        lineHeight: "1.4",
+                      }}
+                    >
+                      Enter it exactly as you want
+                      customers to see it.
+                    </p>
+
+                    <input
+                      id="businessName"
+                      className={styles.input}
+                      type="text"
+                      autoComplete="organization"
+                      value={businessName}
+                      onChange={(event) => {
+                        const nextBusinessName =
+                          event.target.value;
+
+                        setBusinessName(
+                          nextBusinessName
+                        );
+
+                        if (!shopSlugEdited) {
+                          setShopSlug(
+                            normalizeSlug(
+                              nextBusinessName
+                            )
+                          );
+                        }
+                      }}
+                      placeholder="Mike's Barbershop"
+                      disabled={loading}
+                      required
+                      autoFocus
+                    />
+
+                    <div
+                      style={{
+                        marginTop: "10px",
+                        padding: "12px 14px",
+                        borderRadius: "12px",
+                        background: "#f8fafc",
+                        border: "1px solid #cbd5e1",
+                      }}
+                    >
+                      <div
+                        style={{
+                          color: "#475569",
+                          fontSize: "13px",
+                          fontWeight: "800",
+                          marginBottom: "6px",
+                        }}
+                      >
+                        Your booking page
+                      </div>
+
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          flexWrap: "wrap",
+                          gap: "2px",
+                          color: "#0f172a",
+                          fontSize: "15px",
+                          fontWeight: "800",
+                        }}
+                      >
+                        <span>chairtimehq.com/</span>
+
+                        <input
+                          aria-label="Booking page URL"
+                          type="text"
+                          value={shopSlug}
+                          onChange={(event) => {
+                            setShopSlugEdited(true);
+                            setShopSlug(
+                              normalizeSlug(
+                                event.target.value
+                              )
+                            );
+                          }}
+                          onBlur={() => {
+                            if (!shopSlug) {
+                              setShopSlugEdited(false);
+                              setShopSlug(
+                                normalizeSlug(
+                                  businessName
+                                )
+                              );
+                            }
+                          }}
+                          placeholder="your-business-name"
+                          disabled={loading}
+                          style={{
+                            minWidth: "180px",
+                            flex: "1 1 180px",
+                            border: "0",
+                            borderBottom:
+                              "1px dashed #94a3b8",
+                            outline: "none",
+                            background: "transparent",
+                            color: "#4f46e5",
+                            font: "inherit",
+                            fontWeight: "900",
+                            padding: "2px 0",
+                          }}
+                        />
+                      </div>
+
+                      <p
+                        style={{
+                          margin: "7px 0 0",
+                          color: "#64748b",
+                          fontSize: "12px",
+                          lineHeight: "1.4",
+                        }}
+                      >
+                        This updates automatically from your
                         business name. You can change the URL
                         above if you prefer something different.
                       </p>
