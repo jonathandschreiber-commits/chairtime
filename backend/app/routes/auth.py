@@ -50,6 +50,15 @@ def get_jwt_secret() -> str:
 
 def normalize_slug(value: str) -> str:
     slug = value.strip().lower()
+
+    # Apostrophes should disappear rather than become
+    # separators: "Mike's" -> "mikes".
+    slug = re.sub(
+        r"['’]",
+        "",
+        slug,
+    )
+
     slug = re.sub(
         r"[^a-z0-9]+",
         "-",
@@ -224,8 +233,14 @@ def signup(
             ),
         )
 
+    requested_slug = (
+        payload.slug.strip()
+        if payload.slug
+        else business_name
+    )
+
     shop_slug = normalize_slug(
-        business_name
+        requested_slug
     )
 
     if not shop_slug:
@@ -234,8 +249,8 @@ def signup(
                 status.HTTP_400_BAD_REQUEST
             ),
             detail=(
-                "A valid business name "
-                "is required."
+                "Please choose a valid "
+                "business URL."
             ),
         )
 
@@ -272,10 +287,9 @@ def signup(
                 status.HTTP_400_BAD_REQUEST
             ),
             detail=(
-                "A business with this URL "
-                "already exists. Please use "
-                "a slightly different "
-                "business name."
+                "That business URL is already "
+                "in use. Please choose a "
+                "slightly different URL."
             ),
         )
 
