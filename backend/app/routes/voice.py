@@ -1,7 +1,8 @@
-
 from datetime import date, datetime, timedelta
 from difflib import SequenceMatcher
 import re
+import json
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -9,7 +10,10 @@ from sqlalchemy.orm import Session
 
 from app.booking_lock import lock_booking_provider
 from app.database import get_db
-from app.models import Appointment, Barber, Service, Shop
+from app.models import (
+    Appointment, Barber, Service, Shop, AvailabilityRule,
+    ShopAvailabilityRule, BlockedTime, ShopBlockedTime,
+)
 from app.routes.reminders import send_highlevel_sms
 from app.scheduling import generate_available_slots
 
@@ -34,6 +38,185 @@ class VoiceBookingRequest(BaseModel):
     customer_name: str
     customer_phone: str
     barber_name: str | None = None
+
+
+def require_voice_shop(db: Session, shop_slug: str):
+    shop = db.query(Shop).filter(Shop.slug == shop_slug).first()
+    if not shop:
+        raise HTTPException(status_code=404, detail="Shop not found")
+    return shop
+
+
+def schedule_intervals(rules, target_date: date):
+    intervals = []
+    for offset in (-1, 0):
+        day = target_date + timedelta(days=offset)
+        for rule in rules:
+            if rule.weekday != day.weekday():
+                continue
+            start = datetime.combine(day, rule.start_time)
+            end = datetime.combine(day, rule.end_time)
+            if end <= start:
+                end += timedelta(days=1)
+            intervals.append((start, end))
+    return intervals
+
+
+def build_shop_information(db: Session, shop_slug: str,
+                           target_date: date | None = None):
+    """Read current facts for one exact shop; never use a default shop."""
+    shop = require_voice_shop(db, shop_slug)
+    if target_date is None:
+        target_date = datetime.now(ZoneInfo(shop.timezone)).date()
+    day_start = datetime.combine(target_date, datetime.min.time())
+    day_end = day_start + timedelta(days=1)
+    roster = (db.query(Barber).filter(Barber.shop_slug == shop.slug)
+              .order_by(Barber.name, Barber.id).all())
+    roster_by_id = {staff.id: staff for staff in roster}
+    services = (db.query(Service).filter(
+        Service.shop_slug == shop.slug, Service.is_active.is_(True)
+    ).order_by(Service.name, Service.barber_id, Service.id).all())
+    shop_rules = (db.query(ShopAvailabilityRule).filter(
+        ShopAvailabilityRule.shop_slug == shop.slug
+    ).order_by(ShopAvailabilityRule.weekday,
+               ShopAvailabilityRule.start_time).all())
+    staff_rules = (db.query(AvailabilityRule).filter(
+        AvailabilityRule.shop_slug == shop.slug,
+        AvailabilityRule.barber_id.in_(list(roster_by_id)),
+    ).order_by(AvailabilityRule.weekday,
+               AvailabilityRule.start_time).all())
+    shop_blocks = (db.query(ShopBlockedTime).filter(
+        ShopBlockedTime.shop_slug == shop.slug,
+        ShopBlockedTime.start_datetime < day_end,
+        ShopBlockedTime.end_datetime > day_start,
+    ).order_by(ShopBlockedTime.start_datetime).all())
+    staff_blocks = (db.query(BlockedTime).filter(
+        BlockedTime.shop_slug == shop.slug,
+        BlockedTime.barber_id.in_(list(roster_by_id)),
+        BlockedTime.start_datetime < day_end,
+        BlockedTime.end_datetime > day_start,
+    ).order_by(BlockedTime.start_datetime).all())
+    weekdays = ("Monday", "Tuesday", "Wednesday", "Thursday",
+                "Friday", "Saturday", "Sunday")
+
+    def hours(rule):
+        return {"weekday": weekdays[rule.weekday],
+                "start_time": rule.start_time.strftime("%H:%M"),
+                "end_time": rule.end_time.strftime("%H:%M"),
+                "ends_next_day": rule.end_time <= rule.start_time}
+
+    def closure(block):
+        # Do not expose staff leave reasons or customer information.
+        return {"start_datetime": block.start_datetime.isoformat(),
+                "end_datetime": block.end_datetime.isoformat()}
+
+    service_details = []
+    for service in services:
+        if service.barber_id and service.barber_id not in roster_by_id:
+            continue
+        providers = ([roster_by_id[service.barber_id]]
+                     if service.barber_id else roster)
+        if not providers:
+            continue
+        service_details.append({
+            "name": service.name,
+            "duration_minutes": service.duration_minutes,
+            "price": str(service.price),
+            "staff": [provider.name for provider in providers],
+        })
+
+    info = {
+        "success": True,
+        "shop_slug": shop.slug,
+        "business_name": shop.name,
+        "timezone": shop.timezone,
+        "phone": shop.phone,
+        "payment_policy": shop.payment_policy,
+        "target_date": target_date.isoformat(),
+        "services": service_details,
+        "staff": [{
+            "name": staff.name,
+            "weekly_hours": [hours(rule) for rule in staff_rules
+                             if rule.barber_id == staff.id],
+            "closures_on_requested_date": [closure(block)
+                for block in staff_blocks if block.barber_id == staff.id],
+        } for staff in roster],
+        "shop_weekly_hours": [hours(rule) for rule in shop_rules],
+        "shop_closures_on_requested_date": [closure(block)
+                                            for block in shop_blocks],
+        "instructions": (
+            "These are current records for this shop only. Prices and "
+            "durations are specific to the named providers. Empty shop "
+            "hours mean shop opening hours have not been entered; do not "
+            "guess them. A provider without separate hours may use the "
+            "shop schedule. When both schedules exist, both apply. "
+            "Closures are for target_date only. Weekly hours are not "
+            "appointment openings. Use check_availability for actual "
+            "bookable times and book_appointment to reserve them. "
+            "Missing address, policies or other details are unknown. "
+            "Do not use another shop or HighLevel location defaults."
+        ),
+    }
+    # A scalar response field is easy for Voice AI to consume in full.
+    info["shop_information"] = json.dumps(info, ensure_ascii=False)
+    return info
+
+
+def enforce_shop_slot_boundaries(db: Session, barber: Barber,
+                                 service: Service, target_date: date,
+                                 slots):
+    shop_slug = barber.shop_slug
+    if (not shop_slug or service.shop_slug != shop_slug
+            or (service.barber_id and service.barber_id != barber.id)
+            or not service.is_active):
+        raise HTTPException(status_code=409,
+                            detail="Staff and service must belong to this shop")
+    require_voice_shop(db, shop_slug)
+    day_start = datetime.combine(target_date, datetime.min.time())
+    day_end = day_start + timedelta(days=1)
+    shop_rules = db.query(ShopAvailabilityRule).filter(
+        ShopAvailabilityRule.shop_slug == shop_slug).all()
+    staff_rules = db.query(AvailabilityRule).filter(
+        AvailabilityRule.shop_slug == shop_slug,
+        AvailabilityRule.barber_id == barber.id).all()
+    if not shop_rules and not staff_rules:
+        return []
+    shop_intervals = schedule_intervals(shop_rules, target_date)
+    staff_intervals = schedule_intervals(staff_rules, target_date)
+    shop_blocks = db.query(ShopBlockedTime).filter(
+        ShopBlockedTime.shop_slug == shop_slug,
+        ShopBlockedTime.start_datetime < day_end + timedelta(days=1),
+        ShopBlockedTime.end_datetime > day_start).all()
+    staff_blocks = db.query(BlockedTime).filter(
+        BlockedTime.shop_slug == shop_slug,
+        BlockedTime.barber_id == barber.id,
+        BlockedTime.start_datetime < day_end + timedelta(days=1),
+        BlockedTime.end_datetime > day_start).all()
+    appointments = db.query(Appointment).filter(
+        Appointment.shop_slug == shop_slug,
+        Appointment.barber_id == barber.id,
+        Appointment.status == "confirmed",
+        Appointment.start_datetime < day_end + timedelta(days=1),
+        Appointment.end_datetime > day_start).all()
+    blocks = shop_blocks + staff_blocks + appointments
+    result = []
+    for slot in slots:
+        start = slot if isinstance(slot, datetime) else datetime.fromisoformat(str(slot))
+        if start.tzinfo is not None or start.date() != target_date:
+            # ChairTime stores local naive appointment datetimes.
+            continue
+        end = start + timedelta(minutes=service.duration_minutes)
+        if shop_rules and not any(a <= start and end <= b
+                                  for a, b in shop_intervals):
+            continue
+        if staff_rules and not any(a <= start and end <= b
+                                   for a, b in staff_intervals):
+            continue
+        if any(block.start_datetime < end and block.end_datetime > start
+               for block in blocks):
+            continue
+        result.append(slot)
+    return result
 
 
 NUMBER_WORDS = {
@@ -603,6 +786,12 @@ def get_slots_for_candidate(
     service: Service,
     target_date: date,
 ):
+    if (not barber.shop_slug or service.shop_slug != barber.shop_slug
+            or (service.barber_id and service.barber_id != barber.id)
+            or not service.is_active):
+        raise HTTPException(status_code=409,
+                            detail="Staff and service must belong to this shop")
+    require_voice_shop(db, barber.shop_slug)
     try:
         slots = generate_available_slots(
             db,
@@ -617,7 +806,9 @@ def get_slots_for_candidate(
             detail=str(error),
         )
 
-    return slots
+    return enforce_shop_slot_boundaries(
+        db, barber, service, target_date, slots
+    )
 
 
 def filter_requested_slots(
@@ -1062,6 +1253,9 @@ def get_voice_availability(
         "slots": slots,
         "available_count": len(slots),
         "time_window": time_window,
+        "price": str(service.price),
+        "duration_minutes": service.duration_minutes,
+        "timezone": require_voice_shop(db, shop_slug).timezone,
     }
 
 
@@ -1326,4 +1520,6 @@ def voice_book_appointment(
         "confirmation_sms_error": confirmation_sms_error,
         "reminder_scheduled": True,
         "reminder_sent": appointment.reminder_sent,
-    }
+        "price": str(service.price),
+        "duration_minutes": service.duration_minutes,
+        "timezone": shop.timezone,
