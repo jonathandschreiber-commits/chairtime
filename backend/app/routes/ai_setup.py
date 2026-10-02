@@ -3718,6 +3718,13 @@ def get_available_highlevel_phone_numbers(
                 }
             )
  
+    search_data = data.get("data")
+    fingerprint_id = (
+        str(search_data.get("fingerprintId") or "").strip()
+        if isinstance(search_data, dict)
+        else ""
+    )
+ 
     return {
         "success": True,
         "chairtime_shop": {
@@ -3727,6 +3734,7 @@ def get_available_highlevel_phone_numbers(
         },
         "area_code": clean_area_code,
         "location_id": location_id,
+        "fingerprint_id": fingerprint_id,
         "count": len(
             available_numbers
         ),
@@ -3740,6 +3748,9 @@ class PhoneNumberPurchaseRequest(
     BaseModel
 ):
     phone_number: str
+    fingerprint_id: Optional[str] = None
+    locality: Optional[str] = None
+    region: Optional[str] = None
  
  
 def normalize_us_phone_number(
@@ -4638,58 +4649,38 @@ def purchase_shop_ai_phone_number(
         payment_method_id,
     ) = get_phone_purchase_credentials()
  
-    # Refresh HighLevel inventory immediately before
-    # purchasing. ChairTime purchases ONLY the exact
-    # number selected by the customer.
-    (
-        available_records,
-        fingerprint_id,
-    ) = get_fresh_available_phone_records(
-        location_id=location_id,
-        area_code=area_code,
-    )
+    # Use the exact availability-search fingerprint and
+    # number metadata returned to the onboarding page.
+    # Do NOT run a second availability search here: a
+    # second HighLevel search can return a different subset
+    # and invalidate the customer's just-selected number.
+    fingerprint_id = str(
+        payload.fingerprint_id or ""
+    ).strip()
+    locality = str(
+        payload.locality or ""
+    ).strip()
+    region = str(
+        payload.region or ""
+    ).strip()
  
-    if not available_records:
+    if not fingerprint_id or not locality or not region:
         raise HTTPException(
- 
             status_code=(
                 status.HTTP_409_CONFLICT
             ),
             detail=(
-                "HighLevel did not return any "
-                "currently available numbers for "
-                "this area code."
+                "The selected phone number is missing "
+                "its HighLevel purchase information. "
+                "Please choose the number again."
             ),
         )
  
-    requested_record = (
-        find_phone_record_by_number(
-            phone_numbers=(
-                available_records
-            ),
-            phone_number=(
-                requested_phone_number
-            ),
-        )
-    )
- 
-    if not requested_record:
-        raise HTTPException(
-            status_code=(
-                status.HTTP_409_CONFLICT
-            ),
-            detail={
-                "message": (
-                    "The phone number you "
-                    "selected is no longer "
-                    "available. Please choose "
-                    "another number."
-                ),
-                "requested_phone_number": (
-                    requested_phone_number
-                ),
-            },
-        )
+    requested_record = {
+        "phoneNumber": requested_phone_number,
+        "locality": locality,
+        "region": region,
+    }
  
     (
         response,
