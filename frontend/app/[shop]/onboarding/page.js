@@ -136,6 +136,9 @@ export default function OnboardingPage() {
     setAvailableAiNumbers,
   ] = useState([]);
  
+  const [aiSearchFingerprint, setAiSearchFingerprint] =
+    useState("");
+ 
   const [
     loadingAiNumbers,
     setLoadingAiNumbers,
@@ -355,7 +358,7 @@ export default function OnboardingPage() {
   }
  
   async function loadAvailableAiNumbers() {
-    if (loadingAiNumbers) return;
+    if (loadingAiNumbers || activatingAiNumber) return;
  
     const cleanAreaCode = String(
       aiAreaCode || ""
@@ -366,12 +369,15 @@ export default function OnboardingPage() {
         "Enter a valid 3-digit area code."
       );
       setAvailableAiNumbers([]);
+      setAiSearchFingerprint("");
+      setSelectedAiNumber("");
       return;
     }
  
     setLoadingAiNumbers(true);
     setAiNumberError("");
     setAvailableAiNumbers([]);
+    setAiSearchFingerprint("");
     setSelectedAiNumber("");
     setRecoveryAiNumber("");
  
@@ -422,6 +428,9 @@ export default function OnboardingPage() {
         : [];
  
       setAvailableAiNumbers(numbers);
+      setAiSearchFingerprint(
+        String(data.fingerprint_id || "").trim()
+      );
  
       if (numbers.length === 0) {
         setAiNumberError(
@@ -444,7 +453,7 @@ export default function OnboardingPage() {
   }
  
   async function activateAiNumberAndContinue() {
-    if (activatingAiNumber) return;
+    if (activatingAiNumber || loadingAiNumbers) return;
  
     const activePhoneNumber =
       aiProvisionStatus?.phone_number ||
@@ -481,6 +490,21 @@ export default function OnboardingPage() {
       return;
     }
  
+    const selectedRecord = availableAiNumbers.find(
+      (number) => number.phone_number === selectedAiNumber
+    );
+
+    if (selectedAiNumber && (
+      !aiSearchFingerprint ||
+      !selectedRecord?.locality ||
+      !selectedRecord?.region
+    )) {
+      setAiNumberError(
+        "Please find numbers again and select a number with complete purchase information."
+      );
+      return;
+    }
+
     setActivatingAiNumber(true);
     setAiNumberError("");
     setMessage("");
@@ -496,6 +520,11 @@ export default function OnboardingPage() {
           },
           body: JSON.stringify({
             phone_number: phoneNumberToActivate,
+            ...(selectedAiNumber ? {
+              fingerprint_id: aiSearchFingerprint,
+              locality: selectedRecord.locality,
+              region: selectedRecord.region,
+            } : {}),
           }),
         }
       );
@@ -2398,6 +2427,7 @@ export default function OnboardingPage() {
  
               setAiNumberError("");
               setAvailableAiNumbers([]);
+              setAiSearchFingerprint("");
               setSelectedAiNumber("");
             }}
  
