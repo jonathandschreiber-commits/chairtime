@@ -1,4 +1,3 @@
-
 import os
 from datetime import datetime, timedelta
 
@@ -10,6 +9,9 @@ from app.booking_lock import lock_booking_provider
 from app.database import get_db
 from app.models import (
     Appointment,
+    AvailabilityRule,
+    ShopAvailabilityRule,
+    ShopBlockedTime,
     Barber,
     BlockedTime,
     Service,
@@ -355,6 +357,54 @@ def calculate_appointment_end(
     )
 
 
+def verify_booking_hours(
+    db: Session,
+    shop_slug: str,
+    barber_id: str,
+    start_datetime: datetime,
+    end_datetime: datetime,
+) -> None:
+    # ChairTime stores shop-local naive datetimes. Never compare them
+    # to the server's timezone or silently use another shop's schedule.
+    if (start_datetime.tzinfo is not None or end_datetime.tzinfo is not None
+            or end_datetime <= start_datetime
+            or end_datetime.date() != start_datetime.date()):
+        raise HTTPException(status_code=400,
+                            detail="Choose a valid time within one shop business day.")
+    weekday = start_datetime.weekday()
+    shop_rules = db.query(ShopAvailabilityRule).filter(
+        ShopAvailabilityRule.shop_slug == shop_slug,
+        ShopAvailabilityRule.weekday == weekday,
+    ).all()
+    staff_rules = db.query(AvailabilityRule).filter(
+        AvailabilityRule.shop_slug == shop_slug,
+        AvailabilityRule.barber_id == barber_id,
+        AvailabilityRule.weekday == weekday,
+    ).all()
+
+    def fits(rules):
+        return any(
+            datetime.combine(start_datetime.date(), rule.start_time) <= start_datetime
+            and end_datetime <= datetime.combine(start_datetime.date(), rule.end_time)
+            for rule in rules
+        )
+
+    if not fits(shop_rules):
+        raise HTTPException(status_code=409,
+                            detail="The appointment is outside the shop's saved opening hours.")
+    if not fits(staff_rules):
+        raise HTTPException(status_code=409,
+                            detail="The appointment is outside this staff member's saved hours.")
+    shop_block = db.query(ShopBlockedTime).filter(
+        ShopBlockedTime.shop_slug == shop_slug,
+        ShopBlockedTime.start_datetime < end_datetime,
+        ShopBlockedTime.end_datetime > start_datetime,
+    ).first()
+    if shop_block:
+        raise HTTPException(status_code=409,
+                            detail="The shop is closed during that appointment.")
+
+
 def verify_no_reschedule_conflict(
     db: Session,
     appointment: Appointment,
@@ -362,6 +412,7 @@ def verify_no_reschedule_conflict(
     new_end: datetime,
     shop_slug: str,
 ) -> None:
+    verify_booking_hours(db, shop_slug, appointment.barber_id, new_start, new_end)
     appointment_conflict = (
         db.query(Appointment)
         .filter(
@@ -728,6 +779,7 @@ def verify_new_appointment_conflicts(
     start_datetime: datetime,
     end_datetime: datetime,
 ) -> None:
+    verify_booking_hours(db, shop_slug, barber_id, start_datetime, end_datetime)
     appointment_conflict = (
         db.query(Appointment)
         .filter(
