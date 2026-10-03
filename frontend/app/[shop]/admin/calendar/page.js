@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useParams, useRouter } from "next/navigation";
@@ -10,21 +9,6 @@ import {
 } from "react";
 
 import AdminUserBar from "../../../components/AdminUserBar";
-
-const HOURS = [
-  "08:00",
-  "09:00",
-  "10:00",
-  "11:00",
-  "12:00",
-  "13:00",
-  "14:00",
-  "15:00",
-  "16:00",
-  "17:00",
-  "18:00",
-  "19:00",
-];
 
 const DAYS = [
   "Sunday",
@@ -162,6 +146,69 @@ function customerKey(
     .toLowerCase()}`;
 }
 
+// All values are shop-local wall times, as stored by ChairTime.
+function minutesOfTime(value) {
+  const parts = String(value || "").split(":");
+  const hours = Number(parts[0]);
+  const minutes = Number(parts[1]);
+  return Number.isFinite(hours) && Number.isFinite(minutes)
+    ? hours * 60 + minutes : NaN;
+}
+
+function minutesText(value) {
+  return `${String(Math.floor(value / 60)).padStart(2, "0")}:${String(value % 60).padStart(2, "0")}`;
+}
+
+function intervalsForDate(rules, date) {
+  const weekday = (new Date(`${date}T12:00:00Z`).getUTCDay() + 6) % 7;
+  return rules.filter((rule) => rule.weekday === weekday)
+    .map((rule) => [minutesOfTime(rule.start_time), minutesOfTime(rule.end_time)])
+    .filter(([start, end]) => Number.isFinite(start) && Number.isFinite(end) && end > start);
+}
+
+function intersectIntervals(left, right) {
+  return left.flatMap(([a, b]) => right.map(([c, d]) => [Math.max(a, c), Math.min(b, d)]))
+    .filter(([start, end]) => end > start);
+}
+
+function itemIntervalOnDate(item, date) {
+  const start = String(item.start_datetime || "");
+  const end = String(item.end_datetime || "");
+  if (start >= `${date}T24:00:00` || end <= `${date}T00:00:00`) return null;
+  const a = datePart(start) < date ? 0 : minutesOfTime(timePart(start));
+  const b = datePart(end) > date ? 1440 : minutesOfTime(timePart(end));
+  return Number.isFinite(a) && Number.isFinite(b) && b > a ? [a, b] : null;
+}
+
+function freeScheduleIntervals(date, barberId, shopHours, staffHours, shopBlocks, staffBlocks, appointments) {
+  const shopIntervals = intervalsForDate(shopHours, date);
+  const staffIntervals = intervalsForDate(staffHours.filter((rule) => rule.barber_id === barberId), date);
+  let intervals = intersectIntervals(shopIntervals, staffIntervals);
+  const busy = [...shopBlocks, ...staffBlocks.filter((block) => block.barber_id === barberId),
+    ...appointments.filter((item) => item.barber_id === barberId && item.status !== "canceled")];
+  for (const item of busy) {
+    const block = itemIntervalOnDate(item, date);
+    if (!block) continue;
+    const [start, end] = block;
+    intervals = intervals.flatMap(([a, b]) => {
+      if (end <= a || start >= b) return [[a, b]];
+      return [[a, Math.min(start, b)], [Math.max(end, a), b]].filter(([x, y]) => y > x);
+    });
+  }
+  return intervals;
+}
+
+function earliestStartInHour(intervals, hourText, durations) {
+  const hourStart = minutesOfTime(hourText);
+  for (const [start, end] of [...intervals].sort((a, b) => a[0] - b[0])) {
+    const candidate = Math.max(start, hourStart);
+    if (candidate < hourStart + 60 && durations.some((duration) => candidate + duration <= end)) {
+      return minutesText(candidate);
+    }
+  }
+  return "";
+}
+
 export default function CalendarPage() {
   const params = useParams();
   const router = useRouter();
@@ -197,6 +244,11 @@ export default function CalendarPage() {
     blockedTimes,
     setBlockedTimes,
   ] = useState([]);
+
+  const [shopHours, setShopHours] = useState([]);
+  const [staffHours, setStaffHours] = useState([]);
+  const [shopBlocks, setShopBlocks] = useState([]);
+  const [scheduleLoaded, setScheduleLoaded] = useState(false);
 
   const [
     selectedDate,
@@ -498,6 +550,7 @@ export default function CalendarPage() {
   const loadData =
     useCallback(async () => {
       setLoading(true);
+      setScheduleLoaded(false);
       setError("");
 
       try {
@@ -654,6 +707,15 @@ export default function CalendarPage() {
           return;
         }
 
+        if (![agendaData.shop_hours, agendaData.staff_hours,
+          agendaData.shop_blocked_times].every(Array.isArray)) {
+          throw new Error("Saved hours could not be loaded. Refresh after the agenda update is deployed.");
+        }
+        setShopHours(agendaData.shop_hours.filter((rule) => rule.shop_slug === shopSlug));
+        setStaffHours(agendaData.staff_hours.filter((rule) => rule.shop_slug === shopSlug));
+        setShopBlocks(agendaData.shop_blocked_times.filter((block) => block.shop_slug === shopSlug));
+        setScheduleLoaded(true);
+
         const loadedBarbers =
           agendaData.barbers || [];
 
@@ -733,6 +795,7 @@ export default function CalendarPage() {
           }
         );
       } catch (loadError) {
+        setScheduleLoaded(false);
         setError(
           loadError instanceof Error
             ? loadError.message
@@ -749,6 +812,18 @@ export default function CalendarPage() {
     }
   }, [loadData, shopSlug]);
 
+
+  useEffect(() => {
+    const refresh = () => {
+      if (document.visibilityState === "visible" && !showAppointmentForm && !showBlockForm) loadData();
+    };
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, [loadData, showAppointmentForm, showBlockForm]);
 
   function sameDay(
     value,
@@ -1154,6 +1229,17 @@ export default function CalendarPage() {
         "Choose the appointment date and time."
       );
 
+      return;
+    }
+
+    const selectedService = services.find((service) => service.id === appointmentServiceId
+      && (!service.barber_id || service.barber_id === selectedBarberId) && service.is_active !== false);
+    const startMinutes = minutesOfTime(appointmentTime);
+    const duration = Number(selectedService?.duration_minutes);
+    if (!scheduleLoaded || !selectedService || !(duration > 0) ||
+      !freeIntervalsForDate(appointmentDate).some(([start, end]) =>
+        start <= startMinutes && startMinutes + duration <= end)) {
+      setError("That appointment does not fit the saved shop and staff hours or conflicts with a booking or closure. Choose another time.");
       return;
     }
 
@@ -2081,10 +2167,7 @@ export default function CalendarPage() {
         )
         .filter(
           (block) =>
-            sameDay(
-              block.start_datetime,
-              selectedDate
-            )
+            Boolean(itemIntervalOnDate(block, selectedDate))
         )
         .sort(
           (a, b) =>
@@ -2100,6 +2183,38 @@ export default function CalendarPage() {
       selectedBarberId,
       selectedDate,
     ]);
+
+  function dayScheduleStatus(date) {
+    if (!scheduleLoaded) return "Hours unavailable";
+    if (!shopHours.length) return "Shop hours not set";
+    if (!intervalsForDate(shopHours, date).length) return "Shop closed";
+    const rules = staffHours.filter((rule) => rule.barber_id === selectedBarberId);
+    if (!rules.length) return "Staff hours not set";
+    if (!intervalsForDate(rules, date).length) return "Staff unavailable";
+    const free = freeIntervalsForDate(date);
+    if (!free.length) return "No available time";
+    return "";
+  }
+
+  function freeIntervalsForDate(date) {
+    if (!scheduleLoaded) return [];
+    return freeScheduleIntervals(date, selectedBarberId, shopHours, staffHours,
+      shopBlocks, blockedTimes, appointments);
+  }
+
+  const dayFreeIntervals = freeIntervalsForDate(selectedDate);
+  const availableDurations = servicesForSelectedBarber.filter((service) =>
+    service.is_active !== false)
+    .map((service) => Number(service.duration_minutes)).filter((value) => value > 0);
+  const dayStatus = dayScheduleStatus(selectedDate);
+  const visibleIntervals = [
+    ...intervalsForDate(shopHours, selectedDate),
+    ...dayAppointments.map((item) => itemIntervalOnDate(item, selectedDate)).filter(Boolean),
+    ...dayBlockedTimes.map((item) => itemIntervalOnDate(item, selectedDate)).filter(Boolean),
+  ];
+  const calendarHours = Array.from({ length: 24 }, (_, hour) => minutesText(hour * 60))
+    .filter((hourText) => visibleIntervals.some(([start, end]) =>
+      start < minutesOfTime(hourText) + 60 && end > minutesOfTime(hourText)));
 
   const weekDates =
     useMemo(
@@ -3540,7 +3655,8 @@ export default function CalendarPage() {
             </div>
 
             <div className="divide-y">
-              {HOURS.map(
+              {dayStatus ? <p className="p-5 font-semibold text-gray-600">{dayStatus}</p> : null}
+              {calendarHours.map(
                 (hourText) => {
                   const appointmentItems =
                     appointmentItemsForHour(
@@ -3571,11 +3687,10 @@ export default function CalendarPage() {
                         "canceled"
                     );
 
-                  const isOpen =
-                    activeAppointmentItems.length ===
-                      0 &&
-                    blockedItems.length ===
-                      0;
+                  const availableStart = earliestStartInHour(
+                    dayFreeIntervals, hourText, availableDurations
+                  );
+                  const isOpen = Boolean(availableStart);
 
                   return (
                     <div
@@ -3621,13 +3736,12 @@ export default function CalendarPage() {
                             type="button"
                             onClick={() =>
                               openAppointmentForm(
-                                hourText
+                                availableStart
                               )
                             }
                             className="w-full text-left rounded-2xl border-2 border-dashed border-emerald-200 bg-emerald-50/50 px-4 py-4 font-semibold text-emerald-800 hover:bg-emerald-50"
                           >
-                            Open · Add
-                            appointment
+                            Open{availableStart !== hourText ? ` at ${availableStart}` : ""} · Add appointment
                           </button>
                         ) : null}
 
@@ -3635,6 +3749,12 @@ export default function CalendarPage() {
                         !canManageSelectedBarberAppointments ? (
                           <div className="rounded-2xl border border-gray-200 bg-gray-50 px-4 py-4 text-gray-500">
                             Open
+                          </div>
+                        ) : null}
+
+                        {!isOpen && activeAppointmentItems.length === 0 && blockedItems.length === 0 ? (
+                          <div className="rounded-2xl border border-gray-200 bg-gray-50 px-4 py-4 text-gray-500">
+                            {dayStatus || (availableDurations.length ? "Unavailable" : "No active services")}
                           </div>
                         ) : null}
 
@@ -3755,6 +3875,7 @@ export default function CalendarPage() {
                       </button>
 
                       <div className="p-3 space-y-3">
+                        {dayScheduleStatus(date) ? <p className="text-sm font-semibold text-gray-600">{dayScheduleStatus(date)}</p> : null}
                         {items.length === 0 ? (
                           <p className="text-sm text-gray-500">
                             No appointments
@@ -3923,4 +4044,4 @@ export default function CalendarPage() {
     </main>
   );
 }
-                              
+    
