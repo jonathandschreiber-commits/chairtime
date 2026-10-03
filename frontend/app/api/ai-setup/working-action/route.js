@@ -7,6 +7,13 @@ const BACKEND_URL = (
 
 export const dynamic = "force-dynamic";
 
+const ACTION_NAMES = new Set([
+  "get_shop_information_v2",
+  "check_availability",
+  "check_availability_v2",
+  "book_appointment",
+]);
+
 function redact(value) {
   if (Array.isArray(value)) return value.map(redact);
   if (!value || typeof value !== "object") return value;
@@ -31,12 +38,17 @@ function json(data, status = 200) {
   });
 }
 
-export async function GET() {
+export async function GET(request) {
   try {
+    const name = new URL(request.url).searchParams.get("action_name") ||
+      "get_shop_information_v2";
+    if (!ACTION_NAMES.has(name)) {
+      return json({ detail: "Unknown receptionist action name." }, 400);
+    }
     const cookieStore = await cookies();
     const token = cookieStore.get("chairtime_token")?.value;
     if (!token) {
-      return json({ detail: "Please sign in as Bob's shop owner." }, 401);
+      return json({ detail: "Please sign in as this shop's owner." }, 401);
     }
     async function read(path) {
       const response = await fetch(`${BACKEND_URL}/api/ai-setup${path}`, {
@@ -52,34 +64,51 @@ export async function GET() {
       }
       return response.json();
     }
+    // The authenticated backend chooses the shop. No query may select a shop
+    // or another shop's agent, even if the owner has several browser tabs open.
     const current = await read("/provision/status");
-    if (current.chairtime_shop?.slug !== "bobs-shop") {
-      return json({ detail: "Please sign in as Bob's shop owner." }, 403);
-    }
+    const slug = current.chairtime_shop?.slug;
+    const shopId = current.chairtime_shop?.id;
     const agentId = current.agent?.id;
-    if (!agentId) {
-      return json({ detail: "Bob's AI agent could not be found." }, 409);
+    if (!slug || !shopId || !agentId) {
+      return json({ detail: "This shop's AI agent could not be found." }, 409);
     }
     const saved = await read(`/agents/${encodeURIComponent(agentId)}`);
-    if (saved.chairtime_shop?.slug !== "bobs-shop") {
-      return json({ detail: "The returned shop did not match Bob's shop." }, 409);
+    if (saved.chairtime_shop?.slug !== slug ||
+        saved.chairtime_shop?.id !== shopId || saved.agent?.id !== agentId) {
+      return json({ detail: "The returned agent did not match the signed-in shop." }, 409);
     }
     const actions = saved.agent?.actions;
-    const action = Array.isArray(actions) ? actions.find(
-      (item) => item.name === "get_shop_information_v2"
-    ) : null;
-    if (!action) {
-      return json({ detail: "The working v2 action could not be found." }, 409);
+    const matches = Array.isArray(actions) ? actions.filter(
+      (item) => item.name === name
+    ) : [];
+    if (matches.length !== 1) {
+      return json({ detail: "The selected action is missing or duplicated.",
+        shop_slug: slug, action_name: name, matching_actions: matches.length }, 409);
     }
+    const action = matches[0];
+    const parameters = action.action_parameters || action.actionParameters || {};
+    const type = action.action_type || action.actionType;
+    const endpoint = type === "CAP"
+      ? parameters.schemaValues?.requestBodyValues?.webhookUrl?.value
+      : parameters.apiDetails?.url;
+    const suffix = name === "get_shop_information_v2" ? "shop-information"
+      : name.startsWith("check_availability") ? "availability" : "book";
+    const expectedEndpoint = `${BACKEND_URL}/api/ai-setup/tenant-webhook/${encodeURIComponent(slug)}/${suffix}`;
     return json({
       success: true,
-      shop_slug: "bobs-shop",
+      shop_slug: slug,
       agent_id: agentId,
+      action_name: name,
+      endpoint_matches_shop: endpoint === expectedEndpoint,
+      stored_endpoint: endpoint || null,
+      expected_endpoint: expectedEndpoint,
+      cap_definition_id: parameters.capActionId || null,
       action: redact(action),
     });
   } catch (error) {
     return json({
-      detail: "Could not export the settings. Please share this error status.",
+      detail: "Could not export the saved settings. Please share this error status.",
     }, Number.isInteger(error?.status) ? error.status : 502);
   }
 }
