@@ -694,12 +694,14 @@ def production_agent_prompt(shop: Shop) -> str:
         TEST_AGENT_PROMPT
         + "\nYou serve only this ChairTime shop: " + identity + ".\n"
         "Before answering business questions or selecting a service or "
-        "staff member, call get_shop_information. Use its current returned "
+        "staff member, call get_shop_information_v2. Use its current returned "
         "shop_information as your only source for business facts. Read "
         "the returned services, providers, prices, durations, shop hours, "
         "staff hours, closures, contact information and payment policy. "
-        "For questions about a specific date, pass target_date and look "
-        "up that date again. Do not ask for a date just to list services. "
+        "This information action requires no caller input and returns "
+        "weekly hours. Use check_availability for a specific date; "
+        "do not claim a date is open based only on weekly hours. "
+        "Do not ask for a date just to list services. "
         "Refresh the lookup when asked for current or changed information.\n"
         "Never use HighLevel location business defaults, shared knowledge "
         "bases, another shop, generic salon menus, action examples or "
@@ -725,46 +727,115 @@ def production_shop_information_url(shop: Shop) -> str:
             f"tenant-webhook/{shop.slug}/shop-information")
 
 
+# Custom Action 2.0 settings exported from the tested working action.
+# This customApi definition belongs to the current HighLevel location.
+SHOP_INFORMATION_ACTION_NAME = "get_shop_information_v2"
+DEFAULT_CUSTOM_API_CAP_ACTION_ID = "c4rnn404BkKWaJnDSo9h"
+SHOP_INFORMATION_OUTPUT_FIELDS = [
+    "result.success", "result.shop_slug", "result.shop_information",
+]
+
+
+def shop_information_cap_action_id(location_id: str, agent_data: dict) -> str:
+    existing = find_action_by_name(agent_data, SHOP_INFORMATION_ACTION_NAME)
+    parameters = (existing or {}).get("actionParameters") or {}
+    if ((existing or {}).get("actionType") == "CAP"
+            and parameters.get("capActionName") == "customApi"
+            and parameters.get("capActionId")):
+        return str(parameters["capActionId"])
+    configured = os.getenv("HIGHLEVEL_CUSTOM_API_CAP_ACTION_ID", "").strip()
+    if configured:
+        return configured
+    if location_id != get_highlevel_location_id():
+        raise HTTPException(status_code=409, detail=(
+            "Custom Action 2.0 must be configured for this HighLevel location."
+        ))
+    return DEFAULT_CUSTOM_API_CAP_ACTION_ID
+
+
 def build_shop_information_action_payload(shop: Shop, agent_id: str,
                                          location_id: str,
-                                         webhook_secret: str) -> dict:
+                                         webhook_secret: str,
+                                         cap_action_id: Optional[str] = None) -> dict:
+    cap_action_id = cap_action_id or shop_information_cap_action_id(location_id, {})
+    values = {
+        "webhookUrl": {"value": production_shop_information_url(shop), "mode": "manual"},
+        "httpMethod": {"value": "POST", "mode": "manual"},
+        "headers": {"value": {
+            "Content-Type": "application/json",
+            PRODUCTION_WEBHOOK_SECRET_HEADER: webhook_secret,
+        }, "mode": "manual"},
+        "apiTimeout": {"value": "20", "mode": "manual"},
+        "retryOnFailure": {"value": False, "mode": "manual"},
+        "useSimpleRequestBody": {"value": True, "mode": "manual"},
+        "simpleRequestBody": {"value": "{}", "type": "json", "mode": "manual"},
+        "selectedOutputFields": {"value": list(SHOP_INFORMATION_OUTPUT_FIELDS),
+                                 "mode": "manual"},
+    }
     return {
         "agentId": agent_id,
         "locationId": location_id,
-        "actionType": "CUSTOM_ACTION",
-        "name": "get_shop_information",
+        "actionType": "CAP",
+        "name": SHOP_INFORMATION_ACTION_NAME,
         "actionParameters": {
+            "examples": [], "selectedPaths": [], "transferActionIds": [],
+            "capActionId": cap_action_id, "capActionName": "customApi",
             "triggerPrompt": (
-                "Before answering questions about this shop's services, "
-                "staff, prices, durations, opening hours, staff hours, "
-                "closures, phone or payment policy; also before choosing "
-                "services or staff for a booking. Use the returned "
-                "shop_information. For a particular date, pass that date; "
-                "otherwise omit target_date. Do not ask the caller for a "
-                "date just to answer service or price questions."
+                "Before answering questions about this shop's services, staff, "
+                "prices, service durations, opening hours, staff hours, closures, "
+                "phone or payment policy, and before choosing a service or staff "
+                "member for booking. No caller information is required. Use the "
+                "returned shop_information to answer accurately."
             ),
             "triggerMessage": "Let me check the shop's current details.",
-            "apiDetails": {
-                "url": production_shop_information_url(shop),
-                "method": "POST",
-                "authenticationRequired": False,
-                "headers": [
-                    {"key": "Content-Type", "value": "application/json"},
-                    {"key": PRODUCTION_WEBHOOK_SECRET_HEADER,
-                     "value": webhook_secret},
-                ],
-                "parameters": [{
-                    "name": "target_date", "type": "string",
-                    "description": (
-                        "Optional requested date in YYYY-MM-DD format. "
-                        "Omit when no specific date was requested."
-                    ),
-                    "example": "2026-10-02",
-                }],
-            },
-            "selectedPaths": ["success", "shop_slug", "shop_information"],
+            "schemaValues": {"requestBodyValues": values},
+            "parameters": [], "calendarIds": [],
         },
     }
+
+
+def verify_shop_information_action(agent_data: dict, expected: dict) -> None:
+    actions = [action for action in extract_actions(agent_data)
+               if action.get("name") == SHOP_INFORMATION_ACTION_NAME]
+    valid = len(actions) == 1
+    action = actions[0] if valid else {}
+    parameters = action.get("actionParameters") or {}
+    wanted = expected["actionParameters"]
+    valid = (valid and bool(get_action_id(action))
+             and action.get("actionType") == "CAP"
+             and parameters.get("capActionId") == wanted["capActionId"]
+             and parameters.get("capActionName") == "customApi"
+             and parameters.get("parameters") == []
+             and parameters.get("triggerPrompt") == wanted["triggerPrompt"]
+             and parameters.get("triggerMessage") == wanted["triggerMessage"])
+    values = (parameters.get("schemaValues") or {}).get("requestBodyValues") or {}
+    for key, wanted_value in wanted["schemaValues"]["requestBodyValues"].items():
+        stored = values.get(key)
+        if key == "headers" and isinstance(stored, dict):
+            headers = stored.get("value") or {}
+            headers = {str(name).lower(): value for name, value in headers.items()}
+            wanted_headers = {name.lower(): value
+                              for name, value in wanted_value["value"].items()}
+            valid = valid and headers == wanted_headers and stored.get("mode") == "manual"
+        elif key == "selectedOutputFields" and isinstance(stored, dict):
+            valid = (valid and isinstance(stored.get("value"), list)
+                     and sorted(stored["value"]) == sorted(wanted_value["value"])
+                     and stored.get("mode") == "manual")
+        else:
+            valid = valid and stored == wanted_value
+    if not valid:
+        raise HTTPException(status_code=502, detail=(
+            "HighLevel did not retain this shop's Custom Action 2.0 settings. "
+            "The shop URL, authentication and response mapping must all match."
+        ))
+
+
+def action_webhook_url(action: dict) -> Optional[str]:
+    parameters = action.get("actionParameters") or {}
+    if action.get("actionType") == "CAP":
+        values = (parameters.get("schemaValues") or {}).get("requestBodyValues") or {}
+        return (values.get("webhookUrl") or {}).get("value")
+    return (parameters.get("apiDetails") or {}).get("url")
 
 
 @router.post("/tenant-webhook/{shop_slug}/shop-information")
@@ -1457,22 +1528,8 @@ def verify_action_after_warning(
         return None
  
     if expected_url:
-        action_parameters = (
-            refreshed_action.get(
-                "actionParameters"
-            )
-            or {}
-        )
- 
-        api_details = (
-            action_parameters.get(
-                "apiDetails"
-            )
-            or {}
-        )
- 
-        stored_url = api_details.get("url")
- 
+        stored_url = action_webhook_url(refreshed_action)
+
         if stored_url != expected_url:
             return None
  
@@ -2828,22 +2885,22 @@ def provision_production_ai_receptionist(
             ),
         )
  
-    agent_data = (
-        update_production_agent_settings(
-            shop=shop,
-            agent_id=agent_id,
-            location_id=location_id,
-        )
-    )
- 
     information_url = production_shop_information_url(shop)
+    information_payload = build_shop_information_action_payload(
+        shop, agent_id, location_id, webhook_secret,
+        cap_action_id=shop_information_cap_action_id(location_id, agent_data),
+    )
     information_result = create_or_update_action(
         agent_id=agent_id, location_id=location_id,
-        action_name="get_shop_information",
-        payload=build_shop_information_action_payload(
-            shop, agent_id, location_id, webhook_secret),
-        expected_url=information_url,
+        action_name=SHOP_INFORMATION_ACTION_NAME,
+        payload=information_payload, expected_url=information_url,
     )
+    verify_shop_information_action(
+        get_agent_detail(agent_id, location_id), information_payload,
+    )
+    information = build_shop_information(db=db, shop_slug=shop.slug)
+    if not information.get("success") or information.get("shop_slug") != shop.slug:
+        raise HTTPException(status_code=502, detail="Shop information did not match this shop.")
 
     # Shared knowledge-base actions must not supply another shop's facts.
     agent_with_actions = get_agent_detail(agent_id, location_id)
@@ -2942,7 +2999,6 @@ def provision_production_ai_receptionist(
         )
  
     expected_urls = {
-        "get_shop_information": information_url,
         "check_availability": availability_url,
         "book_appointment": booking_url,
     }
@@ -2961,6 +3017,26 @@ def provision_production_ai_receptionist(
                 or api_details.get("method") != "POST"):
             raise HTTPException(status_code=502,
                                 detail=f"Could not verify shop action {name}")
+
+    verify_shop_information_action(refreshed_agent, information_payload)
+    refreshed_agent = update_production_agent_settings(
+        shop=shop, agent_id=agent_id, location_id=location_id,
+    )
+    # Remove the obsolete information action only after the replacement and
+    # the matching instructions have been retained. Booking actions stay in place.
+    for action in extract_actions(refreshed_agent):
+        if action.get("name") == "get_shop_information":
+            action_id = get_action_id(action)
+            if action_id:
+                removed = highlevel_raw_request(
+                    method="DELETE", path=f"/voice-ai/actions/{action_id}",
+                )
+                if removed.status_code >= 400:
+                    raise_highlevel_error(removed)
+    refreshed_agent = get_agent_detail(agent_id, location_id)
+    verify_shop_information_action(refreshed_agent, information_payload)
+    if find_action_by_name(refreshed_agent, "get_shop_information"):
+        raise HTTPException(status_code=502, detail="The obsolete shop information action is still active.")
 
     # Publish changed instructions/actions for an already active number.
     # Use the verified existing route; never purchase another number here.
@@ -3018,6 +3094,7 @@ def provision_production_ai_receptionist(
         "tenant_isolation": {
             "shop_agent_binding": True,
             "authenticated_webhooks": True,
+            "custom_action_v2_verified": True,
             "shared_test_agent_used": False,
         },
     }
