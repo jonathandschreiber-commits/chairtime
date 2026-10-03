@@ -8,6 +8,7 @@ import time
 from datetime import datetime, timezone
 from typing import Optional
 from urllib.parse import unquote, urlsplit
+from zoneinfo import ZoneInfo
  
 import requests
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -714,6 +715,20 @@ def production_agent_prompt(shop: Shop) -> str:
         "never silently use the first provider's price for everybody.\n"
         "Weekly hours do not prove an appointment is available. Use "
         "check_availability for every requested date and time, and "
+        "Read check_availability.availability_information and message. "
+        "Only offer openings if availability_status is available, "
+        "has_availability is true, available_count is greater than zero, "
+        "and slots contains the exact offered time. All these must agree. "
+        "success true and HTTP 200 describe a completed request, not an opening. "
+        "For unavailable status, false has_availability, zero count or empty "
+        "slots, say no appointments are available for that request and ask "
+        "whether to check another time or date. For unverified status or "
+        "missing response fields, say you cannot verify availability. Never "
+        "offer or book a time based on action examples, memory or weekly hours. "
+        "The returned shop_slug and target_date must match this shop and the "
+        "caller request; the preferred_start_time must match if one was requested. "
+        "Repeat check_availability whenever the caller changes the date, time, "
+        "service or staff. Never claim a reservation until a successful "
         "book_appointment for the reservation. Both actions are bound "
         "to this shop. Missing hours are unknown, not open all day. "
         "Do not invent addresses, cancellation terms, policies, services, "
@@ -837,6 +852,109 @@ def action_webhook_url(action: dict) -> Optional[str]:
         return (values.get("webhookUrl") or {}).get("value")
     return (parameters.get("apiDetails") or {}).get("url")
 
+
+
+AVAILABILITY_OUTPUT_FIELDS = [
+    "success", "shop_slug", "target_date", "preferred_start_time",
+    "availability_status", "has_availability", "availability_information",
+    "message", "slots", "available_count", "barber", "service",
+    "time_window", "price", "duration_minutes", "timezone", "checked_at",
+]
+
+
+def build_availability_decision(shop: Shop, payload: dict, result: dict,
+                                now: Optional[datetime] = None) -> dict:
+    # success describes a completed lookup, not the existence of a booking slot.
+    local_zone = ZoneInfo(shop.timezone)
+    checked_at = now or datetime.now(local_zone)
+    if checked_at.tzinfo is None:
+        checked_at = checked_at.replace(tzinfo=local_zone)
+    checked_at = checked_at.astimezone(local_zone)
+    target_date = str(payload.get("target_date") or "")
+    preferred = str(payload.get("preferred_start_time") or "").strip() or None
+    response = {
+        "success": False, "shop_slug": shop.slug, "target_date": target_date,
+        "preferred_start_time": preferred, "availability_status": "unverified",
+        "has_availability": False, "slots": [], "available_count": 0,
+        "barber": None, "service": None, "time_window": payload.get("time_window"),
+        "price": None, "duration_minutes": None, "timezone": shop.timezone,
+        "checked_at": checked_at.isoformat(),
+        "message": "I cannot verify appointment availability right now. Please try again.",
+    }
+    try:
+        day = datetime.strptime(target_date, "%Y-%m-%d").date()
+        requested_time = datetime.strptime(preferred, "%H:%M").time() if preferred else None
+        valid = (isinstance(result, dict) and result.get("success") is True
+                 and result.get("shop_slug") == shop.slug
+                 and result.get("target_date") == target_date
+                 and result.get("timezone") == shop.timezone
+                 and result.get("time_window") == payload.get("time_window")
+                 and isinstance(result.get("slots"), list)
+                 and type(result.get("available_count")) is int
+                 and result["available_count"] == len(result["slots"]))
+        if not valid:
+            raise ValueError("Unverified availability response")
+        slots = []
+        for raw_slot in result["slots"]:
+            slot = datetime.fromisoformat(raw_slot)
+            if slot.tzinfo is None:
+                slot = slot.replace(tzinfo=local_zone)
+            slot = slot.astimezone(local_zone)
+            if slot.date() != day:
+                raise ValueError("Availability date mismatch")
+            if requested_time and slot.time().replace(tzinfo=None) != requested_time:
+                raise ValueError("Requested time mismatch")
+            # Do not offer a past time, including a stale result from today.
+            if slot > checked_at:
+                slots.append(slot.replace(tzinfo=None).isoformat())
+        slots = sorted(set(slots))
+        response.update({
+            "success": True, "has_availability": bool(slots), "slots": slots,
+            "available_count": len(slots),
+            "availability_status": "available" if slots else "unavailable",
+            "barber": result.get("barber"), "service": result.get("service"),
+            "price": result.get("price"), "duration_minutes": result.get("duration_minutes"),
+        })
+        if slots:
+            response["message"] = (
+                f"ChairTime found {len(slots)} available appointment time(s) on {target_date}. "
+                "Only the times in slots may be offered; no appointment has been booked."
+            )
+        else:
+            when = f" at {preferred}" if preferred else ""
+            response["message"] = (
+                f"There are no available appointments for this request on {target_date}{when}. "
+                "Would you like me to check another time or date?"
+            )
+    except (ValueError, TypeError, KeyError):
+        # Never turn an upstream failure or malformed slot into an opening.
+        pass
+    response["availability_information"] = json.dumps(response, ensure_ascii=False)
+    return response
+
+
+def verify_availability_action(agent_data: dict, expected: dict) -> None:
+    matches = [action for action in extract_actions(agent_data)
+               if action.get("name") == "check_availability"]
+    action = matches[0] if len(matches) == 1 else {}
+    parameters = action.get("actionParameters") or {}
+    wanted = expected["actionParameters"]
+    details = parameters.get("apiDetails") or {}
+    wanted_details = wanted["apiDetails"]
+    valid = (len(matches) == 1 and bool(get_action_id(action))
+             and action.get("actionType") == "CUSTOM_ACTION"
+             and parameters.get("triggerPrompt") == wanted["triggerPrompt"]
+             and parameters.get("triggerMessage") == wanted["triggerMessage"]
+             and details.get("url") == wanted_details["url"]
+             and details.get("method") == "POST"
+             and details.get("parameters") == wanted_details["parameters"]
+             and isinstance(parameters.get("selectedPaths"), list)
+             and sorted(parameters["selectedPaths"]) == sorted(AVAILABILITY_OUTPUT_FIELDS))
+    if not valid:
+        raise HTTPException(status_code=502, detail=(
+            "HighLevel did not retain the availability inputs and response fields. "
+            "Appointment times must not be offered without the verified availability result."
+        ))
 
 def is_chairtime_tenant_action(action: dict) -> bool:
     # Classify by endpoint path, including a copy with a different name/host.
@@ -1380,7 +1498,11 @@ def build_availability_action_payload(
                 "collected the service, requested date, "
                 "and staff preference. Always use this "
                 "action before offering appointment times. "
-                "Only offer times returned by ChairTime."
+                "Read availability_information and message. Only offer a time when "
+                "availability_status is available, has_availability is true, and "
+                "that exact time appears in slots. Empty slots, zero count, false "
+                "has_availability or missing fields mean no time may be offered. "
+                "success true means the lookup ran, not that a slot exists."
             ),
             "triggerMessage": (
                 "Let me check what's available."
@@ -1446,18 +1568,7 @@ def build_availability_action_payload(
                     },
                 ],
             },
-            "selectedPaths": [
-                "success",
-                "barber",
-                "service",
-                "target_date",
-                "slots",
-                "available_count",
-                "time_window",
-                "price",
-                "duration_minutes",
-                "timezone",
-            ],
+            "selectedPaths": list(AVAILABILITY_OUTPUT_FIELDS),
         },
     }
  
@@ -2142,26 +2253,10 @@ async def production_tenant_voice_availability(
         )
  
     if missing_fields:
-        return {
-            "success": False,
-            "message": (
-                "ChairTime received the AI webhook, "
-                "but required appointment values were "
-                "not included in the request."
-            ),
-            "missing_fields": (
-                missing_fields
-            ),
-            "received_fields": sorted(
-                incoming.keys()
-            ),
-            "content_type": (
-                request.headers.get(
-                    "content-type"
-                )
-            ),
-        }
- 
+        decision = build_availability_decision(shop, incoming, {})
+        decision["missing_fields"] = missing_fields
+        return decision
+
     request_payload = {
         "shop_slug": shop.slug,
         "service_name": str(
@@ -2189,6 +2284,8 @@ async def production_tenant_voice_availability(
         payload=request_payload,
     )
  
+    result = build_availability_decision(shop, request_payload, result)
+
     logger.info(
         "production_voice_availability "
         "shop=%s duration_ms=%d "
@@ -3118,6 +3215,10 @@ def provision_production_ai_receptionist(
                                 detail=f"Could not verify shop action {name}")
 
     verify_shop_information_action(refreshed_agent, information_payload)
+    verify_availability_action(refreshed_agent, build_availability_action_payload(
+        shop=shop, agent_id=agent_id, location_id=location_id,
+        webhook_url=availability_url, webhook_secret=webhook_secret,
+    ))
     refreshed_agent = update_production_agent_settings(
         shop=shop, agent_id=agent_id, location_id=location_id,
     )
@@ -3135,6 +3236,10 @@ def provision_production_ai_receptionist(
                     raise_highlevel_error(removed)
     refreshed_agent = get_agent_detail(agent_id, location_id)
     verify_shop_information_action(refreshed_agent, information_payload)
+    verify_availability_action(refreshed_agent, build_availability_action_payload(
+        shop=shop, agent_id=agent_id, location_id=location_id,
+        webhook_url=availability_url, webhook_secret=webhook_secret,
+    ))
     if find_action_by_name(refreshed_agent, "get_shop_information"):
         raise HTTPException(status_code=502, detail="The obsolete shop information action is still active.")
 
@@ -3156,6 +3261,10 @@ def provision_production_ai_receptionist(
     # proof that HighLevel retained the right shop configuration.
     refreshed_agent = get_agent_detail(agent_id, location_id)
     verify_shop_information_action(refreshed_agent, information_payload)
+    verify_availability_action(refreshed_agent, build_availability_action_payload(
+        shop=shop, agent_id=agent_id, location_id=location_id,
+        webhook_url=availability_url, webhook_secret=webhook_secret,
+    ))
     verify_all_shop_action_bindings(
         shop, agent_id, location_id, webhook_secret, refreshed_agent,
     )
@@ -3208,6 +3317,7 @@ def provision_production_ai_receptionist(
             "authenticated_webhooks": True,
             "custom_action_v2_verified": True,
             "all_shop_action_bindings_verified": True,
+            "availability_response_mapping_verified": True,
             "shared_test_agent_used": False,
         },
     }
