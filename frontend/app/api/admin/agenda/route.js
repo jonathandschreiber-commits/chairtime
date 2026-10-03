@@ -65,6 +65,9 @@ export async function GET() {
       appointmentsResponse,
       barbersResponse,
       servicesResponse,
+      shopHoursResponse,
+      staffHoursResponse,
+      shopBlocksResponse,
     ] = await Promise.all([
       fetch(`${API_URL}/api/admin/appointments`, {
         headers: authorizationHeaders,
@@ -88,22 +91,38 @@ export async function GET() {
           cache: "no-store",
         }
       ),
+      ...["shop-availability-rules", "availability-rules", "shop-blocked-times"].map(
+        (path) => fetch(
+          `${API_URL}/api/${path}?shop_slug=${encodeURIComponent(shopSlug)}`,
+          { headers: authorizationHeaders, cache: "no-store" }
+        )
+      ),
     ]);
 
     const [
       appointments,
       barbers,
       services,
+      shopHours,
+      staffHours,
+      shopBlocks,
     ] = await Promise.all([
       readJson(appointmentsResponse),
       readJson(barbersResponse),
       readJson(servicesResponse),
+      readJson(shopHoursResponse),
+      readJson(staffHoursResponse),
+      readJson(shopBlocksResponse),
     ]);
 
     if (
       !appointmentsResponse.ok ||
       !barbersResponse.ok ||
-      !servicesResponse.ok
+      !servicesResponse.ok ||
+      !shopHoursResponse.ok ||
+      !staffHoursResponse.ok ||
+      !shopBlocksResponse.ok ||
+      ![shopHours, staffHours, shopBlocks].every(Array.isArray)
     ) {
       return NextResponse.json(
         {
@@ -120,6 +139,9 @@ export async function GET() {
       success: true,
       shop_slug: shopSlug,
       user,
+      shop_hours: shopHours.filter((rule) => rule.shop_slug === shopSlug),
+      staff_hours: staffHours.filter((rule) => rule.shop_slug === shopSlug),
+      shop_blocked_times: shopBlocks.filter((block) => block.shop_slug === shopSlug),
       appointments: Array.isArray(appointments)
         ? appointments
         : [],
