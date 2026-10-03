@@ -1080,6 +1080,11 @@ export default function CalendarPage() {
   function openAppointmentForm(
     time = ""
   ) {
+    const availableTime = time || firstBookableStart(selectedDate);
+    if (!availableTime) {
+      setError("No appointment time is available within the saved shop and staff hours.");
+      return;
+    }
     if (
       !selectedBarberId ||
       !canManageSelectedBarberAppointments
@@ -1089,11 +1094,7 @@ export default function CalendarPage() {
 
     resetAppointmentForm();
 
-    if (time) {
-      setAppointmentTime(
-        time
-      );
-    }
+    setAppointmentTime(availableTime);
 
     setShowBlockForm(false);
     setShowAppointmentForm(true);
@@ -2202,6 +2203,15 @@ export default function CalendarPage() {
       shopBlocks, blockedTimes, appointments);
   }
 
+  function firstBookableStart(date) {
+    const intervals = freeIntervalsForDate(date);
+    const eligible = servicesForSelectedBarber.filter((service) => service.is_active !== false)
+      .map((service) => Number(service.duration_minutes)).filter((duration) => duration > 0);
+    const interval = [...intervals].sort((a, b) => a[0] - b[0])
+      .find(([start, end]) => eligible.some((duration) => start + duration <= end));
+    return interval ? minutesText(interval[0]) : "";
+  }
+
   const dayFreeIntervals = freeIntervalsForDate(selectedDate);
   const availableDurations = servicesForSelectedBarber.filter((service) =>
     service.is_active !== false)
@@ -2703,7 +2713,7 @@ export default function CalendarPage() {
                 Admin Home
               </button>
 
-              {canManageSelectedBarberAppointments ? (
+              {canManageSelectedBarberAppointments && firstBookableStart(selectedDate) ? (
                 <button
                   type="button"
                   onClick={() =>
@@ -3986,7 +3996,7 @@ export default function CalendarPage() {
                           );
                         })}
 
-                        {canManageSelectedBarberAppointments ? (
+                        {canManageSelectedBarberAppointments && firstBookableStart(date) ? (
                           <button
                             type="button"
                             onClick={() => {
@@ -4014,7 +4024,10 @@ export default function CalendarPage() {
                                 ""
                               );
 
+                              const availableTime = firstBookableStart(date);
+                              if (!availableTime) return;
                               resetAppointmentForm();
+                              setAppointmentTime(availableTime);
 
                               setAppointmentDate(
                                 date
@@ -4044,4 +4057,3 @@ export default function CalendarPage() {
     </main>
   );
 }
-    
