@@ -2909,7 +2909,9 @@ def provision_production_ai_receptionist(
             action_id = get_action_id(action)
             if action_id:
                 removed = highlevel_raw_request(
-                    method="DELETE", path=f"/voice-ai/actions/{action_id}")
+                    method="DELETE", path=f"/voice-ai/actions/{action_id}",
+                    params={"agentId": agent_id, "locationId": location_id},
+                )
                 if removed.status_code >= 400:
                     raise_highlevel_error(removed)
 
@@ -3030,6 +3032,7 @@ def provision_production_ai_receptionist(
             if action_id:
                 removed = highlevel_raw_request(
                     method="DELETE", path=f"/voice-ai/actions/{action_id}",
+                    params={"agentId": agent_id, "locationId": location_id},
                 )
                 if removed.status_code >= 400:
                     raise_highlevel_error(removed)
