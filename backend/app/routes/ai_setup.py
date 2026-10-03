@@ -1493,16 +1493,7 @@ def build_availability_action_payload(
         "name": "check_availability",
         "actionParameters": {
             "triggerPrompt": (
-                "Use this action when the caller wants "
-                "to book an appointment and you have "
-                "collected the service, requested date, "
-                "and staff preference. Always use this "
-                "action before offering appointment times. "
-                "Read availability_information and message. Only offer a time when "
-                "availability_status is available, has_availability is true, and "
-                "that exact time appears in slots. Empty slots, zero count, false "
-                "has_availability or missing fields mean no time may be offered. "
-                "success true means the lookup ran, not that a slot exists."
+                'Before offering appointment times, collect the service, date and staff preference, then check live availability. Read availability_information. Offer only returned slots when has_availability is true and availability_status is available. Empty slots, zero count, false availability or missing fields prohibit an offer. success true only means the lookup completed.'
             ),
             "triggerMessage": (
                 "Let me check what's available."
@@ -6433,4 +6424,3 @@ def test_highlevel_internal_phone_host(
         "location_id": location_id,
         "response": body,
     }
-
