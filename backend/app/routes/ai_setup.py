@@ -7,7 +7,7 @@ import secrets
 import time
 from datetime import datetime, timezone
 from typing import Optional
-from urllib.parse import unquote
+from urllib.parse import unquote, urlsplit
  
 import requests
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -836,6 +836,100 @@ def action_webhook_url(action: dict) -> Optional[str]:
         values = (parameters.get("schemaValues") or {}).get("requestBodyValues") or {}
         return (values.get("webhookUrl") or {}).get("value")
     return (parameters.get("apiDetails") or {}).get("url")
+
+
+def is_chairtime_tenant_action(action: dict) -> bool:
+    # Classify by endpoint path, including a copy with a different name/host.
+    url = action_webhook_url(action)
+    return isinstance(url, str) and "/api/ai-setup/tenant-webhook/" in urlsplit(url).path
+
+
+def remove_extra_shop_actions(shop: Shop, agent_id: str, location_id: str) -> None:
+    if str(shop.highlevel_agent_id or "") != agent_id:
+        raise HTTPException(status_code=403, detail="AI agent does not belong to this shop.")
+    canonical = {SHOP_INFORMATION_ACTION_NAME, "check_availability", "book_appointment"}
+    seen = set()
+    for action in extract_actions(get_agent_detail(agent_id, location_id)):
+        name = action.get("name") or ""
+        # Keep the obsolete information action until its replacement is verified.
+        if name == "get_shop_information":
+            continue
+        extra = False
+        if name in canonical:
+            extra = name in seen
+            seen.add(name)
+        elif is_chairtime_tenant_action(action) or name in {
+            "check_availability_v2", "book_appointment_v2",
+        }:
+            # A copied action can retain another shop's URL AND secret. Do not
+            # silently trust or re-purpose its unverified input/output schema.
+            extra = True
+        if extra:
+            action_id = get_action_id(action)
+            if not action_id:
+                raise HTTPException(status_code=502, detail="Cannot remove an unverified shop action without an ID.")
+            response = highlevel_raw_request(
+                method="DELETE", path=f"/voice-ai/actions/{action_id}",
+                params={"agentId": agent_id, "locationId": location_id},
+            )
+            if response.status_code >= 400:
+                raise_highlevel_error(response)
+    retained = extract_actions(get_agent_detail(agent_id, location_id))
+    for name in canonical:
+        if sum(action.get("name") == name for action in retained) > 1:
+            raise HTTPException(status_code=502, detail="HighLevel retained duplicate shop actions.")
+    if any(action.get("name") not in canonical | {"get_shop_information"}
+           and (is_chairtime_tenant_action(action)
+                or action.get("name") in {"check_availability_v2", "book_appointment_v2"})
+           for action in retained):
+        raise HTTPException(status_code=502, detail="HighLevel retained an unverified copied shop action.")
+
+
+def verify_all_shop_action_bindings(shop: Shop, agent_id: str, location_id: str,
+                                    webhook_secret: str, agent_data: dict) -> None:
+    if str(shop.highlevel_agent_id or "") != agent_id:
+        raise HTTPException(status_code=403, detail="AI agent does not belong to this shop.")
+    expected = {
+        SHOP_INFORMATION_ACTION_NAME: production_shop_information_url(shop),
+        "check_availability": production_availability_webhook_url(shop),
+        "book_appointment": production_booking_webhook_url(shop),
+    }
+    actions = extract_actions(agent_data)
+    for name, url in expected.items():
+        matches = [action for action in actions if action.get("name") == name]
+        if len(matches) != 1:
+            raise HTTPException(status_code=502, detail=f"Missing or duplicate shop action: {name}")
+        action = matches[0]
+        parameters = action.get("actionParameters") or {}
+        if name == SHOP_INFORMATION_ACTION_NAME:
+            if action.get("actionType") != "CAP":
+                raise HTTPException(status_code=502, detail="Invalid shop information action type.")
+            values = (parameters.get("schemaValues") or {}).get("requestBodyValues") or {}
+            method = (values.get("httpMethod") or {}).get("value")
+            headers = (values.get("headers") or {}).get("value") or {}
+            secret = next((value for key, value in headers.items()
+                           if str(key).lower() == PRODUCTION_WEBHOOK_SECRET_HEADER.lower()), None)
+        else:
+            if action.get("actionType") != "CUSTOM_ACTION":
+                raise HTTPException(status_code=502, detail=f"Unverified shop action type: {name}")
+            details = parameters.get("apiDetails") or {}
+            method = details.get("method")
+            headers = details.get("headers") or []
+            secrets_found = [header.get("value") for header in headers
+                             if isinstance(header, dict) and str(header.get("key", "")).lower()
+                             == PRODUCTION_WEBHOOK_SECRET_HEADER.lower()]
+            secret = secrets_found[0] if len(secrets_found) == 1 else None
+        if (not get_action_id(action) or action_webhook_url(action) != url
+                or method != "POST" or secret != webhook_secret
+                or action.get("agentId", agent_id) != agent_id
+                or action.get("locationId", location_id) != location_id):
+            raise HTTPException(status_code=502, detail=f"Shop endpoint or authentication mismatch: {name}")
+    # Include ALL attached ChairTime actions, not only a lookup of the first
+    # action with a standard name. Extra copies must not supply another tenant.
+    if any((is_chairtime_tenant_action(action) and action.get("name") not in expected)
+           or action.get("name") in {"get_shop_information", "check_availability_v2", "book_appointment_v2"}
+           for action in actions):
+        raise HTTPException(status_code=502, detail="An unverified copied shop action remains on this receptionist.")
 
 
 @router.post("/tenant-webhook/{shop_slug}/shop-information")
@@ -2885,6 +2979,9 @@ def provision_production_ai_receptionist(
             ),
         )
  
+    remove_extra_shop_actions(shop, agent_id, location_id)
+    agent_data = get_agent_detail(agent_id, location_id)
+
     information_url = production_shop_information_url(shop)
     information_payload = build_shop_information_action_payload(
         shop, agent_id, location_id, webhook_secret,
@@ -3041,6 +3138,10 @@ def provision_production_ai_receptionist(
     if find_action_by_name(refreshed_agent, "get_shop_information"):
         raise HTTPException(status_code=502, detail="The obsolete shop information action is still active.")
 
+    verify_all_shop_action_bindings(
+        shop, agent_id, location_id, webhook_secret, refreshed_agent,
+    )
+
     # Publish changed instructions/actions for an already active number.
     # Use the verified existing route; never purchase another number here.
     _, _, routed_phone = get_shop_routed_phone_record(shop)
@@ -3050,6 +3151,14 @@ def provision_production_ai_receptionist(
             phone_number=str(routed_phone["phoneNumber"]),
         )
         refreshed_agent = get_agent_detail(agent_id, location_id)
+
+    # Re-read after activation as well: a successful HTTP response is not
+    # proof that HighLevel retained the right shop configuration.
+    refreshed_agent = get_agent_detail(agent_id, location_id)
+    verify_shop_information_action(refreshed_agent, information_payload)
+    verify_all_shop_action_bindings(
+        shop, agent_id, location_id, webhook_secret, refreshed_agent,
+    )
 
     final_actions = [
         safe_action(action)
@@ -3098,6 +3207,7 @@ def provision_production_ai_receptionist(
             "shop_agent_binding": True,
             "authenticated_webhooks": True,
             "custom_action_v2_verified": True,
+            "all_shop_action_bindings_verified": True,
             "shared_test_agent_used": False,
         },
     }
@@ -6213,3 +6323,4 @@ def test_highlevel_internal_phone_host(
         "location_id": location_id,
         "response": body,
     }
+
