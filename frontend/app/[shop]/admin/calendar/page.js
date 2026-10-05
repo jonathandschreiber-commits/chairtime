@@ -1,5 +1,7 @@
 "use client";
 
+import ServicePaymentButton from "../../../components/ServicePaymentButton";
+
 import { useParams, useRouter } from "next/navigation";
 import {
   useCallback,
@@ -2423,6 +2425,10 @@ export default function CalendarPage() {
           </span>
         </div>
 
+        <div className="mt-4">
+          <ServicePaymentButton appointment={appointment} user={currentUser} shopSlug={shopSlug} />
+        </div>
+
         {canModify ? (
           <div className="flex flex-wrap gap-2 mt-4">
             <button
@@ -4057,3 +4063,4 @@ export default function CalendarPage() {
     </main>
   );
 }
+
