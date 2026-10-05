@@ -1,5 +1,6 @@
 import os
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import stripe
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -826,6 +827,7 @@ def save_new_appointment(
     stripe_customer_id: str | None = None,
     stripe_setup_intent_id: str | None = None,
     stripe_payment_method_id: str | None = None,
+    require_future: bool = False,
 ) -> Appointment:
     customer_name = str(
         payload.customer_name or ""
@@ -860,6 +862,11 @@ def save_new_appointment(
         shop_slug=shop_slug,
         barber_id=str(barber.id),
     )
+
+    if require_future and payload.start_datetime <= datetime.now(
+        ZoneInfo(shop.timezone)
+    ).replace(tzinfo=None):
+        raise HTTPException(400, "Please select a future appointment time.")
 
     verify_new_appointment_conflicts(
         db,
@@ -983,6 +990,14 @@ def create_appointment(
         shop_slug,
     )
 
+    requested_start = payload.start_datetime
+    zone = ZoneInfo(shop.timezone)
+    if requested_start.tzinfo is not None:
+        requested_start = requested_start.astimezone(zone).replace(tzinfo=None)
+        payload.start_datetime = requested_start
+    if requested_start <= datetime.now(zone).replace(tzinfo=None):
+        raise HTTPException(400, "Please select a future appointment time.")
+
     (
         stripe_customer_id,
         stripe_setup_intent_id,
@@ -1002,6 +1017,7 @@ def create_appointment(
         stripe_customer_id=stripe_customer_id,
         stripe_setup_intent_id=stripe_setup_intent_id,
         stripe_payment_method_id=stripe_payment_method_id,
+        require_future=True,
     )
 
 
