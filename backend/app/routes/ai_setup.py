@@ -692,7 +692,7 @@ def production_agent_prompt(shop: Shop) -> str:
     identity = json.dumps({"name": shop.name, "slug": shop.slug},
                           ensure_ascii=False)
     return (
-        TEST_AGENT_PROMPT
+        TEST_AGENT_PROMPT.replace("check_availability", AVAILABILITY_ACTION_NAME)
         + "\nYou serve only this ChairTime shop: " + identity + ".\n"
         "Before answering business questions or selecting a service or "
         "staff member, call get_shop_information_v2. Use its current returned "
@@ -700,7 +700,7 @@ def production_agent_prompt(shop: Shop) -> str:
         "the returned services, providers, prices, durations, shop hours, "
         "staff hours, closures, contact information and payment policy. "
         "This information action requires no caller input and returns "
-        "weekly hours. Use check_availability for a specific date; "
+        "weekly hours. Use check_availability_v2 for a specific date; "
         "do not claim a date is open based only on weekly hours. "
         "Do not ask for a date just to list services. "
         "Refresh the lookup when asked for current or changed information.\n"
@@ -714,8 +714,8 @@ def production_agent_prompt(shop: Shop) -> str:
         "provider: name the provider or explain the returned options; "
         "never silently use the first provider's price for everybody.\n"
         "Weekly hours do not prove an appointment is available. Use "
-        "check_availability for every requested date and time, and "
-        "Read check_availability.availability_information and message. "
+        "check_availability_v2 for every requested date and time, and "
+        "Read check_availability_v2.availability_information and message. "
         "Only offer openings if availability_status is available, "
         "has_availability is true, available_count is greater than zero, "
         "and slots contains the exact offered time. All these must agree. "
@@ -727,7 +727,7 @@ def production_agent_prompt(shop: Shop) -> str:
         "offer or book a time based on action examples, memory or weekly hours. "
         "The returned shop_slug and target_date must match this shop and the "
         "caller request; the preferred_start_time must match if one was requested. "
-        "Repeat check_availability whenever the caller changes the date, time, "
+        "Repeat check_availability_v2 whenever the caller changes the date, time, "
         "service or staff. Never claim a reservation until a successful "
         "book_appointment for the reservation. Both actions are bound "
         "to this shop. Missing hours are unknown, not open all day. "
@@ -735,7 +735,6 @@ def production_agent_prompt(shop: Shop) -> str:
         "staff, prices, durations or openings. Do not interpret unknown "
         "payment policy values.\n"
     )
-
 
 def production_shop_information_url(shop: Shop) -> str:
     return (f"{CHAIRTIME_PUBLIC_API_BASE_URL}/api/ai-setup/"
@@ -811,7 +810,7 @@ def build_shop_information_action_payload(shop: Shop, agent_id: str,
 
 def verify_shop_information_action(agent_data: dict, expected: dict) -> None:
     actions = [action for action in extract_actions(agent_data)
-               if action.get("name") == SHOP_INFORMATION_ACTION_NAME]
+               if action.get("name") == expected["name"]]
     valid = len(actions) == 1
     action = actions[0] if valid else {}
     parameters = action.get("actionParameters") or {}
@@ -843,7 +842,6 @@ def verify_shop_information_action(agent_data: dict, expected: dict) -> None:
             "HighLevel did not retain this shop's Custom Action 2.0 settings. "
             "The shop URL, authentication and response mapping must all match."
         ))
-
 
 def action_webhook_url(action: dict) -> Optional[str]:
     parameters = action.get("actionParameters") or {}
@@ -933,29 +931,96 @@ def build_availability_decision(shop: Shop, payload: dict, result: dict,
     return response
 
 
-def verify_availability_action(agent_data: dict, expected: dict) -> None:
-    matches = [action for action in extract_actions(agent_data)
-               if action.get("name") == "check_availability"]
-    action = matches[0] if len(matches) == 1 else {}
-    parameters = action.get("actionParameters") or {}
-    wanted = expected["actionParameters"]
-    details = parameters.get("apiDetails") or {}
-    wanted_details = wanted["apiDetails"]
-    valid = (len(matches) == 1 and bool(get_action_id(action))
-             and action.get("actionType") == "CUSTOM_ACTION"
-             and parameters.get("triggerPrompt") == wanted["triggerPrompt"]
-             and parameters.get("triggerMessage") == wanted["triggerMessage"]
-             and details.get("url") == wanted_details["url"]
-             and details.get("method") == "POST"
-             and details.get("parameters") == wanted_details["parameters"]
-             and isinstance(parameters.get("selectedPaths"), list)
-             and sorted(parameters["selectedPaths"]) == sorted(AVAILABILITY_OUTPUT_FIELDS))
-    if not valid:
-        raise HTTPException(status_code=502, detail=(
-            "HighLevel did not retain the availability inputs and response fields. "
-            "Appointment times must not be offered without the verified availability result."
-        ))
+AVAILABILITY_ACTION_NAME = "check_availability_v2"
+DEFAULT_AVAILABILITY_CAP_ACTION_ID = "bR9XKm4U1N765bDxJ9Jd"
 
+
+def availability_cap_action_id(location_id: str, agent_data: dict) -> str:
+    existing = find_action_by_name(agent_data, AVAILABILITY_ACTION_NAME)
+    parameters = (existing or {}).get("actionParameters") or {}
+    if ((existing or {}).get("actionType") == "CAP"
+            and parameters.get("capActionName") == "customApi"
+            and parameters.get("capActionId")):
+        return str(parameters["capActionId"])
+    configured = os.getenv("HIGHLEVEL_AVAILABILITY_CAP_ACTION_ID", "").strip()
+    if configured:
+        return configured
+    if location_id != get_highlevel_location_id():
+        raise HTTPException(status_code=409, detail=
+                            "Configure Custom Action 2.0 for this HighLevel location.")
+    return DEFAULT_AVAILABILITY_CAP_ACTION_ID
+
+
+def build_production_availability_action_payload(shop: Shop, agent_id: str,
+        location_id: str, webhook_secret: str, cap_action_id: str) -> dict:
+    fields = {
+        "serviceName": {"type": "string", "description":
+                        "Exact service name requested by the caller.", "example": "Haircut"},
+        "targetDate": {"type": "string", "description":
+                       "Requested appointment date in YYYY-MM-DD format.", "example": "2026-10-10"},
+        "barberName": {"type": "string", "description":
+                       "Requested staff member. Use No preference if the caller has no preference.",
+                       "example": "No preference"},
+        "preferredStartTime": {"type": "string", "description":
+                               "Exact requested time in 24-hour HH:MM format. Omit if none was requested.",
+                               "example": "15:00"},
+        "timeWindow": {"type": "string", "description":
+                       "Requested morning, afternoon, or evening. Omit if none was requested.",
+                       "example": "afternoon"},
+    }
+    values = {
+        "webhookUrl": {"value": production_availability_webhook_url(shop), "mode": "manual"},
+        "httpMethod": {"value": "POST", "mode": "manual"},
+        "headers": {"value": {"Content-Type": "application/json",
+                                PRODUCTION_WEBHOOK_SECRET_HEADER: webhook_secret}, "mode": "manual"},
+        "apiTimeout": {"value": "20", "mode": "manual"},
+        "retryOnFailure": {"value": False, "mode": "manual"},
+        "bodySchema": {"value": {"type": "object", "properties": fields,
+                                  "required": ["serviceName", "targetDate"]}, "mode": "manual"},
+        "selectedOutputFields": {"value": ["result"] + [
+            "result.slots[]" if key == "slots" else "result." + key
+            for key in AVAILABILITY_OUTPUT_FIELDS], "mode": "manual"},
+    }
+    return {"agentId": agent_id, "locationId": location_id, "actionType": "CAP",
+            "name": AVAILABILITY_ACTION_NAME, "actionParameters": {
+                "examples": [], "selectedPaths": [], "transferActionIds": [],
+                "capActionId": cap_action_id, "capActionName": "customApi",
+                "triggerPrompt": (
+                    "Before offering appointment times, collect the service, date and staff preference, "
+                    "then check live availability. Read availability_information and message. Offer only "
+                    "returned slots when availability_status is available and has_availability is true. "
+                    "For unavailable status or zero slots, say no appointments are available for that request. "
+                    "For unverified status or missing results, say availability cannot be verified. Never invent a time."
+                ), "triggerMessage": "Let me check what's available.",
+                "schemaValues": {"requestBodyValues": values}, "parameters": [], "calendarIds": [],
+            }}
+
+
+def normalize_availability_inputs(incoming: dict) -> dict:
+    # HighLevel Custom Action 2.0 normalizes form field names to camelCase.
+    # Legacy actions and public clients still use snake_case. Never change tenant identity.
+    result = dict(incoming)
+    for camel, snake in {
+        "serviceName": "service_name", "targetDate": "target_date",
+        "barberName": "barber_name", "preferredStartTime": "preferred_start_time",
+        "timeWindow": "time_window",
+    }.items():
+        if camel in result:
+            if snake in result and result[snake] != result[camel]:
+                raise HTTPException(status_code=400, detail="Conflicting availability input: " + snake)
+            result[snake] = result.pop(camel)
+    for key in ("barber_name", "preferred_start_time", "time_window"):
+        if result.get(key) == "":
+            result[key] = None
+    return result
+
+
+def verify_availability_action(agent_data: dict, expected: dict) -> None:
+    verify_shop_information_action(agent_data, expected)
+    values = expected["actionParameters"]["schemaValues"]["requestBodyValues"]
+    schema = values["bodySchema"]["value"]
+    if not set(schema["required"]).issubset(schema["properties"]):
+        raise HTTPException(status_code=502, detail="Invalid required availability inputs.")
 def is_chairtime_tenant_action(action: dict) -> bool:
     # Classify by endpoint path, including a copy with a different name/host.
     url = action_webhook_url(action)
@@ -965,19 +1030,19 @@ def is_chairtime_tenant_action(action: dict) -> bool:
 def remove_extra_shop_actions(shop: Shop, agent_id: str, location_id: str) -> None:
     if str(shop.highlevel_agent_id or "") != agent_id:
         raise HTTPException(status_code=403, detail="AI agent does not belong to this shop.")
-    canonical = {SHOP_INFORMATION_ACTION_NAME, "check_availability", "book_appointment"}
+    canonical = {SHOP_INFORMATION_ACTION_NAME, AVAILABILITY_ACTION_NAME, "book_appointment"}
     seen = set()
     for action in extract_actions(get_agent_detail(agent_id, location_id)):
         name = action.get("name") or ""
         # Keep the obsolete information action until its replacement is verified.
-        if name == "get_shop_information":
+        if name in {"get_shop_information", "check_availability"}:
             continue
         extra = False
         if name in canonical:
             extra = name in seen
             seen.add(name)
         elif is_chairtime_tenant_action(action) or name in {
-            "check_availability_v2", "book_appointment_v2",
+            "book_appointment_v2",
         }:
             # A copied action can retain another shop's URL AND secret. Do not
             # silently trust or re-purpose its unverified input/output schema.
@@ -996,12 +1061,11 @@ def remove_extra_shop_actions(shop: Shop, agent_id: str, location_id: str) -> No
     for name in canonical:
         if sum(action.get("name") == name for action in retained) > 1:
             raise HTTPException(status_code=502, detail="HighLevel retained duplicate shop actions.")
-    if any(action.get("name") not in canonical | {"get_shop_information"}
+    if any(action.get("name") not in canonical | {"get_shop_information", "check_availability"}
            and (is_chairtime_tenant_action(action)
-                or action.get("name") in {"check_availability_v2", "book_appointment_v2"})
+                or action.get("name") in {"book_appointment_v2"})
            for action in retained):
         raise HTTPException(status_code=502, detail="HighLevel retained an unverified copied shop action.")
-
 
 def verify_all_shop_action_bindings(shop: Shop, agent_id: str, location_id: str,
                                     webhook_secret: str, agent_data: dict) -> None:
@@ -1009,7 +1073,7 @@ def verify_all_shop_action_bindings(shop: Shop, agent_id: str, location_id: str,
         raise HTTPException(status_code=403, detail="AI agent does not belong to this shop.")
     expected = {
         SHOP_INFORMATION_ACTION_NAME: production_shop_information_url(shop),
-        "check_availability": production_availability_webhook_url(shop),
+        AVAILABILITY_ACTION_NAME: production_availability_webhook_url(shop),
         "book_appointment": production_booking_webhook_url(shop),
     }
     actions = extract_actions(agent_data)
@@ -1019,7 +1083,7 @@ def verify_all_shop_action_bindings(shop: Shop, agent_id: str, location_id: str,
             raise HTTPException(status_code=502, detail=f"Missing or duplicate shop action: {name}")
         action = matches[0]
         parameters = action.get("actionParameters") or {}
-        if name == SHOP_INFORMATION_ACTION_NAME:
+        if name in {SHOP_INFORMATION_ACTION_NAME, AVAILABILITY_ACTION_NAME}:
             if action.get("actionType") != "CAP":
                 raise HTTPException(status_code=502, detail="Invalid shop information action type.")
             values = (parameters.get("schemaValues") or {}).get("requestBodyValues") or {}
@@ -1045,10 +1109,9 @@ def verify_all_shop_action_bindings(shop: Shop, agent_id: str, location_id: str,
     # Include ALL attached ChairTime actions, not only a lookup of the first
     # action with a standard name. Extra copies must not supply another tenant.
     if any((is_chairtime_tenant_action(action) and action.get("name") not in expected)
-           or action.get("name") in {"get_shop_information", "check_availability_v2", "book_appointment_v2"}
+           or action.get("name") in {"get_shop_information", "check_availability", "book_appointment_v2"}
            for action in actions):
         raise HTTPException(status_code=502, detail="An unverified copied shop action remains on this receptionist.")
-
 
 @router.post("/tenant-webhook/{shop_slug}/shop-information")
 async def production_shop_information(shop_slug: str, request: Request,
@@ -2219,6 +2282,8 @@ async def production_tenant_voice_availability(
         except Exception:
             pass
  
+    incoming = normalize_availability_inputs(incoming)
+
     service_name = incoming.get(
         "service_name"
     )
@@ -2295,8 +2360,7 @@ async def production_tenant_voice_availability(
         ),
     )
  
-    return result
- 
+    return result 
  
 @router.post(
     "/tenant-webhook/{shop_slug}/book"
@@ -3112,32 +3176,16 @@ def provision_production_ai_receptionist(
         )
     )
  
-    availability_result = (
-        create_or_update_action(
-            agent_id=agent_id,
-            location_id=location_id,
-            action_name=(
-                "check_availability"
-            ),
-            payload=(
-                build_availability_action_payload(
-                    shop=shop,
-                    agent_id=agent_id,
-                    location_id=location_id,
-                    webhook_url=(
-                        availability_url
-                    ),
-                    webhook_secret=(
-                        webhook_secret
-                    ),
-                )
-            ),
-            expected_url=(
-                availability_url
-            ),
-        )
+    availability_payload = build_production_availability_action_payload(
+        shop, agent_id, location_id, webhook_secret,
+        availability_cap_action_id(location_id, get_agent_detail(agent_id, location_id)),
     )
- 
+    availability_result = create_or_update_action(
+        agent_id=agent_id, location_id=location_id, action_name=AVAILABILITY_ACTION_NAME,
+        payload=availability_payload, expected_url=availability_url,
+    )
+    verify_availability_action(get_agent_detail(agent_id, location_id), availability_payload)
+
     booking_result = (
         create_or_update_action(
             agent_id=agent_id,
@@ -3186,7 +3234,6 @@ def provision_production_ai_receptionist(
         )
  
     expected_urls = {
-        "check_availability": availability_url,
         "book_appointment": booking_url,
     }
     for name, expected_url in expected_urls.items():
@@ -3206,17 +3253,14 @@ def provision_production_ai_receptionist(
                                 detail=f"Could not verify shop action {name}")
 
     verify_shop_information_action(refreshed_agent, information_payload)
-    verify_availability_action(refreshed_agent, build_availability_action_payload(
-        shop=shop, agent_id=agent_id, location_id=location_id,
-        webhook_url=availability_url, webhook_secret=webhook_secret,
-    ))
+    verify_availability_action(refreshed_agent, availability_payload)
     refreshed_agent = update_production_agent_settings(
         shop=shop, agent_id=agent_id, location_id=location_id,
     )
     # Remove the obsolete information action only after the replacement and
     # the matching instructions have been retained. Booking actions stay in place.
     for action in extract_actions(refreshed_agent):
-        if action.get("name") == "get_shop_information":
+        if action.get("name") in {"get_shop_information", "check_availability"}:
             action_id = get_action_id(action)
             if action_id:
                 removed = highlevel_raw_request(
@@ -3227,11 +3271,9 @@ def provision_production_ai_receptionist(
                     raise_highlevel_error(removed)
     refreshed_agent = get_agent_detail(agent_id, location_id)
     verify_shop_information_action(refreshed_agent, information_payload)
-    verify_availability_action(refreshed_agent, build_availability_action_payload(
-        shop=shop, agent_id=agent_id, location_id=location_id,
-        webhook_url=availability_url, webhook_secret=webhook_secret,
-    ))
-    if find_action_by_name(refreshed_agent, "get_shop_information"):
+    verify_availability_action(refreshed_agent, availability_payload)
+    if any(find_action_by_name(refreshed_agent, name) for name in
+           ("get_shop_information", "check_availability")):
         raise HTTPException(status_code=502, detail="The obsolete shop information action is still active.")
 
     verify_all_shop_action_bindings(
@@ -3252,10 +3294,7 @@ def provision_production_ai_receptionist(
     # proof that HighLevel retained the right shop configuration.
     refreshed_agent = get_agent_detail(agent_id, location_id)
     verify_shop_information_action(refreshed_agent, information_payload)
-    verify_availability_action(refreshed_agent, build_availability_action_payload(
-        shop=shop, agent_id=agent_id, location_id=location_id,
-        webhook_url=availability_url, webhook_secret=webhook_secret,
-    ))
+    verify_availability_action(refreshed_agent, availability_payload)
     verify_all_shop_action_bindings(
         shop, agent_id, location_id, webhook_secret, refreshed_agent,
     )
@@ -3311,8 +3350,7 @@ def provision_production_ai_receptionist(
             "availability_response_mapping_verified": True,
             "shared_test_agent_used": False,
         },
-    }
- 
+    } 
  
 @router.post(
     "/provisioning-test/availability"
@@ -6424,3 +6462,4 @@ def test_highlevel_internal_phone_host(
         "location_id": location_id,
         "response": body,
     }
+
