@@ -10,6 +10,7 @@ from app.routes.auth import router as auth_router
 from app.routes.availability import router as availability_router
 from app.routes.barbers import router as barbers_router
 from app.routes.billing import router as billing_router
+from app.routes.payments import router as payments_router
 from app.routes.blocked_times import router as blocked_times_router
 from app.routes.customers import router as customers_router
 from app.routes.customer_verification import (
@@ -699,6 +700,9 @@ app.include_router(
     voice_router,
     prefix="/api",
 )
+
+
+app.include_router(payments_router, prefix="/api/payments", tags=["Service Payments"])
 
 
 @app.get("/")
