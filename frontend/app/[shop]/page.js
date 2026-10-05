@@ -139,6 +139,14 @@ function verificationStorageKey(
 }
 
 
+function shopDateValue(timezone = "America/New_York") {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(new Date());
+  const part = type => parts.find(item => item.type === type)?.value;
+  return `${part("year")}-${part("month")}-${part("day")}`;
+}
+
 export default function ShopBookingPage() {
   const params = useParams();
 
@@ -148,9 +156,13 @@ export default function ShopBookingPage() {
     ? params.shop[0]
     : params?.shop || "";
 
-  const today = new Date()
-    .toISOString()
-    .slice(0, 10);
+  const [shopTimezone, setShopTimezone] = useState("America/New_York");
+  const [clockRevision, setClockRevision] = useState(0);
+  const today = shopDateValue(shopTimezone);
+  useEffect(() => {
+    const timer = setInterval(() => setClockRevision(v => v + 1), 30000);
+    return () => clearInterval(timer);
+  }, []);
 
   const [shopName, setShopName] =
     useState("");
@@ -319,7 +331,11 @@ export default function ShopBookingPage() {
           Array.isArray(shops) &&
           shops.length > 0
         ) {
-          const shop = shops[0];
+          const shop = shops.find(item => item.slug === SHOP_SLUG);
+          if (!shop) throw new Error("The booking shop could not be found.");
+          const timezone = shop.timezone || "America/New_York";
+          setShopTimezone(timezone);
+          setSelectedDate(shopDateValue(timezone));
 
           if (shop?.name) {
             setShopName(shop.name);
@@ -576,8 +592,8 @@ export default function ShopBookingPage() {
       return;
     }
 
+    let active = true;
     async function loadAvailability() {
-      setSelectedSlot("");
 
       try {
         const searchParams =
@@ -596,38 +612,46 @@ export default function ShopBookingPage() {
 
         const response =
           await fetch(
-            `${API_BASE}/api/availability?${searchParams.toString()}`
+            `${API_BASE}/api/availability?${searchParams.toString()}`,
+            { cache: "no-store" }
           );
 
         if (!response.ok) {
-          setAvailableSlots([]);
+          if (active) { setAvailableSlots([]); setSelectedSlot(""); }
           return;
         }
 
         const data =
           await response.json();
 
-        setAvailableSlots(
-          data.slots || []
-        );
+        if (!active) return;
+        const slots = Array.isArray(data.slots) ? data.slots : [];
+        setAvailableSlots(slots);
+        setSelectedSlot(current => slots.includes(current) ? current : "");
       } catch (error) {
         console.error(
           "Could not load availability:",
           error
         );
 
-        setAvailableSlots([]);
+        if (active) { setAvailableSlots([]); setSelectedSlot(""); }
       }
     }
 
     loadAvailability();
+    return () => { active = false; };
   }, [
     SHOP_SLUG,
     selectedBarberId,
     selectedServiceId,
     selectedDate,
+    clockRevision,
   ]);
 
+
+  useEffect(() => {
+    setSelectedSlot("");
+  }, [selectedBarberId, selectedServiceId, selectedDate]);
 
   useEffect(() => {
     resetCardForm();
