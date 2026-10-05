@@ -2,6 +2,7 @@
 
 import ServicePaymentButton from "../../../components/ServicePaymentButton";
 
+import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import {
   useCallback,
@@ -10,27 +11,12 @@ import {
   useState,
 } from "react";
 
-import AdminUserBar from "../../../components/AdminUserBar";
-
-const DAYS = [
-  "Sunday",
-  "Monday",
-  "Tuesday",
-  "Wednesday",
-  "Thursday",
-  "Friday",
-  "Saturday",
-];
-
-const RECURRING_DAYS = [
-  { label: "Mon", value: 0 },
-  { label: "Tue", value: 1 },
-  { label: "Wed", value: 2 },
-  { label: "Thu", value: 3 },
-  { label: "Fri", value: 4 },
-  { label: "Sat", value: 5 },
-  { label: "Sun", value: 6 },
-];
+const STATUS_LABELS = {
+  confirmed: "Confirmed",
+  completed: "Done",
+  no_show: "No-show",
+  canceled: "Canceled",
+};
 
 const STATUS_STYLES = {
   confirmed: "bg-blue-100 border-blue-300",
@@ -38,24 +24,6 @@ const STATUS_STYLES = {
   no_show: "bg-yellow-100 border-yellow-300",
   canceled: "bg-red-100 border-red-300",
 };
-
-const STATUS_LABELS = {
-  confirmed: "Confirmed",
-  completed: "Completed",
-  no_show: "No-show",
-  canceled: "Canceled",
-};
-
-const BLOCK_REASON_OPTIONS = [
-  "Lunch",
-  "Meeting",
-  "Personal",
-  "Training",
-  "Vacation",
-  "Closed",
-  "Sick",
-  "Other",
-];
 
 function localDateValue(date = new Date()) {
   const year = date.getFullYear();
@@ -91,127 +59,7 @@ function displayShopName(slug) {
     .join(" ");
 }
 
-function defaultRecurringEndDate() {
-  const date = new Date();
-
-  date.setMonth(
-    date.getMonth() + 3
-  );
-
-  return localDateValue(date);
-}
-
-function weekdayValueForDate(
-  dateString
-) {
-  if (!dateString) {
-    const today =
-      new Date().getDay();
-
-    return today === 0
-      ? 6
-      : today - 1;
-  }
-
-  const date = new Date(
-    `${dateString}T12:00:00`
-  );
-
-  const javascriptDay =
-    date.getDay();
-
-  return javascriptDay === 0
-    ? 6
-    : javascriptDay - 1;
-}
-
-function normalizePhone(value) {
-  return String(value || "")
-    .replace(/\D/g, "");
-}
-
-function customerKey(
-  name,
-  phone
-) {
-  const cleanPhone =
-    normalizePhone(phone);
-
-  if (cleanPhone) {
-    return `phone:${cleanPhone}`;
-  }
-
-  return `name:${String(
-    name || ""
-  )
-    .trim()
-    .toLowerCase()}`;
-}
-
-// All values are shop-local wall times, as stored by ChairTime.
-function minutesOfTime(value) {
-  const parts = String(value || "").split(":");
-  const hours = Number(parts[0]);
-  const minutes = Number(parts[1]);
-  return Number.isFinite(hours) && Number.isFinite(minutes)
-    ? hours * 60 + minutes : NaN;
-}
-
-function minutesText(value) {
-  return `${String(Math.floor(value / 60)).padStart(2, "0")}:${String(value % 60).padStart(2, "0")}`;
-}
-
-function intervalsForDate(rules, date) {
-  const weekday = (new Date(`${date}T12:00:00Z`).getUTCDay() + 6) % 7;
-  return rules.filter((rule) => rule.weekday === weekday)
-    .map((rule) => [minutesOfTime(rule.start_time), minutesOfTime(rule.end_time)])
-    .filter(([start, end]) => Number.isFinite(start) && Number.isFinite(end) && end > start);
-}
-
-function intersectIntervals(left, right) {
-  return left.flatMap(([a, b]) => right.map(([c, d]) => [Math.max(a, c), Math.min(b, d)]))
-    .filter(([start, end]) => end > start);
-}
-
-function itemIntervalOnDate(item, date) {
-  const start = String(item.start_datetime || "");
-  const end = String(item.end_datetime || "");
-  if (start >= `${date}T24:00:00` || end <= `${date}T00:00:00`) return null;
-  const a = datePart(start) < date ? 0 : minutesOfTime(timePart(start));
-  const b = datePart(end) > date ? 1440 : minutesOfTime(timePart(end));
-  return Number.isFinite(a) && Number.isFinite(b) && b > a ? [a, b] : null;
-}
-
-function freeScheduleIntervals(date, barberId, shopHours, staffHours, shopBlocks, staffBlocks, appointments) {
-  const shopIntervals = intervalsForDate(shopHours, date);
-  const staffIntervals = intervalsForDate(staffHours.filter((rule) => rule.barber_id === barberId), date);
-  let intervals = intersectIntervals(shopIntervals, staffIntervals);
-  const busy = [...shopBlocks, ...staffBlocks.filter((block) => block.barber_id === barberId),
-    ...appointments.filter((item) => item.barber_id === barberId && item.status !== "canceled")];
-  for (const item of busy) {
-    const block = itemIntervalOnDate(item, date);
-    if (!block) continue;
-    const [start, end] = block;
-    intervals = intervals.flatMap(([a, b]) => {
-      if (end <= a || start >= b) return [[a, b]];
-      return [[a, Math.min(start, b)], [Math.max(end, a), b]].filter(([x, y]) => y > x);
-    });
-  }
-  return intervals;
-}
-
-function earliestStartInHour(intervals, hourText, durations) {
-  const hourStart = minutesOfTime(hourText);
-  for (const [start, end] of [...intervals].sort((a, b) => a[0] - b[0])) {
-    const candidate = Math.max(start, hourStart);
-    if (candidate < hourStart + 60 && durations.some((duration) => candidate + duration <= end)) {
-      return minutesText(candidate);
-    }
-  }
-  return "";
-}
-
-export default function CalendarPage() {
+export default function AgendaPage() {
   const params = useParams();
   const router = useRouter();
 
@@ -227,228 +75,34 @@ export default function CalendarPage() {
     setStaffCanManageOtherStaffAppointments,
   ] = useState(false);
 
-  const [
-    appointments,
-    setAppointments,
-  ] = useState([]);
+  const [appointments, setAppointments] = useState([]);
+  const [barbers, setBarbers] = useState([]);
+  const [services, setServices] = useState([]);
 
-  const [
-    barbers,
-    setBarbers,
-  ] = useState([]);
-
-  const [
-    services,
-    setServices,
-  ] = useState([]);
-
-  const [
-    blockedTimes,
-    setBlockedTimes,
-  ] = useState([]);
-
-  const [shopHours, setShopHours] = useState([]);
-  const [staffHours, setStaffHours] = useState([]);
-  const [shopBlocks, setShopBlocks] = useState([]);
-  const [scheduleLoaded, setScheduleLoaded] = useState(false);
-
-  const [
-    selectedDate,
-    setSelectedDate,
-  ] = useState(
+  const [selectedDate, setSelectedDate] = useState(
     localDateValue()
   );
 
-  const [
-    selectedBarberId,
-    setSelectedBarberId,
-  ] = useState("");
-
-  const [
-    viewMode,
-    setViewMode,
-  ] = useState("day");
-
-  /*
-   * NEW APPOINTMENT
-   */
-
-  const [
-    showAppointmentForm,
-    setShowAppointmentForm,
-  ] = useState(false);
-
-  const [
-    appointmentCustomerMode,
-    setAppointmentCustomerMode,
-  ] = useState("existing");
-
-  const [
-    customerSearch,
-    setCustomerSearch,
-  ] = useState("");
-
-  const [
-    selectedCustomerKey,
-    setSelectedCustomerKey,
-  ] = useState("");
-
-  const [
-    appointmentCustomerName,
-    setAppointmentCustomerName,
-  ] = useState("");
-
-  const [
-    appointmentCustomerPhone,
-    setAppointmentCustomerPhone,
-  ] = useState("");
-
-  const [
-    appointmentServiceId,
-    setAppointmentServiceId,
-  ] = useState("");
-
-  const [
-    appointmentDate,
-    setAppointmentDate,
-  ] = useState(
-    localDateValue()
-  );
-
-  const [
-    appointmentTime,
-    setAppointmentTime,
-  ] = useState("09:00");
-
-  const [
-    appointmentNotes,
-    setAppointmentNotes,
-  ] = useState("");
-
-  const [
-    savingAppointment,
-    setSavingAppointment,
-  ] = useState(false);
-
-  /*
-   * MOVE APPOINTMENT
-   */
+  const [selectedBarberId, setSelectedBarberId] =
+    useState("");
 
   const [
     movingAppointmentId,
     setMovingAppointmentId,
   ] = useState("");
 
-  const [
-    moveDate,
-    setMoveDate,
-  ] = useState(
+  const [moveDate, setMoveDate] = useState(
     localDateValue()
   );
 
-  const [
-    moveTime,
-    setMoveTime,
-  ] = useState("09:00");
+  const [moveTime, setMoveTime] = useState("09:00");
 
-  const [
-    savingMove,
-    setSavingMove,
-  ] = useState(false);
+  const [savingMove, setSavingMove] =
+    useState(false);
 
-  /*
-   * BLOCKED TIME
-   */
-
-  const [
-    showBlockForm,
-    setShowBlockForm,
-  ] = useState(false);
-
-  const [
-    blockMode,
-    setBlockMode,
-  ] = useState("one-time");
-
-  const [
-    blockReason,
-    setBlockReason,
-  ] = useState("Lunch");
-
-  const [
-    customBlockReason,
-    setCustomBlockReason,
-  ] = useState("");
-
-  const [
-    blockDate,
-    setBlockDate,
-  ] = useState(
-    localDateValue()
-  );
-
-  const [
-    blockStartTime,
-    setBlockStartTime,
-  ] = useState("12:00");
-
-  const [
-    blockEndTime,
-    setBlockEndTime,
-  ] = useState("12:30");
-
-  const [
-    recurringStartDate,
-    setRecurringStartDate,
-  ] = useState(
-    localDateValue()
-  );
-
-  const [
-    recurringEndDate,
-    setRecurringEndDate,
-  ] = useState(
-    defaultRecurringEndDate()
-  );
-
-  const [
-    recurringDays,
-    setRecurringDays,
-  ] = useState([
-    weekdayValueForDate(
-      localDateValue()
-    ),
-  ]);
-
-  const [
-    savingBlock,
-    setSavingBlock,
-  ] = useState(false);
-
-  const [
-    deletingBlockId,
-    setDeletingBlockId,
-  ] = useState("");
-
-  const [
-    deletingSeriesId,
-    setDeletingSeriesId,
-  ] = useState("");
-
-  const [
-    message,
-    setMessage,
-  ] = useState("");
-
-  const [
-    error,
-    setError,
-  ] = useState("");
-
-  const [
-    loading,
-    setLoading,
-  ] = useState(true);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
 
   /*
    * CURRENT USER / PERMISSIONS
@@ -471,8 +125,8 @@ export default function CalendarPage() {
       currentUser?.barber_id || ""
     ).trim();
 
-  function canManageAppointmentsForBarber(
-    barberId
+  function canModifyAppointment(
+    appointment
   ) {
     if (isOwner) {
       return true;
@@ -493,320 +147,172 @@ export default function CalendarPage() {
     }
 
     return (
-      String(barberId || "") ===
-      currentUserBarberId
+      String(
+        appointment?.barber_id || ""
+      ) === currentUserBarberId
     );
   }
-
-  function canManageBlockedTimeForBarber(
-    barberId
-  ) {
-    if (isOwner) {
-      return true;
-    }
-
-    if (!isStaff) {
-      return false;
-    }
-
-    if (!currentUserBarberId) {
-      return false;
-    }
-
-    return (
-      String(barberId || "") ===
-      currentUserBarberId
-    );
-  }
-
-  function canModifyAppointment(
-    appointment
-  ) {
-    return canManageAppointmentsForBarber(
-      appointment?.barber_id
-    );
-  }
-
-  function canModifyBlockedTime(
-    block
-  ) {
-    return canManageBlockedTimeForBarber(
-      block?.barber_id
-    );
-  }
-
-  const canManageSelectedBarberAppointments =
-    canManageAppointmentsForBarber(
-      selectedBarberId
-    );
-
-  const canManageSelectedBarberBlockedTime =
-    canManageBlockedTimeForBarber(
-      selectedBarberId
-    );
 
   /*
-   * LOAD CALENDAR
+   * LOAD DAILY AGENDA
    */
 
-  const loadData =
-    useCallback(async () => {
-      setLoading(true);
-      setScheduleLoaded(false);
-      setError("");
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    setError("");
 
-      try {
-        const [
-          meResponse,
-          agendaResponse,
-          blockedResponse,
-          permissionResponse,
-        ] = await Promise.all([
-          fetch(
-            "/api/auth/me",
-            {
-              method: "GET",
-              headers: {
-                Accept:
-                  "application/json",
-              },
-              cache: "no-store",
-            }
-          ),
-
-          fetch(
-            "/api/admin/agenda",
-            {
-              method: "GET",
-              headers: {
-                Accept:
-                  "application/json",
-              },
-              cache: "no-store",
-            }
-          ),
-
-          fetch(
-            "/api/admin/blocked-times",
-            {
-              method: "GET",
-              headers: {
-                Accept:
-                  "application/json",
-              },
-              cache: "no-store",
-            }
-          ),
-
-          fetch(
-            `/api/shops/${encodeURIComponent(
-              shopSlug
-            )}/staff-appointment-permission`,
-            {
-              method: "GET",
-              headers: {
-                Accept:
-                  "application/json",
-              },
-              cache: "no-store",
-            }
-          ),
-        ]);
-
-        if (
-          meResponse.status === 401 ||
-          agendaResponse.status ===
-            401 ||
-          blockedResponse.status ===
-            401 ||
-          permissionResponse.status ===
-            401
-        ) {
-          router.replace(
-            `/login?next=${encodeURIComponent(
-              `/${shopSlug}/admin/calendar`
-            )}`
-          );
-
-          return;
-        }
-
-        const meData =
-          await meResponse.json();
-
-        const agendaData =
-          await agendaResponse.json();
-
-        const blockedData =
-          await blockedResponse.json();
-
-        const permissionData =
-          await permissionResponse.json();
-
-        if (!meResponse.ok) {
-          throw new Error(
-            meData?.detail ||
-              meData?.error ||
-              "Your account could not be loaded."
-          );
-        }
-
-        if (!agendaResponse.ok) {
-          throw new Error(
-            agendaData?.error ||
-              agendaData?.detail ||
-              "Calendar data could not be loaded."
-          );
-        }
-
-        if (!blockedResponse.ok) {
-          throw new Error(
-            blockedData?.error ||
-              blockedData?.detail ||
-              "Blocked times could not be loaded."
-          );
-        }
-
-        if (!permissionResponse.ok) {
-          throw new Error(
-            permissionData?.detail ||
-              permissionData?.error ||
-              "Staff appointment permissions could not be loaded."
-          );
-        }
-
-        const userShopSlug =
-          String(
-            meData?.shop_slug || ""
-          )
-            .trim()
-            .toLowerCase();
-
-        if (
-          !userShopSlug ||
-          userShopSlug !== shopSlug
-        ) {
-          if (userShopSlug) {
-            router.replace(
-              `/${userShopSlug}/admin/calendar`
-            );
-          } else {
-            router.replace("/login");
+    try {
+      const [
+        meResponse,
+        agendaResponse,
+        permissionResponse,
+      ] = await Promise.all([
+        fetch(
+          "/api/auth/me",
+          {
+            method: "GET",
+            headers: {
+              Accept: "application/json",
+            },
+            cache: "no-store",
           }
+        ),
 
-          return;
-        }
+        fetch(
+          "/api/admin/agenda",
+          {
+            method: "GET",
+            headers: {
+              Accept: "application/json",
+            },
+            cache: "no-store",
+          }
+        ),
 
-        if (
-          agendaData.shop_slug &&
-          agendaData.shop_slug !==
+        fetch(
+          `/api/shops/${encodeURIComponent(
             shopSlug
-        ) {
-          router.replace(
-            `/${agendaData.shop_slug}/admin/calendar`
-          );
-
-          return;
-        }
-
-        if (![agendaData.shop_hours, agendaData.staff_hours,
-          agendaData.shop_blocked_times].every(Array.isArray)) {
-          throw new Error("Saved hours could not be loaded. Refresh after the agenda update is deployed.");
-        }
-        setShopHours(agendaData.shop_hours.filter((rule) => rule.shop_slug === shopSlug));
-        setStaffHours(agendaData.staff_hours.filter((rule) => rule.shop_slug === shopSlug));
-        setShopBlocks(agendaData.shop_blocked_times.filter((block) => block.shop_slug === shopSlug));
-        setScheduleLoaded(true);
-
-        const loadedBarbers =
-          agendaData.barbers || [];
-
-        const loadedRole =
-          String(
-            meData?.role || ""
-          )
-            .trim()
-            .toLowerCase();
-
-        const loadedBarberId =
-          String(
-            meData?.barber_id || ""
-          ).trim();
-
-        setCurrentUser(
-          meData
-        );
-
-        setStaffCanManageOtherStaffAppointments(
-          Boolean(
-            permissionData
-              ?.staff_can_manage_other_staff_appointments
-          )
-        );
-
-        setAppointments(
-          agendaData.appointments ||
-            []
-        );
-
-        setBarbers(
-          loadedBarbers
-        );
-
-        setServices(
-          agendaData.services || []
-        );
-
-        setBlockedTimes(
-          blockedData.blocked_times ||
-            []
-        );
-
-        setSelectedBarberId(
-          (currentValue) => {
-            if (
-              currentValue &&
-              loadedBarbers.some(
-                (barber) =>
-                  barber.id ===
-                  currentValue
-              )
-            ) {
-              return currentValue;
-            }
-
-            if (
-              loadedRole ===
-                "staff" &&
-              loadedBarberId &&
-              loadedBarbers.some(
-                (barber) =>
-                  String(
-                    barber.id
-                  ) ===
-                  loadedBarberId
-              )
-            ) {
-              return loadedBarberId;
-            }
-
-            return (
-              loadedBarbers[0]?.id ||
-              ""
-            );
+          )}/staff-appointment-permission`,
+          {
+            method: "GET",
+            headers: {
+              Accept: "application/json",
+            },
+            cache: "no-store",
           }
+        ),
+      ]);
+
+      if (
+        meResponse.status === 401 ||
+        agendaResponse.status === 401 ||
+        permissionResponse.status === 401
+      ) {
+        router.replace(
+          `/login?next=${encodeURIComponent(
+            `/${shopSlug}/admin/today`
+          )}`
         );
-      } catch (loadError) {
-        setScheduleLoaded(false);
-        setError(
-          loadError instanceof Error
-            ? loadError.message
-            : "Calendar data could not be loaded."
-        );
-      } finally {
-        setLoading(false);
+
+        return;
       }
-    }, [router, shopSlug]);
+
+      const meData =
+        await meResponse.json();
+
+      const agendaData =
+        await agendaResponse.json();
+
+      const permissionData =
+        await permissionResponse.json();
+
+      if (!meResponse.ok) {
+        throw new Error(
+          meData?.detail ||
+            meData?.error ||
+            "Your account could not be loaded."
+        );
+      }
+
+      if (!agendaResponse.ok) {
+        throw new Error(
+          agendaData?.error ||
+            agendaData?.detail ||
+            "The agenda could not be loaded."
+        );
+      }
+
+      if (!permissionResponse.ok) {
+        throw new Error(
+          permissionData?.detail ||
+            permissionData?.error ||
+            "Staff appointment permissions could not be loaded."
+        );
+      }
+
+      const userShopSlug =
+        String(
+          meData?.shop_slug || ""
+        )
+          .trim()
+          .toLowerCase();
+
+      if (
+        !userShopSlug ||
+        userShopSlug !== shopSlug
+      ) {
+        if (userShopSlug) {
+          router.replace(
+            `/${userShopSlug}/admin/today`
+          );
+        } else {
+          router.replace("/login");
+        }
+
+        return;
+      }
+
+      if (
+        agendaData.shop_slug &&
+        agendaData.shop_slug !== shopSlug
+      ) {
+        router.replace(
+          `/${agendaData.shop_slug}/admin/today`
+        );
+
+        return;
+      }
+
+      setCurrentUser(meData);
+
+      setStaffCanManageOtherStaffAppointments(
+        Boolean(
+          permissionData
+            ?.staff_can_manage_other_staff_appointments
+        )
+      );
+
+      setAppointments(
+        agendaData.appointments || []
+      );
+
+      setBarbers(
+        agendaData.barbers || []
+      );
+
+      setServices(
+        agendaData.services || []
+      );
+    } catch (loadError) {
+      setError(
+        loadError instanceof Error
+          ? loadError.message
+          : "The agenda could not be loaded."
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [router, shopSlug]);
 
   useEffect(() => {
     if (shopSlug) {
@@ -814,535 +320,44 @@ export default function CalendarPage() {
     }
   }, [loadData, shopSlug]);
 
-
-  useEffect(() => {
-    const refresh = () => {
-      if (document.visibilityState === "visible" && !showAppointmentForm && !showBlockForm) loadData();
-    };
-    window.addEventListener("focus", refresh);
-    document.addEventListener("visibilitychange", refresh);
-    return () => {
-      window.removeEventListener("focus", refresh);
-      document.removeEventListener("visibilitychange", refresh);
-    };
-  }, [loadData, showAppointmentForm, showBlockForm]);
-
-  function sameDay(
-    value,
-    date
-  ) {
-    return (
-      datePart(value) === date
-    );
+  function sameDay(value, date) {
+    return datePart(value) === date;
   }
 
   function formatTime(value) {
-    return new Date(
-      value
-    ).toLocaleTimeString([], {
-      hour: "numeric",
-      minute: "2-digit",
-    });
+    return new Date(value).toLocaleTimeString(
+      [],
+      {
+        hour: "numeric",
+        minute: "2-digit",
+      }
+    );
+  }
+
+  function cleanPhone(phone) {
+    return String(phone || "").replace(
+      /\D/g,
+      ""
+    );
+  }
+
+  function barberName(id) {
+    return (
+      barbers.find(
+        (barber) => barber.id === id
+      )?.name || "Staff member"
+    );
   }
 
   function serviceName(id) {
     return (
       services.find(
-        (service) =>
-          service.id === id
+        (service) => service.id === id
       )?.name || "Service"
     );
   }
 
-  function getWeekDates(
-    dateString
-  ) {
-    const date = new Date(
-      `${dateString}T12:00:00`
-    );
-
-    const day =
-      date.getDay();
-
-    const sunday =
-      new Date(date);
-
-    sunday.setDate(
-      date.getDate() - day
-    );
-
-    return Array.from(
-      { length: 7 },
-      (_, index) => {
-        const weekDate =
-          new Date(sunday);
-
-        weekDate.setDate(
-          sunday.getDate() +
-            index
-        );
-
-        return localDateValue(
-          weekDate
-        );
-      }
-    );
-  }
-
-  /*
-   * CUSTOMER LIST
-   *
-   * ChairTime's customer history is currently
-   * appointment-based. Build a quick customer
-   * picker from the shop's existing appointments.
-   */
-
-  const existingCustomers =
-    useMemo(() => {
-      const customerMap =
-        new Map();
-
-      appointments.forEach(
-        (appointment) => {
-          const name =
-            String(
-              appointment.customer_name ||
-                ""
-            ).trim();
-
-          const phone =
-            String(
-              appointment.customer_phone ||
-                ""
-            ).trim();
-
-          if (!name && !phone) {
-            return;
-          }
-
-          const key =
-            customerKey(
-              name,
-              phone
-            );
-
-          const existing =
-            customerMap.get(key);
-
-          const appointmentTime =
-            new Date(
-              appointment.start_datetime
-            ).getTime();
-
-          const existingTime =
-            existing
-              ? new Date(
-                  existing.lastAppointment
-                ).getTime()
-              : 0;
-
-          if (
-            !existing ||
-            appointmentTime >
-              existingTime
-          ) {
-            customerMap.set(
-              key,
-              {
-                key,
-                name,
-                phone,
-                customerNotes:
-                  appointment.customer_notes ||
-                  "",
-                customerTags:
-                  appointment.customer_tags ||
-                  "",
-                lastAppointment:
-                  appointment.start_datetime,
-              }
-            );
-          }
-        }
-      );
-
-      return Array.from(
-        customerMap.values()
-      ).sort((a, b) =>
-        String(a.name).localeCompare(
-          String(b.name)
-        )
-      );
-    }, [appointments]);
-
-  const filteredCustomers =
-    useMemo(() => {
-      const search =
-        String(
-          customerSearch || ""
-        )
-          .trim()
-          .toLowerCase();
-
-      if (!search) {
-        return existingCustomers.slice(
-          0,
-          8
-        );
-      }
-
-      const searchPhone =
-        normalizePhone(search);
-
-      return existingCustomers
-        .filter((customer) => {
-          const name =
-            String(
-              customer.name || ""
-            ).toLowerCase();
-
-          const phone =
-            normalizePhone(
-              customer.phone
-            );
-
-          return (
-            name.includes(search) ||
-            (searchPhone &&
-              phone.includes(
-                searchPhone
-              ))
-          );
-        })
-        .slice(0, 8);
-    }, [
-      customerSearch,
-      existingCustomers,
-    ]);
-
-  const servicesForSelectedBarber =
-    useMemo(() => {
-      if (!selectedBarberId) {
-        return [];
-      }
-
-      return services.filter(
-        (service) => {
-          const serviceBarberId =
-            String(
-              service.barber_id || ""
-            ).trim();
-
-          if (!serviceBarberId) {
-            return true;
-          }
-
-          return (
-            serviceBarberId ===
-            String(
-              selectedBarberId
-            )
-          );
-        }
-      );
-    }, [
-      services,
-      selectedBarberId,
-    ]);
-
-  function resetAppointmentForm() {
-    setAppointmentCustomerMode(
-      existingCustomers.length
-        ? "existing"
-        : "new"
-    );
-
-    setCustomerSearch("");
-    setSelectedCustomerKey("");
-    setAppointmentCustomerName("");
-    setAppointmentCustomerPhone("");
-
-    setAppointmentServiceId(
-      servicesForSelectedBarber[
-        0
-      ]?.id || ""
-    );
-
-    setAppointmentDate(
-      selectedDate
-    );
-
-    setAppointmentTime(
-      "09:00"
-    );
-
-    setAppointmentNotes("");
-  }
-
-  function openAppointmentForm(
-    time = ""
-  ) {
-    const availableTime = time || firstBookableStart(selectedDate);
-    if (!availableTime) {
-      setError("No appointment time is available within the saved shop and staff hours.");
-      return;
-    }
-    if (
-      !selectedBarberId ||
-      !canManageSelectedBarberAppointments
-    ) {
-      return;
-    }
-
-    resetAppointmentForm();
-
-    setAppointmentTime(availableTime);
-
-    setShowBlockForm(false);
-    setShowAppointmentForm(true);
-    setMessage("");
-    setError("");
-  }
-
-  function closeAppointmentForm() {
-    setShowAppointmentForm(false);
-    setSavingAppointment(false);
-    setError("");
-  }
-
-  function chooseExistingCustomer(
-    customer
-  ) {
-    setSelectedCustomerKey(
-      customer.key
-    );
-
-    setAppointmentCustomerName(
-      customer.name
-    );
-
-    setAppointmentCustomerPhone(
-      customer.phone
-    );
-
-    setCustomerSearch(
-      customer.name ||
-        customer.phone
-    );
-  }
-
-  function startNewCustomer() {
-    setAppointmentCustomerMode(
-      "new"
-    );
-
-    setSelectedCustomerKey("");
-
-    const searchValue =
-      customerSearch.trim();
-
-    const looksLikePhone =
-      normalizePhone(
-        searchValue
-      ).length >= 7;
-
-    if (looksLikePhone) {
-      setAppointmentCustomerPhone(
-        searchValue
-      );
-
-      setAppointmentCustomerName(
-        ""
-      );
-    } else {
-      setAppointmentCustomerName(
-        searchValue
-      );
-
-      setAppointmentCustomerPhone(
-        ""
-      );
-    }
-  }
-
-  function useExistingCustomerMode() {
-    setAppointmentCustomerMode(
-      "existing"
-    );
-
-    setSelectedCustomerKey("");
-    setAppointmentCustomerName("");
-    setAppointmentCustomerPhone("");
-    setCustomerSearch("");
-  }
-
-  async function saveNewAppointment() {
-    if (
-      savingAppointment ||
-      !selectedBarberId
-    ) {
-      return;
-    }
-
-    if (
-      !canManageSelectedBarberAppointments
-    ) {
-      setError(
-        "You do not have permission to create appointments for this staff member."
-      );
-
-      return;
-    }
-
-    const customerName =
-      appointmentCustomerName.trim();
-
-    const customerPhone =
-      appointmentCustomerPhone.trim();
-
-    if (!customerName) {
-      setError(
-        "Enter the customer's name."
-      );
-
-      return;
-    }
-
-    if (!customerPhone) {
-      setError(
-        "Enter the customer's phone number."
-      );
-
-      return;
-    }
-
-    if (!appointmentServiceId) {
-      setError(
-        "Choose a service."
-      );
-
-      return;
-    }
-
-    if (
-      !appointmentDate ||
-      !appointmentTime
-    ) {
-      setError(
-        "Choose the appointment date and time."
-      );
-
-      return;
-    }
-
-    const selectedService = services.find((service) => service.id === appointmentServiceId
-      && (!service.barber_id || service.barber_id === selectedBarberId) && service.is_active !== false);
-    const startMinutes = minutesOfTime(appointmentTime);
-    const duration = Number(selectedService?.duration_minutes);
-    if (!scheduleLoaded || !selectedService || !(duration > 0) ||
-      !freeIntervalsForDate(appointmentDate).some(([start, end]) =>
-        start <= startMinutes && startMinutes + duration <= end)) {
-      setError("That appointment does not fit the saved shop and staff hours or conflicts with a booking or closure. Choose another time.");
-      return;
-    }
-
-    setSavingAppointment(true);
-    setMessage("");
-    setError("");
-
-    try {
-      const response =
-        await fetch(
-          "/api/admin/appointments",
-          {
-            method: "POST",
-            headers: {
-              "Content-Type":
-                "application/json",
-              Accept:
-                "application/json",
-            },
-            body: JSON.stringify({
-              shop_slug:
-                shopSlug,
-              barber_id:
-                selectedBarberId,
-              service_id:
-                appointmentServiceId,
-              customer_name:
-                customerName,
-              customer_phone:
-                customerPhone,
-              customer_tags:
-                null,
-              customer_notes:
-                null,
-              notes:
-                appointmentNotes.trim() ||
-                null,
-              start_datetime:
-                `${appointmentDate}T${appointmentTime}:00`,
-              stripe_setup_intent_id:
-                null,
-            }),
-          }
-        );
-
-      const data =
-        await response.json();
-
-      if (
-        response.status === 401
-      ) {
-        router.replace(
-          "/login"
-        );
-
-        return;
-      }
-
-      if (!response.ok) {
-        throw new Error(
-          data?.detail ||
-            data?.error ||
-            "The appointment could not be created."
-        );
-      }
-
-      setShowAppointmentForm(
-        false
-      );
-
-      setSelectedDate(
-        appointmentDate
-      );
-
-      setMessage(
-        `${customerName}'s appointment was booked.`
-      );
-
-      await loadData();
-    } catch (appointmentError) {
-      setError(
-        appointmentError instanceof
-          Error
-          ? appointmentError.message
-          : "The appointment could not be created."
-      );
-    } finally {
-      setSavingAppointment(
-        false
-      );
-    }
-  }
-
-  /*
-   * MOVE APPOINTMENT
-   */
-
-  function startMove(
-    appointment
-  ) {
+  function startMove(appointment) {
     if (
       !canModifyAppointment(
         appointment
@@ -1355,27 +370,17 @@ export default function CalendarPage() {
       return;
     }
 
-    setMovingAppointmentId(
-      appointment.id
-    );
+    setMovingAppointmentId(appointment.id);
 
     setMoveDate(
-      datePart(
-        appointment.start_datetime
-      )
+      datePart(appointment.start_datetime)
     );
 
     setMoveTime(
-      timePart(
-        appointment.start_datetime
-      )
+      timePart(appointment.start_datetime) ||
+        "09:00"
     );
 
-    setShowAppointmentForm(
-      false
-    );
-
-    setShowBlockForm(false);
     setMessage("");
     setError("");
   }
@@ -1383,20 +388,22 @@ export default function CalendarPage() {
   function cancelMove() {
     setMovingAppointmentId("");
     setSavingMove(false);
+    setError("");
   }
 
-  async function saveMove(
-    appointmentId
-  ) {
-    if (savingMove) {
+  async function saveMove(appointmentId) {
+    if (
+      !moveDate ||
+      !moveTime ||
+      savingMove
+    ) {
       return;
     }
 
     const appointment =
       appointments.find(
         (item) =>
-          item.id ===
-          appointmentId
+          item.id === appointmentId
       );
 
     if (
@@ -1407,14 +414,6 @@ export default function CalendarPage() {
     ) {
       setError(
         "You do not have permission to modify this appointment."
-      );
-
-      return;
-    }
-
-    if (!moveDate || !moveTime) {
-      setError(
-        "Choose a date and time."
       );
 
       return;
@@ -1424,37 +423,31 @@ export default function CalendarPage() {
     setMessage("");
     setError("");
 
+    const newStartDatetime =
+      `${moveDate}T${moveTime}:00`;
+
     try {
-      const response =
-        await fetch(
-          `/api/admin/appointments/${encodeURIComponent(
-            appointmentId
-          )}/reschedule`,
-          {
-            method: "PATCH",
-            headers: {
-              "Content-Type":
-                "application/json",
-              Accept:
-                "application/json",
-            },
-            body: JSON.stringify({
-              new_start_datetime:
-                `${moveDate}T${moveTime}:00`,
-            }),
-          }
-        );
+      const response = await fetch(
+        `/api/admin/appointments/${encodeURIComponent(
+          appointmentId
+        )}/reschedule`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify({
+            new_start_datetime:
+              newStartDatetime,
+          }),
+        }
+      );
 
-      const data =
-        await response.json();
+      const data = await response.json();
 
-      if (
-        response.status === 401
-      ) {
-        router.replace(
-          "/login"
-        );
-
+      if (response.status === 401) {
+        router.replace("/login");
         return;
       }
 
@@ -1462,39 +455,34 @@ export default function CalendarPage() {
         throw new Error(
           data?.detail ||
             data?.error ||
-            "Appointment could not be moved."
+            "The appointment could not be moved."
         );
       }
 
-      setMovingAppointmentId(
-        ""
-      );
-
-      setMessage(
-        "Appointment moved."
-      );
+      setMovingAppointmentId("");
+      setSelectedDate(moveDate);
+      setMessage("Appointment moved.");
 
       await loadData();
     } catch (moveError) {
       setError(
         moveError instanceof Error
           ? moveError.message
-          : "Appointment could not be moved."
+          : "The appointment could not be moved."
       );
     } finally {
       setSavingMove(false);
     }
   }
 
-  async function updateAppointmentStatus(
+  async function updateStatus(
     appointmentId,
-    nextStatus
+    appointmentStatus
   ) {
     const appointment =
       appointments.find(
         (item) =>
-          item.id ===
-          appointmentId
+          item.id === appointmentId
       );
 
     if (
@@ -1514,36 +502,26 @@ export default function CalendarPage() {
     setError("");
 
     try {
-      const response =
-        await fetch(
-          `/api/admin/appointments/${encodeURIComponent(
-            appointmentId
-          )}/status`,
-          {
-            method: "PATCH",
-            headers: {
-              "Content-Type":
-                "application/json",
-              Accept:
-                "application/json",
-            },
-            body: JSON.stringify({
-              status:
-                nextStatus,
-            }),
-          }
-        );
+      const response = await fetch(
+        `/api/admin/appointments/${encodeURIComponent(
+          appointmentId
+        )}/status`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify({
+            status: appointmentStatus,
+          }),
+        }
+      );
 
-      const data =
-        await response.json();
+      const data = await response.json();
 
-      if (
-        response.status === 401
-      ) {
-        router.replace(
-          "/login"
-        );
-
+      if (response.status === 401) {
+        router.replace("/login");
         return;
       }
 
@@ -1551,2516 +529,404 @@ export default function CalendarPage() {
         throw new Error(
           data?.detail ||
             data?.error ||
-            "Appointment status could not be updated."
+            "The appointment could not be updated."
         );
       }
 
       setMessage(
-        "Appointment updated."
+        `Marked ${
+          STATUS_LABELS[appointmentStatus]
+        }.`
       );
 
       await loadData();
-    } catch (statusError) {
+    } catch (updateError) {
       setError(
-        statusError instanceof Error
-          ? statusError.message
-          : "Appointment status could not be updated."
+        updateError instanceof Error
+          ? updateError.message
+          : "The appointment could not be updated."
       );
     }
   }
 
-  
-  /*
-   * BLOCKED TIME
-   */
-
-  function openBlockForm() {
-    if (
-      !selectedBarberId ||
-      !canManageSelectedBarberBlockedTime
-    ) {
-      return;
-    }
-
-    setShowAppointmentForm(
-      false
-    );
-
-    setShowBlockForm(true);
-
-    setBlockMode(
-      "one-time"
-    );
-
-    setBlockDate(
-      selectedDate
-    );
-
-    setRecurringStartDate(
-      selectedDate
-    );
-
-    setRecurringDays([
-      weekdayValueForDate(
-        selectedDate
-      ),
-    ]);
-
-    setMessage("");
-    setError("");
-  }
-
-  function closeBlockForm() {
-    setShowBlockForm(false);
-    setSavingBlock(false);
-    setError("");
-  }
-
-  function handleRecurringStartDateChange(
-    value
-  ) {
-    setRecurringStartDate(
-      value
-    );
-
-    setRecurringDays([
-      weekdayValueForDate(
-        value
-      ),
-    ]);
-  }
-
-  function toggleRecurringDay(
-    dayValue
-  ) {
-    setRecurringDays(
-      (currentDays) => {
-        if (
-          currentDays.includes(
-            dayValue
-          )
-        ) {
-          return currentDays.filter(
-            (day) =>
-              day !== dayValue
-          );
-        }
-
-        return [
-          ...currentDays,
-          dayValue,
-        ].sort(
-          (a, b) => a - b
-        );
-      }
-    );
-  }
-
-  function resolvedBlockReason() {
-    if (
-      blockReason === "Other"
-    ) {
-      return (
-        customBlockReason.trim() ||
-        "Blocked"
-      );
-    }
-
-    return blockReason;
-  }
-
-  async function saveOneTimeBlockedTime() {
-    const response =
-      await fetch(
-        "/api/admin/blocked-times",
-        {
-          method: "POST",
-
-          headers: {
-            "Content-Type":
-              "application/json",
-
-            Accept:
-              "application/json",
-          },
-
-          body: JSON.stringify({
-            barber_id:
-              selectedBarberId,
-
-            start_datetime:
-              `${blockDate}T${blockStartTime}:00`,
-
-            end_datetime:
-              `${blockDate}T${blockEndTime}:00`,
-
-            reason:
-              resolvedBlockReason(),
-          }),
-        }
-      );
-
-    const data =
-      await response.json();
-
-    if (
-      response.status === 401
-    ) {
-      router.replace(
-        "/login"
-      );
-
-      return false;
-    }
-
-    if (!response.ok) {
-      throw new Error(
-        data?.error ||
-          data?.detail ||
-          "Blocked time could not be created."
-      );
-    }
-
-    setMessage(
-      "Blocked time created."
-    );
-
-    return true;
-  }
-
-  async function saveRecurringBlockedTime() {
-    const response =
-      await fetch(
-        "/api/admin/blocked-times/recurring",
-        {
-          method: "POST",
-
-          headers: {
-            "Content-Type":
-              "application/json",
-
-            Accept:
-              "application/json",
-          },
-
-          body: JSON.stringify({
-            barber_id:
-              selectedBarberId,
-
-            weekdays:
-              recurringDays,
-
-            start_date:
-              recurringStartDate,
-
-            end_date:
-              recurringEndDate,
-
-            start_time:
-              blockStartTime,
-
-            end_time:
-              blockEndTime,
-
-            reason:
-              resolvedBlockReason(),
-          }),
-        }
-      );
-
-    const data =
-      await response.json();
-
-    if (
-      response.status === 401
-    ) {
-      router.replace(
-        "/login"
-      );
-
-      return false;
-    }
-
-    if (!response.ok) {
-      throw new Error(
-        data?.error ||
-          data?.detail ||
-          "Recurring blocked time could not be created."
-      );
-    }
-
-    setMessage(
-      `Recurring blocked time created (${
-        data?.occurrences_created ||
-        0
-      } occurrences).`
-    );
-
-    return true;
-  }
-
-  async function saveBlockedTime() {
-    if (
-      savingBlock ||
-      !selectedBarberId
-    ) {
-      return;
-    }
-
-    if (
-      !canManageSelectedBarberBlockedTime
-    ) {
-      setError(
-        "You can block time only on your own schedule."
-      );
-
-      return;
-    }
-
-    if (
-      !blockStartTime ||
-      !blockEndTime
-    ) {
-      setError(
-        "Please choose a start and end time."
-      );
-
-      return;
-    }
-
-    if (
-      blockEndTime <=
-      blockStartTime
-    ) {
-      setError(
-        "End time must be after start time."
-      );
-
-      return;
-    }
-
-    if (
-      blockMode ===
-        "recurring" &&
-      recurringDays.length === 0
-    ) {
-      setError(
-        "Choose at least one day."
-      );
-
-      return;
-    }
-
-    if (
-      blockMode ===
-        "recurring" &&
-      (!recurringStartDate ||
-        !recurringEndDate)
-    ) {
-      setError(
-        "Please choose the recurring start and end dates."
-      );
-
-      return;
-    }
-
-    if (
-      blockMode ===
-        "recurring" &&
-      recurringEndDate <
-        recurringStartDate
-    ) {
-      setError(
-        "The recurring end date must be on or after the start date."
-      );
-
-      return;
-    }
-
-    setSavingBlock(true);
-    setMessage("");
-    setError("");
-
-    try {
-      let saved = false;
-
-      if (
-        blockMode ===
-        "recurring"
-      ) {
-        saved =
-          await saveRecurringBlockedTime();
-      } else {
-        if (!blockDate) {
-          setError(
-            "Please choose a date."
-          );
-
-          return;
-        }
-
-        saved =
-          await saveOneTimeBlockedTime();
-      }
-
-      if (saved) {
-        setShowBlockForm(
-          false
-        );
-
-        await loadData();
-      }
-    } catch (blockError) {
-      setError(
-        blockError instanceof Error
-          ? blockError.message
-          : "Blocked time could not be created."
-      );
-    } finally {
-      setSavingBlock(false);
-    }
-  }
-
-  async function deleteBlockedTime(
-    blockedTimeId
-  ) {
-    if (deletingBlockId) {
-      return;
-    }
-
-    const block =
-      blockedTimes.find(
-        (item) =>
-          item.id ===
-          blockedTimeId
-      );
-
-    if (
-      !block ||
-      !canModifyBlockedTime(
-        block
-      )
-    ) {
-      setError(
-        "You can modify only your own blocked time."
-      );
-
-      return;
-    }
-
-    const confirmed =
-      window.confirm(
-        "Delete this blocked time?"
-      );
-
-    if (!confirmed) {
-      return;
-    }
-
-    setDeletingBlockId(
-      blockedTimeId
-    );
-
-    setMessage("");
-    setError("");
-
-    try {
-      const response =
-        await fetch(
-          `/api/admin/blocked-times/${encodeURIComponent(
-            blockedTimeId
-          )}`,
-          {
-            method: "DELETE",
-
-            headers: {
-              Accept:
-                "application/json",
-            },
-          }
-        );
-
-      const data =
-        await response.json();
-
-      if (
-        response.status === 401
-      ) {
-        router.replace(
-          "/login"
-        );
-
-        return;
-      }
-
-      if (!response.ok) {
-        throw new Error(
-          data?.error ||
-            data?.detail ||
-            "Blocked time could not be deleted."
-        );
-      }
-
-      setMessage(
-        "Blocked time deleted."
-      );
-
-      await loadData();
-    } catch (deleteError) {
-      setError(
-        deleteError instanceof Error
-          ? deleteError.message
-          : "Blocked time could not be deleted."
-      );
-    } finally {
-      setDeletingBlockId("");
-    }
-  }
-
-  async function deleteBlockedTimeSeries(
-    seriesId
-  ) {
-    if (
-      !seriesId ||
-      deletingSeriesId
-    ) {
-      return;
-    }
-
-    const seriesBlock =
-      blockedTimes.find(
-        (block) =>
-          block.series_id ===
-          seriesId
-      );
-
-    if (
-      !seriesBlock ||
-      !canModifyBlockedTime(
-        seriesBlock
-      )
-    ) {
-      setError(
-        "You can modify only your own blocked time."
-      );
-
-      return;
-    }
-
-    const confirmed =
-      window.confirm(
-        "Delete every remaining blocked time in this recurring series?"
-      );
-
-    if (!confirmed) {
-      return;
-    }
-
-    setDeletingSeriesId(
-      seriesId
-    );
-
-    setMessage("");
-    setError("");
-
-    try {
-      const response =
-        await fetch(
-          `/api/admin/blocked-time-series/${encodeURIComponent(
-            seriesId
-          )}`,
-          {
-            method: "DELETE",
-
-            headers: {
-              Accept:
-                "application/json",
-            },
-          }
-        );
-
-      const data =
-        await response.json();
-
-      if (
-        response.status === 401
-      ) {
-        router.replace(
-          "/login"
-        );
-
-        return;
-      }
-
-      if (!response.ok) {
-        throw new Error(
-          data?.error ||
-            data?.detail ||
-            "Recurring series could not be deleted."
-        );
-      }
-
-      setMessage(
-        `Recurring series deleted (${
-          data?.occurrences_deleted ||
-          0
-        } occurrences).`
-      );
-
-      await loadData();
-    } catch (deleteError) {
-      setError(
-        deleteError instanceof Error
-          ? deleteError.message
-          : "Recurring series could not be deleted."
-      );
-    } finally {
-      setDeletingSeriesId("");
-    }
-  }
-
-  /*
-   * CALENDAR DATA
-   */
-
-  const selectedBarber =
-    barbers.find(
-      (barber) =>
-        barber.id ===
-        selectedBarberId
-    );
-
-  const dayAppointments =
-    useMemo(() => {
-      return appointments
-        .filter(
-          (appointment) =>
-            appointment.barber_id ===
-            selectedBarberId
-        )
-        .filter(
-          (appointment) =>
-            sameDay(
-              appointment.start_datetime,
-              selectedDate
-            )
-        )
-        .sort(
-          (a, b) =>
-            new Date(
-              a.start_datetime
-            ) -
-            new Date(
-              b.start_datetime
-            )
-        );
-    }, [
-      appointments,
-      selectedBarberId,
-      selectedDate,
-    ]);
-
-  const dayBlockedTimes =
-    useMemo(() => {
-      return blockedTimes
-        .filter(
-          (block) =>
-            block.barber_id ===
-            selectedBarberId
-        )
-        .filter(
-          (block) =>
-            Boolean(itemIntervalOnDate(block, selectedDate))
-        )
-        .sort(
-          (a, b) =>
-            new Date(
-              a.start_datetime
-            ) -
-            new Date(
-              b.start_datetime
-            )
-        );
-    }, [
-      blockedTimes,
-      selectedBarberId,
-      selectedDate,
-    ]);
-
-  function dayScheduleStatus(date) {
-    if (!scheduleLoaded) return "Hours unavailable";
-    if (!shopHours.length) return "Shop hours not set";
-    if (!intervalsForDate(shopHours, date).length) return "Shop closed";
-    const rules = staffHours.filter((rule) => rule.barber_id === selectedBarberId);
-    if (!rules.length) return "Staff hours not set";
-    if (!intervalsForDate(rules, date).length) return "Staff unavailable";
-    const free = freeIntervalsForDate(date);
-    if (!free.length) return "No available time";
-    return "";
-  }
-
-  function freeIntervalsForDate(date) {
-    if (!scheduleLoaded) return [];
-    return freeScheduleIntervals(date, selectedBarberId, shopHours, staffHours,
-      shopBlocks, blockedTimes, appointments);
-  }
-
-  function firstBookableStart(date) {
-    const intervals = freeIntervalsForDate(date);
-    const eligible = servicesForSelectedBarber.filter((service) => service.is_active !== false)
-      .map((service) => Number(service.duration_minutes)).filter((duration) => duration > 0);
-    const interval = [...intervals].sort((a, b) => a[0] - b[0])
-      .find(([start, end]) => eligible.some((duration) => start + duration <= end));
-    return interval ? minutesText(interval[0]) : "";
-  }
-
-  const dayFreeIntervals = freeIntervalsForDate(selectedDate);
-  const availableDurations = servicesForSelectedBarber.filter((service) =>
-    service.is_active !== false)
-    .map((service) => Number(service.duration_minutes)).filter((value) => value > 0);
-  const dayStatus = dayScheduleStatus(selectedDate);
-  const visibleIntervals = [
-    ...intervalsForDate(shopHours, selectedDate),
-    ...dayAppointments.map((item) => itemIntervalOnDate(item, selectedDate)).filter(Boolean),
-    ...dayBlockedTimes.map((item) => itemIntervalOnDate(item, selectedDate)).filter(Boolean),
-  ];
-  const calendarHours = Array.from({ length: 24 }, (_, hour) => minutesText(hour * 60))
-    .filter((hourText) => visibleIntervals.some(([start, end]) =>
-      start < minutesOfTime(hourText) + 60 && end > minutesOfTime(hourText)));
-
-  const weekDates =
-    useMemo(
-      () =>
-        getWeekDates(
+  const agendaAppointments = useMemo(() => {
+    return appointments
+      .filter((appointment) =>
+        sameDay(
+          appointment.start_datetime,
           selectedDate
-        ),
-      [selectedDate]
-    );
-
-  function appointmentItemsForHour(
-    hourText
-  ) {
-    const hour =
-      Number(
-        hourText.split(":")[0]
-      );
-
-    return dayAppointments.filter(
-      (appointment) =>
-        new Date(
-          appointment.start_datetime
-        ).getHours() === hour
-    );
-  }
-
-  function blockedItemsForHour(
-    hourText
-  ) {
-    const hour =
-      Number(
-        hourText.split(":")[0]
-      );
-
-    return dayBlockedTimes.filter(
-      (block) =>
-        new Date(
-          block.start_datetime
-        ).getHours() === hour
-    );
-  }
-
-  function weekItemsForDate(
-    date
-  ) {
-    const appointmentItems =
-      appointments
-        .filter(
-          (appointment) =>
-            appointment.barber_id ===
+        )
+      )
+      .filter((appointment) =>
+        selectedBarberId
+          ? appointment.barber_id ===
             selectedBarberId
-        )
-        .filter(
-          (appointment) =>
-            sameDay(
-              appointment.start_datetime,
-              date
-            )
-        )
-        .map(
-          (appointment) => ({
-            type:
-              "appointment",
-
-            id:
-              appointment.id,
-
-            time:
-              appointment.start_datetime,
-
-            data:
-              appointment,
-          })
-        );
-
-    const blockedItems =
-      blockedTimes
-        .filter(
-          (block) =>
-            block.barber_id ===
-            selectedBarberId
-        )
-        .filter(
-          (block) =>
-            sameDay(
-              block.start_datetime,
-              date
-            )
-        )
-        .map(
-          (block) => ({
-            type:
-              "blocked",
-
-            id:
-              block.id,
-
-            time:
-              block.start_datetime,
-
-            data:
-              block,
-          })
-        );
-
-    return [
-      ...appointmentItems,
-      ...blockedItems,
-    ].sort(
-      (a, b) =>
-        new Date(a.time) -
-        new Date(b.time)
-    );
-  }
-
-  
-  /*
-   * APPOINTMENT CARD
-   */
-
-  function appointmentCard(
-    appointment
-  ) {
-    const isMoving =
-      movingAppointmentId ===
-      appointment.id;
-
-    const canModify =
-      canModifyAppointment(
-        appointment
+          : true
+      )
+      .sort(
+        (a, b) =>
+          new Date(a.start_datetime) -
+          new Date(b.start_datetime)
       );
-
-    const statusStyle =
-      STATUS_STYLES[
-        appointment.status
-      ] ||
-      STATUS_STYLES.confirmed;
-
-    const statusLabel =
-      STATUS_LABELS[
-        appointment.status
-      ] || "Confirmed";
-
-    return (
-      <div
-        key={appointment.id}
-        className={`rounded-2xl p-4 border shadow-sm ${statusStyle}`}
-      >
-        <div className="flex justify-between gap-3 items-start">
-          <div>
-            <p className="font-bold text-lg">
-              {formatTime(
-                appointment.start_datetime
-              )}{" "}
-              ·{" "}
-              <button
-                type="button"
-                onClick={() =>
-                  router.push(
-                    `/${shopSlug}/admin/customers?phone=${encodeURIComponent(
-                      appointment.customer_phone
-                    )}`
-                  )
-                }
-                className="font-bold text-blue-700 underline hover:text-blue-900"
-              >
-                {
-                  appointment.customer_name
-                }
-              </button>
-            </p>
-
-            <p className="text-gray-900">
-              {serviceName(
-                appointment.service_id
-              )}
-            </p>
-
-            {appointment.customer_phone ? (
-              <p className="text-gray-700">
-                {
-                  appointment.customer_phone
-                }
-              </p>
-            ) : null}
-
-            {appointment.notes ? (
-              <p className="text-gray-700 mt-2">
-                {appointment.notes}
-              </p>
-            ) : null}
-          </div>
-
-          <span className="rounded-full bg-white/70 px-3 py-1 text-sm font-bold">
-            {statusLabel}
-          </span>
-        </div>
-
-        <div className="mt-4">
-          <ServicePaymentButton appointment={appointment} user={currentUser} shopSlug={shopSlug} />
-        </div>
-
-        {canModify ? (
-          <div className="flex flex-wrap gap-2 mt-4">
-            <button
-              type="button"
-              onClick={() =>
-                startMove(
-                  appointment
-                )
-              }
-              className="bg-white border border-gray-300 text-gray-900 px-3 py-2 rounded-xl text-sm font-semibold"
-            >
-              Move
-            </button>
-
-            {appointment.status !==
-            "confirmed" ? (
-              <button
-                type="button"
-                onClick={() =>
-                  updateAppointmentStatus(
-                    appointment.id,
-                    "confirmed"
-                  )
-                }
-                className="bg-blue-600 text-white px-3 py-2 rounded-xl text-sm font-semibold"
-              >
-                Confirm
-              </button>
-            ) : null}
-
-            {appointment.status !==
-            "completed" ? (
-              <button
-                type="button"
-                onClick={() =>
-                  updateAppointmentStatus(
-                    appointment.id,
-                    "completed"
-                  )
-                }
-                className="bg-green-600 text-white px-3 py-2 rounded-xl text-sm font-semibold"
-              >
-                Complete
-              </button>
-            ) : null}
-
-            {appointment.status !==
-            "no_show" ? (
-              <button
-                type="button"
-                onClick={() =>
-                  updateAppointmentStatus(
-                    appointment.id,
-                    "no_show"
-                  )
-                }
-                className="bg-yellow-500 text-black px-3 py-2 rounded-xl text-sm font-semibold"
-              >
-                No-show
-              </button>
-            ) : null}
-
-            {appointment.status !==
-            "canceled" ? (
-              <button
-                type="button"
-                onClick={() =>
-                  updateAppointmentStatus(
-                    appointment.id,
-                    "canceled"
-                  )
-                }
-                className="bg-red-500 text-white px-3 py-2 rounded-xl text-sm font-semibold"
-              >
-                Cancel
-              </button>
-            ) : null}
-          </div>
-        ) : null}
-
-        {isMoving &&
-        canModify ? (
-          <div className="mt-4 rounded-xl border border-blue-200 bg-white/80 p-4">
-            <p className="font-bold mb-3">
-              Move Appointment
-            </p>
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div>
-                <label className="block font-semibold mb-1">
-                  Date
-                </label>
-
-                <input
-                  type="date"
-                  value={moveDate}
-                  onChange={(event) =>
-                    setMoveDate(
-                      event.target.value
-                    )
-                  }
-                  className="w-full border border-gray-300 rounded-xl p-3 bg-white"
-                />
-              </div>
-
-              <div>
-                <label className="block font-semibold mb-1">
-                  Time
-                </label>
-
-                <input
-                  type="time"
-                  value={moveTime}
-                  onChange={(event) =>
-                    setMoveTime(
-                      event.target.value
-                    )
-                  }
-                  className="w-full border border-gray-300 rounded-xl p-3 bg-white"
-                />
-              </div>
-            </div>
-
-            <div className="flex flex-wrap gap-2 mt-3">
-              <button
-                type="button"
-                onClick={() =>
-                  saveMove(
-                    appointment.id
-                  )
-                }
-                disabled={savingMove}
-                className="bg-blue-700 text-white px-4 py-2 rounded-xl font-semibold disabled:opacity-60"
-              >
-                {savingMove
-                  ? "Saving..."
-                  : "Save Move"}
-              </button>
-
-              <button
-                type="button"
-                onClick={cancelMove}
-                disabled={savingMove}
-                className="bg-gray-300 text-gray-900 px-4 py-2 rounded-xl font-semibold disabled:opacity-60"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        ) : null}
-      </div>
-    );
-  }
-
-  /*
-   * BLOCKED TIME CARD
-   */
-
-  function blockedTimeCard(
-    block
-  ) {
-    const recurring =
-      Boolean(
-        block.series_id
-      );
-
-    const canModify =
-      canModifyBlockedTime(
-        block
-      );
-
-    return (
-      <div
-        key={block.id}
-        className="rounded-2xl p-4 border border-gray-300 bg-gray-100 shadow-sm"
-      >
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <p className="font-bold text-lg">
-              {formatTime(
-                block.start_datetime
-              )}{" "}
-              –{" "}
-              {formatTime(
-                block.end_datetime
-              )}
-            </p>
-
-            <p className="text-gray-800">
-              Blocked ·{" "}
-              {block.reason ||
-                "Unavailable"}
-            </p>
-
-            {recurring ? (
-              <p className="text-sm text-gray-600 mt-1">
-                Recurring block
-              </p>
-            ) : null}
-          </div>
-
-          {canModify ? (
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() =>
-                  deleteBlockedTime(
-                    block.id
-                  )
-                }
-                disabled={
-                  deletingBlockId ===
-                  block.id
-                }
-                className="bg-red-500 text-white px-3 py-2 rounded-xl text-sm font-semibold disabled:opacity-60"
-              >
-                {deletingBlockId ===
-                block.id
-                  ? "Deleting..."
-                  : recurring
-                    ? "Delete This"
-                    : "Delete"}
-              </button>
-
-              {recurring ? (
-                <button
-                  type="button"
-                  onClick={() =>
-                    deleteBlockedTimeSeries(
-                      block.series_id
-                    )
-                  }
-                  disabled={
-                    deletingSeriesId ===
-                    block.series_id
-                  }
-                  className="bg-black text-white px-3 py-2 rounded-xl text-sm font-semibold disabled:opacity-60"
-                >
-                  {deletingSeriesId ===
-                  block.series_id
-                    ? "Deleting..."
-                    : "Delete Series"}
-                </button>
-              ) : null}
-            </div>
-          ) : null}
-        </div>
-      </div>
-    );
-  }
+  }, [
+    appointments,
+    selectedDate,
+    selectedBarberId,
+  ]);
 
   return (
-    <main className="min-h-screen bg-emerald-50 p-4 sm:p-10">
-      <div className="max-w-7xl mx-auto space-y-8">
-        <AdminUserBar />
-
-        <section className="rounded-3xl shadow-lg p-6 sm:p-8 border border-emerald-200 bg-gradient-to-r from-emerald-100 via-teal-50 to-white">
+    <main className="min-h-screen bg-orange-50 p-4 sm:p-8">
+      <div className="max-w-4xl mx-auto space-y-6">
+        <section className="rounded-3xl shadow-lg p-6 border border-orange-200 bg-gradient-to-r from-orange-100 via-amber-50 to-white">
           <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <p className="text-sm font-extrabold uppercase tracking-widest text-emerald-700 mb-2">
-                {displayShopName(
-                  shopSlug
-                )}
+              <p className="text-sm font-extrabold uppercase tracking-widest text-orange-700 mb-2">
+                {displayShopName(shopSlug)}
               </p>
 
-              <h1 className="text-5xl font-extrabold tracking-tight mb-3">
-                Calendar
+              <h1 className="text-5xl font-extrabold tracking-tight mb-2 text-gray-950">
+                Daily Agenda
               </h1>
 
               <p className="text-lg text-gray-700">
-                View the shop schedule
-                and quickly manage
-                appointments and blocked
-                time.
+                Today at a glance. Simple and fast.
               </p>
             </div>
 
-            <div className="flex flex-wrap gap-3">
-              <button
-                type="button"
-                onClick={() =>
-                  router.push(
-                    `/${shopSlug}/admin`
-                  )
-                }
-                className="bg-blue-600 text-white rounded-xl px-5 py-3 font-bold shadow hover:bg-blue-700"
-              >
-                Admin Home
-              </button>
-
-              {canManageSelectedBarberAppointments && firstBookableStart(selectedDate) ? (
-                <button
-                  type="button"
-                  onClick={() =>
-                    openAppointmentForm()
-                  }
-                  disabled={
-                    !selectedBarberId
-                  }
-                  className="bg-blue-700 text-white rounded-xl px-5 py-3 font-bold shadow hover:bg-blue-800 disabled:opacity-50"
-                >
-                  + Appointment
-                </button>
-              ) : null}
-
-              {canManageSelectedBarberBlockedTime ? (
-                <button
-                  type="button"
-                  onClick={
-                    openBlockForm
-                  }
-                  disabled={
-                    !selectedBarberId
-                  }
-                  className="bg-emerald-700 text-white rounded-xl px-5 py-3 font-bold shadow hover:bg-emerald-800 disabled:opacity-50"
-                >
-                  + Block Time
-                </button>
-              ) : null}
-            </div>
+            <Link
+              href={`/${shopSlug}/admin`}
+              className="inline-flex items-center justify-center rounded-xl bg-blue-600 px-5 py-3 font-bold text-white shadow hover:bg-blue-700"
+            >
+              Admin Home
+            </Link>
           </div>
 
           {message ? (
-            <p className="mt-4 rounded-xl bg-green-50 border border-green-200 px-4 py-3 font-semibold text-green-700">
+            <p className="mt-4 rounded-xl bg-green-50 border border-green-200 px-4 py-3 font-bold text-green-700">
               {message}
             </p>
           ) : null}
 
           {error ? (
-            <p className="mt-4 rounded-xl bg-red-50 border border-red-200 px-4 py-3 font-semibold text-red-700">
+            <p className="mt-4 rounded-xl bg-red-50 border border-red-200 px-4 py-3 font-bold text-red-700">
               {error}
             </p>
           ) : null}
         </section>
 
-        {isStaff &&
-        !currentUserBarberId &&
-        !staffCanManageOtherStaffAppointments ? (
-          <section className="rounded-2xl border border-amber-300 bg-amber-50 p-4">
-            <p className="font-bold text-amber-900">
-              Your login is not linked
-              to a staff schedule.
-            </p>
-
-            <p className="mt-1 text-amber-900">
-              You can view the calendar,
-              but an owner must link your
-              login to a staff member
-              before you can create or
-              change appointments or
-              blocked time.
-            </p>
-          </section>
-        ) : null}
-
-        {isStaff &&
-        !currentUserBarberId &&
-        staffCanManageOtherStaffAppointments ? (
-          <section className="rounded-2xl border border-blue-300 bg-blue-50 p-4">
-            <p className="font-bold text-blue-900">
-              You can manage appointments
-              for the team.
-            </p>
-
-            <p className="mt-1 text-blue-900">
-              Your login is not linked to
-              a staff schedule, so you
-              cannot add or remove blocked
-              time.
-            </p>
-          </section>
-        ) : null}
-
-        {isStaff &&
-        currentUserBarberId &&
-        selectedBarberId &&
-        selectedBarberId !==
-          currentUserBarberId &&
-        !staffCanManageOtherStaffAppointments ? (
-          <section className="rounded-2xl border border-blue-300 bg-blue-50 p-4">
-            <p className="font-semibold text-blue-900">
-              You can view this staff
-              member&apos;s schedule.
-              Only that staff member or
-              the owner can change their
-              appointments.
-            </p>
-          </section>
-        ) : null}
-
-        {isStaff &&
-        currentUserBarberId &&
-        selectedBarberId &&
-        selectedBarberId !==
-          currentUserBarberId &&
-        staffCanManageOtherStaffAppointments ? (
-          <section className="rounded-2xl border border-blue-300 bg-blue-50 p-4">
-            <p className="font-semibold text-blue-900">
-              You can manage this staff
-              member&apos;s appointments.
-              Blocked time can only be
-              changed by that staff member
-              or the owner.
-            </p>
-          </section>
-        ) : null}
-
-        {showAppointmentForm &&
-        canManageSelectedBarberAppointments ? (
-          <section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-blue-200">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-              <div>
-                <p className="text-sm font-extrabold uppercase tracking-widest text-blue-700 mb-2">
-                  New Appointment
-                </p>
-
-                <h2 className="text-3xl font-bold text-gray-950">
-                  Book for{" "}
-                  {selectedBarber?.name ||
-                    "Staff"}
-                </h2>
-              </div>
-
-              <button
-                type="button"
-                onClick={
-                  closeAppointmentForm
-                }
-                disabled={
-                  savingAppointment
-                }
-                className="self-start bg-gray-200 text-gray-900 rounded-xl px-4 py-2 font-bold disabled:opacity-60"
-              >
-                Close
-              </button>
-            </div>
-
-            <div className="mt-6 grid gap-6 lg:grid-cols-2">
-              <div>
-                <label className="block text-lg font-bold mb-2">
-                  Customer
-                </label>
-
-                {appointmentCustomerMode ===
-                "existing" ? (
-                  <div className="space-y-3">
-                    <input
-                      type="text"
-                      autoFocus
-                      value={
-                        customerSearch
-                      }
-                      onChange={(
-                        event
-                      ) => {
-                        setCustomerSearch(
-                          event.target.value
-                        );
-
-                        setSelectedCustomerKey(
-                          ""
-                        );
-
-                        setAppointmentCustomerName(
-                          ""
-                        );
-
-                        setAppointmentCustomerPhone(
-                          ""
-                        );
-                      }}
-                      placeholder="Type name or phone"
-                      className="w-full border-2 border-blue-200 rounded-xl p-4 text-lg"
-                    />
-
-                    {customerSearch.trim() &&
-                    existingCustomers.length >
-                      0 ? (
-                      <div className="rounded-2xl border border-gray-200 overflow-hidden">
-                        {filteredCustomers.length >
-                        0 ? (
-                          filteredCustomers.map(
-                            (
-                              customer
-                            ) => (
-                              <button
-                                key={
-                                  customer.key
-                                }
-                                type="button"
-                                onClick={() =>
-                                  chooseExistingCustomer(
-                                    customer
-                                  )
-                                }
-                                className={`w-full text-left px-4 py-3 border-b last:border-b-0 hover:bg-blue-50 ${
-                                  selectedCustomerKey ===
-                                  customer.key
-                                    ? "bg-blue-100"
-                                    : "bg-white"
-                                }`}
-                              >
-                                <span className="block font-bold">
-                                  {
-                                    customer.name
-                                  }
-                                </span>
-
-                                <span className="block text-sm text-gray-600">
-                                  {
-                                    customer.phone
-                                  }
-                                </span>
-                              </button>
-                            )
-                          )
-                        ) : (
-                          <div className="p-4 text-gray-600">
-                            No matching
-                            customer.
-                          </div>
-                        )}
-                      </div>
-                    ) : null}
-
-                    <button
-                      type="button"
-                      onClick={
-                        startNewCustomer
-                      }
-                      className="w-full sm:w-auto bg-emerald-700 text-white rounded-xl px-5 py-3 font-bold"
-                    >
-                      + New Customer
-                    </button>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block font-semibold mb-2">
-                        Name
-                      </label>
-
-                      <input
-                        type="text"
-                        autoFocus
-                        value={
-                          appointmentCustomerName
-                        }
-                        onChange={(
-                          event
-                        ) =>
-                          setAppointmentCustomerName(
-                            event.target
-                              .value
-                          )
-                        }
-                        placeholder="Customer name"
-                        className="w-full border-2 border-blue-200 rounded-xl p-4 text-lg"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block font-semibold mb-2">
-                        Phone
-                      </label>
-
-                      <input
-                        type="tel"
-                        value={
-                          appointmentCustomerPhone
-                        }
-                        onChange={(
-                          event
-                        ) =>
-                          setAppointmentCustomerPhone(
-                            event.target
-                              .value
-                          )
-                        }
-                        placeholder="Customer phone"
-                        className="w-full border-2 border-blue-200 rounded-xl p-4 text-lg"
-                      />
-                    </div>
-
-                    {existingCustomers.length >
-                    0 ? (
-                      <button
-                        type="button"
-                        onClick={
-                          useExistingCustomerMode
-                        }
-                        className="text-blue-700 font-bold underline"
-                      >
-                        Choose an existing
-                        customer instead
-                      </button>
-                    ) : null}
-                  </div>
-                )}
-              </div>
-
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-lg font-bold mb-2">
-                    Service
-                  </label>
-
-                  <select
-                    value={
-                      appointmentServiceId
-                    }
-                    onChange={(
-                      event
-                    ) =>
-                      setAppointmentServiceId(
-                        event.target.value
-                      )
-                    }
-                    className="w-full border-2 border-blue-200 rounded-xl p-4 bg-white text-lg"
-                  >
-                    <option value="">
-                      Choose service
-                    </option>
-
-                    {servicesForSelectedBarber.map(
-                      (service) => (
-                        <option
-                          key={
-                            service.id
-                          }
-                          value={
-                            service.id
-                          }
-                        >
-                          {
-                            service.name
-                          }
-                          {service.duration_minutes
-                            ? ` · ${service.duration_minutes} min`
-                            : ""}
-                        </option>
-                      )
-                    )}
-                  </select>
-                </div>
-
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div>
-                    <label className="block font-bold mb-2">
-                      Date
-                    </label>
-
-                    <input
-                      type="date"
-                      value={
-                        appointmentDate
-                      }
-                      onChange={(
-                        event
-                      ) =>
-                        setAppointmentDate(
-                          event.target
-                            .value
-                        )
-                      }
-                      className="w-full border-2 border-blue-200 rounded-xl p-4"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block font-bold mb-2">
-                      Time
-                    </label>
-
-                    <input
-                      type="time"
-                      value={
-                        appointmentTime
-                      }
-                      onChange={(
-                        event
-                      ) =>
-                        setAppointmentTime(
-                          event.target
-                            .value
-                        )
-                      }
-                      className="w-full border-2 border-blue-200 rounded-xl p-4"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block font-bold mb-2">
-                    Notes{" "}
-                    <span className="font-normal text-gray-500">
-                      (optional)
-                    </span>
-                  </label>
-
-                  <textarea
-                    value={
-                      appointmentNotes
-                    }
-                    onChange={(
-                      event
-                    ) =>
-                      setAppointmentNotes(
-                        event.target.value
-                      )
-                    }
-                    rows={3}
-                    placeholder="Anything staff should know"
-                    className="w-full border-2 border-blue-200 rounded-xl p-4"
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap gap-3 mt-7">
-              <button
-                type="button"
-                onClick={
-                  saveNewAppointment
-                }
-                disabled={
-                  savingAppointment
-                }
-                className="bg-blue-700 text-white rounded-xl px-7 py-4 text-lg font-extrabold shadow hover:bg-blue-800 disabled:opacity-60"
-              >
-                {savingAppointment
-                  ? "Booking..."
-                  : "Book Appointment"}
-              </button>
-
-              <button
-                type="button"
-                onClick={
-                  closeAppointmentForm
-                }
-                disabled={
-                  savingAppointment
-                }
-                className="bg-gray-300 text-gray-900 rounded-xl px-6 py-4 font-bold disabled:opacity-60"
-              >
-                Cancel
-              </button>
-            </div>
-          </section>
-        ) : null}
-
-        {showBlockForm &&
-        canManageSelectedBarberBlockedTime ? (
-          <section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-emerald-200">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-              <div>
-                <p className="text-sm font-extrabold uppercase tracking-widest text-emerald-700 mb-2">
-                  Block Time
-                </p>
-
-                <h2 className="text-3xl font-bold text-emerald-950">
-                  {selectedBarber?.name ||
-                    "Staff"}
-                </h2>
-              </div>
-
-              <button
-                type="button"
-                onClick={closeBlockForm}
-                disabled={savingBlock}
-                className="self-start bg-gray-200 text-gray-900 rounded-xl px-4 py-2 font-bold disabled:opacity-60"
-              >
-                Close
-              </button>
-            </div>
-
-            <div className="mt-6">
-              <label className="block font-semibold mb-2">
-                Type
+        <section className="bg-white rounded-3xl shadow-lg p-6 border border-orange-200">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <label className="block font-bold mb-2">
+                Date
               </label>
 
-              <div className="flex flex-wrap gap-3">
-                <button
-                  type="button"
-                  onClick={() =>
-                    setBlockMode(
-                      "one-time"
-                    )
-                  }
-                  className={`rounded-xl px-4 py-3 font-bold border ${
-                    blockMode ===
-                    "one-time"
-                      ? "bg-emerald-700 text-white border-emerald-700"
-                      : "bg-white text-emerald-900 border-emerald-300"
-                  }`}
-                >
-                  One Time
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() =>
-                    setBlockMode(
-                      "recurring"
-                    )
-                  }
-                  className={`rounded-xl px-4 py-3 font-bold border ${
-                    blockMode ===
-                    "recurring"
-                      ? "bg-emerald-700 text-white border-emerald-700"
-                      : "bg-white text-emerald-900 border-emerald-300"
-                  }`}
-                >
-                  Recurring
-                </button>
-              </div>
+              <input
+                type="date"
+                className="w-full border border-orange-200 rounded-xl p-4 text-lg bg-orange-50 focus:outline-none focus:ring-2 focus:ring-orange-300"
+                value={selectedDate}
+                onChange={(event) =>
+                  setSelectedDate(
+                    event.target.value
+                  )
+                }
+              />
             </div>
 
-            <div className="mt-6">
-              <label className="block font-semibold mb-2">
-                Reason
+            <div>
+              <label className="block font-bold mb-2">
+                Staff
               </label>
 
               <select
-                className="w-full border border-emerald-200 rounded-xl p-3 bg-emerald-50"
-                value={blockReason}
+                className="w-full border border-orange-200 rounded-xl p-4 text-lg bg-orange-50 focus:outline-none focus:ring-2 focus:ring-orange-300"
+                value={selectedBarberId}
                 onChange={(event) =>
-                  setBlockReason(
+                  setSelectedBarberId(
                     event.target.value
                   )
                 }
               >
-                {BLOCK_REASON_OPTIONS.map(
-                  (reason) => (
-                    <option
-                      key={reason}
-                      value={reason}
-                    >
-                      {reason}
-                    </option>
-                  )
-                )}
+                <option value="">
+                  All staff
+                </option>
+
+                {barbers.map((barber) => (
+                  <option
+                    key={barber.id}
+                    value={barber.id}
+                  >
+                    {barber.name}
+                  </option>
+                ))}
               </select>
-
-              {blockReason ===
-              "Other" ? (
-                <input
-                  type="text"
-                  className="w-full border border-emerald-200 rounded-xl p-3 mt-3"
-                  placeholder="Enter reason"
-                  value={
-                    customBlockReason
-                  }
-                  onChange={(event) =>
-                    setCustomBlockReason(
-                      event.target.value
-                    )
-                  }
-                />
-              ) : null}
             </div>
-
-            {blockMode ===
-            "one-time" ? (
-              <div className="mt-6">
-                <label className="block font-semibold mb-2">
-                  Date
-                </label>
-
-                <input
-                  type="date"
-                  className="w-full border border-emerald-200 rounded-xl p-3"
-                  value={blockDate}
-                  onChange={(event) =>
-                    setBlockDate(
-                      event.target.value
-                    )
-                  }
-                />
-              </div>
-            ) : (
-              <div className="mt-6 space-y-5">
-                <div>
-                  <label className="block font-semibold mb-2">
-                    Days
-                  </label>
-
-                  <div className="flex flex-wrap gap-2">
-                    {RECURRING_DAYS.map(
-                      (day) => {
-                        const selected =
-                          recurringDays.includes(
-                            day.value
-                          );
-
-                        return (
-                          <button
-                            key={
-                              day.value
-                            }
-                            type="button"
-                            onClick={() =>
-                              toggleRecurringDay(
-                                day.value
-                              )
-                            }
-                            className={`rounded-xl px-4 py-2 font-semibold border ${
-                              selected
-                                ? "bg-emerald-700 text-white border-emerald-700"
-                                : "bg-white text-emerald-900 border-emerald-300"
-                            }`}
-                          >
-                            {
-                              day.label
-                            }
-                          </button>
-                        );
-                      }
-                    )}
-                  </div>
-                </div>
-
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div>
-                    <label className="block font-semibold mb-2">
-                      Start Date
-                    </label>
-
-                    <input
-                      type="date"
-                      className="w-full border border-emerald-200 rounded-xl p-3"
-                      value={
-                        recurringStartDate
-                      }
-                      onChange={(
-                        event
-                      ) =>
-                        handleRecurringStartDateChange(
-                          event.target
-                            .value
-                        )
-                      }
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block font-semibold mb-2">
-                      End Date
-                    </label>
-
-                    <input
-                      type="date"
-                      className="w-full border border-emerald-200 rounded-xl p-3"
-                      value={
-                        recurringEndDate
-                      }
-                      onChange={(
-                        event
-                      ) =>
-                        setRecurringEndDate(
-                          event.target
-                            .value
-                        )
-                      }
-                    />
-                  </div>
-                </div>
-              </div>
-            )}
-
-            <div className="grid gap-4 sm:grid-cols-2 mt-6">
-              <div>
-                <label className="block font-semibold mb-2">
-                  Start Time
-                </label>
-
-                <input
-                  type="time"
-                  className="w-full border border-emerald-200 rounded-xl p-3"
-                  value={
-                    blockStartTime
-                  }
-                  onChange={(event) =>
-                    setBlockStartTime(
-                      event.target.value
-                    )
-                  }
-                />
-              </div>
-
-              <div>
-                <label className="block font-semibold mb-2">
-                  End Time
-                </label>
-
-                <input
-                  type="time"
-                  className="w-full border border-emerald-200 rounded-xl p-3"
-                  value={
-                    blockEndTime
-                  }
-                  onChange={(event) =>
-                    setBlockEndTime(
-                      event.target.value
-                    )
-                  }
-                />
-              </div>
-            </div>
-
-            <div className="flex flex-wrap gap-3 mt-7">
-              <button
-                type="button"
-                onClick={saveBlockedTime}
-                disabled={savingBlock}
-                className="bg-emerald-700 text-white rounded-xl px-6 py-3 font-bold disabled:opacity-60"
-              >
-                {savingBlock
-                  ? "Saving..."
-                  : blockMode ===
-                      "recurring"
-                    ? "Create Recurring Block"
-                    : "Block Time"}
-              </button>
-
-              <button
-                type="button"
-                onClick={closeBlockForm}
-                disabled={savingBlock}
-                className="bg-gray-200 text-gray-900 rounded-xl px-6 py-3 font-bold disabled:opacity-60"
-              >
-                Cancel
-              </button>
-            </div>
-          </section>
-        ) : null}
-
-        <section className="bg-white rounded-3xl shadow-lg p-6 sm:p-8">
-          <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 flex-1">
-              <div>
-                <label className="block font-semibold mb-2">
-                  Staff
-                </label>
-
-                <select
-                  value={
-                    selectedBarberId
-                  }
-                  onChange={(event) => {
-                    setSelectedBarberId(
-                      event.target.value
-                    );
-
-                    setShowAppointmentForm(
-                      false
-                    );
-
-                    setShowBlockForm(
-                      false
-                    );
-
-                    setMovingAppointmentId(
-                      ""
-                    );
-
-                    setMessage("");
-                    setError("");
-                  }}
-                  className="w-full border border-gray-300 rounded-xl p-3 bg-white"
-                >
-                  {barbers.length ===
-                  0 ? (
-                    <option value="">
-                      No staff found
-                    </option>
-                  ) : null}
-
-                  {barbers.map(
-                    (barber) => (
-                      <option
-                        key={barber.id}
-                        value={barber.id}
-                      >
-                        {barber.name}
-                      </option>
-                    )
-                  )}
-                </select>
-              </div>
-
-              <div>
-                <label className="block font-semibold mb-2">
-                  Date
-                </label>
-
-                <input
-                  type="date"
-                  value={selectedDate}
-                  onChange={(event) => {
-                    setSelectedDate(
-                      event.target.value
-                    );
-
-                    setAppointmentDate(
-                      event.target.value
-                    );
-
-                    setBlockDate(
-                      event.target.value
-                    );
-
-                    setShowAppointmentForm(
-                      false
-                    );
-
-                    setShowBlockForm(
-                      false
-                    );
-
-                    setMovingAppointmentId(
-                      ""
-                    );
-                  }}
-                  className="w-full border border-gray-300 rounded-xl p-3"
-                />
-              </div>
-
-              <div>
-                <label className="block font-semibold mb-2">
-                  View
-                </label>
-
-                <div className="flex rounded-xl overflow-hidden border border-gray-300">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setViewMode(
-                        "day"
-                      )
-                    }
-                    className={`flex-1 px-4 py-3 font-semibold ${
-                      viewMode ===
-                      "day"
-                        ? "bg-emerald-700 text-white"
-                        : "bg-white text-gray-800"
-                    }`}
-                  >
-                    Day
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setViewMode(
-                        "week"
-                      )
-                    }
-                    className={`flex-1 px-4 py-3 font-semibold ${
-                      viewMode ===
-                      "week"
-                        ? "bg-emerald-700 text-white"
-                        : "bg-white text-gray-800"
-                    }`}
-                  >
-                    Week
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => {
-                const today =
-                  localDateValue();
-
-                setSelectedDate(
-                  today
-                );
-
-                setAppointmentDate(
-                  today
-                );
-
-                setBlockDate(today);
-              }}
-              className="bg-gray-900 text-white rounded-xl px-5 py-3 font-bold"
-            >
-              Today
-            </button>
           </div>
         </section>
 
-        {loading ? (
-          <section className="bg-white rounded-3xl shadow-lg p-8">
-            <p className="text-lg font-semibold text-gray-700">
-              Loading calendar...
-            </p>
-          </section>
-        ) : null}
-
-        {!loading &&
-        !selectedBarberId ? (
-          <section className="bg-white rounded-3xl shadow-lg p-8">
-            <p className="text-lg font-semibold text-gray-700">
-              No staff schedule is
-              available yet.
-            </p>
-          </section>
-        ) : null}
-
-        {!loading &&
-        selectedBarberId &&
-        viewMode === "day" ? (
-          <section className="bg-white rounded-3xl shadow-lg overflow-hidden">
-            <div className="p-6 border-b">
-              <p className="text-sm font-extrabold uppercase tracking-widest text-emerald-700">
-                Day View
+        <section className="space-y-4">
+          {loading ? (
+            <div className="bg-white rounded-3xl shadow-lg p-6 border border-orange-200">
+              <p className="text-2xl font-bold">
+                Loading agenda...
               </p>
-
-              <h2 className="text-3xl font-bold mt-1">
-                {selectedBarber?.name ||
-                  "Staff"}{" "}
-                ·{" "}
-                {new Date(
-                  `${selectedDate}T12:00:00`
-                ).toLocaleDateString(
-                  [],
-                  {
-                    weekday:
-                      "long",
-                    month:
-                      "long",
-                    day: "numeric",
-                    year: "numeric",
-                  }
-                )}
-              </h2>
             </div>
+          ) : null}
 
-            <div className="divide-y">
-              {dayStatus ? <p className="p-5 font-semibold text-gray-600">{dayStatus}</p> : null}
-              {calendarHours.map(
-                (hourText) => {
-                  const appointmentItems =
-                    appointmentItemsForHour(
-                      hourText
-                    );
+          {!loading &&
+          agendaAppointments.length === 0 ? (
+            <div className="bg-white rounded-3xl shadow-lg p-6 border border-orange-200">
+              <p className="text-2xl font-bold">
+                No appointments.
+              </p>
+            </div>
+          ) : null}
 
-                  const blockedItems =
-                    blockedItemsForHour(
-                      hourText
-                    );
+          {!loading &&
+            agendaAppointments.map(
+              (appointment) => {
+                const statusStyle =
+                  STATUS_STYLES[
+                    appointment.status
+                  ] ||
+                  STATUS_STYLES.confirmed;
 
-                  /*
-                   * Canceled appointments remain in
-                   * history, but they no longer make
-                   * the hour unavailable.
-                   */
-                  const activeAppointmentItems =
-                    appointmentItems.filter(
-                      (appointment) =>
-                        appointment.status !==
-                        "canceled"
-                    );
+                const statusLabel =
+                  STATUS_LABELS[
+                    appointment.status
+                  ] || "Confirmed";
 
-                  const canceledAppointmentItems =
-                    appointmentItems.filter(
-                      (appointment) =>
-                        appointment.status ===
-                        "canceled"
-                    );
+                const phone = cleanPhone(
+                  appointment.customer_phone
+                );
 
-                  const availableStart = earliestStartInHour(
-                    dayFreeIntervals, hourText, availableDurations
+                const isMoving =
+                  movingAppointmentId ===
+                  appointment.id;
+
+                const canModify =
+                  canModifyAppointment(
+                    appointment
                   );
-                  const isOpen = Boolean(availableStart);
 
-                  return (
-                    <div
-                      key={hourText}
-                      className="grid gap-4 p-5 md:grid-cols-[110px_1fr]"
-                    >
+                return (
+                  <div
+                    key={appointment.id}
+                    className={
+                      "rounded-3xl shadow-lg p-6 border " +
+                      statusStyle
+                    }
+                  >
+                    <div className="flex justify-between gap-4">
                       <div>
-                        <p className="font-bold text-gray-700">
-                          {new Date(
-                            `${selectedDate}T${hourText}:00`
-                          ).toLocaleTimeString(
-                            [],
-                            {
-                              hour:
-                                "numeric",
-                              minute:
-                                "2-digit",
-                            }
+                        <p className="text-4xl font-extrabold">
+                          {formatTime(
+                            appointment.start_datetime
                           )}
                         </p>
+
+                        <p className="text-2xl font-bold mt-2">
+                          {
+                            appointment.customer_name
+                          }
+                        </p>
+
+                        <p className="text-lg text-gray-900">
+                          {serviceName(
+                            appointment.service_id
+                          )}{" "}
+                          ·{" "}
+                          {barberName(
+                            appointment.barber_id
+                          )}
+                        </p>
+
+                        <div className="grid grid-cols-2 gap-3 mt-4">
+                          <a
+                            className="bg-black text-white rounded-xl p-4 text-center font-bold"
+                            href={`tel:${phone}`}
+                          >
+                            Call
+                          </a>
+
+                          <a
+                            className="bg-gray-800 text-white rounded-xl p-4 text-center font-bold"
+                            href={`sms:${phone}`}
+                          >
+                            Text
+                          </a>
+                        </div>
                       </div>
 
-                      <div className="space-y-3">
-                        {activeAppointmentItems.map(
-                          (
-                            appointment
-                          ) =>
-                            appointmentCard(
-                              appointment
-                            )
-                        )}
+                      <div>
+                        <span className="font-bold bg-white border rounded-full px-3 py-1">
+                          {statusLabel}
+                        </span>
+                      </div>
+                    </div>
 
-                        {blockedItems.map(
-                          (block) =>
-                            blockedTimeCard(
-                              block
-                            )
-                        )}
+                    <div className="mt-4">
+                      <ServicePaymentButton appointment={appointment} user={currentUser} shopSlug={shopSlug} />
+                    </div>
 
-                        {isOpen &&
-                        canManageSelectedBarberAppointments ? (
+                    {!isMoving ? (
+                      <div
+                        className={`grid grid-cols-2 gap-3 mt-5 ${
+                          canModify
+                            ? "sm:grid-cols-6"
+                            : "sm:grid-cols-1"
+                        }`}
+                      >
+                        {canModify ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                updateStatus(
+                                  appointment.id,
+                                  "confirmed"
+                                )
+                              }
+                              className="bg-blue-500 text-white rounded-xl p-4 font-bold"
+                            >
+                              Confirm
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() =>
+                                updateStatus(
+                                  appointment.id,
+                                  "completed"
+                                )
+                              }
+                              className="bg-green-600 text-white rounded-xl p-4 font-bold"
+                            >
+                              Done
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() =>
+                                updateStatus(
+                                  appointment.id,
+                                  "no_show"
+                                )
+                              }
+                              className="bg-yellow-500 text-white rounded-xl p-4 font-bold"
+                            >
+                              No-show
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() =>
+                                updateStatus(
+                                  appointment.id,
+                                  "canceled"
+                                )
+                              }
+                              className="bg-red-500 text-white rounded-xl p-4 font-bold"
+                            >
+                              Cancel
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() =>
+                                startMove(
+                                  appointment
+                                )
+                              }
+                              className="bg-gray-700 text-white rounded-xl p-4 font-bold"
+                            >
+                              Move
+                            </button>
+                          </>
+                        ) : null}
+
+                        <Link
+                          href={`/${shopSlug}/admin/customers?phone=${encodeURIComponent(
+                            phone
+                          )}`}
+                          className="bg-purple-700 text-white rounded-xl p-4 font-bold text-center"
+                        >
+                          Customer
+                        </Link>
+                      </div>
+                    ) : canModify ? (
+                      <div className="mt-5 rounded-2xl border bg-white p-4">
+                        <p className="font-bold text-lg mb-3">
+                          Move this appointment
+                        </p>
+
+                        <div className="grid gap-3 sm:grid-cols-3">
+                          <div>
+                            <label className="block font-bold mb-2">
+                              New date
+                            </label>
+
+                            <input
+                              type="date"
+                              className="w-full border rounded-xl p-3"
+                              value={moveDate}
+                              onChange={(event) =>
+                                setMoveDate(
+                                  event.target.value
+                                )
+                              }
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block font-bold mb-2">
+                              New time
+                            </label>
+
+                            <input
+                              type="time"
+                              className="w-full border rounded-xl p-3"
+                              value={moveTime}
+                              onChange={(event) =>
+                                setMoveTime(
+                                  event.target.value
+                                )
+                              }
+                            />
+                          </div>
+
                           <button
                             type="button"
                             onClick={() =>
-                              openAppointmentForm(
-                                availableStart
+                              saveMove(
+                                appointment.id
                               )
                             }
-                            className="w-full text-left rounded-2xl border-2 border-dashed border-emerald-200 bg-emerald-50/50 px-4 py-4 font-semibold text-emerald-800 hover:bg-emerald-50"
+                            disabled={savingMove}
+                            className="self-end bg-black text-white rounded-xl p-3 font-bold disabled:opacity-60"
                           >
-                            Open{availableStart !== hourText ? ` at ${availableStart}` : ""} · Add appointment
+                            {savingMove
+                              ? "Moving..."
+                              : "Save Move"}
                           </button>
-                        ) : null}
+                        </div>
 
-                        {isOpen &&
-                        !canManageSelectedBarberAppointments ? (
-                          <div className="rounded-2xl border border-gray-200 bg-gray-50 px-4 py-4 text-gray-500">
-                            Open
-                          </div>
-                        ) : null}
-
-                        {!isOpen && activeAppointmentItems.length === 0 && blockedItems.length === 0 ? (
-                          <div className="rounded-2xl border border-gray-200 bg-gray-50 px-4 py-4 text-gray-500">
-                            {dayStatus || (availableDurations.length ? "Unavailable" : "No active services")}
-                          </div>
-                        ) : null}
-
-                        {canceledAppointmentItems.length >
-                        0 ? (
-                          <details className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
-                            <summary className="cursor-pointer text-sm font-semibold text-gray-600">
-                              {canceledAppointmentItems.length ===
-                              1
-                                ? "1 canceled appointment · View history"
-                                : `${canceledAppointmentItems.length} canceled appointments · View history`}
-                            </summary>
-
-                            <div className="mt-3 space-y-3">
-                              {canceledAppointmentItems.map(
-                                (
-                                  appointment
-                                ) =>
-                                  appointmentCard(
-                                    appointment
-                                  )
-                              )}
-                            </div>
-                          </details>
-                        ) : null}
+                        <button
+                          type="button"
+                          onClick={cancelMove}
+                          disabled={savingMove}
+                          className="mt-3 bg-gray-400 text-white rounded-xl px-4 py-3 font-bold disabled:opacity-60"
+                        >
+                          Cancel Move
+                        </button>
                       </div>
-                    </div>
-                  );
-                }
-              )}
-            </div>
-          </section>
-        ) : null}
-
-        {!loading &&
-        selectedBarberId &&
-        viewMode === "week" ? (
-          <section className="bg-white rounded-3xl shadow-lg overflow-hidden">
-            <div className="p-6 border-b">
-              <p className="text-sm font-extrabold uppercase tracking-widest text-emerald-700">
-                Week View
-              </p>
-
-              <h2 className="text-3xl font-bold mt-1">
-                {selectedBarber?.name ||
-                  "Staff"}
-              </h2>
-            </div>
-
-            <div className="grid gap-4 p-5 lg:grid-cols-7">
-              {weekDates.map(
-                (date) => {
-                  const items =
-                    weekItemsForDate(
-                      date
-                    );
-
-                  return (
-                    <div
-                      key={date}
-                      className="rounded-2xl border border-gray-200 bg-gray-50 min-h-[220px] overflow-hidden"
-                    >
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSelectedDate(
-                            date
-                          );
-
-                          setAppointmentDate(
-                            date
-                          );
-
-                          setBlockDate(
-                            date
-                          );
-
-                          setViewMode(
-                            "day"
-                          );
-
-                          setShowAppointmentForm(
-                            false
-                          );
-
-                          setShowBlockForm(
-                            false
-                          );
-
-                          setMovingAppointmentId(
-                            ""
-                          );
-                        }}
-                        className="w-full text-left p-4 border-b border-gray-200 bg-white hover:bg-emerald-50"
-                      >
-                        <p className="text-sm font-bold text-emerald-700">
-                          {
-                            DAYS[
-                              new Date(
-                                `${date}T12:00:00`
-                              ).getDay()
-                            ]
-                          }
-                        </p>
-
-                        <p className="font-bold text-gray-950">
-                          {new Date(
-                            `${date}T12:00:00`
-                          ).toLocaleDateString(
-                            [],
-                            {
-                              month:
-                                "short",
-                              day: "numeric",
-                            }
-                          )}
-                        </p>
-                      </button>
-
-                      <div className="p-3 space-y-3">
-                        {dayScheduleStatus(date) ? <p className="text-sm font-semibold text-gray-600">{dayScheduleStatus(date)}</p> : null}
-                        {items.length === 0 ? (
-                          <p className="text-sm text-gray-500">
-                            No appointments
-                          </p>
-                        ) : null}
-
-                        {items.map((item) => {
-                          if (
-                            item.type ===
-                            "appointment"
-                          ) {
-                            const appointment =
-                              item.data;
-
-                            const statusStyle =
-                              STATUS_STYLES[
-                                appointment
-                                  .status
-                              ] ||
-                              STATUS_STYLES
-                                .confirmed;
-
-                            return (
-                              <button
-                                key={
-                                  item.id
-                                }
-                                type="button"
-                                onClick={() => {
-                                  setSelectedDate(
-                                    date
-                                  );
-
-                                  setAppointmentDate(
-                                    date
-                                  );
-
-                                  setBlockDate(
-                                    date
-                                  );
-
-                                  setViewMode(
-                                    "day"
-                                  );
-                                }}
-                                className={`w-full text-left rounded-xl border p-3 ${statusStyle}`}
-                              >
-                                <p className="font-bold text-sm">
-                                  {formatTime(
-                                    appointment.start_datetime
-                                  )}
-                                </p>
-
-                                <p className="font-semibold text-sm mt-1">
-                                  {
-                                    appointment.customer_name
-                                  }
-                                </p>
-
-                                <p className="text-xs mt-1">
-                                  {serviceName(
-                                    appointment.service_id
-                                  )}
-                                </p>
-                              </button>
-                            );
-                          }
-
-                          const block =
-                            item.data;
-
-                          return (
-                            <button
-                              key={
-                                item.id
-                              }
-                              type="button"
-                              onClick={() => {
-                                setSelectedDate(
-                                  date
-                                );
-
-                                setAppointmentDate(
-                                  date
-                                );
-
-                                setBlockDate(
-                                  date
-                                );
-
-                                setViewMode(
-                                  "day"
-                                );
-                              }}
-                              className="w-full text-left rounded-xl border border-gray-300 bg-gray-200 p-3"
-                            >
-                              <p className="font-bold text-sm">
-                                {formatTime(
-                                  block.start_datetime
-                                )}
-                              </p>
-
-                              <p className="text-sm mt-1">
-                                {block.reason ||
-                                  "Blocked"}
-                              </p>
-                            </button>
-                          );
-                        })}
-
-                        {canManageSelectedBarberAppointments && firstBookableStart(date) ? (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setSelectedDate(
-                                date
-                              );
-
-                              setAppointmentDate(
-                                date
-                              );
-
-                              setBlockDate(
-                                date
-                              );
-
-                              setViewMode(
-                                "day"
-                              );
-
-                              setShowBlockForm(
-                                false
-                              );
-
-                              setMovingAppointmentId(
-                                ""
-                              );
-
-                              const availableTime = firstBookableStart(date);
-                              if (!availableTime) return;
-                              resetAppointmentForm();
-                              setAppointmentTime(availableTime);
-
-                              setAppointmentDate(
-                                date
-                              );
-
-                              setShowAppointmentForm(
-                                true
-                              );
-
-                              setMessage("");
-                              setError("");
-                            }}
-                            className="w-full rounded-xl border-2 border-dashed border-emerald-300 bg-white px-3 py-2 text-sm font-bold text-emerald-800 hover:bg-emerald-50"
-                          >
-                            + Appointment
-                          </button>
-                        ) : null}
-                      </div>
-                    </div>
-                  );
-                }
-              )}
-            </div>
-          </section>
-        ) : null}
+                    ) : null}
+                  </div>
+                );
+              }
+            )}
+        </section>
       </div>
     </main>
   );
 }
-
