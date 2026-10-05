@@ -95,6 +95,48 @@ export async function GET(request) {
     const suffix = name === "get_shop_information_v2" ? "shop-information"
       : name.startsWith("check_availability") ? "availability" : "book";
     const expectedEndpoint = `${BACKEND_URL}/api/ai-setup/tenant-webhook/${encodeURIComponent(slug)}/${suffix}`;
+    let availabilityTest = null;
+    const query = new URL(request.url).searchParams;
+    if (query.get("target_date")) {
+      if (name !== "check_availability" || endpoint !== expectedEndpoint) {
+        return json({ detail: "A live test requires this shop's verified availability endpoint." }, 409);
+      }
+      const targetDate = query.get("target_date");
+      const serviceName = query.get("service_name");
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(targetDate) || !serviceName) {
+        return json({ detail: "Provide target_date as YYYY-MM-DD and service_name." }, 400);
+      }
+      const headers = parameters.apiDetails?.headers;
+      const secretHeaders = Array.isArray(headers) ? headers.filter(
+        (item) => String(item.key || "").toLowerCase() === "x-chairtime-webhook-secret"
+      ) : [];
+      const secret = secretHeaders.length === 1 ? secretHeaders[0].value : null;
+      if (!secret || secret === "[REDACTED]") {
+        return json({ detail: "The server cannot access the current shop's webhook credential." }, 409);
+      }
+      const payload = {
+        service_name: serviceName,
+        target_date: targetDate,
+        barber_name: query.get("barber_name") || "No preference",
+        preferred_start_time: query.get("preferred_start_time") || null,
+        time_window: query.get("time_window") || null,
+      };
+      // Availability lookup only. Never call a booking, messaging or action-update URL.
+      const response = await fetch(expectedEndpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json",
+          "X-ChairTime-Webhook-Secret": secret },
+        body: JSON.stringify(payload),
+        cache: "no-store",
+        signal: AbortSignal.timeout(25000),
+      });
+      let result;
+      try { result = await response.json(); }
+      catch { result = { detail: "The availability webhook returned invalid JSON." }; }
+      availabilityTest = {
+        request: payload, http_status: response.status, response: redact(result),
+      };
+    }
     return json({
       success: true,
       shop_slug: slug,
@@ -105,8 +147,9 @@ export async function GET(request) {
       expected_endpoint: expectedEndpoint,
       cap_definition_id: parameters.capActionId || null,
       action: redact(action),
+      availability_test: availabilityTest,
     });
-  } catch (error) {
+    } catch (error) {
     return json({
       detail: "Could not export the saved settings. Please share this error status.",
     }, Number.isInteger(error?.status) ? error.status : 502);
