@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session
 
@@ -7,6 +8,7 @@ from app.models import (
     AvailabilityRule,
     BlockedTime,
     Service,
+    Shop,
     ShopAvailabilityRule,
     ShopBlockedTime,
 )
@@ -180,6 +182,12 @@ def generate_available_slots(
         service.shop_slug or ""
     ).strip().lower()
 
+    shop = db.query(Shop).filter(Shop.slug == shop_slug).first()
+    zone = ZoneInfo(shop.timezone if shop else "America/New_York")
+    now = datetime.now(zone).replace(tzinfo=None)
+    if target_date < now.date():
+        return []
+
     weekday = target_date.weekday()
 
     rules_query = db.query(
@@ -247,7 +255,8 @@ def generate_available_slots(
                 )
 
             if (
-                within_shop_hours
+                current_start > now
+                and within_shop_hours
                 and not has_overlap(
                     db,
                     barber_id,
