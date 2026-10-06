@@ -12,7 +12,8 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import Appointment, Service, Shop, User
-from app.payment_records import ServicePayment
+from app.payment_records import ServicePayment, TerminalPaymentAttempt, PaymentLinkDelivery
+from app.routes.reminders import send_highlevel_sms
 from app.routes.auth import get_current_user, get_jwt_secret
 from app.routes.billing import get_stripe_secret_key
 
@@ -60,7 +61,18 @@ def receipt_token(record):
 
 def reconcile(db, record):
     """Never mark paid from a browser redirect or a client-supplied flag."""
-    if not record.session_id or record.status == "paid":
+    if record.status == "paid":
+        return
+    terminal_attempt = db.get(TerminalPaymentAttempt, record.id)
+    if terminal_attempt:
+        if record.payment_intent_id:
+            stripe.api_key = get_stripe_secret_key()
+            intent = stripe.PaymentIntent.retrieve(
+                record.payment_intent_id, stripe_account=record.account_id
+            )
+            verify_terminal_intent(record, intent)
+        return
+    if not record.session_id:
         return
     stripe.api_key = get_stripe_secret_key()
     session = stripe.checkout.Session.retrieve(
@@ -90,6 +102,32 @@ def reconcile(db, record):
         record.checkout_url = None
     elif value(session, "status") == "complete":
         record.status = "processing"
+    else:
+        record.status = "unpaid"
+
+
+def verify_terminal_intent(record, intent):
+    metadata = value(intent, "metadata", {}) or {}
+    expected = {"purpose": "service_payment_terminal", "payment_id": record.id,
+                "shop_slug": record.shop_slug, "appointment_id": record.appointment_id}
+    if (any(value(metadata, key) != item for key, item in expected.items())
+        or object_id(intent) != record.payment_intent_id
+        or value(intent, "amount") != record.amount_cents
+        or value(intent, "currency") != record.currency
+        or "card_present" not in value(intent, "payment_method_types", [])
+        or (value(intent, "application_fee_amount") or 0) != record.fee_cents):
+        raise HTTPException(409, "The Tap to Pay payment does not match this appointment.")
+    status = value(intent, "status")
+    if status == "succeeded":
+        if value(intent, "amount_received") != record.amount_cents:
+            raise HTTPException(409, "Stripe has not confirmed the full payment.")
+        record.status = "paid"
+        record.paid_at = record.paid_at or datetime.now(timezone.utc).replace(tzinfo=None)
+        record.checkout_url = None
+    elif status in {"processing", "requires_capture"}:
+        record.status = "processing"
+    elif status == "canceled":
+        record.status = "canceled"
     else:
         record.status = "unpaid"
 
@@ -129,7 +167,11 @@ def get_payment(appointment_id: str, response: Response,
     except stripe.StripeError:
         db.rollback()
         raise stripe_failure()
+    delivery = db.get(PaymentLinkDelivery, record.session_id) if record and record.session_id else None
     return {"success": True, "shop_slug": user.shop_slug,
+            "uses_tap_to_pay": bool(record and db.get(TerminalPaymentAttempt, record.id)),
+            "text_link_status": delivery.status if delivery else None,
+            "text_link_recipient": delivery.recipient_last4 if delivery else None,
             "appointment_id": appointment.id, "customer_name": appointment.customer_name,
             "appointment_status": appointment.status,
             "service_name": record.service_name if record else (service.name if service else None),
@@ -193,6 +235,9 @@ def create_service_checkout(appointment_id: str,
         if record.status == "paid":
             db.commit()
             return {"success": True, "shop_slug": shop.slug, **payment_data(record)}
+        if db.get(TerminalPaymentAttempt, record.id):
+            db.commit()
+            raise HTTPException(409, "This appointment uses Tap to Pay. Resume it in the mobile app.")
         if record.status == "processing":
             db.commit()
             raise HTTPException(409, "This payment is still processing. Do not create another charge.")
@@ -243,6 +288,80 @@ def create_service_checkout(appointment_id: str,
         raise HTTPException(409, "Another payment request is in progress. Please refresh.")
 
 
+@router.post("/appointments/{appointment_id}/text-link")
+def text_payment_link(appointment_id: str,
+                      user: User = Depends(get_current_user),
+                      db: Session = Depends(get_db)):
+    # Recipient and amount always come from this authenticated shop's appointment.
+    appointment = appointment_for_user(db, appointment_id, user)
+    digits = "".join(c for c in appointment.customer_phone or "" if c.isdigit())
+    if len(digits) == 11 and digits.startswith("1"):
+        digits = digits[1:]
+    if len(digits) != 10:
+        raise HTTPException(400, "Update the customer's US phone number on the appointment first.")
+    checkout = create_service_checkout(appointment_id, user, db)
+    if checkout.get("payment_status") == "paid":
+        return checkout
+    appointment = appointment_for_user(db, appointment_id, user)
+    record = db.query(ServicePayment).filter(
+        ServicePayment.appointment_id == appointment.id,
+        ServicePayment.shop_slug == user.shop_slug,
+    ).one()
+    reconcile(db, record)
+    if record.status == "paid":
+        db.commit()
+        return {"success": True, "shop_slug": user.shop_slug, **payment_data(record)}
+    if record.status != "unpaid" or not record.checkout_url:
+        raise HTTPException(409, "Refresh the payment status before sending a link.")
+    if appointment.status in {"canceled", "no_show"}:
+        raise HTTPException(409, "This appointment is canceled or marked no-show.")
+    # Check the saved recipient again after reacquiring the appointment lock.
+    latest = "".join(c for c in appointment.customer_phone or "" if c.isdigit())
+    if latest not in {digits, "1" + digits}:
+        raise HTTPException(409, "The customer's phone changed. Refresh before sending.")
+    shop = db.query(Shop).filter(Shop.slug == user.shop_slug).one()
+    delivery = db.get(PaymentLinkDelivery, record.session_id)
+    if delivery and delivery.status == "sent":
+        return {"success": True, "shop_slug": user.shop_slug,
+                "text_link_status": "sent", "text_link_recipient": delivery.recipient_last4,
+                **payment_data(record)}
+    if delivery and delivery.status in {"sending", "unknown"}:
+        raise HTTPException(409, "Text delivery is pending or unconfirmed. Check the customer's messages before attempting another send.")
+    if not delivery:
+        delivery = PaymentLinkDelivery(session_id=record.session_id, payment_id=record.id,
+                                       recipient_last4=digits[-4:], status="sending")
+        db.add(delivery)
+    delivery.status = "sending"
+    delivery.recipient_last4 = digits[-4:]
+    message = (f"{shop.name}: Pay ${Decimal(record.amount_cents) / 100:.2f} for "
+               f"{record.service_name} securely on your own device: {record.checkout_url} "
+               "Reply STOP to unsubscribe.")
+    # Reserve before the network call: a browser retry cannot send duplicate SMS.
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(409, "A payment text is already being sent. Refresh its status.")
+    try:
+        result = send_highlevel_sms("+1" + digits, message)
+    except Exception:
+        result = {"success": False, "step": "message"}
+    if result.get("success"):
+        delivery.status = "sent"
+    elif result.get("step") in {"config", "contact", "contact_id"}:
+        delivery.status = "failed"  # No message request was made; retry is safe.
+    else:
+        delivery.status = "unknown"  # A timeout may occur after the provider accepted it.
+    db.commit()
+    if delivery.status != "sent":
+        if delivery.status == "failed":
+            raise HTTPException(502, "The payment text was not sent. Check the SMS configuration and try again.")
+        raise HTTPException(502, "Text delivery could not be confirmed. Check messages before sending again.")
+    return {"success": True, "shop_slug": user.shop_slug,
+            "text_link_status": "sent", "text_link_recipient": delivery.recipient_last4,
+            **payment_data(record)}
+
+
 @router.get("/receipt")
 def get_receipt(token: str, shop_slug: str, response: Response,
                 db: Session = Depends(get_db)):
@@ -289,13 +408,19 @@ async def payment_webhook(request: Request, db: Session = Depends(get_db)):
     if value(event, "type") not in {
         "checkout.session.completed", "checkout.session.async_payment_succeeded",
         "checkout.session.async_payment_failed", "checkout.session.expired",
+        "payment_intent.succeeded", "payment_intent.payment_failed",
+        "payment_intent.processing", "payment_intent.canceled",
     }:
         return {"received": True}
     session = value(value(event, "data", {}), "object", {})
+    is_terminal = str(value(event, "type", "")).startswith("payment_intent.")
+    match_column = ServicePayment.payment_intent_id if is_terminal else ServicePayment.session_id
     record = db.query(ServicePayment).filter(
-        ServicePayment.session_id == object_id(session),
+        match_column == object_id(session),
         ServicePayment.account_id == value(event, "account"),
     ).first()
+    if is_terminal and record and not db.get(TerminalPaymentAttempt, record.id):
+        return {"received": True}
     if record:
         query = db.query(Appointment).filter(Appointment.id == record.appointment_id)
         if db.get_bind().dialect.name == "postgresql":
