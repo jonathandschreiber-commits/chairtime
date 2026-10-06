@@ -293,6 +293,27 @@ export default function AccountOptionsPage() {
     }
   }
 
+  async function finishStripeSetup() {
+    setOpeningStripe(true);
+    setError("");
+    setMessage("");
+    try {
+      const response = await fetch("/api/billing/connect/start", {
+        method: "POST",
+        headers: { Accept: "application/json" },
+        cache: "no-store",
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.onboarding_url) {
+        throw new Error(data.error || data.detail || "Unable to open Stripe setup. Please try again.");
+      }
+      window.location.href = data.onboarding_url;
+    } catch (err) {
+      setError(err?.message || "Unable to open Stripe setup.");
+      setOpeningStripe(false);
+    }
+  }
+
   async function openStripeDashboard() {
     setOpeningStripe(true);
     setError("");
@@ -797,14 +818,25 @@ export default function AccountOptionsPage() {
             ) : payments.connected_account_exists ? (
               <>
                 <p className="font-extrabold text-amber-700">
-                  Payment setup needs attention
+                  Stripe setup is not yet ready
                 </p>
 
                 <p className="text-sm text-slate-600 mt-1">
-                  Finish your Stripe setup
-                  before accepting customer
-                  cards.
+                  Stripe may be reviewing your information or need more details.
+                  Open Stripe to check and complete any remaining steps,
+                  then check the status here.
                 </p>
+                <div className="mt-4 flex flex-wrap gap-3">
+                  <button type="button" onClick={finishStripeSetup}
+                    disabled={openingStripe || paymentPolicy === "none"}
+                    className="rounded-xl bg-emerald-600 px-4 py-2.5 font-bold text-white hover:bg-emerald-700 disabled:opacity-60">
+                    {openingStripe ? "Opening..." : "Finish Stripe Setup"}
+                  </button>
+                  <button type="button" onClick={loadAccount} disabled={openingStripe}
+                    className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 font-bold text-slate-700 hover:bg-slate-100 disabled:opacity-60">
+                    Check Status
+                  </button>
+                </div>
               </>
             ) : (
               <>
@@ -817,6 +849,12 @@ export default function AccountOptionsPage() {
                   you decide to accept or
                   require customer cards.
                 </p>
+                {paymentPolicy !== "none" ? (
+                  <button type="button" onClick={finishStripeSetup} disabled={openingStripe}
+                    className="mt-4 rounded-xl bg-emerald-600 px-4 py-2.5 font-bold text-white disabled:opacity-60">
+                    {openingStripe ? "Opening..." : "Connect Stripe"}
+                  </button>
+                ) : null}
               </>
             )}
           </div>
