@@ -8,7 +8,9 @@ export default function CollectPaymentPage() {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [mobile, setMobile] = useState(false);
+  const tapEnabled = process.env.NEXT_PUBLIC_TAP_TO_PAY_ENABLED === "true";
+  useEffect(() => { setMobile(/Android|iPhone/.test(navigator.userAgent)); }, []);
   const endpoint = `/api/payments/appointments/${encodeURIComponent(appointmentId)}`;
 
   const read = useCallback(async () => {
@@ -24,28 +26,23 @@ export default function CollectPaymentPage() {
 
   useEffect(() => { read(); }, [read]);
   useEffect(() => {
-    if (!data?.checkout_url && data?.payment_status !== "processing") return;
+    if (data?.payment_status === "paid") return;
     const timer = setInterval(read, 15000);
     window.addEventListener("focus", read);
     return () => { clearInterval(timer); window.removeEventListener("focus", read); };
   }, [data?.checkout_url, data?.payment_status, read]);
 
-  async function createLink() {
+  async function textLink() {
     if (busy) return;
     setBusy(true); setError("");
     try {
-      const response = await fetch(`${endpoint}/checkout`, { method: "POST" });
+      const response = await fetch(`${endpoint}/text-link`, { method: "POST" });
       const result = await response.json();
-      if (!response.ok) throw new Error(typeof result.detail === "string" ? result.detail : "Could not create checkout.");
+      if (!response.ok) throw new Error(typeof result.detail === "string" ? result.detail : "Could not send the payment link.");
       if (result.shop_slug !== shop) throw new Error("The payment did not match this shop.");
       setData(previous => ({ ...previous, ...result }));
-    } catch (failure) { setError(failure.message || "Could not create checkout."); }
+    } catch (failure) { setError(failure.message || "Could not send the payment link."); }
     finally { setBusy(false); }
-  }
-
-  async function copyLink() {
-    try { await navigator.clipboard.writeText(data.checkout_url); setCopied(true); }
-    catch { setError("Could not copy. Select and copy the payment link below."); }
   }
 
   return (
@@ -57,22 +54,36 @@ export default function CollectPaymentPage() {
       {data && <section className="mt-6 rounded-2xl border bg-white p-6">
         <p className="text-xl font-bold">{data.customer_name}</p>
         <p className="mt-2">{data.service_name} — ${data.amount}</p>
+        {data.payment_status !== "paid" && <div className="mt-5">
+          <button type="button" disabled={!tapEnabled || !mobile || busy || !!error || !!data.checkout_url ||
+            ["canceled", "no_show"].includes(data.appointment_status) || data.payment_status === "processing"}
+            onClick={() => { window.location.href = `chairtime-counter://payment?shop=${encodeURIComponent(shop)}&appointment_id=${encodeURIComponent(appointmentId)}`; }}
+            className="rounded-xl bg-green-700 px-4 py-3 font-bold text-white disabled:opacity-50">
+            Tap to Pay — ${data.amount}
+          </button>
+          <p className="mt-2 text-sm text-gray-600">{!tapEnabled ? "Tap to Pay requires the ChairTime Counter app setup." :
+            !mobile ? "Open this appointment on the shop’s iPhone or Android phone with ChairTime Counter installed." :
+            data.checkout_url ? "This appointment already has a payment link. Use that link to avoid a second charge." :
+            "Opens ChairTime Counter on this phone. The customer taps their card or phone there."}</p>
+        </div>}
         {data.payment_status === "paid" ? <p role="status" className="mt-5 font-bold text-green-700">Paid — ${data.amount}</p> :
           data.payment_status === "processing" ? <p className="mt-5">Payment is processing. Please check again before collecting another payment.</p> :
-          data.checkout_url ? <>
-            <p className="mt-5">The customer pays on Stripe’s secure checkout. Copy the link to share it, or open it on the customer’s device.</p>
-            <div className="mt-4 flex flex-wrap gap-3">
-              <button onClick={copyLink} className="rounded-xl bg-indigo-700 px-4 py-3 font-bold text-white">{copied ? "Link copied" : "Copy payment link"}</button>
-              <a href={data.checkout_url} target="_blank" rel="noopener noreferrer" className="rounded-xl border px-4 py-3 font-bold">Open checkout</a>
-            </div>
-            <input aria-label="Payment link" readOnly value={data.checkout_url} className="mt-4 w-full rounded-lg border p-3" onFocus={event => event.target.select()} />
-            <p className="mt-3 text-gray-600">Not paid yet. This page updates after Stripe confirms payment.</p>
-          </> : <>
-            <p className="mt-5">Create a secure payment link for this service. The customer confirms the charge on Stripe.</p>
-            <button disabled={busy || !!error || ["canceled", "no_show"].includes(data.appointment_status)} onClick={createLink} className="mt-4 rounded-xl bg-indigo-700 px-4 py-3 font-bold text-white disabled:opacity-50">{busy ? "Creating link…" : `Create payment link — $${data.amount}`}</button>
+          <>
+            <p className="mt-5">Text a secure Stripe payment link to the customer’s saved phone number. They enter their card details on their own device.</p>
+            <button type="button" disabled={busy || !!error || data.uses_tap_to_pay ||
+              ["sent", "sending", "unknown"].includes(data.text_link_status) ||
+              ["canceled", "no_show"].includes(data.appointment_status)} onClick={textLink}
+              className="mt-4 rounded-xl bg-indigo-700 px-4 py-3 font-bold text-white disabled:opacity-50">
+              {busy ? "Sending payment link…" : data.text_link_status === "sent" ? "Payment link texted" : "Text Payment Link to Customer"}
+            </button>
+            {data.text_link_status === "sent" && <p role="status" className="mt-3 text-green-700">Payment text accepted for the number ending {data.text_link_recipient}. Not paid yet.</p>}
+            {["sending", "unknown"].includes(data.text_link_status) && <p role="status" className="mt-3">Text delivery is pending or unconfirmed. Check the customer’s messages before another send.</p>}
+            {data.uses_tap_to_pay && <p className="mt-3">This payment was started in ChairTime Counter. Resume it there to avoid a second charge.</p>}
+            <p className="mt-3 text-gray-600">This page updates to Paid after Stripe confirms payment.</p>
           </>}
         <button onClick={read} className="mt-5 block text-blue-700 underline">Refresh payment status</button>
       </section>}
     </main>
   );
 }
+
