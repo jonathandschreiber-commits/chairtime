@@ -645,92 +645,10 @@ def update_payment_policy(
         db=db,
     )
 
-    new_policy = (
-        payload.payment_policy
-    )
-
-    if new_policy == "none":
-        shop.payment_policy = "none"
-
-        try:
-            db.commit()
-            db.refresh(shop)
-
-        except Exception:
-            db.rollback()
-
-            raise HTTPException(
-                status_code=(
-                    status.HTTP_500_INTERNAL_SERVER_ERROR
-                ),
-                detail=(
-                    "Unable to save "
-                    "payment settings."
-                ),
-            )
-
-        return {
-            "success": True,
-            "payment_policy":
-                shop.payment_policy,
-        }
-
-    if not shop.stripe_connect_account_id:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                "Connect Stripe before "
-                "enabling customer card "
-                "payments."
-            ),
-        )
-
-    try:
-        stripe.api_key = (
-            get_stripe_secret_key()
-        )
-
-        account = (
-            stripe.Account.retrieve(
-                shop.stripe_connect_account_id
-            )
-        )
-
-        charges_enabled = bool(
-            get_object_value(
-                account,
-                "charges_enabled",
-                False,
-            )
-        )
-
-        if not charges_enabled:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=(
-                    "Finish Stripe setup "
-                    "before enabling customer "
-                    "card payments."
-                ),
-            )
-
-    except HTTPException:
-        raise
-
-    except RuntimeError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(exc),
-        )
-
-    except stripe.StripeError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=stripe_error_message(
-                exc,
-                "Unable to verify Stripe payment setup.",
-            ),
-        )
+    # Save the owner's preference before Stripe onboarding, just as the
+    # shop onboarding endpoint does. Payment and reservation endpoints
+    # independently verify Stripe readiness and the saved card.
+    new_policy = payload.payment_policy
 
     shop.payment_policy = new_policy
 
