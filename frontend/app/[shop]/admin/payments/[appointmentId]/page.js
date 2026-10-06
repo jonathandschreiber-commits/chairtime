@@ -8,9 +8,6 @@ export default function CollectPaymentPage() {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [mobile, setMobile] = useState(false);
-  const tapEnabled = process.env.NEXT_PUBLIC_TAP_TO_PAY_ENABLED === "true";
-  useEffect(() => { setMobile(/Android|iPhone/.test(navigator.userAgent)); }, []);
   const endpoint = `/api/payments/appointments/${encodeURIComponent(appointmentId)}`;
 
   const read = useCallback(async () => {
@@ -54,18 +51,6 @@ export default function CollectPaymentPage() {
       {data && <section className="mt-6 rounded-2xl border bg-white p-6">
         <p className="text-xl font-bold">{data.customer_name}</p>
         <p className="mt-2">{data.service_name} — ${data.amount}</p>
-        {data.payment_status !== "paid" && <div className="mt-5">
-          <button type="button" disabled={!tapEnabled || !mobile || busy || !!error || !!data.checkout_url ||
-            ["canceled", "no_show"].includes(data.appointment_status) || data.payment_status === "processing"}
-            onClick={() => { window.location.href = `chairtime-counter://payment?shop=${encodeURIComponent(shop)}&appointment_id=${encodeURIComponent(appointmentId)}`; }}
-            className="rounded-xl bg-green-700 px-4 py-3 font-bold text-white disabled:opacity-50">
-            Tap to Pay — ${data.amount}
-          </button>
-          <p className="mt-2 text-sm text-gray-600">{!tapEnabled ? "Tap to Pay requires the ChairTime Counter app setup." :
-            !mobile ? "Open this appointment on the shop’s iPhone or Android phone with ChairTime Counter installed." :
-            data.checkout_url ? "This appointment already has a payment link. Use that link to avoid a second charge." :
-            "Opens ChairTime Counter on this phone. The customer taps their card or phone there."}</p>
-        </div>}
         {data.payment_status === "paid" ? <p role="status" className="mt-5 font-bold text-green-700">Paid — ${data.amount}</p> :
           data.payment_status === "processing" ? <p className="mt-5">Payment is processing. Please check again before collecting another payment.</p> :
           <>
@@ -86,4 +71,3 @@ export default function CollectPaymentPage() {
     </main>
   );
 }
-
