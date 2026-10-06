@@ -15,7 +15,7 @@ async function proxy(request, context, method) {
     const appointment = path?.[0] === "appointments" &&
       /^[a-zA-Z0-9-]{1,100}$/.test(path[1] || "") &&
       ((method === "GET" && path.length === 2) ||
-       (method === "POST" && path.length === 3 && path[2] === "checkout"));
+       (method === "POST" && path.length === 3 && ["checkout", "text-link"].includes(path[2])));
     if (!receipt && !appointment) return json({ detail: "Payment endpoint not found." }, 404);
     if (method === "POST") {
       const origin = request.headers.get("origin");
