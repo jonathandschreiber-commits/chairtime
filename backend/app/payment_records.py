@@ -24,3 +24,28 @@ class ServicePayment(Base):
     payment_intent_id = Column(String, nullable=True)
     paid_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
+
+
+class TerminalPaymentAttempt(Base):
+    """Durable method reservation before a Stripe request can time out."""
+    __tablename__ = "terminal_payment_attempts"
+    payment_id = Column(String, primary_key=True)
+    created_at = Column(DateTime, server_default=func.now())
+
+
+class TerminalShopLocation(Base):
+    __tablename__ = "terminal_shop_locations"
+    shop_slug = Column(String, primary_key=True)
+    account_id = Column(String, nullable=False)
+    location_id = Column(String, nullable=False)
+
+
+class PaymentLinkDelivery(Base):
+    """One explicit SMS attempt per Checkout session; never blindly resend."""
+    __tablename__ = "payment_link_deliveries"
+    session_id = Column(String, primary_key=True)
+    payment_id = Column(String, nullable=False, index=True)
+    status = Column(String, nullable=False, default="sending")
+    recipient_last4 = Column(String, nullable=False)
+    created_at = Column(DateTime, server_default=func.now())
+
