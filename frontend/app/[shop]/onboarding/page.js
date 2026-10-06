@@ -3939,10 +3939,9 @@ function PaymentsStep({
             Payment account submitted —
             verification in progress.
           </strong>{" "}
-          Stripe has your information.
-          Card payments and payouts will
-          become available after Stripe
-          finishes its review.
+          Stripe has your information but the account is not ready yet.
+          Open Stripe to check whether more details are needed,
+          or check again after its review.
  
           <div
             style={{
@@ -3965,7 +3964,14 @@ function PaymentsStep({
                 cursor: "pointer",
               }}
             >
-              Check Again
+              Check Status
+            </button>
+            <button type="button" onClick={startStripeSetup}
+              disabled={startingConnect || savingPaymentPolicy}
+              style={{ marginLeft: "10px", padding: "8px 12px", color: "#ffffff",
+                fontWeight: "800", background: "#4f46e5", border: "none",
+                borderRadius: "9px", cursor: "pointer" }}>
+              {startingConnect ? "Opening..." : "Finish Stripe Setup"}
             </button>
           </div>
         </div>
