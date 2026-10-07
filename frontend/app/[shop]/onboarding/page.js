@@ -37,6 +37,8 @@ export default function OnboardingPage() {
  
   const shopSlug = params.shop;
  
+  const [aiOnly, setAiOnly] = useState(false);
+  const [aiUpgradeVerified, setAiUpgradeVerified] = useState(false);
   const [currentStep, setCurrentStep] = useState(1);
  
   const [hours, setHours] = useState(
@@ -282,6 +284,9 @@ export default function OnboardingPage() {
           );
         }
  
+        if (data.chairtime_shop?.slug !== shopSlug) {
+          throw new Error("Please sign in to this shop’s account before continuing AI setup.");
+        }
         setAiProvisionStatus(data);
       } catch (error) {
         console.error(error);
@@ -462,6 +467,7 @@ export default function OnboardingPage() {
  
     if (activePhoneNumber) {
       setMessage("");
+      if (aiOnly) return;
       goToStep(7);
       return;
     }
@@ -564,6 +570,7 @@ export default function OnboardingPage() {
       await loadAiProvisionStatus();
       setSelectedAiNumber(data.phone_number);
       setMessage("");
+      if (aiOnly) return;
       goToStep(7);
     } catch (error) {
       console.error(error);
@@ -619,7 +626,20 @@ export default function OnboardingPage() {
   ]);
  
   async function loadOnboardingData() {
+    const aiSetupOnly = new URLSearchParams(window.location.search).get("setup") === "ai";
+    setAiOnly(aiSetupOnly);
+    setAiUpgradeVerified(false);
     try {
+      if (aiSetupOnly) {
+        const response = await fetch("/api/account/ai-upgrade", { cache: "no-store" });
+        const verified = await response.json();
+        if (response.status === 401) {
+          router.replace(`/login?next=${encodeURIComponent(`/${shopSlug}/onboarding?setup=ai`)}`);
+          return;
+        }
+        if (!response.ok) throw new Error(typeof verified.detail === "string" ? verified.detail : "Could not verify your AI plan.");
+        if (verified.shop_slug !== shopSlug || !verified.already_upgraded) throw new Error("Confirm the AI upgrade in this shop’s Account Options first.");
+      }
       const [
         hoursResponse,
         staffResponse,
@@ -754,6 +774,7 @@ export default function OnboardingPage() {
           ? shopData[0] || null
           : shopData?.shop || shopData || null;
  
+      if (currentShop?.slug !== shopSlug) throw new Error("The saved shop does not match this setup page.");
       setPaymentPolicy(
         currentShop?.payment_policy || "none"
       );
@@ -853,7 +874,14 @@ export default function OnboardingPage() {
  
       setHours(normalizedHours);
  
-      if (safeHoursData.length === 0) {
+      if (aiSetupOnly) {
+        if (!currentShop?.ai_voice_enabled) throw new Error("Your AI subscription is not yet verified. Check Account Options again.");
+        if (!safeHoursData.length || !safeStaffData.length || !safeAssignedServicesData.some((service) => service.is_active !== false) || !safeAvailabilityData.length) {
+          throw new Error("Complete your shop services, staff and hours before setting up AI.");
+        }
+        setAiUpgradeVerified(true);
+        setCurrentStep(6);
+      } else if (safeHoursData.length === 0) {
         setCurrentStep(1);
       } else if (safeStaffData.length === 0) {
         setCurrentStep(2);
@@ -2217,6 +2245,14 @@ export default function OnboardingPage() {
     );
   }
  
+  if (!loading && aiOnly && !aiUpgradeVerified) {
+    return <main className={styles.page}><div className={styles.container}>
+      <h1 className={styles.title}>AI Receptionist Setup</h1>
+      <p role="alert" className={styles.message}>{message || "Your AI plan could not be verified."}</p>
+      <button type="button" className={styles.continueButton} onClick={() => router.push(`/${shopSlug}/admin/account`)}>Back to Account Options</button>
+    </div></main>;
+  }
+
   if (loading) {
     return (
       <main className={styles.page}>
@@ -2237,25 +2273,23 @@ export default function OnboardingPage() {
             </p>
  
             <h1 className={styles.title}>
-              Set up your business
+              {aiOnly ? "Set up your AI Receptionist" : "Set up your business"}
             </h1>
  
             <p className={styles.subtitle}>
-              We&apos;ll walk you through
-              everything. It only takes a few
-              minutes.
+              {aiOnly ? "Your booking URL, services, staff, prices and hours stay the same. Choose a number, then forward your business calls." : "We’ll walk you through everything. It only takes a few minutes."}
             </p>
           </div>
  
           <div className={styles.stepBadge}>
-            Step {currentStep} of {totalSteps}
+            {aiOnly ? "AI Setup" : `Step ${currentStep} of ${totalSteps}`}
           </div>
         </header>
  
-        <Progress
+        {!aiOnly && <Progress
           currentStep={currentStep}
           aiVoiceEnabled={aiVoiceEnabled}
-        />
+        />}
  
         {currentStep === 1 && (
           <HoursStep
@@ -2394,6 +2428,9 @@ export default function OnboardingPage() {
  
         {aiVoiceEnabled && currentStep === 6 && (
           <AiReceptionistStep
+            aiOnly={aiOnly}
+            shopSlug={shopSlug}
+            finishSetup={() => router.push(`/${shopSlug}/admin/ai-receptionist`)}
             provisionStatus={aiProvisionStatus}
             loadingStatus={
               loadingAiProvisionStatus
@@ -2408,7 +2445,7 @@ export default function OnboardingPage() {
             refreshStatus={
               loadAiProvisionStatus
             }
-            goBack={() => goToStep(5)}
+            goBack={() => aiOnly ? router.push(`/${shopSlug}/admin/account`) : goToStep(5)}
             continueToReview={
               activateAiNumberAndContinue
             }
@@ -4303,6 +4340,9 @@ function PaymentsStep({
 }
  
 function AiReceptionistStep({
+  aiOnly = false,
+  shopSlug,
+  finishSetup,
   provisionStatus,
   loadingStatus,
   statusError,
@@ -4358,7 +4398,7 @@ function AiReceptionistStep({
             className={styles.stepLabel}
             style={{ color: "#6d28d9" }}
           >
-            STEP 6
+            {aiOnly ? "AI SETUP" : "STEP 6"}
           </p>
  
           <h2 className={styles.cardTitle}>
@@ -4477,9 +4517,7 @@ function AiReceptionistStep({
               lineHeight: "1.55",
             }}
           >
-            We&apos;ll create your receptionist and connect it
-            to the services, staff, and schedules you just
-            entered.
+            We&apos;ll create your receptionist using this shop&apos;s saved services, staff, prices and schedules.
           </p>
         </div>
       )}
@@ -4814,6 +4852,21 @@ function AiReceptionistStep({
         </div>
       )}
  
+      {aiOnly && activePhoneNumber ? (
+        <div className="mt-5 rounded-2xl border border-emerald-200 bg-emerald-50 p-5">
+          <h3 className="text-xl font-bold">Forward your business calls</h3>
+          <p className="mt-3 text-2xl font-bold">{activePhoneNumber}</p>
+          <ul className="mt-3 list-disc pl-5 space-y-2">
+            <li>Keep your existing business phone number.</li>
+            <li>In your phone provider&apos;s settings, forward calls to the receptionist number above. Contact your provider if you need help.</li>
+            <li>Call your existing business number to test the greeting and booking.</li>
+          </ul>
+          <p className="mt-3">Your booking page stays at /{shopSlug}.</p>
+          {!provisionStatus?.phone_routed ? <p role="alert" className="mt-3">Phone routing is not yet verified. Click Check Again before testing calls.</p> : null}
+          <button type="button" onClick={refreshStatus} disabled={loadingStatus} className={styles.backButton}>{loadingStatus ? "Checking..." : "Check Again"}</button>
+        </div>
+      ) : null}
+
       {statusError && (
         <div
           style={{
@@ -4885,9 +4938,10 @@ function AiReceptionistStep({
           ) : (
             <button
               type="button"
-              onClick={continueToReview}
+              onClick={aiOnly && activePhoneNumber ? finishSetup : continueToReview}
               disabled={
                 activatingAiNumber ||
+                (aiOnly && activePhoneNumber && !provisionStatus?.phone_routed) ||
                 (!activePhoneNumber &&
                   !selectedAiNumber &&
                   String(recoveryAiNumber || "")
@@ -4899,8 +4953,8 @@ function AiReceptionistStep({
               {activatingAiNumber
                 ? "Activating Phone Number..."
                 : activePhoneNumber
-                  ? "Continue to Review →"
-                  : "Activate Number & Continue →"}
+                  ? (aiOnly ? "Finish AI Setup →" : "Continue to Review →")
+                  : (aiOnly ? "Activate Receptionist Number →" : "Activate Number & Continue →")}
             </button>
           )}
         </div>
