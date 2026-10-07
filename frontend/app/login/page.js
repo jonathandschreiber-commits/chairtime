@@ -58,6 +58,12 @@ export default function LoginPage() {
         );
       }
 
+      if (data?.user?.platform_admin === true) {
+        router.replace("/business");
+        router.refresh();
+        return;
+      }
+
       const shopSlug = data?.user?.shop_slug;
 
       if (!shopSlug) {
