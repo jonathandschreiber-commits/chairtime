@@ -7,6 +7,8 @@ export default function AccountOptionsPage() {
   const params = useParams();
   const shop = params?.shop || "";
 
+  const [upgradeQuote, setUpgradeQuote] = useState(null);
+  const [upgrading, setUpgrading] = useState(false);
   const [account, setAccount] = useState(null);
   const [invoices, setInvoices] = useState([]);
 
@@ -54,6 +56,7 @@ export default function AccountOptionsPage() {
       const summaryData =
         await summaryResponse.json();
 
+      if (summaryData.business?.slug !== shop) throw new Error("Please sign in to this shop’s account.");
       setAccount(summaryData);
 
       if (invoicesResponse.ok) {
@@ -235,6 +238,49 @@ export default function AccountOptionsPage() {
 
       setOpeningBilling(false);
     }
+  }
+
+  function upgradeMoney(amount, currency) {
+    return new Intl.NumberFormat("en-US", { style: "currency", currency }).format(amount / 100);
+  }
+
+  async function startAIUpgrade() {
+    if (upgrading) return;
+    setUpgrading(true); setError(""); setUpgradeQuote(null);
+    try {
+      const response = await fetch("/api/account/ai-upgrade", { cache: "no-store" });
+      const result = await response.json();
+      if (!response.ok) throw new Error(typeof result.detail === "string" ? result.detail : "Could not check the upgrade.");
+      if (!result.success || result.shop_slug !== shop) throw new Error("Please sign in to this shop’s account.");
+      if (result.already_upgraded) {
+        window.location.href = `/${encodeURIComponent(shop)}/onboarding?setup=ai`;
+        return;
+      }
+      setUpgradeQuote(result);
+    } catch (failure) { setError(failure.message || "Could not check the upgrade."); }
+    finally { setUpgrading(false); }
+  }
+
+  async function confirmAIUpgrade() {
+    if (upgrading || !upgradeQuote) return;
+    setUpgrading(true); setError("");
+    try {
+      const response = await fetch("/api/account/ai-upgrade", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirm: true, expected_shop_slug: shop,
+          expected_addon_amount: upgradeQuote.addon_amount,
+          expected_total_amount: upgradeQuote.total_amount,
+          expected_currency: upgradeQuote.currency }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        if (response.status === 409) setUpgradeQuote(null);
+        throw new Error(typeof result.detail === "string" ? result.detail : "Could not verify the upgrade.");
+      }
+      if (!result.success || !result.already_upgraded || result.shop_slug !== shop) throw new Error("The upgrade could not be verified for this shop.");
+      window.location.href = `/${encodeURIComponent(shop)}/onboarding?setup=ai`;
+    } catch (failure) { setError(failure.message || "Could not verify the upgrade. Check again before retrying."); }
+    finally { setUpgrading(false); }
   }
 
   async function updatePaymentPolicy(
@@ -697,6 +743,29 @@ export default function AccountOptionsPage() {
             )}
           </div>
         </section>
+
+        {hasSubscription ? (
+          <section className="bg-violet-50 rounded-3xl border border-violet-200 p-6 sm:p-7 mb-5">
+            <h2 className="text-2xl font-extrabold text-slate-900">AI Receptionist</h2>
+            <p className="text-sm text-slate-600 mt-2">Answer calls while you work. Your receptionist uses this shop's current services, staff, prices, hours and live availability. Your booking URL stays the same.</p>
+            {account?.ai_voice_enabled ? (
+              <button type="button" onClick={startAIUpgrade} disabled={upgrading} className="mt-4 rounded-xl bg-violet-600 px-5 py-3 font-extrabold text-white disabled:opacity-60">{upgrading ? "Checking..." : "Continue AI Receptionist Setup"}</button>
+            ) : upgradeQuote ? (
+              <div className="mt-4 rounded-xl border border-violet-200 bg-white p-5">
+                <h3 className="font-bold text-lg">Confirm your upgrade</h3>
+                <p className="mt-2">AI Receptionist: +{upgradeMoney(upgradeQuote.addon_amount, upgradeQuote.currency)} per month.</p>
+                <p className="font-bold mt-2">Scheduling + AI Receptionist: {upgradeMoney(upgradeQuote.total_amount, upgradeQuote.currency)} per month before taxes and discounts.</p>
+                <p className="text-sm text-slate-600 mt-2">{upgradeQuote.billing_note}</p>
+                {upgradeQuote.trial_ends_at ? <p className="text-sm mt-2">Your trial ends {formatDate(upgradeQuote.trial_ends_at)}.</p> : null}
+                <p className="text-sm mt-2">Next, choose your receptionist number and forward your existing business number.</p>
+                <div className="flex flex-wrap gap-3 mt-4">
+                  <button type="button" onClick={confirmAIUpgrade} disabled={upgrading} className="rounded-xl bg-violet-600 px-5 py-3 font-extrabold text-white disabled:opacity-60">{upgrading ? "Confirming..." : "Confirm Upgrade & Set Up AI"}</button>
+                  <button type="button" onClick={() => setUpgradeQuote(null)} disabled={upgrading} className="rounded-xl border px-5 py-3 font-bold">Cancel</button>
+                </div>
+              </div>
+            ) : <button type="button" onClick={startAIUpgrade} disabled={upgrading} className="mt-4 rounded-xl bg-violet-600 px-5 py-3 font-extrabold text-white disabled:opacity-60">{upgrading ? "Checking..." : "Upgrade to AI Receptionist"}</button>}
+          </section>
+        ) : null}
 
         <section className="bg-white rounded-3xl border border-emerald-100 shadow-sm p-6 sm:p-7 mb-5">
           <div className="flex items-center gap-3 mb-6">
