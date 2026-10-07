@@ -2,10 +2,11 @@
 import os
 import json
 from urllib import error as url_error, request as url_request
+from urllib.parse import urlencode
 import re
 import time
 from datetime import date, datetime, timezone
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 from typing import Literal
 from zoneinfo import ZoneInfo
 
@@ -17,6 +18,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import func
 
+from app.message_tracking import sms_reference, sms_shop_matches, tracking_summary
 from app.database import Base, get_db
 from app.models import Shop, User, generate_uuid
 from app.routes.auth import get_current_user, is_platform_admin
@@ -48,7 +50,7 @@ class ExpenseInput(BaseModel):
     request_id: str = Field(pattern=r"^[a-zA-Z0-9-]{16,64}$")
     incurred_on: date
     shop_slug: str | None = None
-    provider: Literal["highlevel", "railway", "vercel", "domain", "other"]
+    provider: Literal["highlevel", "highlevel_base", "railway", "vercel", "domain", "other"]
     description: str = Field(min_length=1, max_length=160)
     reference: str = Field(min_length=1, max_length=120)
     amount: Decimal = Field(gt=0, le=1000000, decimal_places=2)
@@ -82,6 +84,265 @@ def month_bounds(month):
     except ValueError:
         raise HTTPException(400, "Choose a valid month.")
     return start, end
+
+
+def highlevel_usage_category(description):
+    text = description.casefold()
+    # Wallet funding is a transfer, not an additional service cost.
+    if re.search(r"recharg|top[ -]?up|wallet funding|fund(?:ing)? (?:the )?wallet|wallet transfer", text):
+        return None
+    for pattern, category in (
+        (r"voiceai|voice ai", "Voice AI"),
+        (r"sms carrier", "SMS carrier fees"),
+        (r"(?:outbound|inbound) sms", "SMS"),
+        (r"recording.*storage", "Recording storage"),
+        (r"call recording", "Call recording"),
+        (r"text to speech|amazon polly", "Text to speech"),
+        (r"monthly charge for.*phone number", "Phone numbers"),
+        (r"voice minutes|(?:inbound|outbound) call|call (?:charge|usage)", "Phone calls"),
+        (r"a2p|registration fee", "Messaging registration"),
+        (r"email", "Email"),
+    ):
+        if re.search(pattern, text):
+            return category
+    return "Unclassified"
+
+
+def voice_billing_reference(description):
+    match = re.fullmatch(r"voiceAI ref:\s*([A-Za-z0-9_-]+)\s*", description, re.I)
+    return match.group(1) if match else None
+
+
+def voice_shop_matches(location, descriptions, shops):
+    """Exact provider call/message IDs only. Never infer ownership from caller numbers."""
+    wanted = {ref for text in descriptions if (ref := voice_billing_reference(text))}
+    token = (os.getenv("HIGHLEVEL_API_TOKEN") or "").strip()
+    if not wanted:
+        return {}, "not_needed"
+    if not token:
+        return {}, "not_configured"
+    by_agent = {}
+    for shop in shops:
+        if shop.highlevel_agent_id and shop.highlevel_location_id == location:
+            by_agent.setdefault(shop.highlevel_agent_id, set()).add(shop.slug)
+    candidates = {}
+    seen_calls = set()
+    deadline = time.monotonic() + 8
+    state = "partial"
+    try:
+        # Search newest-first without a call-date restriction: billing can settle late.
+        # Any unsearched history remains unassigned. No partial financial totals result.
+        for page in range(1, 21):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            query = urlencode({"locationId": location, "page": page, "pageSize": 50,
+                               "sortBy": "createdAt", "sort": "descend"})
+            req = url_request.Request(
+                "https://services.leadconnectorhq.com/voice-ai/dashboard/call-logs?" + query,
+                headers={"Authorization": f"Bearer {token}", "Version": "v3", "Accept": "application/json"})
+            with url_request.urlopen(req, timeout=min(4, remaining)) as reply:
+                raw = reply.read(4_000_001)
+            if len(raw) > 4_000_000:
+                raise ValueError("Oversized call page")
+            container = json.loads(raw.decode())
+            if isinstance(container, dict) and "callLogs" not in container and isinstance(container.get("data"), dict):
+                container = container["data"]
+            logs = container.get("callLogs") if isinstance(container, dict) else None
+            if not isinstance(logs, list) or len(logs) > 50:
+                raise ValueError("Invalid call page")
+            if not logs:
+                state = "connected"
+                break
+            for log in logs:
+                if not isinstance(log, dict) or not isinstance(log.get("id"), str) or not isinstance(log.get("agentId"), str):
+                    raise ValueError("Invalid call identity")
+                if log["id"] in seen_calls:
+                    raise ValueError("Repeated call page")
+                seen_calls.add(log["id"])
+                if log.get("locationId") and log["locationId"] != location:
+                    raise ValueError("Wrong call location")
+                slugs = by_agent.get(log["agentId"], {None})
+                for identity in {log["id"], log.get("messageId")}:
+                    if identity in wanted:
+                        candidates.setdefault(identity, set()).update(slugs)
+                # Caller numbers, transcripts and summaries are never stored or returned.
+        matches = {identity: next(iter(slugs)) for identity, slugs in candidates.items()
+                   if len(slugs) == 1 and None not in slugs}
+        return matches, state
+    except url_error.HTTPError as failure:
+        return {}, "permission_required" if failure.code in {401, 403} else "unavailable"
+    except (url_error.URLError, TimeoutError, OSError, ValueError, TypeError, UnicodeError):
+        return {}, "unavailable"
+
+
+def highlevel_month_usage(start, end, shops, db=None):
+    token = (os.getenv("HIGHLEVEL_AGENCY_API_TOKEN") or "").strip()
+    company = (os.getenv("HIGHLEVEL_COMPANY_ID") or "").strip()
+    location = (os.getenv("HIGHLEVEL_LOCATION_ID") or "").strip()
+    empty = {"status": "not_configured", "complete": False, "location_id": location,
+             "total_cents": None, "shared_cents": None, "shop_cents": {},
+             "categories": [], "shared_categories": [], "transaction_count": 0,
+             "unclassified_count": 0, "excluded_funding_count": 0}
+    if not token or not all(re.fullmatch(r"[a-zA-Z0-9_-]{8,100}", v) for v in (company, location)):
+        return empty
+    from datetime import timedelta
+    cutoff = min(end, datetime.now(timezone.utc))
+    if cutoff <= start:
+        return {**empty, "status": "connected", "complete": True, "total_cents": 0,
+                "shared_cents": 0, "shop_cents": {shop.slug: 0 for shop in shops},
+                "checked_at": datetime.now(timezone.utc).isoformat()}
+    utc_text = lambda value: value.astimezone(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    deadline = time.monotonic() + 12
+    seen = set()
+    records = []
+    offset = 0
+    try:
+        # A fixed upper bound prevents new transactions from shifting later pages.
+        for page in range(10):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise ValueError("Lookup deadline")
+            payload = {"skip": offset, "limit": 1000, "timezone": "America/New_York",
+                       "filters": {"locationId": location, "settlementTime": {
+                           "from": utc_text(start), "to": utc_text(cutoff - timedelta(milliseconds=1))}}}
+            req = url_request.Request(
+                f"https://services.leadconnectorhq.com/saas/companies/{company}/wallet-transactions",
+                data=json.dumps(payload).encode(), method="POST",
+                headers={"Authorization": f"Bearer {token}", "Version": "v3",
+                         "Accept": "application/json", "Content-Type": "application/json"})
+            with url_request.urlopen(req, timeout=min(5, remaining)) as reply:
+                raw = reply.read(4_000_001)
+            if len(raw) > 4_000_000:
+                raise ValueError("Oversized page")
+            data = json.loads(raw.decode())
+            container = data if isinstance(data, dict) else {}
+            if "transactions" not in container and isinstance(container.get("data"), dict):
+                container = container["data"]
+            rows = container.get("transactions")
+            if not isinstance(rows, list) or len(rows) > 1000:
+                raise ValueError("Invalid page")
+            for row in rows:
+                if not isinstance(row, dict) or not isinstance(row.get("id"), str) or not row["id"]:
+                    raise ValueError("Invalid transaction")
+                # Duplicate/repeated pages cannot be presented as a complete monthly report.
+                if row["id"] in seen:
+                    raise ValueError("Repeated transaction")
+                seen.add(row["id"])
+                if row.get("locationId") and row["locationId"] != location:
+                    raise ValueError("Wrong location")
+                if row.get("currency") and str(row["currency"]).lower() != "usd":
+                    raise ValueError("Non USD transaction")
+                stamp = datetime.fromisoformat(str(row.get("settlementTime", "")).replace("Z", "+00:00"))
+                # Older wallet records use UTC timestamps without an explicit offset.
+                if stamp.tzinfo is None:
+                    stamp = stamp.replace(tzinfo=timezone.utc)
+                if not start <= stamp < cutoff:
+                    raise ValueError("Transaction outside requested range")
+                amount = Decimal(str(row.get("amount")))
+                if not amount.is_finite() or abs(amount) > Decimal("1000000"):
+                    raise ValueError("Invalid amount")
+                description = row.get("description")
+                if not isinstance(description, str):
+                    raise ValueError("Missing description")
+                records.append((row, amount, description))
+            # Continue until an empty page, even if HighLevel caps pages below our requested limit.
+            if not rows:
+                break
+            offset += len(rows)
+        else:
+            raise ValueError("Monthly page limit")
+        phones = {}
+        shared_number = re.sub(r"\D", "", os.getenv("HIGHLEVEL_SMS_FROM_NUMBER") or "+12405949454")
+        if len(shared_number) == 10:
+            shared_number = "1" + shared_number
+        for shop in shops:
+            digits = re.sub(r"\D", "", shop.highlevel_phone_number or "")
+            if len(digits) == 10:
+                digits = "1" + digits
+            if digits and digits != shared_number and (not shop.highlevel_location_id or shop.highlevel_location_id == location):
+                phones.setdefault(digits, []).append(shop.slug)
+        message_matches = {}
+        tracking_available = db is not None
+        if db is not None:
+            try:
+                message_matches = sms_shop_matches(db, location, [text for _, _, text in records], shops)
+            except Exception:
+                # Preserve known total costs, but do not guess allocation.
+                db.rollback()
+                tracking_available = False
+        voice_matches, voice_status = voice_shop_matches(location, [text for _, _, text in records], shops)
+        matched_voice = unmatched_voice = matched_numbers = 0
+        matched_sms = unmatched_sms = 0
+        grouped = {}
+        ignored = unknown = 0
+        for row, amount, description in records:
+            category = highlevel_usage_category(description)
+            if category is None:
+                ignored += 1
+                continue
+            # A positive wallet credit is not automatically a refund of service usage.
+            # Only explicit service refunds/reimbursements offset recognized costs.
+            if category == "Unclassified" or (amount > 0 and not re.search(r"refund|reimburse", description, re.I)):
+                if amount != 0:
+                    unknown += 1
+                continue
+            slug = None
+            if category == "Phone numbers":
+                number = re.search(r"phone number\s+(\+?[\d()-]+)", description, re.I)
+                digits = re.sub(r"\D", "", number.group(1)) if number else ""
+                if len(digits) == 10:
+                    digits = "1" + digits
+                candidates = phones.get(digits, [])
+                if len(candidates) == 1:
+                    slug = candidates[0]
+                    matched_numbers += 1
+            voice_reference = voice_billing_reference(description)
+            if category == "Voice AI" and voice_reference:
+                slug = voice_matches.get(voice_reference)
+                if slug:
+                    matched_voice += 1
+                else:
+                    unmatched_voice += 1
+            reference = sms_reference(description)
+            if category == "SMS" and reference:
+                slug = message_matches.get(reference)
+                if slug:
+                    matched_sms += 1
+                else:
+                    unmatched_sms += 1
+            # Aggregated carrier fees, inbound usage, emails and unmatched calls stay shared.
+            key = (slug, category)
+            grouped[key] = grouped.get(key, Decimal(0)) - amount
+        cents = lambda value: int((value * 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+        exact_total = sum(grouped.values(), Decimal(0))
+        shop_cents = {shop.slug: cents(sum((value for (slug, _), value in grouped.items()
+                                          if slug == shop.slug), Decimal(0))) for shop in shops}
+        total_cents = cents(exact_total)
+        # Keep displayed shop/shared totals reconciled to the rounded overall total.
+        shared_cents = total_cents - sum(shop_cents.values())
+        categories = []
+        for category in sorted({category for _, category in grouped}):
+            categories.append({"category": category, "amount_cents": cents(sum(
+                (value for (_, name), value in grouped.items() if name == category), Decimal(0)))})
+        shared_categories = [{"category": category, "amount_cents": cents(value)}
+                             for (slug, category), value in sorted(grouped.items(), key=lambda item: item[0][1])
+                             if slug is None]
+        return {**empty, "status": "connected", "complete": unknown == 0,
+                "total_cents": total_cents, "shared_cents": shared_cents, "shop_cents": shop_cents,
+                "categories": categories, "shared_categories": shared_categories,
+                "transaction_count": len(records), "unclassified_count": unknown,
+                "matched_sms_transactions": matched_sms, "unmatched_sms_transactions": unmatched_sms,
+                "message_tracking_available": tracking_available,
+                "voice_attribution_status": voice_status,
+                "matched_voice_transactions": matched_voice,
+                "unmatched_voice_transactions": unmatched_voice,
+                "matched_number_transactions": matched_numbers,
+                "excluded_funding_count": ignored, "checked_at": datetime.now(timezone.utc).isoformat(),
+                "through": cutoff.isoformat(), "basis": "USD wallet charges by settlement time; sub-cent amounts are rounded only after aggregation."}
+    except (url_error.URLError, TimeoutError, OSError, ValueError, TypeError, InvalidOperation, UnicodeError):
+        # Never publish a first-page or partial total as the monthly cost.
+        return {**empty, "status": "unavailable"}
 
 
 def expense_data(row):
@@ -333,16 +594,31 @@ def business_report(response: Response, month: str | None = None,
     expenses = db.query(BusinessExpense).filter(
         BusinessExpense.incurred_on >= start.date(), BusinessExpense.incurred_on < end.date()
     ).order_by(BusinessExpense.incurred_on.desc(), BusinessExpense.created_at.desc()).all()
+    highlevel = highlevel_month_usage(start, end, shops, db)
     shared = []
+    suppressed = []
     for expense in expenses:
         if expense.is_void:
             continue
+        if expense.provider == "highlevel" and highlevel["status"] == "connected":
+            suppressed.append(expense.id)
+            continue  # Preserve legacy entries in audit history; avoid counting wallet usage twice.
         if expense.shop_slug in rows:
             key = "highlevel_recorded_cents" if expense.provider == "highlevel" else "other_recorded_cents"
             rows[expense.shop_slug][key] += expense.amount_cents
         else:
             shared.append(expense_data(expense))
     warnings = []
+    if highlevel["status"] == "unavailable":
+        warnings.append("HighLevel costs could not be fully refreshed. Remaining totals are hidden; refresh to try again.")
+    if highlevel.get("voice_attribution_status") == "permission_required":
+        warnings.append("Voice AI cost matching needs the voice-ai-dashboard.readonly permission on the HighLevel location integration. Voice charges remain shared until access is available.")
+    if highlevel.get("voice_attribution_status") in {"unavailable", "partial", "not_configured"}:
+        warnings.append("Some Voice AI charges could not be matched to call logs and remain shared. Known wallet costs are still included.")
+    if highlevel["unclassified_count"]:
+        warnings.append("Some HighLevel transactions need classification. Known costs are shown, but remaining totals are hidden.")
+    if suppressed:
+        warnings.append("Legacy manual HighLevel entries are excluded while wallet costs are connected to prevent double counting. Record the separate agency subscription as HighLevel base plan.")
     complete = True
     key = os.getenv("STRIPE_SECRET_KEY", "")
     mode = "test" if key.startswith(("sk_test_", "rk_test_")) else "live" if key.startswith(("sk_live_", "rk_live_")) else "unknown"
@@ -367,27 +643,33 @@ def business_report(response: Response, month: str | None = None,
     financial_keys = ("subscription_collected_cents", "subscription_refunds_cents", "subscription_tax_cents",
         "transaction_fee_collected_cents", "transaction_fee_refunds_cents", "stripe_cost_cents", "adjustments_cents")
     for row in rows.values():
+        row["highlevel_live_cents"] = highlevel["shop_cents"].get(row["slug"]) if highlevel["status"] == "connected" else None
+        row["highlevel_shop_attribution_complete"] = False
         row["revenue_cents"] = (row["subscription_collected_cents"] - row["subscription_refunds_cents"]
             - row["subscription_tax_cents"] + row["transaction_fee_collected_cents"]
             - row["transaction_fee_refunds_cents"] + row["adjustments_cents"]) if complete else None
         row["remaining_cents"] = (row["revenue_cents"] - row["stripe_cost_cents"]
-            - row["highlevel_recorded_cents"] - row["other_recorded_cents"]) if complete else None
+            - row["highlevel_recorded_cents"] - (row["highlevel_live_cents"] or 0) - row["other_recorded_cents"]) if complete and highlevel["status"] != "unavailable" and not highlevel["unclassified_count"] else None
         if not complete:
             for field in financial_keys:
                 row[field] = None
             row["current_monthly_cents"] = None
-    totals = {field: sum(row[field] for row in rows.values()) if complete else None
+    totals = {field: sum(row[field] for row in rows.values()) if complete and all(row[field] is not None for row in rows.values()) else None
               for field in (*financial_keys, "revenue_cents", "remaining_cents")}
     totals["recorded_shop_cost_cents"] = sum(row["highlevel_recorded_cents"] + row["other_recorded_cents"] for row in rows.values())
-    totals["shared_expense_cents"] = sum(item["amount_cents"] for item in shared)
-    totals["remaining_after_shared_cents"] = totals["remaining_cents"] - totals["shared_expense_cents"] if complete else None
+    totals["highlevel_live_cents"] = highlevel["total_cents"]
+    totals["highlevel_shared_cents"] = highlevel["shared_cents"]
+    totals["shared_expense_cents"] = sum(item["amount_cents"] for item in shared) + (highlevel["shared_cents"] or 0)
+    totals["remaining_after_shared_cents"] = totals["remaining_cents"] - totals["shared_expense_cents"] if totals["remaining_cents"] is not None else None
     totals["active_monthly_cents"] = sum(row["current_monthly_cents"] or 0 for row in rows.values() if row["subscription_status"] == "active") if complete else None
     return {"success": True, "month": month, "currency": "usd", "timezone": str(REPORT_ZONE),
         "checked_at": datetime.now(timezone.utc).isoformat(), "stripe_mode": mode,
         "stripe_complete": complete, "warnings": warnings, "shops": list(rows.values()),
-        "totals": totals, "expenses": [expense_data(item) for item in expenses],
+        "totals": totals, "highlevel": highlevel,
+        "recent_outbound_messages": tracking_summary(db),
+        "expenses": [{**expense_data(item), "excluded_from_totals": item.id in suppressed} for item in expenses],
         "shared_expenses": shared, "costs_complete": False,
-        "cost_note": "HighLevel and operating costs are recorded from invoices or usage statements. They are not automatically synced yet. Remaining amounts exclude unrecorded costs.",
+        "cost_note": "HighLevel wallet usage refreshes with this report. Shared or unmatched usage is not assigned to individual shops. Agency subscription and other operating expenses require separate entries. Remaining amounts exclude unrecorded costs.",
         "basis_note": "USD cash activity by Stripe balance transaction date, in Eastern time. Subscription refunds and platform fee refunds reduce revenue in the month recorded. Subscription tax is excluded proportionally to each payment or refund. Shop service sales are excluded. Stripe costs include fees attached to matched transactions; separate platform charges need an expense entry. Plan amounts are current list prices before discounts or tax, separate from collections."}
 
 
