@@ -453,39 +453,20 @@ def verify_no_reschedule_conflict(
         )
 
 
-def send_customer_sms(
-    customer_phone: str,
-    message: str,
-    message_type: str,
-) -> None:
-    clean_phone = str(
-        customer_phone or ""
-    ).strip()
-
+def send_customer_sms(customer_phone: str, message: str, message_type: str,
+                      *, shop: Shop, appointment_id: str) -> None:
+    clean_phone = str(customer_phone or "").strip()
     if not clean_phone:
         return
-
-    sms_result = send_highlevel_sms(
-        clean_phone,
-        message,
-    )
-
-    if not sms_result.get("success"):
-        print(
-            f"{message_type} SMS first attempt failed:",
-            sms_result,
-        )
-
-        sms_result = send_highlevel_sms(
-            clean_phone,
-            message,
-        )
-
-        if not sms_result.get("success"):
-            print(
-                f"{message_type} SMS retry failed:",
-                sms_result,
-            )
+    context = {"shop_id": shop.id, "shop_slug": shop.slug,
+               "purpose": message_type, "source_id": appointment_id}
+    result = send_highlevel_sms(clean_phone, message, **context)
+    # Contact/config failures occur before SMS submission. A timeout after
+    # submission is ambiguous and must never trigger an automatic duplicate.
+    if not result.get("success") and result.get("step") in {"config", "contact", "contact_id"}:
+        result = send_highlevel_sms(clean_phone, message, **context)
+    if not result.get("success"):
+        print(f"{message_type} SMS not confirmed; step:", result.get("step"))
 
 
 def format_appointment_datetime(
@@ -513,6 +494,7 @@ def send_appointment_confirmation(
         appointment.customer_phone,
         message,
         "Appointment confirmation",
+        shop=shop, appointment_id=appointment.id,
     )
 
 
@@ -533,6 +515,7 @@ def send_reschedule_confirmation(
         appointment.customer_phone,
         message,
         "Appointment reschedule",
+        shop=shop, appointment_id=appointment.id,
     )
 
 
@@ -554,6 +537,7 @@ def send_cancellation_confirmation(
         appointment.customer_phone,
         message,
         "Appointment cancellation",
+        shop=shop, appointment_id=appointment.id,
     )
 
 
