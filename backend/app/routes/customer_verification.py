@@ -724,6 +724,7 @@ def request_verification_code(
     sms_result = send_highlevel_sms(
         normalized_phone,
         message,
+        shop_id=shop.id, shop_slug=shop.slug, purpose="customer_verification",
     )
 
     if not sms_result.get("success"):
