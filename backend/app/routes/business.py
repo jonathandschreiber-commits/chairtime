@@ -140,7 +140,8 @@ def voice_shop_matches(location, descriptions, shops):
                                "sortBy": "createdAt", "sort": "descend"})
             req = url_request.Request(
                 "https://services.leadconnectorhq.com/voice-ai/dashboard/call-logs?" + query,
-                headers={"Authorization": f"Bearer {token}", "Version": "v3", "Accept": "application/json"})
+                headers={"Authorization": f"Bearer {token}", "Version": "v3", "Accept": "application/json",
+                         "User-Agent": "ChairTimeBusinessReport/1.0"})
             with url_request.urlopen(req, timeout=min(4, remaining)) as reply:
                 raw = reply.read(4_000_001)
             if len(raw) > 4_000_000:
@@ -171,7 +172,7 @@ def voice_shop_matches(location, descriptions, shops):
                    if len(slugs) == 1 and None not in slugs}
         return matches, state
     except url_error.HTTPError as failure:
-        return {}, "permission_required" if failure.code in {401, 403} else "unavailable"
+        return {}, f"http_{failure.code}" if failure.code in {401, 403} else "unavailable"
     except (url_error.URLError, TimeoutError, OSError, ValueError, TypeError, UnicodeError):
         return {}, "unavailable"
 
@@ -658,8 +659,9 @@ def business_report(response: Response, month: str | None = None,
                 f"Stage: {failure['phase']}; page {failure['page']}; "
                 f"offset {failure['offset']}; {failure['validated_transactions']} transactions validated."
             )
-    if highlevel.get("voice_attribution_status") == "permission_required":
-        warnings.append("Voice AI cost matching needs the voice-ai-dashboard.readonly permission on the HighLevel location integration. Voice charges remain shared until access is available.")
+    if highlevel.get("voice_attribution_status") in {"http_401", "http_403"}:
+        status = highlevel["voice_attribution_status"].removeprefix("http_")
+        warnings.append(f"HighLevel rejected the Voice AI call-log request with HTTP {status}. This does not establish that a permission is missing. Voice charges remain included as shared costs until access succeeds.")
     if highlevel.get("voice_attribution_status") in {"unavailable", "partial", "not_configured"}:
         warnings.append("Some Voice AI charges could not be matched to call logs and remain shared. Known wallet costs are still included.")
     if highlevel["unclassified_count"]:
