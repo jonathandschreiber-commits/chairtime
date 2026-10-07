@@ -494,25 +494,22 @@ def sync_subscription_to_shop(
         {},
     )
 
-    selected_plan = get_object_value(
-        metadata,
-        "plan",
-    )
-
-    ai_voice_enabled = get_object_value(
-        metadata,
-        "ai_voice_enabled",
-    )
-
-    if selected_plan == "scheduling_ai":
-        shop.ai_voice_enabled = True
-    elif selected_plan == "scheduling":
-        shop.ai_voice_enabled = False
-    elif ai_voice_enabled is not None:
+    # Subscription items are authoritative; portal changes do not update metadata.
+    # Never enable AI from an old metadata flag after the add-on is removed.
+    items = get_object_value(get_object_value(subscription, "items", {}), "data", [])
+    ai_price_id = os.getenv("STRIPE_AI_VOICE_PRICE_ID")
+    if ai_price_id:
         shop.ai_voice_enabled = (
-            str(ai_voice_enabled).strip().lower()
-            in {"1", "true", "yes", "on"}
+            subscription_status in {"active", "trialing"}
+            and any(
+                get_stripe_id(get_object_value(item, "price")) == ai_price_id
+                and (get_object_value(item, "quantity", 0) or 0) > 0
+                for item in items
+            )
         )
+    else:
+        # Missing billing configuration must not grant access.
+        shop.ai_voice_enabled = False
 
     if customer_id:
         shop.stripe_customer_id = customer_id
@@ -1319,8 +1316,13 @@ async def stripe_webhook(
             "customer.subscription.updated",
             "customer.subscription.deleted",
         }:
+            # Webhook deliveries can arrive out of order. Read the current
+            # subscription so a delayed pre-upgrade event cannot remove AI access.
+            current_subscription = stripe.Subscription.retrieve(
+                get_stripe_id(get_object_value(stripe_object, "id"))
+            )
             sync_subscription_to_shop(
-                stripe_object,
+                current_subscription,
                 db,
             )
 
