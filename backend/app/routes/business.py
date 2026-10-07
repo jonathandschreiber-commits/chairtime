@@ -466,7 +466,13 @@ def test_highlevel_billing(response: Response, month: str | None = None,
                 "trace_headers": highlevel_diagnostic_redact(trace_headers, token)}
     except (url_error.URLError, TimeoutError, OSError):
         raise HTTPException(502, "HighLevel billing could not be reached. Retry this diagnostic later.")
-    transactions = result.get("transactions") if isinstance(result, dict) else None
+    # Live HighLevel responses wrap transactions in data; also accept the documented shape.
+    container = result if isinstance(result, dict) else {}
+    transaction_path = "transactions"
+    if "transactions" not in container and isinstance(container.get("data"), dict):
+        container = container["data"]
+        transaction_path = "data.transactions"
+    transactions = container.get("transactions")
     valid = isinstance(transactions, list) and all(isinstance(item, dict) for item in transactions)
     if not valid:
         response.status_code = 502
@@ -475,10 +481,14 @@ def test_highlevel_billing(response: Response, month: str | None = None,
             "checked_at": datetime.now(timezone.utc).isoformat(),
             "request": payload, "trace_headers": highlevel_diagnostic_redact(trace_headers, token),
             "response_keys": sorted(result) if isinstance(result, dict) else [],
+            "transaction_path": transaction_path if valid else None,
             "returned_count": len(transactions) if isinstance(transactions, list) else None,
             "transaction_fields": sorted({key for item in transactions for key in item}) if valid else [],
             "sample_transactions": highlevel_diagnostic_redact(transactions[:10], token) if valid else [],
             "message": "Diagnostic page only, not a complete cost report. Up to ten records are shown. No costs have been imported."
                        if valid else "The provider response did not match the documented transactions array.",
+            # Never echo nested data here: it can repeat the full transaction page.
             "provider_metadata": highlevel_diagnostic_redact({key: value for key, value in result.items()
-                                  if key != "transactions"}, token) if isinstance(result, dict) else {}}
+                                  if key not in ("transactions", "data")
+                                  and isinstance(value, (str, int, float, bool, type(None)))}, token)
+                                  if isinstance(result, dict) else {}}
