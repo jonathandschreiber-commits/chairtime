@@ -108,6 +108,13 @@ def create_access_token(user: User) -> str:
     )
 
 
+def is_platform_admin(user: User) -> bool:
+    # Privilege is configured on the server, never by signup or a browser flag.
+    allowed = {email.strip().lower() for email in
+               os.getenv("PLATFORM_ADMIN_EMAILS", "").split(",") if email.strip()}
+    return bool(user.is_active and str(user.email or "").strip().lower() in allowed)
+
+
 def user_response(user: User) -> dict:
     role = str(
         user.role or ""
@@ -128,6 +135,7 @@ def user_response(user: User) -> dict:
             )
         ),
         "is_active": user.is_active,
+        "platform_admin": is_platform_admin(user),
     }
 
 
