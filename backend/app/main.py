@@ -7,6 +7,7 @@ from app.routes.account import router as account_router
 from app.routes.ai_setup import router as ai_setup_router
 from app.routes.appointments import router as appointments_router
 from app.routes.auth import router as auth_router
+from app.routes.business import router as business_router
 from app.routes.availability import router as availability_router
 from app.routes.barbers import router as barbers_router
 from app.routes.billing import router as billing_router
@@ -710,3 +711,5 @@ def healthcheck():
     return {
         "status": "ChairTime backend is running"
     }
+
+app.include_router(business_router, prefix="/api/business", tags=["Private Business Report"])
