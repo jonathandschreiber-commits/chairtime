@@ -1,5 +1,7 @@
 """Private cash-activity reporting. Does not change subscriptions or payments."""
 import os
+import json
+from urllib import error as url_error, request as url_request
 import re
 import time
 from datetime import date, datetime, timezone
@@ -386,4 +388,97 @@ def business_report(response: Response, month: str | None = None,
         "totals": totals, "expenses": [expense_data(item) for item in expenses],
         "shared_expenses": shared, "costs_complete": False,
         "cost_note": "HighLevel and operating costs are recorded from invoices or usage statements. They are not automatically synced yet. Remaining amounts exclude unrecorded costs.",
-        "basis_note": "USD cash activity by Stripe balance transaction date, in Eastern time. Subscription refunds and platform fee refunds reduce revenue in the month recorded. Subscription tax is excluded proportionally to each payment or refund. Shop service sales are excluded. Stripe costs include fees attached to matched transactions; separate platform charges need an expense entry. Plan amounts are current list prices before discounts or tax, separate from collections."} 
+        "basis_note": "USD cash activity by Stripe balance transaction date, in Eastern time. Subscription refunds and platform fee refunds reduce revenue in the month recorded. Subscription tax is excluded proportionally to each payment or refund. Shop service sales are excluded. Stripe costs include fees attached to matched transactions; separate platform charges need an expense entry. Plan amounts are current list prices before discounts or tax, separate from collections."}
+
+
+# Read-only provider diagnostic. It does not import costs or alter financial totals.
+def highlevel_diagnostic_redact(value, credential=""):
+    sensitive = re.compile(r"secret|token|password|authorization|api.?key|credential|card.number|cvc|cvv", re.I)
+    if isinstance(value, list):
+        return [highlevel_diagnostic_redact(item, credential) for item in value]
+    if isinstance(value, dict):
+        header_name = str(value.get("key") or value.get("name") or "")
+        return {key: "[REDACTED]" if sensitive.search(str(key)) or
+                (key == "value" and sensitive.search(header_name)) else
+                highlevel_diagnostic_redact(item, credential)
+                for key, item in value.items()}
+    if isinstance(value, str) and credential:
+        return value.replace(credential, "[REDACTED]")
+    return value
+
+
+@router.get("/highlevel-test")
+def test_highlevel_billing(response: Response, month: str | None = None,
+                          user: User = Depends(require_business_admin)):
+    response.headers["Cache-Control"] = "no-store"
+    month = month or datetime.now(REPORT_ZONE).strftime("%Y-%m")
+    start, end = month_bounds(month)
+    token = (os.getenv("HIGHLEVEL_AGENCY_API_TOKEN") or "").strip()
+    company = (os.getenv("HIGHLEVEL_COMPANY_ID") or "").strip()
+    location = (os.getenv("HIGHLEVEL_LOCATION_ID") or "").strip()
+    missing = [name for name, value in (("HIGHLEVEL_AGENCY_API_TOKEN", token),
+               ("HIGHLEVEL_COMPANY_ID", company), ("HIGHLEVEL_LOCATION_ID", location)) if not value]
+    if missing:
+        raise HTTPException(503, {"message": "HighLevel billing configuration is incomplete.",
+                                  "missing_variables": missing})
+    if not all(re.fullmatch(r"[a-zA-Z0-9_-]{8,100}", value) for value in (company, location)):
+        raise HTTPException(503, "HighLevel company or location ID has an invalid format.")
+    # Company and location are server-configured. Browser input cannot select another business.
+    # Use the documented v3 agency wallet API with a single bounded page for schema inspection.
+    # The API to boundary is inclusive, so end at the last millisecond of the selected month.
+    from datetime import timedelta
+    utc_text = lambda value: value.astimezone(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    payload = {"skip": 0, "limit": 100, "timezone": "America/New_York",
+               "filters": {"locationId": location, "settlementTime": {
+                   "from": utc_text(start), "to": utc_text(end - timedelta(milliseconds=1))}}}
+    provider_request = url_request.Request(
+        f"https://services.leadconnectorhq.com/saas/companies/{company}/wallet-transactions",
+        data=json.dumps(payload).encode("utf-8"), method="POST",
+        headers={"Authorization": f"Bearer {token}", "Version": "v3",
+                 "Accept": "application/json", "Content-Type": "application/json",
+                 "User-Agent": "ChairTimeBusinessReport/1.0"})
+    trace_headers = {}
+    try:
+        with url_request.urlopen(provider_request, timeout=20) as provider_response:
+            status = provider_response.status
+            trace_headers = {key: provider_response.headers.get(key) for key in
+                             ("x-request-id", "x-trace-id", "cf-ray") if provider_response.headers.get(key)}
+            raw = provider_response.read(2_000_001)
+        if len(raw) > 2_000_000:
+            raise HTTPException(502, "HighLevel returned an oversized diagnostic response.")
+        try:
+            result = json.loads(raw.decode("utf-8"))
+        except (ValueError, UnicodeError):
+            raise HTTPException(502, "HighLevel returned an invalid JSON response.")
+    except url_error.HTTPError as failure:
+        trace_headers = {key: failure.headers.get(key) for key in
+                         ("x-request-id", "x-trace-id", "cf-ray") if failure.headers.get(key)}
+        try:
+            error_data = json.loads(failure.read(16_000).decode("utf-8"))
+        except (ValueError, UnicodeError):
+            error_data = {}
+        safe_error = {key: error_data[key] for key in ("message", "error", "statusCode", "traceId", "requestId")
+                      if isinstance(error_data, dict) and key in error_data}
+        response.status_code = 502
+        return {"success": False, "month": month, "highlevel_status": failure.code,
+                "message": "HighLevel rejected the billing lookup. This does not change your report.",
+                "highlevel_error": highlevel_diagnostic_redact(safe_error, token),
+                "trace_headers": highlevel_diagnostic_redact(trace_headers, token)}
+    except (url_error.URLError, TimeoutError, OSError):
+        raise HTTPException(502, "HighLevel billing could not be reached. Retry this diagnostic later.")
+    transactions = result.get("transactions") if isinstance(result, dict) else None
+    valid = isinstance(transactions, list) and all(isinstance(item, dict) for item in transactions)
+    if not valid:
+        response.status_code = 502
+    return {"success": valid, "highlevel_status": status, "month": month,
+            "company_id": company, "location_id": location,
+            "checked_at": datetime.now(timezone.utc).isoformat(),
+            "request": payload, "trace_headers": highlevel_diagnostic_redact(trace_headers, token),
+            "response_keys": sorted(result) if isinstance(result, dict) else [],
+            "returned_count": len(transactions) if isinstance(transactions, list) else None,
+            "transaction_fields": sorted({key for item in transactions for key in item}) if valid else [],
+            "sample_transactions": highlevel_diagnostic_redact(transactions[:10], token) if valid else [],
+            "message": "Diagnostic page only, not a complete cost report. Up to ten records are shown. No costs have been imported."
+                       if valid else "The provider response did not match the documented transactions array.",
+            "provider_metadata": highlevel_diagnostic_redact({key: value for key, value in result.items()
+                                  if key != "transactions"}, token) if isinstance(result, dict) else {}}
