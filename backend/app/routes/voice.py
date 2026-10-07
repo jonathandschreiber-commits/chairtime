@@ -1482,6 +1482,8 @@ def voice_book_appointment(
         sms_result = send_highlevel_sms(
             appointment.customer_phone,
             confirmation_message,
+            shop_id=shop.id if shop else None, shop_slug=payload.shop_slug,
+            purpose="voice_booking_confirmation", source_id=appointment.id,
         )
 
         confirmation_sms_sent = bool(
