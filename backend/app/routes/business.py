@@ -197,9 +197,13 @@ def highlevel_month_usage(start, end, shops, db=None):
     seen = set()
     records = []
     offset = 0
+    phase = "wallet request"
+    page_number = 1
     try:
         # A fixed upper bound prevents new transactions from shifting later pages.
         for page in range(10):
+            page_number = page + 1
+            phase = "wallet request"
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise ValueError("Lookup deadline")
@@ -215,6 +219,7 @@ def highlevel_month_usage(start, end, shops, db=None):
                 raw = reply.read(4_000_001)
             if len(raw) > 4_000_000:
                 raise ValueError("Oversized page")
+            phase = "wallet validation"
             data = json.loads(raw.decode())
             container = data if isinstance(data, dict) else {}
             if "transactions" not in container and isinstance(container.get("data"), dict):
@@ -252,6 +257,7 @@ def highlevel_month_usage(start, end, shops, db=None):
             offset += len(rows)
         else:
             raise ValueError("Monthly page limit")
+        phase = "cost matching"
         phones = {}
         shared_number = re.sub(r"\D", "", os.getenv("HIGHLEVEL_SMS_FROM_NUMBER") or "+12405949454")
         if len(shared_number) == 10:
@@ -340,9 +346,42 @@ def highlevel_month_usage(start, end, shops, db=None):
                 "matched_number_transactions": matched_numbers,
                 "excluded_funding_count": ignored, "checked_at": datetime.now(timezone.utc).isoformat(),
                 "through": cutoff.isoformat(), "basis": "USD wallet charges by settlement time; sub-cent amounts are rounded only after aggregation."}
-    except (url_error.URLError, TimeoutError, OSError, ValueError, TypeError, InvalidOperation, UnicodeError):
+    except (url_error.URLError, TimeoutError, OSError, ValueError, TypeError, InvalidOperation, UnicodeError) as failure:
         # Never publish a first-page or partial total as the monthly cost.
-        return {**empty, "status": "unavailable"}
+        # Only fixed explanations are exposed. Provider bodies, tokens and raw
+        # exception text are deliberately excluded from the private report too.
+        reasons = {
+            "Lookup deadline": "The monthly lookup exceeded its time limit.",
+            "Oversized page": "A wallet page exceeded the response size limit.",
+            "Invalid page": "A wallet response did not contain a valid transaction list.",
+            "Invalid transaction": "A wallet transaction has no valid transaction ID.",
+            "Repeated transaction": "HighLevel returned a duplicate transaction while paging.",
+            "Wrong location": "A transaction belongs to a different HighLevel location.",
+            "Non USD transaction": "A transaction uses a currency other than USD.",
+            "Transaction outside requested range": "HighLevel returned a transaction outside the requested date range.",
+            "Invalid amount": "A transaction has an invalid billed amount.",
+            "Missing description": "A transaction has no valid description.",
+            "Monthly page limit": "The monthly lookup reached its page limit before an empty page.",
+        }
+        http_status = None
+        if isinstance(failure, url_error.HTTPError):
+            http_status = failure.code
+            reason = f"HighLevel rejected a wallet page with HTTP {http_status}."
+        elif isinstance(failure, TimeoutError) or (
+            isinstance(failure, url_error.URLError) and isinstance(failure.reason, TimeoutError)
+        ):
+            reason = "A wallet request timed out."
+        elif isinstance(failure, url_error.URLError):
+            reason = "The wallet request could not reach HighLevel."
+        elif isinstance(failure, json.JSONDecodeError):
+            reason = "A wallet page did not contain valid JSON."
+        else:
+            reason = reasons.get(str(failure), "The report could not validate or process the wallet data.")
+        return {**empty, "status": "unavailable", "failure": {
+            "phase": phase, "page": page_number, "offset": offset,
+            "validated_transactions": len(records), "http_status": http_status,
+            "reason": reason,
+        }}
 
 
 def expense_data(row):
@@ -611,6 +650,13 @@ def business_report(response: Response, month: str | None = None,
     warnings = []
     if highlevel["status"] == "unavailable":
         warnings.append("HighLevel costs could not be fully refreshed. Remaining totals are hidden; refresh to try again.")
+        failure = highlevel.get("failure")
+        if failure:
+            warnings.append(
+                f"Billing lookup detail: {failure['reason']} "
+                f"Stage: {failure['phase']}; page {failure['page']}; "
+                f"offset {failure['offset']}; {failure['validated_transactions']} transactions validated."
+            )
     if highlevel.get("voice_attribution_status") == "permission_required":
         warnings.append("Voice AI cost matching needs the voice-ai-dashboard.readonly permission on the HighLevel location integration. Voice charges remain shared until access is available.")
     if highlevel.get("voice_attribution_status") in {"unavailable", "partial", "not_configured"}:
