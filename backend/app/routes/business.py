@@ -214,7 +214,8 @@ def highlevel_month_usage(start, end, shops, db=None):
                 f"https://services.leadconnectorhq.com/saas/companies/{company}/wallet-transactions",
                 data=json.dumps(payload).encode(), method="POST",
                 headers={"Authorization": f"Bearer {token}", "Version": "v3",
-                         "Accept": "application/json", "Content-Type": "application/json"})
+                         "Accept": "application/json", "Content-Type": "application/json",
+                         "User-Agent": "ChairTimeBusinessReport/1.0"})
             with url_request.urlopen(req, timeout=min(5, remaining)) as reply:
                 raw = reply.read(4_000_001)
             if len(raw) > 4_000_000:
