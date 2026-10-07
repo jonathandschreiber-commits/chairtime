@@ -745,21 +745,29 @@ export default function AccountOptionsPage() {
         </section>
 
         {hasSubscription ? (
-          <section className="bg-violet-50 rounded-3xl border border-violet-200 p-6 sm:p-7 mb-5">
-            <h2 className="text-2xl font-extrabold text-slate-900">AI Receptionist</h2>
-            <p className="text-sm text-slate-600 mt-2">Answer calls while you work. Your receptionist uses this shop's current services, staff, prices, hours and live availability. Your booking URL stays the same.</p>
+          <section className="bg-gradient-to-br from-violet-100 via-violet-50 to-indigo-50 rounded-3xl border-2 border-violet-300 shadow-sm p-6 sm:p-8 mb-5">
+            <h2 className="text-3xl sm:text-4xl font-extrabold text-violet-900">AI Receptionist</h2>
+            <p className="text-xl sm:text-2xl font-bold text-violet-800 mt-3 leading-snug">
+              Let your dedicated AI Receptionist answer calls and book appointments while you work.
+            </p>
+            <p className="text-lg text-slate-800 mt-3 leading-relaxed">
+              Save time and manage your bookings in one place. Your AI Receptionist checks live availability before booking to help prevent double bookings and appointments outside staff hours.
+            </p>
+            <p className="text-base text-slate-700 mt-3 leading-relaxed">
+              It uses your shop&apos;s current services, staff, prices and hours. Keep your existing phone number and booking URL.
+            </p>
             {account?.ai_voice_enabled ? (
               <button type="button" onClick={startAIUpgrade} disabled={upgrading} className="mt-4 rounded-xl bg-violet-600 px-5 py-3 font-extrabold text-white disabled:opacity-60">{upgrading ? "Checking..." : "Continue AI Receptionist Setup"}</button>
             ) : upgradeQuote ? (
               <div className="mt-4 rounded-xl border border-violet-200 bg-white p-5">
                 <h3 className="font-bold text-lg">Confirm your upgrade</h3>
-                <p className="mt-2">AI Receptionist: +{upgradeMoney(upgradeQuote.addon_amount, upgradeQuote.currency)} per month.</p>
+                <p className="mt-2">AI Receptionist: + {upgradeMoney(upgradeQuote.addon_amount, upgradeQuote.currency)} per month.</p>
                 <p className="font-bold mt-2">Scheduling + AI Receptionist: {upgradeMoney(upgradeQuote.total_amount, upgradeQuote.currency)} per month before taxes and discounts.</p>
                 <p className="text-sm text-slate-600 mt-2">{upgradeQuote.billing_note}</p>
                 {upgradeQuote.trial_ends_at ? <p className="text-sm mt-2">Your trial ends {formatDate(upgradeQuote.trial_ends_at)}.</p> : null}
                 <p className="text-sm mt-2">Next, choose your receptionist number and forward your existing business number.</p>
                 <div className="flex flex-wrap gap-3 mt-4">
-                  <button type="button" onClick={confirmAIUpgrade} disabled={upgrading} className="rounded-xl bg-violet-600 px-5 py-3 font-extrabold text-white disabled:opacity-60">{upgrading ? "Confirming..." : "Confirm Upgrade & Set Up AI"}</button>
+                  <button type="button" onClick={confirmAIUpgrade} disabled={upgrading} className="rounded-xl bg-violet-600 px-5 py-3 font-extrabold text-white disabled:opacity-60">{upgrading ? "Confirming..." : "Confirm Upgrade & Set Up AI Receptionist"}</button>
                   <button type="button" onClick={() => setUpgradeQuote(null)} disabled={upgrading} className="rounded-xl border px-5 py-3 font-bold">Cancel</button>
                 </div>
               </div>
