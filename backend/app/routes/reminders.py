@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, Response
 from sqlalchemy.orm import Session
 
+from app.message_tracking import begin_sms, finish_sms
 from app.database import get_db
 from app.models import Appointment, Barber
 
@@ -27,7 +28,8 @@ def highlevel_headers(api_token: str, location_id: str):
     }
 
 
-def send_highlevel_sms(phone: str, message: str):
+def send_highlevel_sms(phone: str, message: str, *, shop_id=None, shop_slug=None,
+                       purpose="diagnostic", source_id=None):
     api_token = os.getenv("HIGHLEVEL_API_TOKEN")
     location_id = os.getenv("HIGHLEVEL_LOCATION_ID")
 
@@ -152,6 +154,12 @@ def send_highlevel_sms(phone: str, message: str):
     )
 
     try:
+        tracking_id = begin_sms(location_id, shop_id, shop_slug, purpose, source_id)
+    except Exception:
+        return {"success": False, "step": "tracking",
+                "error": "Message tracking is unavailable. No SMS was submitted."}
+
+    try:
         with request.urlopen(
             message_req,
             timeout=10,
@@ -160,14 +168,22 @@ def send_highlevel_sms(phone: str, message: str):
                 response.read().decode("utf-8")
             )
 
+        try:
+            provider_data = json.loads(message_data)
+        except (ValueError, TypeError):
+            provider_data = {}
+        tracking_saved = finish_sms(tracking_id, "accepted", provider_data)
         return {
             "success": True,
+            "tracking_id": tracking_id,
+            "tracking_saved": tracking_saved,
             "step": "message",
             "contact_id": contact_id,
             "response": message_data,
         }
 
     except error.HTTPError as http_error:
+        finish_sms(tracking_id, "rejected" if 400 <= http_error.code < 500 else "unknown")
         return {
             "success": False,
             "step": "message",
@@ -179,6 +195,7 @@ def send_highlevel_sms(phone: str, message: str):
         }
 
     except Exception as general_error:
+        finish_sms(tracking_id, "unknown")
         return {
             "success": False,
             "step": "message",
@@ -312,6 +329,8 @@ def send_reminders(
         result = send_highlevel_sms(
             appointment.customer_phone,
             reminder_message,
+            shop_slug=appointment.shop_slug, purpose="appointment_reminder",
+            source_id=appointment.id,
         )
 
         if result.get("success"):
@@ -320,6 +339,7 @@ def send_reminders(
                 datetime.utcnow()
             )
 
+            db.commit()
             reminders_sent += 1
 
         else:
