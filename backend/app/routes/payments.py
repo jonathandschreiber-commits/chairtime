@@ -343,12 +343,13 @@ def text_payment_link(appointment_id: str,
         db.rollback()
         raise HTTPException(409, "A payment text is already being sent. Refresh its status.")
     try:
-        result = send_highlevel_sms("+1" + digits, message)
+        result = send_highlevel_sms("+1" + digits, message, shop_id=shop.id,
+                                   shop_slug=shop.slug, purpose="payment_link", source_id=record.id)
     except Exception:
         result = {"success": False, "step": "message"}
     if result.get("success"):
         delivery.status = "sent"
-    elif result.get("step") in {"config", "contact", "contact_id"}:
+    elif result.get("step") in {"config", "contact", "contact_id", "tracking"}:
         delivery.status = "failed"  # No message request was made; retry is safe.
     else:
         delivery.status = "unknown"  # A timeout may occur after the provider accepted it.
