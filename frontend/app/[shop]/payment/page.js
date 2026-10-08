@@ -32,7 +32,7 @@ export default function PaymentReceiptPage() {
     <h1 className="text-3xl font-bold">{data?.shop_name || "Service payment"}</h1>
     {error ? <p role="alert" className="mt-5 text-red-700">{error}</p> : !data ? <p className="mt-5">Checking payment…</p> : <section className="mt-6 rounded-2xl border p-6">
       <p>{data.service_name} — ${data.amount}</p>
-      {data.payment_status === "paid" ? <p role="status" className="mt-4 text-xl font-bold text-green-700">Payment confirmed. Thank you!</p> : <>
+      {["refunded", "partially_refunded", "refund_pending"].includes(data.payment_status) ? <div role="status" className="mt-4"><p className="text-xl font-bold">{data.payment_status === "refunded" ? "Payment refunded" : data.payment_status === "refund_pending" ? "Refund pending" : "Payment partially refunded"}</p><p className="mt-2">Refunded to your original card: ${data.refunded_amount}. Your bank determines when it appears.</p>{data.payment_status === "refund_pending" && <p>The refund has not completed yet. Please check again or contact the shop.</p>}</div> : data.payment_status === "paid" ? <p role="status" className="mt-4 text-xl font-bold text-green-700">Payment confirmed. Thank you!</p> : <>
         <p className="mt-4">{data.payment_status === "processing" ? "Your payment is processing. Please wait for confirmation." : "Payment has not been completed."}</p>
         {data.checkout_url && <a className="mt-4 inline-block rounded-xl bg-indigo-700 px-4 py-3 font-bold text-white" href={data.checkout_url}>Return to checkout</a>}
       </>}
