@@ -57,6 +57,27 @@ function displayShopName(slug) {
     .join(" ");
 }
 
+function AgendaPayment({ shop, appointmentId }) {
+  const [label, setLabel] = useState("Payment details");
+  useEffect(() => {
+    let active = true;
+    async function read() {
+      try {
+        const response = await fetch(`/api/payments/appointments/${encodeURIComponent(appointmentId)}`, { cache: "no-store" });
+        const result = await response.json();
+        if (!response.ok || result.shop_slug !== shop) throw new Error();
+        const labels = { paid: "Paid", refunded: "Refunded", partially_refunded: "Partially refunded", refund_pending: "Refund pending", processing: "Payment processing" };
+        if (active) setLabel(labels[result.payment_status] || "Collect payment");
+      } catch { if (active) setLabel("Payment details — refresh to check"); }
+    }
+    read();
+    window.addEventListener("focus", read);
+    const timer = setInterval(read, 60000);
+    return () => { active = false; clearInterval(timer); window.removeEventListener("focus", read); };
+  }, [shop, appointmentId]);
+  return <Link href={`/${shop}/admin/payments/${encodeURIComponent(appointmentId)}`} className="bg-indigo-700 text-white rounded-xl p-4 font-bold text-center">{label}</Link>;
+}
+
 export default function AgendaPage() {
   const params = useParams();
   const router = useRouter();
@@ -839,6 +860,7 @@ export default function AgendaPage() {
                           </>
                         ) : null}
 
+                        {(isOwner || (isStaff && currentUser?.can_accept_payments)) && <AgendaPayment shop={shopSlug} appointmentId={appointment.id} />}
                         <Link
                           href={`/${shopSlug}/admin/customers?phone=${encodeURIComponent(
                             phone
