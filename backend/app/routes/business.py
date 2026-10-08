@@ -113,7 +113,7 @@ def voice_billing_reference(description):
     return match.group(1) if match else None
 
 
-def voice_shop_matches(location, descriptions, shops):
+def voice_shop_matches(location, descriptions, shops, diagnostic=None):
     """Exact provider call/message IDs only. Never infer ownership from caller numbers."""
     wanted = {ref for text in descriptions if (ref := voice_billing_reference(text))}
     token = (os.getenv("HIGHLEVEL_API_TOKEN") or "").strip()
@@ -125,6 +125,20 @@ def voice_shop_matches(location, descriptions, shops):
     for shop in shops:
         if shop.highlevel_agent_id and shop.highlevel_location_id == location:
             by_agent.setdefault(shop.highlevel_agent_id, set()).add(shop.slug)
+    if diagnostic is not None:
+        diagnostic.update({
+            "billing_reference_count": len(wanted),
+            "billing_references": sorted(wanted)[:100],
+            "reference_sample_limit": 100,
+            "pages_checked": 0, "calls_checked": 0,
+            "call_id_reference_hits": 0, "message_id_reference_hits": 0,
+            "calls_with_unique_shop": 0, "reported_total": None,
+            "call_samples": [], "sample_limit": 50,
+            "agent_shop_mappings": [
+                {"agent_id": agent, "shop_slugs": sorted(slugs)}
+                for agent, slugs in sorted(by_agent.items())
+            ],
+        })
     candidates = {}
     seen_calls = set()
     deadline = time.monotonic() + 8
@@ -152,6 +166,11 @@ def voice_shop_matches(location, descriptions, shops):
             logs = container.get("callLogs") if isinstance(container, dict) else None
             if not isinstance(logs, list) or len(logs) > 50:
                 raise ValueError("Invalid call page")
+            if diagnostic is not None:
+                diagnostic["pages_checked"] += 1
+                total = container.get("total")
+                if isinstance(total, int) and not isinstance(total, bool) and total >= 0:
+                    diagnostic["reported_total"] = total
             if not logs:
                 state = "connected"
                 break
@@ -164,7 +183,24 @@ def voice_shop_matches(location, descriptions, shops):
                 if log.get("locationId") and log["locationId"] != location:
                     raise ValueError("Wrong call location")
                 slugs = by_agent.get(log["agentId"], {None})
-                for identity in {log["id"], log.get("messageId")}:
+                if diagnostic is not None:
+                    diagnostic["calls_checked"] += 1
+                    diagnostic["call_id_reference_hits"] += int(log["id"] in wanted)
+                    diagnostic["message_id_reference_hits"] += int(
+                        isinstance(log.get("messageId"), str) and log["messageId"] in wanted)
+                    diagnostic["calls_with_unique_shop"] += int(len(slugs) == 1 and None not in slugs)
+                    if len(diagnostic["call_samples"]) < 50:
+                        # Strict allowlist: no caller, contact, transcript, action or credential fields.
+                        sample = {key: log[key] for key in ("id", "agentId", "messageId")
+                                  if isinstance(log.get(key), str)
+                                  and re.fullmatch(r"[A-Za-z0-9_-]{1,128}", log[key])}
+                        sample["shop_slugs"] = sorted(slug for slug in slugs if slug is not None)
+                        sample["billing_reference_matches"] = sorted(
+                            value for key, value in sample.items()
+                            if key in {"id", "messageId"} and value in wanted)
+                        diagnostic["call_samples"].append(sample)
+                for identity in {value for value in (log["id"], log.get("messageId"))
+                                 if isinstance(value, str)}:
                     if identity in wanted:
                         candidates.setdefault(identity, set()).update(slugs)
                 # Caller numbers, transcripts and summaries are never stored or returned.
@@ -177,7 +213,7 @@ def voice_shop_matches(location, descriptions, shops):
         return {}, "unavailable"
 
 
-def highlevel_month_usage(start, end, shops, db=None):
+def highlevel_month_usage(start, end, shops, db=None, include_voice_diagnostic=False):
     token = (os.getenv("HIGHLEVEL_AGENCY_API_TOKEN") or "").strip()
     company = (os.getenv("HIGHLEVEL_COMPANY_ID") or "").strip()
     location = (os.getenv("HIGHLEVEL_LOCATION_ID") or "").strip()
@@ -279,7 +315,9 @@ def highlevel_month_usage(start, end, shops, db=None):
                 # Preserve known total costs, but do not guess allocation.
                 db.rollback()
                 tracking_available = False
-        voice_matches, voice_status = voice_shop_matches(location, [text for _, _, text in records], shops)
+        voice_diagnostic = {} if include_voice_diagnostic else None
+        voice_matches, voice_status = voice_shop_matches(
+            location, [text for _, _, text in records], shops, diagnostic=voice_diagnostic)
         matched_voice = unmatched_voice = matched_numbers = 0
         matched_sms = unmatched_sms = 0
         grouped = {}
@@ -343,6 +381,7 @@ def highlevel_month_usage(start, end, shops, db=None):
                 "matched_sms_transactions": matched_sms, "unmatched_sms_transactions": unmatched_sms,
                 "message_tracking_available": tracking_available,
                 "voice_attribution_status": voice_status,
+                **({"voice_diagnostic": voice_diagnostic} if include_voice_diagnostic else {}),
                 "matched_voice_transactions": matched_voice,
                 "unmatched_voice_transactions": unmatched_voice,
                 "matched_number_transactions": matched_numbers,
@@ -740,10 +779,25 @@ def highlevel_diagnostic_redact(value, credential=""):
 
 @router.get("/highlevel-test")
 def test_highlevel_billing(response: Response, month: str | None = None,
-                          user: User = Depends(require_business_admin)):
+                          user: User = Depends(require_business_admin),
+                          voice_diagnostic: bool = False, db: Session = Depends(get_db)):
     response.headers["Cache-Control"] = "no-store"
     month = month or datetime.now(REPORT_ZONE).strftime("%Y-%m")
     start, end = month_bounds(month)
+    if voice_diagnostic:
+        shops = db.query(Shop).order_by(Shop.slug).all()
+        usage = highlevel_month_usage(start, end, shops, db, include_voice_diagnostic=True)
+        return {
+            "success": usage["status"] == "connected",
+            "month": month, "location_id": usage["location_id"],
+            "wallet_status": usage["status"],
+            "voice_status": usage.get("voice_attribution_status"),
+            "matched_voice_transactions": usage.get("matched_voice_transactions", 0),
+            "unmatched_voice_transactions": usage.get("unmatched_voice_transactions", 0),
+            "diagnostic": usage.get("voice_diagnostic"),
+            "failure": usage.get("failure"),
+            "message": "Read-only ID comparison. No costs were changed. Samples are limited; absent sample IDs do not prove absent calls.",
+        }
     token = (os.getenv("HIGHLEVEL_AGENCY_API_TOKEN") or "").strip()
     company = (os.getenv("HIGHLEVEL_COMPANY_ID") or "").strip()
     location = (os.getenv("HIGHLEVEL_LOCATION_ID") or "").strip()
