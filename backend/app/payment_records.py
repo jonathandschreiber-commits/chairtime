@@ -49,3 +49,15 @@ class PaymentLinkDelivery(Base):
     recipient_last4 = Column(String, nullable=False)
     created_at = Column(DateTime, server_default=func.now())
 
+
+class ServicePaymentRefund(Base):
+    """Refund snapshot and one durable owner request per service payment."""
+    __tablename__ = "service_payment_refunds"
+    payment_id = Column(String, primary_key=True)
+    refunded_cents = Column(Integer, nullable=False, default=0)
+    pending_cents = Column(Integer, nullable=False, default=0)
+    requested_cents = Column(Integer, nullable=True)
+    requested_at = Column(DateTime, nullable=True)
+    requested_by = Column(String, nullable=True)
+    refund_id = Column(String, nullable=True)
+    request_status = Column(String, nullable=True)
