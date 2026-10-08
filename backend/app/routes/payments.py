@@ -12,12 +12,13 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import Appointment, Service, Shop, User
-from app.payment_records import ServicePayment, TerminalPaymentAttempt, PaymentLinkDelivery
+from app.payment_records import ServicePayment, TerminalPaymentAttempt, PaymentLinkDelivery, ServicePaymentRefund
 from app.routes.reminders import send_highlevel_sms
 from app.routes.auth import get_current_user, get_jwt_secret
 from app.routes.billing import get_stripe_secret_key
 
 router = APIRouter()
+SETTLED_STATUSES = {"paid", "partially_refunded", "refunded", "refund_pending"}
 
 
 def value(obj, key, default=None):
@@ -61,7 +62,8 @@ def receipt_token(record):
 
 def reconcile(db, record):
     """Never mark paid from a browser redirect or a client-supplied flag."""
-    if record.status == "paid":
+    if record.status in SETTLED_STATUSES and record.payment_intent_id:
+        reconcile_refunds(db, record)
         return
     terminal_attempt = db.get(TerminalPaymentAttempt, record.id)
     if terminal_attempt:
@@ -71,6 +73,8 @@ def reconcile(db, record):
                 record.payment_intent_id, stripe_account=record.account_id
             )
             verify_terminal_intent(record, intent)
+            if record.status == "paid":
+                reconcile_refunds(db, record)
         return
     if not record.session_id:
         return
@@ -95,8 +99,9 @@ def reconcile(db, record):
             raise HTTPException(409, "Stripe has not confirmed the full payment.")
         record.status = "paid"
         record.payment_intent_id = object_id(intent)
-        record.paid_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        record.paid_at = record.paid_at or datetime.now(timezone.utc).replace(tzinfo=None)
         record.checkout_url = None
+        reconcile_refunds(db, record)
     elif value(session, "status") == "expired":
         record.status = "expired"
         record.checkout_url = None
@@ -132,7 +137,68 @@ def verify_terminal_intent(record, intent):
         record.status = "unpaid"
 
 
-def payment_data(record):
+def reconcile_refunds(db, record):
+    """Read actual connected-account refunds, including dashboard refunds."""
+    stripe.api_key = get_stripe_secret_key()
+    intent = stripe.PaymentIntent.retrieve(record.payment_intent_id,
+        stripe_account=record.account_id, expand=["latest_charge"])
+    metadata = value(intent, "metadata", {}) or {}
+    if (object_id(intent) != record.payment_intent_id
+        or value(intent, "status") != "succeeded"
+        or value(intent, "amount_received") != record.amount_cents
+        or value(intent, "currency") != record.currency
+        or value(metadata, "payment_id") != record.id
+        or value(metadata, "shop_slug") != record.shop_slug
+        or value(metadata, "appointment_id") != record.appointment_id
+        or value(metadata, "purpose") not in {"service_payment", "service_payment_terminal"}):
+        raise HTTPException(409, "The Stripe payment does not match this appointment.")
+    charge = value(intent, "latest_charge")
+    if isinstance(charge, str):
+        charge = stripe.Charge.retrieve(charge, stripe_account=record.account_id)
+    if (not object_id(charge) or object_id(value(charge, "payment_intent")) != record.payment_intent_id
+        or value(charge, "amount") != record.amount_cents
+        or value(charge, "currency") != record.currency):
+        raise HTTPException(409, "The Stripe charge does not match this payment.")
+    snapshot = db.get(ServicePaymentRefund, record.id)
+    if not snapshot:
+        snapshot = ServicePaymentRefund(payment_id=record.id, refunded_cents=0, pending_cents=0)
+        db.add(snapshot)
+    refunded = value(charge, "amount_refunded", 0)
+    if not isinstance(refunded, int) or not 0 <= refunded <= record.amount_cents:
+        raise HTTPException(409, "Stripe returned an invalid refunded amount.")
+    # The individual refund status determines completion; an initiated refund
+    # must never be presented to the customer as money already returned.
+    refunded = 0
+    pending = 0
+    refunds = stripe.Refund.list(charge=object_id(charge), limit=100, stripe_account=record.account_id)
+    for refund in refunds.auto_paging_iter():
+        if (object_id(value(refund, "charge")) != object_id(charge)
+            or value(refund, "currency") != record.currency):
+            raise HTTPException(409, "The refund does not match this payment.")
+        amount = value(refund, "amount")
+        status = value(refund, "status")
+        if (not isinstance(amount, int) or amount <= 0
+            or status not in {"pending", "requires_action", "succeeded", "failed", "canceled"}):
+            raise HTTPException(409, "Stripe returned an unverified refund status.")
+        if status == "succeeded":
+            refunded += amount
+        elif status in {"pending", "requires_action"}:
+            pending += amount
+        if value(value(refund, "metadata", {}) or {}, "chairtime_payment_id") == record.id:
+            snapshot.refund_id = object_id(refund)
+            snapshot.request_status = value(refund, "status")
+    if refunded > record.amount_cents or pending > record.amount_cents - refunded:
+        raise HTTPException(409, "Stripe returned an invalid pending refund amount.")
+    snapshot.refunded_cents = refunded
+    snapshot.pending_cents = pending
+    unresolved = snapshot.requested_at and snapshot.request_status in {"requesting", "unknown", "succeeded"}
+    record.status = ("refunded" if refunded == record.amount_cents else
+        "refund_pending" if pending or unresolved else "partially_refunded" if refunded else "paid")
+    record.checkout_url = None
+
+
+def payment_data(record, db=None):
+    snapshot = db.get(ServicePaymentRefund, record.id) if db and record else None
     return {
         "payment_status": record.status if record else "unpaid",
         "amount": f"{Decimal(record.amount_cents) / 100:.2f}" if record else None,
@@ -140,6 +206,10 @@ def payment_data(record):
         "service_name": record.service_name if record else None,
         "paid_at": record.paid_at.isoformat() if record and record.paid_at else None,
         "checkout_url": record.checkout_url if record and record.status == "unpaid" else None,
+        "refunded_amount": f"{Decimal(snapshot.refunded_cents if snapshot else 0) / 100:.2f}",
+        "refund_pending_amount": f"{Decimal(snapshot.pending_cents if snapshot else 0) / 100:.2f}",
+        "refundable_amount": f"{Decimal(max(0, record.amount_cents - snapshot.refunded_cents - snapshot.pending_cents) if snapshot and record else record.amount_cents if record else 0) / 100:.2f}",
+        "refund_request_status": snapshot.request_status if snapshot else None,
     }
 
 
@@ -169,6 +239,9 @@ def get_payment(appointment_id: str, response: Response,
         raise stripe_failure()
     delivery = db.get(PaymentLinkDelivery, record.session_id) if record and record.session_id else None
     return {"success": True, "shop_slug": user.shop_slug,
+            "can_refund": bool(str(user.role or "").lower() == "owner" and record and
+                record.status in {"paid", "partially_refunded"} and not
+                (db.get(ServicePaymentRefund, record.id) and db.get(ServicePaymentRefund, record.id).requested_at)),
             "uses_tap_to_pay": bool(record and db.get(TerminalPaymentAttempt, record.id)),
             "text_link_status": delivery.status if delivery else None,
             "text_link_recipient": delivery.recipient_last4 if delivery else None,
@@ -176,7 +249,7 @@ def get_payment(appointment_id: str, response: Response,
             "appointment_status": appointment.status,
             "service_name": record.service_name if record else (service.name if service else None),
             "amount": f"{service.price:.2f}" if service else None,
-            **{k: v for k, v in payment_data(record).items() if v is not None}}
+            **{k: v for k, v in payment_data(record, db).items() if v is not None}}
 
 
 @router.post("/appointments/{appointment_id}/checkout")
@@ -232,9 +305,9 @@ def create_service_checkout(appointment_id: str,
             appointment_for_user(db, appointment_id, user)
             db.refresh(record)
         reconcile(db, record)
-        if record.status == "paid":
+        if record.status in SETTLED_STATUSES:
             db.commit()
-            return {"success": True, "shop_slug": shop.slug, **payment_data(record)}
+            return {"success": True, "shop_slug": shop.slug, **payment_data(record, db)}
         if db.get(TerminalPaymentAttempt, record.id):
             db.commit()
             raise HTTPException(409, "This appointment uses Tap to Pay. Resume it in the mobile app.")
@@ -243,7 +316,7 @@ def create_service_checkout(appointment_id: str,
             raise HTTPException(409, "This payment is still processing. Do not create another charge.")
         if record.status == "unpaid" and record.session_id and record.checkout_url:
             db.commit()
-            return {"success": True, "shop_slug": shop.slug, **payment_data(record)}
+            return {"success": True, "shop_slug": shop.slug, **payment_data(record, db)}
         if record.status == "expired":
             record.generation += 1
             record.session_id = None
@@ -256,7 +329,7 @@ def create_service_checkout(appointment_id: str,
             if record.session_id:
                 reconcile(db, record)
                 db.commit()
-                return {"success": True, "shop_slug": shop.slug, **payment_data(record)}
+                return {"success": True, "shop_slug": shop.slug, **payment_data(record, db)}
         base = (os.getenv("FRONTEND_URL") or "https://chairtimehq.com").rstrip("/")
         return_url = f"{base}/{quote(shop.slug, safe='')}/payment?token={record.receipt_token}"
         metadata = {"purpose": "service_payment", "payment_id": record.id,
@@ -279,10 +352,84 @@ def create_service_checkout(appointment_id: str,
         if not record.session_id or not record.checkout_url:
             raise HTTPException(502, "Stripe did not return a checkout link.")
         db.commit()
-        return {"success": True, "shop_slug": shop.slug, **payment_data(record)}
+        return {"success": True, "shop_slug": shop.slug, **payment_data(record, db)}
     except stripe.StripeError:
         db.rollback()
         raise stripe_failure()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(409, "Another payment request is in progress. Please refresh.")
+
+
+@router.post("/appointments/{appointment_id}/refund")
+def refund_service_payment(appointment_id: str,
+                           user: User = Depends(get_current_user),
+                           db: Session = Depends(get_db)):
+    if str(user.role or "").strip().lower() != "owner":
+        raise HTTPException(403, "Only the shop owner can refund payments.")
+    appointment = appointment_for_user(db, appointment_id, user)
+    record = db.query(ServicePayment).filter(
+        ServicePayment.appointment_id == appointment.id,
+        ServicePayment.shop_slug == user.shop_slug,
+    ).first()
+    if not record:
+        raise HTTPException(409, "No payment has been collected for this appointment.")
+    try:
+        reconcile(db, record)
+        snapshot = db.get(ServicePaymentRefund, record.id)
+        if record.status == "refunded" or (snapshot and snapshot.refund_id):
+            db.commit()
+            return {"success": True, "shop_slug": user.shop_slug,
+                    "can_refund": False, **payment_data(record, db)}
+        if snapshot and snapshot.pending_cents:
+            db.commit()
+            raise HTTPException(409, "A refund is already pending in Stripe. Do not submit another refund.")
+        if not snapshot or record.status not in SETTLED_STATUSES:
+            raise HTTPException(409, "Stripe must confirm payment before it can be refunded.")
+        if snapshot.requested_at:
+            # Stripe retains idempotency keys for at least 24 hours. Never
+            # automatically resubmit an unresolved old request after that window.
+            age = datetime.now(timezone.utc).replace(tzinfo=None) - snapshot.requested_at
+            if age >= timedelta(hours=23) or snapshot.request_status in {"failed", "canceled"}:
+                db.commit()
+                raise HTTPException(409, "Check this refund in Stripe before proceeding. ChairTime will not risk issuing a duplicate refund.")
+        else:
+            snapshot.requested_cents = record.amount_cents - snapshot.refunded_cents
+            snapshot.requested_at = datetime.now(timezone.utc).replace(tzinfo=None)
+            snapshot.requested_by = user.id
+            snapshot.request_status = "requesting"
+            record.status = "refund_pending"
+            # Persist the amount and idempotency identity before Stripe can act.
+            db.commit()
+            appointment_for_user(db, appointment_id, user)
+            db.refresh(record)
+            db.refresh(snapshot)
+        parameters = {"payment_intent": record.payment_intent_id,
+            "amount": snapshot.requested_cents,
+            "metadata": {"chairtime_payment_id": record.id,
+                         "shop_slug": record.shop_slug, "appointment_id": record.appointment_id}}
+        if record.fee_cents:
+            parameters["refund_application_fee"] = True
+        refund = stripe.Refund.create(**parameters, stripe_account=record.account_id,
+            idempotency_key=f"chairtime-service-refund:{record.id}")
+        if (object_id(value(refund, "payment_intent")) != record.payment_intent_id
+            or value(refund, "amount") != snapshot.requested_cents
+            or value(refund, "currency") != record.currency or not object_id(refund)):
+            snapshot.request_status = "unknown"
+            db.commit()
+            raise HTTPException(502, "The refund result could not be verified. Refresh its status before proceeding.")
+        snapshot.refund_id = object_id(refund)
+        snapshot.request_status = value(refund, "status", "pending")
+        db.commit()
+        appointment_for_user(db, appointment_id, user)
+        db.refresh(record)
+        reconcile(db, record)
+        db.commit()
+        return {"success": True, "shop_slug": user.shop_slug,
+                "can_refund": False, **payment_data(record, db)}
+    except stripe.StripeError:
+        db.rollback()
+        raise HTTPException(502, "Stripe could not confirm the refund. Refresh payment status before trying again; your refund request is protected against duplicate submission.")
     except IntegrityError:
         db.rollback()
         raise HTTPException(409, "Another payment request is in progress. Please refresh.")
@@ -300,7 +447,7 @@ def text_payment_link(appointment_id: str,
     if len(digits) != 10:
         raise HTTPException(400, "Update the customer's US phone number on the appointment first.")
     checkout = create_service_checkout(appointment_id, user, db)
-    if checkout.get("payment_status") == "paid":
+    if checkout.get("payment_status") in SETTLED_STATUSES:
         return checkout
     appointment = appointment_for_user(db, appointment_id, user)
     record = db.query(ServicePayment).filter(
@@ -308,9 +455,9 @@ def text_payment_link(appointment_id: str,
         ServicePayment.shop_slug == user.shop_slug,
     ).one()
     reconcile(db, record)
-    if record.status == "paid":
+    if record.status in SETTLED_STATUSES:
         db.commit()
-        return {"success": True, "shop_slug": user.shop_slug, **payment_data(record)}
+        return {"success": True, "shop_slug": user.shop_slug, **payment_data(record, db)}
     if record.status != "unpaid" or not record.checkout_url:
         raise HTTPException(409, "Refresh the payment status before sending a link.")
     if appointment.status in {"canceled", "no_show"}:
@@ -324,7 +471,7 @@ def text_payment_link(appointment_id: str,
     if delivery and delivery.status == "sent":
         return {"success": True, "shop_slug": user.shop_slug,
                 "text_link_status": "sent", "text_link_recipient": delivery.recipient_last4,
-                **payment_data(record)}
+                **payment_data(record, db)}
     if delivery and delivery.status in {"sending", "unknown"}:
         raise HTTPException(409, "Text delivery is pending or unconfirmed. Check the customer's messages before attempting another send.")
     if not delivery:
@@ -360,7 +507,7 @@ def text_payment_link(appointment_id: str,
         raise HTTPException(502, "Text delivery could not be confirmed. Check messages before sending again.")
     return {"success": True, "shop_slug": user.shop_slug,
             "text_link_status": "sent", "text_link_recipient": delivery.recipient_last4,
-            **payment_data(record)}
+            **payment_data(record, db)}
 
 
 @router.get("/receipt")
@@ -392,7 +539,7 @@ def get_receipt(token: str, shop_slug: str, response: Response,
         raise stripe_failure()
     shop = db.query(Shop).filter(Shop.slug == shop_slug).first()
     return {"success": True, "shop_slug": shop_slug,
-            "shop_name": shop.name if shop else "Your shop", **payment_data(record)}
+            "shop_name": shop.name if shop else "Your shop", **payment_data(record, db)}
 
 
 @router.post("/webhook")
@@ -411,13 +558,17 @@ async def payment_webhook(request: Request, db: Session = Depends(get_db)):
         "checkout.session.async_payment_failed", "checkout.session.expired",
         "payment_intent.succeeded", "payment_intent.payment_failed",
         "payment_intent.processing", "payment_intent.canceled",
+        "charge.refunded", "refund.created", "refund.updated", "refund.failed",
     }:
         return {"received": True}
     session = value(value(event, "data", {}), "object", {})
-    is_terminal = str(value(event, "type", "")).startswith("payment_intent.")
-    match_column = ServicePayment.payment_intent_id if is_terminal else ServicePayment.session_id
+    event_type = str(value(event, "type", ""))
+    is_terminal = event_type.startswith("payment_intent.")
+    is_refund = event_type.startswith(("charge.", "refund."))
+    match_column = ServicePayment.payment_intent_id if is_terminal or is_refund else ServicePayment.session_id
+    identity = object_id(value(session, "payment_intent")) if is_refund else object_id(session)
     record = db.query(ServicePayment).filter(
-        match_column == object_id(session),
+        match_column == identity,
         ServicePayment.account_id == value(event, "account"),
     ).first()
     if is_terminal and record and not db.get(TerminalPaymentAttempt, record.id):
