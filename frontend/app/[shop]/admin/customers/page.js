@@ -4,6 +4,7 @@ import {
   Suspense,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
@@ -12,6 +13,8 @@ import {
   useRouter,
   useSearchParams,
 } from "next/navigation";
+
+import Link from "next/link";
 
 import AdminUserBar from "../../../components/AdminUserBar";
 
@@ -79,6 +82,75 @@ function displayShopName(slug) {
         word.slice(1)
     )
     .join(" ");
+}
+
+
+function CustomerPaymentStatus({ shop, appointmentId }) {
+  const element = useRef(null);
+  const [visible, setVisible] = useState(false);
+  const [payment, setPayment] = useState(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    if (!("IntersectionObserver" in window)) { setVisible(true); return; }
+    const observer = new IntersectionObserver(entries => {
+      setVisible(entries.some(entry => entry.isIntersecting));
+    }, { rootMargin: "100px" });
+    if (element.current) observer.observe(element.current);
+    return () => observer.disconnect();
+  }, []);
+  useEffect(() => {
+    if (!visible) return;
+    let active = true;
+    let reading = false;
+    let controller;
+    async function read() {
+      if (reading || document.visibilityState === "hidden") return;
+      reading = true;
+      controller = new AbortController();
+      try {
+        const response = await fetch(`/api/payments/appointments/${encodeURIComponent(appointmentId)}`, {
+          cache: "no-store", signal: controller.signal,
+        });
+        const result = await response.json();
+        if (!response.ok || result.shop_slug !== shop) throw new Error("Payment status unavailable.");
+        const statuses = ["paid", "refunded", "partially_refunded", "refund_pending", "processing", "unpaid", "expired", "canceled"];
+        if (!statuses.includes(result.payment_status)) throw new Error("Payment status unavailable.");
+        if (active) { setPayment(result); setError(""); }
+      } catch (failure) {
+        if (active && failure.name !== "AbortError") setError("Payment status unavailable. Open payment details to check.");
+      } finally { reading = false; }
+    }
+    read();
+    const timer = setInterval(read, 30000);
+    window.addEventListener("focus", read);
+    document.addEventListener("visibilitychange", read);
+    return () => {
+      active = false; controller?.abort(); clearInterval(timer);
+      window.removeEventListener("focus", read);
+      document.removeEventListener("visibilitychange", read);
+    };
+  }, [shop, appointmentId, visible]);
+  let label = "Checking payment status…";
+  if (error) label = error;
+  else if (payment) {
+    const amount = payment.amount || "0.00";
+    const refunded = payment.refunded_amount || "0.00";
+    const labels = {
+      paid: `Paid — $${amount}`,
+      refunded: `Refunded — $${refunded}`,
+      partially_refunded: `Partially refunded — $${refunded} of $${amount}`,
+      refund_pending: `Refund pending — $${refunded} refunded so far`,
+      processing: "Payment processing",
+      unpaid: "No completed card payment recorded",
+      expired: "No completed card payment recorded",
+      canceled: "Card payment canceled",
+    };
+    label = labels[payment.payment_status];
+  }
+  return <div ref={element} className="mt-2">
+    <p role="status" className={`text-sm font-bold ${!error && payment?.payment_status === "paid" ? "text-green-800" : "text-gray-800"}`}>{label}</p>
+    <Link href={`/${shop}/admin/payments/${encodeURIComponent(appointmentId)}`} className="mt-1 inline-block text-sm text-blue-800 underline">Payment details</Link>
+  </div>;
 }
 
 
@@ -1211,6 +1283,10 @@ function CustomersPageContent() {
                 appointment.barber_id
               )}
             </p>
+
+            {(String(currentUser?.role || "").trim().toLowerCase() === "owner" ||
+              (String(currentUser?.role || "").trim().toLowerCase() === "staff" && currentUser?.can_accept_payments)) &&
+              <CustomerPaymentStatus shop={shopSlug} appointmentId={appointment.id} />}
 
             {appointment.notes && (
               <p className="mt-1">
