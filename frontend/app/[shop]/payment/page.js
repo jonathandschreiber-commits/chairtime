@@ -10,24 +10,36 @@ export default function PaymentReceiptPage() {
   const [revision, setRevision] = useState(0);
   useEffect(() => {
     let active = true;
+    let reading = false;
+    let controller;
     const token = new URL(window.location.href).searchParams.get("token") || "";
     const query = new URLSearchParams({ token, shop_slug: shop });
     async function read() {
+      if (reading || document.visibilityState === "hidden") return;
+      reading = true;
+      controller = new AbortController();
       try {
-        const response = await fetch(`/api/payments/receipt?${query}`, { cache: "no-store" });
+        const response = await fetch(`/api/payments/receipt?${query}`, {
+          cache: "no-store", signal: controller.signal,
+        });
         const result = await response.json();
         if (!response.ok) throw new Error(typeof result.detail === "string" ? result.detail : "Could not verify payment.");
+        if (result.shop_slug !== shop) throw new Error("This payment does not match the shop.");
         if (active) { setData(result); setError(""); }
-      } catch (failure) { if (active) setError(failure.message || "Could not verify payment."); }
+      } catch (failure) {
+        if (active && failure.name !== "AbortError") setError(failure.message || "Could not verify payment.");
+      } finally { reading = false; }
     }
     read();
-    return () => { active = false; };
+    const timer = setInterval(read, 30000);
+    window.addEventListener("focus", read);
+    document.addEventListener("visibilitychange", read);
+    return () => {
+      active = false; controller?.abort(); clearInterval(timer);
+      window.removeEventListener("focus", read);
+      document.removeEventListener("visibilitychange", read);
+    };
   }, [shop, revision]);
-  useEffect(() => {
-    if (data?.payment_status !== "processing") return;
-    const timer = setTimeout(() => setRevision(v => v + 1), 5000);
-    return () => clearTimeout(timer);
-  }, [data, revision]);
   return <main className="mx-auto max-w-xl p-6">
     <h1 className="text-3xl font-bold">{data?.shop_name || "Service payment"}</h1>
     {error ? <p role="alert" className="mt-5 text-red-700">{error}</p> : !data ? <p className="mt-5">Checking payment…</p> : <section className="mt-6 rounded-2xl border p-6">
@@ -37,7 +49,7 @@ export default function PaymentReceiptPage() {
         {data.checkout_url && <a className="mt-4 inline-block rounded-xl bg-indigo-700 px-4 py-3 font-bold text-white" href={data.checkout_url}>Return to checkout</a>}
       </>}
     </section>}
-    <button className="mt-5 block text-blue-700 underline" onClick={() => setRevision(v => v + 1)}>Check payment status</button>
+    <button className="mt-5 block text-blue-700 underline" onClick={() => setRevision(v => v + 1)}>Refresh payment status</button>
     <Link className="mt-5 block text-blue-700 underline" href={`/${shop}`}>Back to booking page</Link>
   </main>;
 }
