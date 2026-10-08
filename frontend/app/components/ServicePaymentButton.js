@@ -1,4 +1,4 @@
-"use client";
+use client";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
@@ -64,11 +64,26 @@ export default function ServicePaymentButton({ appointment, user, shopSlug }) {
   const formattedAmount = validAmount && /^[A-Z]{3}$/.test(currency)
     ? new Intl.NumberFormat("en-US", { style: "currency", currency }).format(amount)
     : null;
-  const label = paid
-    ? `Paid${formattedAmount ? ` — ${formattedAmount}` : ""}`
-    : data?.payment_status === "processing" ? "Payment processing"
-    : ["unpaid", "expired"].includes(data?.payment_status) ? "Collect payment"
-    : current ? "Check payment status" : "Checking payment…";
+  function formatRefundAmount(value) {
+    const number = Number(value);
+    if (value == null || !Number.isFinite(number) || number < 0 ||
+        !/^[A-Z]{3}$/.test(currency)) return null;
+    return new Intl.NumberFormat("en-US", { style: "currency", currency }).format(number);
+  }
+  const refundedAmount = formatRefundAmount(data?.refunded_amount);
+  const labels = {
+    paid: `Paid${formattedAmount ? ` — ${formattedAmount}` : ""}`,
+    refunded: `Refunded${refundedAmount ? ` — ${refundedAmount}` : ""}`,
+    partially_refunded: `Partially refunded${refundedAmount && formattedAmount
+      ? ` — ${refundedAmount} of ${formattedAmount}` : ""}`,
+    refund_pending: "Refund pending",
+    processing: "Payment processing",
+    unpaid: "Collect payment",
+    expired: "Collect payment",
+    canceled: "Card payment canceled",
+  };
+  const label = labels[data?.payment_status] ||
+    (current ? "Payment status unavailable — view details" : "Checking payment…");
   return (
     <Link
       href={`/${encodeURIComponent(shopSlug)}/admin/payments/${encodeURIComponent(appointment.id)}`}
