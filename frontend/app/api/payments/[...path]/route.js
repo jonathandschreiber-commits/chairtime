@@ -15,7 +15,7 @@ async function proxy(request, context, method) {
     const appointment = path?.[0] === "appointments" &&
       /^[a-zA-Z0-9-]{1,100}$/.test(path[1] || "") &&
       ((method === "GET" && path.length === 2) ||
-       (method === "POST" && path.length === 3 && ["checkout", "text-link"].includes(path[2])));
+       (method === "POST" && path.length === 3 && ["checkout", "text-link", "refund"].includes(path[2])));
     if (!receipt && !appointment) return json({ detail: "Payment endpoint not found." }, 404);
     if (method === "POST") {
       const origin = request.headers.get("origin");
@@ -32,7 +32,8 @@ async function proxy(request, context, method) {
       const incoming = new URL(request.url).searchParams;
       for (const key of ["token", "shop_slug"]) query.set(key, incoming.get(key) || "");
     }
-    const response = await fetch(`${BACKEND}/api/payments/${path.map(encodeURIComponent).join("/")}${receipt ? `?${query}` : ""}`, {
+    const endpoint = `${BACKEND}/api/payments/${path.map(encodeURIComponent).join("/")}`;
+    const response = await fetch(endpoint + (receipt ? `?${query}` : ""), {
       method, headers, cache: "no-store", signal: AbortSignal.timeout(30000),
     });
     let data;
