@@ -227,6 +227,15 @@ export default async function AdminHome({
    */
   const ownerButtons = [
     {
+      name: "Time Sheet Report",
+      description: "Review weekly hours, hourly pay, commission, and total compensation.",
+      href: basePath + "/timesheets",
+      icon: "🕒",
+      cardClass: "bg-gradient-to-br from-blue-50 to-indigo-100 border-blue-200",
+      iconClass: "bg-gradient-to-br from-blue-500 to-indigo-600",
+      arrowClass: "text-indigo-600 border-indigo-300 hover:bg-indigo-100",
+    },
+    {
       name: "Shop Setup",
       description:
         "Manage hours, availability, and shop settings.",
