@@ -23,9 +23,9 @@ def hours(value):
     return format((Decimal(value) / 3600).quantize(Decimal('.01'), rounding=ROUND_HALF_UP), '.2f')
 
 
-def calculate_week(week_start, rules, blocks):
+def calculate_period(week_start, period_end, rules, blocks):
     days = []
-    for offset in range(7):
+    for offset in range((period_end - week_start).days + 1):
         day = week_start + timedelta(days=offset)
         spans = union([(datetime.combine(day, rule.start_time), datetime.combine(day, rule.end_time))
                        for rule in rules if rule.weekday == day.weekday()])
@@ -62,3 +62,7 @@ def compensation(row, paid_hours, hourly_rate, commission):
             'payable_hours': format(payable.quantize(Decimal('.01'), rounding=ROUND_HALF_UP), '.2f'),
             'hourly_compensation': format(hourly, '.2f'),
             'total_compensation': format(hourly+commission, '.2f')}
+
+
+def calculate_week(week_start, rules, blocks):
+    return calculate_period(week_start, week_start + timedelta(days=6), rules, blocks)
