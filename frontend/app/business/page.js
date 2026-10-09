@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 const money = (cents) => cents == null ? "—" : new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
@@ -113,7 +113,6 @@ export default function BusinessPage() {
 
   const rows = (report?.shops || []).filter((shop) => `${shop.name} ${shop.slug}`.toLowerCase().includes(search.toLowerCase()));
   const totals = report?.totals || {};
-  const selected = report?.shops.find((shop) => shop.slug === details);
   const remaining = totals.remaining_after_shared_cents;
   const stats = [
     ["Subscription collections", totals.subscription_collected_cents, "Before refunds and tax exclusion"],
@@ -141,11 +140,60 @@ export default function BusinessPage() {
       <section className="mt-7 overflow-hidden rounded-2xl border border-slate-200 bg-white">
         <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 p-5"><div><h2 className="text-xl font-extrabold">By shop</h2><p className="mt-1 text-sm text-slate-500">Net revenue includes subscriptions and platform transaction fees.</p></div><label className="sr-only" htmlFor="shop-search">Find a shop</label><input id="shop-search" type="search" placeholder="Find a shop" value={search} onChange={(e) => setSearch(e.target.value)} className="rounded-xl border border-slate-300 px-3 py-2" /></div>
         <div className="overflow-x-auto"><table className="w-full min-w-[1050px] text-sm"><thead className="bg-slate-50 text-slate-600"><tr>{["Shop / current plan", "Subscriptions, net", "Transaction fees, net", "Net revenue", "Stripe costs", "HighLevel allocated*", "Other recorded", "Remaining*"].map((label) => <th key={label} scope="col" className="px-4 py-4 text-left font-bold">{label}</th>)}</tr></thead>
-          <tbody>{rows.map((shop) => <tr key={shop.slug} className="border-t border-slate-100 hover:bg-violet-50/40"><td className="px-4 py-4"><button onClick={() => setDetails(details === shop.slug ? null : shop.slug)} className="font-bold text-violet-800 hover:underline">{shop.name}</button><p className="mt-1 text-xs text-slate-500">{shop.subscription_status.replaceAll("_", " ")} · {money(shop.current_monthly_cents)}/month</p></td><td className="px-4 py-4">{report.stripe_complete ? money(shop.subscription_collected_cents - shop.subscription_refunds_cents - shop.subscription_tax_cents) : "—"}</td><td className="px-4 py-4">{report.stripe_complete ? money(shop.transaction_fee_collected_cents - shop.transaction_fee_refunds_cents) : "—"}</td><td className="px-4 py-4 font-bold">{money(shop.revenue_cents)}</td><td className="px-4 py-4">{money(shop.stripe_cost_cents)}</td><td className="px-4 py-4">{money((shop.highlevel_live_cents || 0) + shop.highlevel_recorded_cents)}</td><td className="px-4 py-4">{money(shop.other_recorded_cents)}</td><td className={`px-4 py-4 font-bold ${shop.remaining_cents < 0 ? "text-red-700" : "text-violet-900"}`}>{money(shop.remaining_cents)}</td></tr>)}</tbody>
+          <tbody>{rows.map((shop) => <Fragment key={shop.slug}><tr className="border-t border-slate-100 hover:bg-violet-50/40"><td className="px-4 py-4"><button
+                  type="button"
+                  aria-expanded={details === shop.slug}
+                  aria-controls={`shop-details-${shop.slug}`}
+                  onClick={() => setDetails((current) => current === shop.slug ? null : shop.slug)}
+                  className="text-left font-bold text-violet-800 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-violet-700"
+                >
+                  <span className="block">{shop.name}</span>
+                  <span className="mt-1 block text-xs font-semibold underline">
+                    {details === shop.slug ? "Hide details" : "View details"}
+                  </span>
+                </button><p className="mt-1 text-xs text-slate-500">{shop.subscription_status.replaceAll("_", " ")} · {money(shop.current_monthly_cents)}/month</p></td><td className="px-4 py-4">{report.stripe_complete ? money(shop.subscription_collected_cents - shop.subscription_refunds_cents - shop.subscription_tax_cents) : "—"}</td><td className="px-4 py-4">{report.stripe_complete ? money(shop.transaction_fee_collected_cents - shop.transaction_fee_refunds_cents) : "—"}</td><td className="px-4 py-4 font-bold">{money(shop.revenue_cents)}</td><td className="px-4 py-4">{money(shop.stripe_cost_cents)}</td><td className="px-4 py-4">{money((shop.highlevel_live_cents || 0) + shop.highlevel_recorded_cents)}</td><td className="px-4 py-4">{money(shop.other_recorded_cents)}</td><td className={`px-4 py-4 font-bold ${shop.remaining_cents < 0 ? "text-red-700" : "text-violet-900"}`}>{money(shop.remaining_cents)}</td></tr>
+              {details === shop.slug && <tr className="border-t border-violet-200 bg-violet-50/50">
+                <td colSpan={8} className="px-4 py-5">
+                  <section id={`shop-details-${shop.slug}`} aria-labelledby={`shop-details-title-${shop.slug}`}>
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <h3 id={`shop-details-title-${shop.slug}`} className="text-lg font-bold">{shop.name} · report details</h3>
+                        <p className="mt-1 text-sm text-slate-600">Amounts for {report.month}. Shop service sales and customer refunds are excluded from ChairTime revenue.</p>
+                      </div>
+                      <button type="button" onClick={() => setDetails(null)} className="font-bold text-violet-700 hover:underline">Close details</button>
+                    </div>
+                    <dl className="mt-5 grid gap-x-6 gap-y-4 sm:grid-cols-3 xl:grid-cols-4">
+                      {[
+                        ["Subscription collections", shop.subscription_collected_cents],
+                        ["Subscription refunds", shop.subscription_refunds_cents],
+                        ["Subscription tax excluded", shop.subscription_tax_cents],
+                        ["Platform fees collected", shop.transaction_fee_collected_cents],
+                        ["Platform fee refunds", shop.transaction_fee_refunds_cents],
+                        ["Subscription adjustments", shop.adjustments_cents],
+                        ["ChairTime net revenue", shop.revenue_cents],
+                        ["Stripe costs", shop.stripe_cost_cents],
+                        ["HighLevel allocated wallet costs", shop.highlevel_live_cents],
+                        ["HighLevel recorded costs", shop.highlevel_recorded_cents],
+                        ["Other recorded costs", shop.other_recorded_cents],
+                        ["Remaining after assigned costs", shop.remaining_cents],
+                        ["Current plan list price per month", shop.current_monthly_cents],
+                      ].map(([label, amount]) => <div key={label}>
+                        <dt className="text-sm text-slate-600">{label}</dt>
+                        <dd className="mt-1 font-bold">{money(amount)}</dd>
+                      </div>)}
+                    </dl>
+                    {report.stripe_complete && shop.transaction_fee_collected_cents === 0 && shop.transaction_fee_refunds_cents === 0 && <p className="mt-4 text-sm text-slate-600">No ChairTime platform fee collections or refunds were recorded for this month. This does not establish whether a fee is configured for future payments.</p>}
+                    <p className="mt-3 text-xs text-slate-500">HighLevel amounts include only allocated costs. Shared and unmatched usage appears in shared expenses; remaining amounts are provisional.</p>
+                    <Link href={`/${shop.slug}/admin`} className="mt-4 inline-block text-sm font-bold text-violet-700">Open shop admin</Link>
+                    <p className="mt-2 text-xs text-slate-500">Shop administration still requires that shop&apos;s own authorized login.</p>
+                  </section>
+                </td>
+              </tr>}
+            </Fragment>)}</tbody>
         </table>{!rows.length && <p className="p-6 text-slate-500">{loading ? "Loading shops…" : "No matching shops."}</p>}</div>
         <p className="border-t border-slate-200 px-5 py-3 text-xs text-slate-500">*HighLevel allocated costs exclude shared and unmatched usage. A $0 does not mean that a shop incurred no cost. Remaining amounts are provisional.</p>
       </section>
-      {selected && <section className="mt-4 rounded-2xl border border-violet-200 bg-white p-5"><div className="flex justify-between gap-4"><h2 className="text-lg font-bold">{selected.name} · revenue detail</h2><button onClick={() => setDetails(null)} className="font-bold text-violet-700">Close</button></div><dl className="mt-4 grid gap-4 sm:grid-cols-3">{[["Subscription refunds", selected.subscription_refunds_cents], ["Subscription tax excluded", selected.subscription_tax_cents], ["Platform fee refunds", selected.transaction_fee_refunds_cents], ["Subscription adjustments", selected.adjustments_cents], ["Current plan list price", selected.current_monthly_cents]].map(([label, amount]) => <div key={label}><dt className="text-sm text-slate-500">{label}</dt><dd className="mt-1 font-bold">{money(amount)}</dd></div>)}</dl><Link href={`/${selected.slug}/admin`} className="mt-4 inline-block text-sm font-bold text-violet-700">Open shop admin</Link><p className="mt-2 text-xs text-slate-500">Shop administration still requires that shop&apos;s own authorized login.</p></section>}
+
       {report?.highlevel && <section className="mt-7 rounded-2xl border border-slate-200 bg-white p-5 sm:p-6">
         <div className="flex flex-wrap justify-between gap-4"><div><h2 className="text-xl font-extrabold">HighLevel wallet usage</h2><p className="mt-1 text-sm text-slate-500">Actual billed charges in USD · ChairTime sub-account · {report.highlevel.transaction_count} transactions checked</p></div><div className="text-right"><p className="text-sm text-slate-500">Known wallet costs</p><p className="text-2xl font-extrabold">{money(report.highlevel.total_cents)}</p></div></div>
         <p className="mt-3 text-sm text-slate-600">{report.highlevel.status === "connected" ? "Phone number charges are assigned only when the number matches one shop. Voice AI, shared SMS and other usage remain shared or unassigned until their shop can be verified." : "A complete monthly lookup is required before live costs can be shown."}</p>
