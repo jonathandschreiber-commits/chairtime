@@ -513,6 +513,51 @@ class StripeReader:
             self.cache[cache_key] = getattr(self.v1, resource).retrieve(identity)
         return self.cache[cache_key]
 
+    def fee_for_refund(self, source):
+        """Resolve supported refund sources to their parent application fee."""
+        # Balance-transaction refunds can expand to the original application fee.
+        # The transaction's signed amount determines the refund, not the fee total.
+        if obj(source, "object") == "application_fee":
+            return source
+        if isinstance(source, str) and source.startswith("fee_"):
+            return self.get("application_fees", source)
+        if obj(source, "object") == "fee_refund" and obj(source, "fee"):
+            return self.get("application_fees", obj(source, "fee"))
+        refund_id = oid(source)
+        if not refund_id or not refund_id.startswith("fr_"):
+            raise ReportIncomplete("A platform fee refund has no verifiable identity.")
+        cache_key = ("fee_refund_parent", refund_id)
+        if cache_key in self.cache:
+            return self.cache[cache_key]
+        # Refunds in this month can belong to fees collected in earlier months.
+        # Search historical fees with the existing request deadline and page bounds.
+        for fee in self.pages("application_fees", {}):
+            fee_id = oid(fee)
+            self.cache[("application_fees", fee_id)] = fee
+            refunds = obj(fee, "refunds", {}) or {}
+            for refund in obj(refunds, "data", []):
+                self.cache[("fee_refund_parent", oid(refund))] = fee
+            if cache_key in self.cache:
+                return self.cache[cache_key]
+            if obj(refunds, "has_more", False):
+                parameters = {"limit": 100}
+                for _ in range(50):
+                    self.check()
+                    page = self.v1.application_fees.refunds.list(fee_id, parameters)
+                    items = obj(page, "data", [])
+                    for refund in items:
+                        self.cache[("fee_refund_parent", oid(refund))] = fee
+                    if cache_key in self.cache:
+                        return self.cache[cache_key]
+                    if not obj(page, "has_more", False):
+                        break
+                    if not items:
+                        raise ReportIncomplete("Stripe returned an incomplete fee refund page.")
+                    parameters["starting_after"] = oid(items[-1])
+                else:
+                    raise ReportIncomplete("Fee refunds exceeded the report size limit.")
+        raise ReportIncomplete("A platform fee refund could not be matched to its fee.")
+
     def pages(self, resource, parameters):
         parameters = dict(parameters, limit=100)
         for _ in range(50):
@@ -600,11 +645,12 @@ def apply_transaction(reader, transaction, rows, by_customer, by_account):
     shop = None
     bucket = None
     if kind in {"application_fee", "application_fee_refund"}:
-        source = source if not isinstance(source, str) else reader.get("application_fees", source)
         if kind == "application_fee_refund":
-            if obj(source, "object") != "fee_refund":
-                raise ReportIncomplete("A platform fee refund could not be read.")
-            source = reader.get("application_fees", obj(source, "fee"))
+            source = reader.fee_for_refund(source)
+        else:
+            source = reader.get("application_fees", source)
+        if obj(source, "object") != "application_fee" or not obj(source, "account"):
+            raise ReportIncomplete("A platform fee could not be verified.")
         shop = by_account.get(oid(obj(source, "account")))
         bucket = "transaction_fee_collected_cents" if amount >= 0 else "transaction_fee_refunds_cents"
     else:
