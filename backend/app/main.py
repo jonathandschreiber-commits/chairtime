@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
 from app.database import Base, engine
+from app.routes.timesheets import router as timesheets_router
 from app.routes.account import router as account_router
 from app.routes.ai_setup import router as ai_setup_router
 from app.routes.appointments import router as appointments_router
@@ -713,3 +714,5 @@ def healthcheck():
     }
 
 app.include_router(business_router, prefix="/api/business", tags=["Private Business Report"])
+
+app.include_router(timesheets_router, prefix="/api/timesheets", tags=["Timesheets"])
