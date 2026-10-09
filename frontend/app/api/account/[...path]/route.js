@@ -1,48 +1,192 @@
+import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 
-const BACKEND = (process.env.CHAIRTIME_API_URL || process.env.NEXT_PUBLIC_API_BASE_URL ||
-  "https://chairtime-production-94da.up.railway.app").replace(/\/$/, "");
-export const dynamic = "force-dynamic";
+function getApiUrl() {
+  const apiUrl = process.env.CHAIRTIME_API_URL;
 
-function json(data, status = 200) {
-  return Response.json(data, { status, headers: { "Cache-Control": "no-store" } });
+  if (!apiUrl) {
+    throw new Error(
+      "CHAIRTIME_API_URL environment variable is missing."
+    );
+  }
+
+  return apiUrl.replace(/\/+$/, "");
 }
 
-async function proxy(request, context, method) {
+async function getAuthToken() {
+  const cookieStore = await cookies();
+
+  return cookieStore.get("chairtime_token")?.value || "";
+}
+
+async function getPath(params) {
+  const resolvedParams = await params;
+  const pathParts = resolvedParams?.path;
+
+  if (!Array.isArray(pathParts) || pathParts.length === 0) {
+    return "";
+  }
+
+  return pathParts
+    .map((part) => encodeURIComponent(part))
+    .join("/");
+}
+
+async function proxyAccountRequest(
+  request,
+  params,
+  method
+) {
   try {
-    const { path } = await context.params;
-    const receipt = method === "GET" && path?.length === 1 && path[0] === "receipt";
-    const appointment = path?.[0] === "appointments" &&
-      /^[a-zA-Z0-9-]{1,100}$/.test(path[1] || "") &&
-      ((method === "GET" && path.length === 2) ||
-       (method === "POST" && path.length === 3 && ["checkout", "text-link", "refund"].includes(path[2])));
-    if (!receipt && !appointment) return json({ detail: "Payment endpoint not found." }, 404);
-    if (method === "POST") {
-      const origin = request.headers.get("origin");
-      if (origin && origin !== new URL(request.url).origin) return json({ detail: "Invalid request origin." }, 403);
+    const token = await getAuthToken();
+
+    if (!token) {
+      return NextResponse.json(
+        {
+          detail:
+            "You must be signed in to manage this account.",
+        },
+        {
+          status: 401,
+        }
+      );
     }
-    const headers = { Accept: "application/json" };
-    if (!receipt) {
-      const token = (await cookies()).get("chairtime_token")?.value;
-      if (!token) return json({ detail: "Please sign in to collect payment." }, 401);
-      headers.Authorization = `Bearer ${token}`;
+
+    const path = await getPath(params);
+
+    if (!path) {
+      return NextResponse.json(
+        {
+          detail: "Account endpoint is missing.",
+        },
+        {
+          status: 400,
+        }
+      );
     }
-    const query = new URLSearchParams();
-    if (receipt) {
-      const incoming = new URL(request.url).searchParams;
-      for (const key of ["token", "shop_slug"]) query.set(key, incoming.get(key) || "");
+
+    const apiUrl = getApiUrl();
+
+    const incomingUrl = new URL(request.url);
+
+    const backendUrl =
+      `${apiUrl}/api/account/${path}` +
+      incomingUrl.search;
+
+    const headers = {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/json",
+    };
+
+    const fetchOptions = {
+      method,
+      headers,
+      cache: "no-store",
+    };
+
+    if (
+      method === "POST" ||
+      method === "PATCH" ||
+      method === "PUT"
+    ) {
+      const contentType =
+        request.headers.get("content-type");
+
+      if (contentType) {
+        headers["Content-Type"] = contentType;
+      }
+
+      const body = await request.text();
+
+      if (body) {
+        fetchOptions.body = body;
+      }
     }
-    const response = await fetch(`${BACKEND}/api/payments/${path.map(encodeURIComponent).join("/")}${receipt ? `?${query}` : ""}`, {
-      method, headers, cache: "no-store", signal: AbortSignal.timeout(30000),
-    });
-    let data;
-    try { data = await response.json(); }
-    catch { return json({ detail: "The payment service returned an invalid response." }, 502); }
-    return json(data, response.status);
-  } catch {
-    return json({ detail: "Could not reach the payment service. Please refresh before trying again." }, 502);
+
+    const response = await fetch(
+      backendUrl,
+      fetchOptions
+    );
+
+    const responseText =
+      await response.text();
+
+    let data = {};
+
+    if (responseText) {
+      try {
+        data = JSON.parse(responseText);
+      } catch {
+        data = {
+          detail: responseText,
+        };
+      }
+    }
+
+    return NextResponse.json(
+      data,
+      {
+        status: response.status,
+      }
+    );
+  } catch (error) {
+    console.error(
+      "Account API proxy error:",
+      error
+    );
+
+    return NextResponse.json(
+      {
+        detail:
+          "Unable to communicate with the account service.",
+      },
+      {
+        status: 500,
+      }
+    );
   }
 }
 
-export function GET(request, context) { return proxy(request, context, "GET"); }
-export function POST(request, context) { return proxy(request, context, "POST"); }
+export async function GET(
+  request,
+  { params }
+) {
+  return proxyAccountRequest(
+    request,
+    params,
+    "GET"
+  );
+}
+
+export async function POST(
+  request,
+  { params }
+) {
+  return proxyAccountRequest(
+    request,
+    params,
+    "POST"
+  );
+}
+
+export async function PATCH(
+  request,
+  { params }
+) {
+  return proxyAccountRequest(
+    request,
+    params,
+    "PATCH"
+  );
+}
+
+export async function PUT(
+  request,
+  { params }
+) {
+  return proxyAccountRequest(
+    request,
+    params,
+    "PUT"
+  );
+}
