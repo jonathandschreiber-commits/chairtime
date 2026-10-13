@@ -125,7 +125,7 @@ export default function BusinessPage() {
     <div className="mx-auto max-w-7xl">
       <header className="flex flex-wrap items-start justify-between gap-5">
         <div><p className="text-xs font-extrabold uppercase tracking-widest text-violet-700">ChairTime · Private business report</p><h1 className="mt-2 text-3xl font-extrabold sm:text-4xl">Revenue & costs</h1><p className="mt-2 text-slate-600">See what each shop contributes to your business.</p></div>
-        <div className="flex flex-wrap items-center gap-3"><Link href="/joebarber/admin" className="text-sm font-bold text-slate-600">Joe Barber test shop</Link><button onClick={logout} className="rounded-xl border border-slate-300 bg-white px-4 py-2 font-bold">Log out</button></div>
+        <div className="flex flex-wrap items-center gap-3"><span className="text-sm font-bold text-slate-600">Platform administrator</span><button onClick={logout} className="rounded-xl border border-slate-300 bg-white px-4 py-2 font-bold">Log out</button></div>
       </header>
       <div className="mt-7 flex flex-wrap items-end justify-between gap-4">
         <div className="flex flex-wrap items-end gap-3"><label className="text-sm font-bold">Report month<input type="month" min="2020-01" max="2100-12" value={month} onChange={(e) => setMonth(e.target.value)} className={`${fieldStyle} mt-1`} /></label><button onClick={() => loadReport()} disabled={loading} className={buttonStyle}>{loading ? "Refreshing…" : "Refresh report"}</button></div>
