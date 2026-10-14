@@ -6,7 +6,7 @@ export default function HomePage() {
       <header className="border-b border-gray-200">
         <div className="max-w-6xl mx-auto px-6 py-5 flex items-center justify-between">
           <div className="text-2xl font-extrabold tracking-tight">
-            ChairTime
+            DayTello
           </div>
 
           <Link
@@ -32,7 +32,7 @@ export default function HomePage() {
             </h1>
 
             <p className="mt-7 text-xl sm:text-2xl leading-relaxed text-gray-700 max-w-3xl">
-              ChairTime keeps appointments, customers, reminders,
+              DayTello keeps appointments, customers, reminders,
               and booking in one simple place — so you can spend less
               time managing the schedule and more time with your customers.
             </p>
@@ -69,7 +69,7 @@ export default function HomePage() {
           <p className="mt-6 text-xl text-gray-700 leading-relaxed">
             You&apos;re working with a customer. The phone rings.
             Instead of stopping what you&apos;re doing — or losing the
-            appointment — ChairTime lets customers book online or by phone.
+            appointment — DayTello lets customers book online or by phone.
             Their appointment goes directly onto your schedule.
           </p>
         </div>
@@ -109,7 +109,7 @@ export default function HomePage() {
             </h3>
 
             <p className="mt-3 text-lg text-gray-700 leading-relaxed">
-              ChairTime is designed to be easy for owners, staff,
+              DayTello is designed to be easy for owners, staff,
               and customers without complicated software to learn.
             </p>
           </div>
@@ -166,7 +166,7 @@ export default function HomePage() {
         </h2>
 
         <p className="mt-5 text-xl text-gray-700 max-w-2xl mx-auto">
-          Add your staff, services, and hours. ChairTime gives your
+          Add your staff, services, and hours. DayTello gives your
           business its own booking page and keeps everything organized
           from there.
         </p>
@@ -185,7 +185,7 @@ export default function HomePage() {
 
       <footer className="border-t border-gray-200">
         <div className="max-w-6xl mx-auto px-6 py-8 flex flex-col sm:flex-row gap-3 justify-between text-gray-600">
-          <p>© 2026 ChairTime</p>
+          <p>© 2026 DayTello</p>
 
           <Link href="/login" className="font-bold text-gray-900">
             Shop Owner Sign In
