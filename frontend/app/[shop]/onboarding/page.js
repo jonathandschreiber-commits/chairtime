@@ -563,7 +563,7 @@ export default function OnboardingPage() {
  
       if (!data.success || !data.phone_number) {
         throw new Error(
-          "ChairTime could not verify your AI Receptionist phone number."
+          "DayTello could not verify your AI Receptionist phone number."
         );
       }
  
@@ -4407,7 +4407,7 @@ function AiReceptionistStep({
  
           <p className={styles.cardText}>
             Your plan includes an AI receptionist that can
-            answer calls, check your real ChairTime
+            answer calls, check your real DayTello
             availability, and book appointments for you.
           </p>
         </div>
@@ -4482,7 +4482,7 @@ function AiReceptionistStep({
             >
               {provisioned
                 ? "Your dedicated AI receptionist is connected to your real availability, services, staff, and booking actions."
-                : "ChairTime will create a dedicated AI receptionist for this business."}
+                : "DayTello will create a dedicated AI receptionist for this business."}
             </p>
  
           </div>
@@ -4750,7 +4750,7 @@ function AiReceptionistStep({
                 fontSize: "14px",
               }}
             >
-              Already purchased a ChairTime AI number?
+              Already purchased a DayTello AI number?
             </strong>
  
             <p
@@ -4761,9 +4761,9 @@ function AiReceptionistStep({
                 lineHeight: "1.5",
               }}
             >
-              If ChairTime previously purchased a number for
+              If DayTello previously purchased a number for
               this business but setup was interrupted, enter
-              that exact number here. ChairTime will reconnect
+              that exact number here. DayTello will reconnect
               the owned number instead of purchasing it again.
             </p>
  
@@ -4809,7 +4809,7 @@ function AiReceptionistStep({
                 fontWeight: 700,
               }}
             >
-              ChairTime will verify this number is already
+              DayTello will verify this number is already
               owned before activating it.
             </div>
           )}
@@ -4827,7 +4827,7 @@ function AiReceptionistStep({
                 fontWeight: 700,
               }}
             >
-              ✓ Number selected. ChairTime will verify the
+              ✓ Number selected. DayTello will verify the
               number before purchasing or activating it.
             </div>
           )}
@@ -5067,7 +5067,7 @@ function ReviewStep({
             wordBreak: "break-word",
           }}
         >
-          www.chairtimehq.com/{shopSlug}
+          www.daytello.com/{shopSlug}
         </p>
  
         <button
