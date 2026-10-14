@@ -147,7 +147,7 @@ function customerKey(
     .toLowerCase()}`;
 }
 
-// All values are shop-local wall times, as stored by ChairTime.
+// All values are shop-local wall times, as stored by DayTello.
 function minutesOfTime(value) {
   const parts = String(value || "").split(":");
   const hours = Number(parts[0]);
@@ -888,7 +888,7 @@ export default function CalendarPage() {
   /*
    * CUSTOMER LIST
    *
-   * ChairTime's customer history is currently
+   * DayTello's customer history is currently
    * appointment-based. Build a quick customer
    * picker from the shop's existing appointments.
    */
