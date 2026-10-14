@@ -89,7 +89,7 @@ export default function LoginPage() {
     <main className={styles.page}>
       <section className={styles.card}>
         <div className={styles.brand}>
-          <h1 className={styles.brandName}>ChairTime</h1>
+          <h1 className={styles.brandName}>DayTello</h1>
 
           <p className={styles.brandText}>
             Sign in to manage appointments, customers, and your daily agenda.
@@ -153,7 +153,7 @@ export default function LoginPage() {
         </form>
 
         <p className={styles.footer}>
-          ChairTime keeps scheduling simple for busy businesses.
+          DayTello keeps scheduling simple for busy businesses.
         </p>
       </section>
     </main>
