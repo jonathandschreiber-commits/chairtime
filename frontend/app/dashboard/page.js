@@ -29,7 +29,7 @@ export default function Dashboard() {
   return (
     <main className="min-h-screen bg-gray-100 p-10">
       <div className="max-w-4xl mx-auto bg-white rounded-2xl shadow p-8">
-        <h1 className="text-4xl font-bold mb-2">ChairTime Dashboard</h1>
+        <h1 className="text-4xl font-bold mb-2">DayTello Dashboard</h1>
 
         <p className="text-gray-600 mb-8">View upcoming appointments</p>
 
