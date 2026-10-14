@@ -116,7 +116,7 @@ export default function BusinessPage() {
   const remaining = totals.remaining_after_shared_cents;
   const stats = [
     ["Subscription collections", totals.subscription_collected_cents, "Before refunds and tax exclusion"],
-    ["Transaction fees collected", totals.transaction_fee_collected_cents, "ChairTime fees from shop card payments"],
+    ["Transaction fees collected", totals.transaction_fee_collected_cents, "DayTello fees from shop card payments"],
     ["Net revenue", totals.revenue_cents, "After refunds, tax exclusion and adjustments"],
     ["After recorded costs", remaining, "Provisional · unrecorded costs excluded"],
   ];
@@ -124,7 +124,7 @@ export default function BusinessPage() {
   return <main className="min-h-screen bg-slate-50 px-4 py-8 text-slate-900 sm:px-8">
     <div className="mx-auto max-w-7xl">
       <header className="flex flex-wrap items-start justify-between gap-5">
-        <div><p className="text-xs font-extrabold uppercase tracking-widest text-violet-700">ChairTime · Private business report</p><h1 className="mt-2 text-3xl font-extrabold sm:text-4xl">Revenue & costs</h1><p className="mt-2 text-slate-600">See what each shop contributes to your business.</p></div>
+        <div><p className="text-xs font-extrabold uppercase tracking-widest text-violet-700">DayTello · Private business report</p><h1 className="mt-2 text-3xl font-extrabold sm:text-4xl">Revenue & costs</h1><p className="mt-2 text-slate-600">See what each shop contributes to your business.</p></div>
         <div className="flex flex-wrap items-center gap-3"><span className="text-sm font-bold text-slate-600">Platform administrator</span><button onClick={logout} className="rounded-xl border border-slate-300 bg-white px-4 py-2 font-bold">Log out</button></div>
       </header>
       <div className="mt-7 flex flex-wrap items-end justify-between gap-4">
@@ -158,7 +158,7 @@ export default function BusinessPage() {
                     <div className="flex items-start justify-between gap-4">
                       <div>
                         <h3 id={`shop-details-title-${shop.slug}`} className="text-lg font-bold">{shop.name} · report details</h3>
-                        <p className="mt-1 text-sm text-slate-600">Amounts for {report.month}. Shop service sales and customer refunds are excluded from ChairTime revenue.</p>
+                        <p className="mt-1 text-sm text-slate-600">Amounts for {report.month}. Shop service sales and customer refunds are excluded from DayTello revenue.</p>
                       </div>
                       <button type="button" onClick={() => setDetails(null)} className="font-bold text-violet-700 hover:underline">Close details</button>
                     </div>
@@ -170,7 +170,7 @@ export default function BusinessPage() {
                         ["Platform fees collected", shop.transaction_fee_collected_cents],
                         ["Platform fee refunds", shop.transaction_fee_refunds_cents],
                         ["Subscription adjustments", shop.adjustments_cents],
-                        ["ChairTime net revenue", shop.revenue_cents],
+                        ["DayTello net revenue", shop.revenue_cents],
                         ["Stripe costs", shop.stripe_cost_cents],
                         ["HighLevel allocated wallet costs", shop.highlevel_live_cents],
                         ["HighLevel recorded costs", shop.highlevel_recorded_cents],
@@ -182,7 +182,7 @@ export default function BusinessPage() {
                         <dd className="mt-1 font-bold">{money(amount)}</dd>
                       </div>)}
                     </dl>
-                    {report.stripe_complete && shop.transaction_fee_collected_cents === 0 && shop.transaction_fee_refunds_cents === 0 && <p className="mt-4 text-sm text-slate-600">No ChairTime platform fee collections or refunds were recorded for this month. This does not establish whether a fee is configured for future payments.</p>}
+                    {report.stripe_complete && shop.transaction_fee_collected_cents === 0 && shop.transaction_fee_refunds_cents === 0 && <p className="mt-4 text-sm text-slate-600">No DayTello platform fee collections or refunds were recorded for this month. This does not establish whether a fee is configured for future payments.</p>}
                     <p className="mt-3 text-xs text-slate-500">HighLevel amounts include only allocated costs. Shared and unmatched usage appears in shared expenses; remaining amounts are provisional.</p>
                     <Link href={`/${shop.slug}/admin`} className="mt-4 inline-block text-sm font-bold text-violet-700">Open shop admin</Link>
                     <p className="mt-2 text-xs text-slate-500">Shop administration still requires that shop&apos;s own authorized login.</p>
@@ -195,7 +195,7 @@ export default function BusinessPage() {
       </section>
 
       {report?.highlevel && <section className="mt-7 rounded-2xl border border-slate-200 bg-white p-5 sm:p-6">
-        <div className="flex flex-wrap justify-between gap-4"><div><h2 className="text-xl font-extrabold">HighLevel wallet usage</h2><p className="mt-1 text-sm text-slate-500">Actual billed charges in USD · ChairTime sub-account · {report.highlevel.transaction_count} transactions checked</p></div><div className="text-right"><p className="text-sm text-slate-500">Known wallet costs</p><p className="text-2xl font-extrabold">{money(report.highlevel.total_cents)}</p></div></div>
+        <div className="flex flex-wrap justify-between gap-4"><div><h2 className="text-xl font-extrabold">HighLevel wallet usage</h2><p className="mt-1 text-sm text-slate-500">Actual billed charges in USD · DayTello sub-account · {report.highlevel.transaction_count} transactions checked</p></div><div className="text-right"><p className="text-sm text-slate-500">Known wallet costs</p><p className="text-2xl font-extrabold">{money(report.highlevel.total_cents)}</p></div></div>
         <p className="mt-3 text-sm text-slate-600">{report.highlevel.status === "connected" ? "Phone number charges are assigned only when the number matches one shop. Voice AI, shared SMS and other usage remain shared or unassigned until their shop can be verified." : "A complete monthly lookup is required before live costs can be shown."}</p>
         <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{report.highlevel.categories.map((item) => <div key={item.category} className="flex justify-between gap-4 rounded-xl bg-slate-50 p-4"><span>{item.category}</span><strong>{money(item.amount_cents)}</strong></div>)}</div>
         <p className="mt-4 text-xs text-slate-500">{report.highlevel.complete ? "All returned transactions classified." : "Monthly costs are not fully verified."} Wallet funding transfers are excluded from service costs. Small usage charges are rounded after aggregation. HighLevel may post charges after the activity occurs.</p>
@@ -226,3 +226,4 @@ export default function BusinessPage() {
     </div>
   </main>;
 }
+
