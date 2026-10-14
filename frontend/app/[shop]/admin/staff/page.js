@@ -358,7 +358,7 @@ export default function StaffServicesPage() {
           name: cleanName,
           shop_name:
             existingBarber?.shop_name ||
-            "ChairTime Barbershop",
+            "DayTello Barbershop",
           phone: "",
           timezone:
             existingBarber?.timezone ||
@@ -477,7 +477,7 @@ export default function StaffServicesPage() {
 
     if (teamMember) {
       showStaffError(
-        `${barber.name} has a ChairTime login account. The login account must remain linked to this staff member.`
+        `${barber.name} has a DayTello login account. The login account must remain linked to this staff member.`
       );
 
       return;
@@ -712,7 +712,7 @@ export default function StaffServicesPage() {
         showStaffError(
           data.detail ||
             data.error ||
-            "Could not create ChairTime access."
+            "Could not create DayTello access."
         );
 
         return;
@@ -721,7 +721,7 @@ export default function StaffServicesPage() {
       cancelGivingAccess();
 
       showStaffSuccess(
-        `${barber.name} now has ChairTime login access.`
+        `${barber.name} now has DayTello login access.`
       );
 
       await loadData();
@@ -732,7 +732,7 @@ export default function StaffServicesPage() {
       );
 
       showStaffError(
-        "Could not create ChairTime access."
+        "Could not create DayTello access."
       );
     } finally {
       setSavingAccess(false);
@@ -802,7 +802,7 @@ export default function StaffServicesPage() {
   ) {
     const confirmed =
       window.confirm(
-        `Disable ChairTime login access for ${barber.name}?`
+        `Disable DayTello login access for ${barber.name}?`
       );
 
     if (!confirmed) return;
@@ -830,14 +830,14 @@ export default function StaffServicesPage() {
         showStaffError(
           data.detail ||
             data.error ||
-            "Could not disable ChairTime access."
+            "Could not disable DayTello access."
         );
 
         return;
       }
 
       showStaffSuccess(
-        `${barber.name}'s ChairTime access has been disabled.`
+        `${barber.name}'s DayTello access has been disabled.`
       );
 
       await loadData();
@@ -848,7 +848,7 @@ export default function StaffServicesPage() {
       );
 
       showStaffError(
-        "Could not disable ChairTime access."
+        "Could not disable DayTello access."
       );
     }
   }
@@ -881,14 +881,14 @@ export default function StaffServicesPage() {
         showStaffError(
           data.detail ||
             data.error ||
-            "Could not restore ChairTime access."
+            "Could not restore DayTello access."
         );
 
         return;
       }
 
       showStaffSuccess(
-        `${barber.name}'s ChairTime access has been restored.`
+        `${barber.name}'s DayTello access has been restored.`
       );
 
       await loadData();
@@ -899,7 +899,7 @@ export default function StaffServicesPage() {
       );
 
       showStaffError(
-        "Could not restore ChairTime access."
+        "Could not restore DayTello access."
       );
     }
   }
@@ -1158,7 +1158,7 @@ export default function StaffServicesPage() {
             <p className="text-gray-600 mt-1">
               Add the people who take appointments.
               You can also give individual staff members
-              their own ChairTime login.
+              their own DayTello login.
             </p>
           </div>
 
@@ -1283,7 +1283,7 @@ export default function StaffServicesPage() {
                           </p>
 
                           <p className="text-sm text-gray-500">
-                            Create ChairTime login access
+                            Create DayTello login access
                           </p>
                         </div>
 
@@ -1517,7 +1517,7 @@ export default function StaffServicesPage() {
                               !teamMember && (
                                 <div className="mt-2">
                                   <span className="inline-flex items-center rounded-full bg-gray-100 px-3 py-1 text-xs font-bold text-gray-700">
-                                    ChairTime access: Not enabled
+                                    DayTello access: Not enabled
                                   </span>
                                 </div>
                               )}
@@ -1526,7 +1526,7 @@ export default function StaffServicesPage() {
                               accessIsActive && (
                                 <div className="mt-2 space-y-1">
                                   <span className="inline-flex items-center rounded-full bg-green-100 px-3 py-1 text-xs font-bold text-green-800">
-                                    ChairTime access: Active
+                                    DayTello access: Active
                                   </span>
 
                                   <p className="text-sm text-gray-600">
@@ -1539,7 +1539,7 @@ export default function StaffServicesPage() {
                               !accessIsActive && (
                                 <div className="mt-2 space-y-1">
                                   <span className="inline-flex items-center rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-amber-800">
-                                    ChairTime access: Disabled
+                                    DayTello access: Disabled
                                   </span>
 
                                   <p className="text-sm text-gray-600">
@@ -1665,7 +1665,7 @@ export default function StaffServicesPage() {
 
                                 <span className="block text-xs text-gray-600">
                                   Allows this employee to collect
-                                  customer payments through ChairTime.
+                                  customer payments through DayTello.
                                 </span>
                               </span>
                             </label>
@@ -1860,4 +1860,3 @@ export default function StaffServicesPage() {
     </main>
   );
 }
-
