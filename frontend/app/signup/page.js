@@ -132,7 +132,7 @@ export default function SignupPage() {
 
       if (!shopSlug) {
         throw new Error(
-          "Your account was created, but ChairTime could not identify your business."
+          "Your account was created, but DayTello could not identify your business."
         );
       }
 
@@ -229,7 +229,7 @@ export default function SignupPage() {
     <main className={styles.page}>
       <div className={styles.container}>
         <Link href="/" className={styles.backLink}>
-          ← Back to ChairTime
+          ← Back to DayTello
         </Link>
 
         <section className={styles.card}>
@@ -382,7 +382,7 @@ export default function SignupPage() {
                           fontWeight: "800",
                         }}
                       >
-                        <span>chairtimehq.com/</span>
+                        <span>daytello.com/</span>
 
                         <input
                           aria-label="Booking page URL"
@@ -1013,7 +1013,7 @@ export default function SignupPage() {
           </form>
 
           <p className={styles.footer}>
-            Already have a ChairTime account?{" "}
+            Already have a DayTello account?{" "}
             <Link
               href="/login"
               className={styles.loginLink}
