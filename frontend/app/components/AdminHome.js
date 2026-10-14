@@ -23,7 +23,7 @@ export default async function AdminHome({
  
  
   /*
-   * Load the authenticated ChairTime user.
+   * Load the authenticated DayTello user.
    *
    * The JWT remains in the HTTP-only cookie and
    * is never exposed to client-side JavaScript.
@@ -146,7 +146,7 @@ export default async function AdminHome({
  
  
   const title =
-    businessName || "ChairTime";
+    businessName || "DayTello";
  
   const currentUserName =
     String(
@@ -407,3 +407,4 @@ export default async function AdminHome({
     </main>
   );
 }
+
