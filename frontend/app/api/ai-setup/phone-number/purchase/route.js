@@ -43,7 +43,7 @@ export async function POST(request) {
     } catch {
       data = {
         detail:
-          "ChairTime received an invalid response from the backend.",
+          "DayTello received an invalid response from the backend.",
       };
     }
 
@@ -59,7 +59,7 @@ export async function POST(request) {
     return Response.json(
       {
         detail:
-          "ChairTime could not process the phone number purchase.",
+          "DayTello could not process the phone number purchase.",
       },
       {
         status: 500,
@@ -67,3 +67,4 @@ export async function POST(request) {
     );
   }
 }
+
