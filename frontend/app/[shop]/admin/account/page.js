@@ -404,7 +404,7 @@ export default function AccountOptionsPage() {
 
   async function cancelSubscription() {
     const confirmed = window.confirm(
-      "Cancel your ChairTime subscription at the end of the current billing period? You can continue using ChairTime until then."
+      "Cancel your DayTello subscription at the end of the current billing period? You can continue using DayTello until then."
     );
 
     if (!confirmed) {
@@ -537,7 +537,7 @@ export default function AccountOptionsPage() {
 
     const subscriptionName =
     subscription.plan_name ||
-    "ChairTime Scheduling";
+    "DayTello Scheduling";
 
   const monthlyPrice =
     Number(subscription.monthly_price || 49);
@@ -597,7 +597,7 @@ export default function AccountOptionsPage() {
                   </h2>
 
                   <p className="text-slate-500 text-sm">
-                    Your ChairTime account
+                    Your DayTello account
                   </p>
                 </div>
               </div>
@@ -631,7 +631,7 @@ export default function AccountOptionsPage() {
               </p>
 
               <p className="text-slate-700 mt-2">
-                Try ChairTime free for 30 days.
+                Try DayTello free for 30 days.
                 There is no charge today.
                 After your trial, your
                 subscription is {monthlyPriceText}
@@ -675,7 +675,7 @@ export default function AccountOptionsPage() {
                 </p>
               ) : (
                 <p className="text-slate-700">
-                  Manage your ChairTime
+                  Manage your DayTello
                   subscription and billing
                   information here.
                 </p>
@@ -949,7 +949,7 @@ export default function AccountOptionsPage() {
               </h2>
 
               <p className="text-slate-500 text-sm">
-                Payments for your ChairTime
+                Payments for your DayTello
                 subscription.
               </p>
             </div>
@@ -1026,7 +1026,7 @@ export default function AccountOptionsPage() {
         </section>
 
         <p className="text-center text-sm text-slate-500 mt-8">
-          ChairTime keeps your subscription
+          DayTello keeps your subscription
           billing and customer payments
           separate so they're easy to manage.
         </p>
@@ -1034,3 +1034,4 @@ export default function AccountOptionsPage() {
     </main>
   );
 }
+
