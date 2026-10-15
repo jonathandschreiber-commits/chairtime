@@ -273,7 +273,7 @@ export default function CalendarPage() {
       <div className="max-w-7xl mx-auto space-y-8">
         <div className="bg-white rounded-3xl shadow-lg p-6 sm:p-8 border border-gray-200">
           <h1 className="text-5xl font-extrabold tracking-tight mb-3">
-            ChairTime Calendar
+            DayTello Calendar
           </h1>
 
           <p className="text-gray-900">
