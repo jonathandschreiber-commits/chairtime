@@ -330,7 +330,7 @@ def create_service_checkout(appointment_id: str,
                 reconcile(db, record)
                 db.commit()
                 return {"success": True, "shop_slug": shop.slug, **payment_data(record, db)}
-        base = (os.getenv("FRONTEND_URL") or "https://chairtimehq.com").rstrip("/")
+        base = (os.getenv("CHAIRTIME_FRONTEND_URL") or os.getenv("FRONTEND_URL") or "https://www.daytello.com").rstrip("/")
         return_url = f"{base}/{quote(shop.slug, safe='')}/payment?token={record.receipt_token}"
         metadata = {"purpose": "service_payment", "payment_id": record.id,
                     "shop_slug": shop.slug, "appointment_id": appointment.id}
@@ -392,7 +392,7 @@ def refund_service_payment(appointment_id: str,
             age = datetime.now(timezone.utc).replace(tzinfo=None) - snapshot.requested_at
             if age >= timedelta(hours=23) or snapshot.request_status in {"failed", "canceled"}:
                 db.commit()
-                raise HTTPException(409, "Check this refund in Stripe before proceeding. ChairTime will not risk issuing a duplicate refund.")
+                raise HTTPException(409, "Check this refund in Stripe before proceeding. DayTello will not risk issuing a duplicate refund.")
         else:
             snapshot.requested_cents = record.amount_cents - snapshot.refunded_cents
             snapshot.requested_at = datetime.now(timezone.utc).replace(tzinfo=None)
@@ -586,3 +586,4 @@ async def payment_webhook(request: Request, db: Session = Depends(get_db)):
             db.rollback()
             raise stripe_failure()
     return {"received": True}
+
