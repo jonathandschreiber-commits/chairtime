@@ -85,7 +85,7 @@ export default function AIReceptionistPage() {
   const agentName =
     statusData?.agent?.agent_name ||
     statusData?.agent_name ||
-    `ChairTime AI - ${shopSlug}`;
+    `DayTello AI - ${shopSlug}`;
 
   const phoneNumber =
     statusData?.phone_number ||
@@ -189,7 +189,7 @@ export default function AIReceptionistPage() {
                   </p>
 
                   <p className="text-sm text-emerald-700 mt-1">
-                    It is connected to your ChairTime
+                    It is connected to your DayTello
                     services, staff, availability, and
                     booking system.
                   </p>
@@ -284,7 +284,7 @@ export default function AIReceptionistPage() {
                   </p>
 
                   <p className="text-sm text-slate-600 mt-1">
-                    Uses your real ChairTime schedules.
+                    Uses your real DayTello schedules.
                   </p>
                 </div>
 
@@ -317,7 +317,7 @@ export default function AIReceptionistPage() {
 
                   <p className="text-sm text-slate-600 mt-1">
                     Creates appointments directly in
-                    ChairTime.
+                    DayTello.
                   </p>
                 </div>
               </div>
@@ -328,3 +328,4 @@ export default function AIReceptionistPage() {
     </main>
   );
 }
+
