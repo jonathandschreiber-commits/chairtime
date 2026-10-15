@@ -554,7 +554,7 @@ function CustomersPageContent() {
    * Staff may see the whole shop schedule,
    * but may modify only appointments assigned
    * to the service-provider record linked to
-   * their ChairTime login.
+   * their DayTello login.
    */
   function canModifyAppointment(
     appointment
