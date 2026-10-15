@@ -83,7 +83,7 @@ export default function CollectPaymentPage() {
             </button>
             {data.text_link_status === "sent" && <p role="status" className="mt-3 text-green-700">Payment text accepted for the number ending {data.text_link_recipient}. Not paid yet.</p>}
             {["sending", "unknown"].includes(data.text_link_status) && <p role="status" className="mt-3">Text delivery is pending or unconfirmed. Check the customer’s messages before another send.</p>}
-            {data.uses_tap_to_pay && <p className="mt-3">This payment was started in ChairTime Counter. Resume it there to avoid a second charge.</p>}
+            {data.uses_tap_to_pay && <p className="mt-3">This payment was started in DayTello Counter. Resume it there to avoid a second charge.</p>}
             <p className="mt-3 text-gray-600">This page updates to Paid after Stripe confirms payment.</p>
           </>}
         {data.refund_request_status && ["failed", "canceled"].includes(data.refund_request_status) && <p role="alert" className="mt-4 text-red-700">The refund did not complete. Check its details in Stripe before proceeding.</p>}
@@ -99,3 +99,4 @@ export default function CollectPaymentPage() {
     </main>
   );
 }
+
