@@ -2507,6 +2507,12 @@ export default function OnboardingPage() {
         {currentStep === reviewStep && (
           <ReviewStep
             shopSlug={shopSlug}
+            aiPhoneNumber={aiVoiceEnabled ? (
+              aiProvisionStatus?.phone_number ||
+              aiProvisionStatus?.agent?.inbound_number ||
+              ""
+            ) : ""}
+            aiPhoneRouted={aiProvisionStatus?.phone_routed}
             staff={staff}
             services={services}
             assignedServices={
@@ -4852,19 +4858,14 @@ function AiReceptionistStep({
         </div>
       )}
  
-      {aiOnly && activePhoneNumber ? (
-        <div className="mt-5 rounded-2xl border border-emerald-200 bg-emerald-50 p-5">
-          <h3 className="text-xl font-bold">Forward your business calls</h3>
-          <p className="mt-3 text-2xl font-bold">{activePhoneNumber}</p>
-          <ul className="mt-3 list-disc pl-5 space-y-2">
-            <li>Keep your existing business phone number.</li>
-            <li>In your phone provider&apos;s settings, forward calls to the receptionist number above. Contact your provider if you need help.</li>
-            <li>Call your existing business number to test the greeting and booking.</li>
-          </ul>
-          <p className="mt-3">Your booking page stays at /{shopSlug}.</p>
-          {!provisionStatus?.phone_routed ? <p role="alert" className="mt-3">Phone routing is not yet verified. Click Check Again before testing calls.</p> : null}
-          <button type="button" onClick={refreshStatus} disabled={loadingStatus} className={styles.backButton}>{loadingStatus ? "Checking..." : "Check Again"}</button>
-        </div>
+      {activePhoneNumber ? (
+        <AiPhoneForwardingHelp
+          aiPhoneNumber={activePhoneNumber}
+          shopSlug={shopSlug}
+          phoneRouted={provisionStatus?.phone_routed}
+          refreshStatus={refreshStatus}
+          loadingStatus={loadingStatus}
+        />
       ) : null}
 
       {statusError && (
@@ -4963,8 +4964,108 @@ function AiReceptionistStep({
   );
 }
  
+function AiPhoneForwardingHelp({
+  aiPhoneNumber,
+  shopSlug,
+  phoneRouted,
+  refreshStatus,
+  loadingStatus = false,
+}) {
+  if (!aiPhoneNumber) return null;
+
+  return (
+    <section
+      aria-label="AI Receptionist phone forwarding instructions"
+      style={{
+        marginTop: "20px",
+        padding: "20px",
+        borderRadius: "16px",
+        border: "1px solid #a7f3d0",
+        background: "#f0fdf4",
+      }}
+    >
+      <h3
+        style={{
+          fontSize: "20px",
+          fontWeight: 800,
+          color: "#065f46",
+          margin: 0,
+        }}
+      >
+        Your AI Receptionist phone number
+      </h3>
+
+      <a
+        href={`tel:${aiPhoneNumber}`}
+        style={{
+          display: "inline-block",
+          marginTop: "10px",
+          color: "#065f46",
+          fontSize: "22px",
+          fontWeight: 800,
+          overflowWrap: "anywhere",
+        }}
+      >
+        {aiPhoneNumber}
+      </a>
+
+      <p style={{ marginTop: "10px", color: "#166534", lineHeight: 1.6 }}>
+        You can give customers this number directly, or keep the business
+        number they already know and forward calls to your AI Receptionist.
+        Forwarding is optional.
+      </p>
+
+      <h4 style={{ marginTop: "18px", fontWeight: 800, color: "#065f46" }}>
+        How to forward your existing business number
+      </h4>
+      <ol style={{ marginTop: "8px", paddingLeft: "22px", lineHeight: 1.75, color: "#166534" }}>
+        <li>Call the new AI number above first to confirm it answers correctly.</li>
+        <li>
+          Open the call-forwarding settings with your existing phone provider.
+          Choose to forward all calls, or only unanswered calls if your provider
+          supports that option.
+        </li>
+        <li>Set the forwarding destination to your AI number shown above.</li>
+        <li>
+          Call your existing business number from another phone and confirm
+          the AI Receptionist answers and can book an appointment.
+        </li>
+      </ol>
+      <p style={{ marginTop: "10px", color: "#166534", fontSize: "13px", lineHeight: 1.6 }}>
+        Your existing phone provider controls forwarding. Contact them for
+        instructions specific to your plan. Avoid routing the AI back to the
+        same business number you forward to it, which could cause a call loop.
+      </p>
+      <p style={{ marginTop: "10px", color: "#166534", fontSize: "13px", lineHeight: 1.6 }}>
+        Your online booking page stays at <strong>daytello.com/{shopSlug}</strong>.
+      </p>
+
+      {phoneRouted === false && (
+        <p role="alert" style={{ marginTop: "12px", color: "#92400e", fontWeight: 700 }}>
+          DayTello has not yet verified that this number is routed to your AI
+          Receptionist. Check again before forwarding your business calls.
+        </p>
+      )}
+
+      {typeof refreshStatus === "function" && (
+        <button
+          type="button"
+          onClick={refreshStatus}
+          disabled={loadingStatus}
+          className={styles.backButton}
+          style={{ marginTop: "14px" }}
+        >
+          {loadingStatus ? "Checking..." : "Check AI Phone Connection"}
+        </button>
+      )}
+    </section>
+  );
+}
+
 function ReviewStep({
   shopSlug,
+  aiPhoneNumber,
+  aiPhoneRouted,
   staff,
   services,
   assignedServices,
@@ -5090,6 +5191,14 @@ function ReviewStep({
         </button>
       </div>
  
+      {aiPhoneNumber ? (
+        <AiPhoneForwardingHelp
+          aiPhoneNumber={aiPhoneNumber}
+          shopSlug={shopSlug}
+          phoneRouted={aiPhoneRouted}
+        />
+      ) : null}
+
       <div className={styles.footer}>
         <button
           type="button"
