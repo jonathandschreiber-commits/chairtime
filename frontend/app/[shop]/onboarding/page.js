@@ -111,6 +111,9 @@ export default function OnboardingPage() {
   const [aiVoiceEnabled, setAiVoiceEnabled] =
     useState(false);
  
+  // Step 6 stays open until the shop reviews and saves live-transfer preferences.
+  const [staffTransferReady, setStaffTransferReady] = useState(false);
+ 
   const [aiProvisionStatus, setAiProvisionStatus] =
     useState(null);
  
@@ -467,8 +470,9 @@ export default function OnboardingPage() {
  
     if (activePhoneNumber) {
       setMessage("");
-      if (aiOnly) return;
-      goToStep(7);
+      // Do not skip the staff-transfer choice for an existing AI number.
+      // The button is disabled until the choice has been saved.
+      if (staffTransferReady && !aiOnly) goToStep(7);
       return;
     }
  
@@ -499,7 +503,7 @@ export default function OnboardingPage() {
     const selectedRecord = availableAiNumbers.find(
       (number) => number.phone_number === selectedAiNumber
     );
-
+ 
     if (selectedAiNumber && (
       !aiSearchFingerprint ||
       !selectedRecord?.locality ||
@@ -510,7 +514,7 @@ export default function OnboardingPage() {
       );
       return;
     }
-
+ 
     setActivatingAiNumber(true);
     setAiNumberError("");
     setMessage("");
@@ -569,9 +573,9 @@ export default function OnboardingPage() {
  
       await loadAiProvisionStatus();
       setSelectedAiNumber(data.phone_number);
-      setMessage("");
-      if (aiOnly) return;
-      goToStep(7);
+      setStaffTransferReady(false);
+      // Keep the owner on Step 6 to choose live-transfer preferences.
+      setMessage("Your AI number is active. Choose how to handle requests for an employee below.");
     } catch (error) {
       console.error(error);
  
@@ -2252,7 +2256,7 @@ export default function OnboardingPage() {
       <button type="button" className={styles.continueButton} onClick={() => router.push(`/${shopSlug}/admin/account`)}>Back to Account Options</button>
     </div></main>;
   }
-
+ 
   if (loading) {
     return (
       <main className={styles.page}>
@@ -2432,6 +2436,8 @@ export default function OnboardingPage() {
             shopSlug={shopSlug}
             finishSetup={() => router.push(`/${shopSlug}/admin/ai-receptionist`)}
             provisionStatus={aiProvisionStatus}
+            staffTransferReady={staffTransferReady}
+            onStaffTransferReadyChange={setStaffTransferReady}
             loadingStatus={
               loadingAiProvisionStatus
             }
@@ -4350,6 +4356,8 @@ function AiReceptionistStep({
   shopSlug,
   finishSetup,
   provisionStatus,
+  staffTransferReady,
+  onStaffTransferReadyChange,
   loadingStatus,
   statusError,
   provisioning,
@@ -4867,7 +4875,16 @@ function AiReceptionistStep({
           loadingStatus={loadingStatus}
         />
       ) : null}
-
+ 
+      {activePhoneNumber && provisioned ? (
+        <AiStaffTransferSetup
+          key={`${shopSlug}-${activePhoneNumber}`}
+          shopSlug={shopSlug}
+          aiPhoneNumber={activePhoneNumber}
+          onReadyChange={onStaffTransferReadyChange}
+        />
+      ) : null}
+ 
       {statusError && (
         <div
           style={{
@@ -4942,6 +4959,7 @@ function AiReceptionistStep({
               onClick={aiOnly && activePhoneNumber ? finishSetup : continueToReview}
               disabled={
                 activatingAiNumber ||
+                (Boolean(activePhoneNumber) && !staffTransferReady) ||
                 (aiOnly && activePhoneNumber && !provisionStatus?.phone_routed) ||
                 (!activePhoneNumber &&
                   !selectedAiNumber &&
@@ -4964,6 +4982,238 @@ function AiReceptionistStep({
   );
 }
  
+// AI Receptionist live-human transfers are configured per shop's HighLevel agent.
+// The backend is authoritative. Nothing is considered saved until it reads back
+// the actual HighLevel CALL_TRANSFER action for this shop.
+function AiStaffTransferSetup({ shopSlug, aiPhoneNumber, onReadyChange }) {
+  const router = useRouter();
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [choice, setChoice] = useState("");
+  const [phoneNumber, setPhoneNumber] = useState("");
+  const [loopConfirmed, setLoopConfirmed] = useState(false);
+  const [otherTransferDetected, setOtherTransferDetected] = useState(false);
+  const [error, setError] = useState("");
+  const [savedMessage, setSavedMessage] = useState("");
+ 
+  useEffect(() => {
+    let canceled = false;
+    onReadyChange(false);
+    setLoading(true);
+    setError("");
+    setSavedMessage("");
+    setChoice("");
+    setPhoneNumber("");
+    setLoopConfirmed(false);
+ 
+    async function load() {
+      try {
+        const response = await fetch("/api/ai-setup/staff-transfer", {
+          headers: { Accept: "application/json" },
+          cache: "no-store",
+        });
+        const data = await response.json().catch(() => ({}));
+        if (canceled) return;
+        if (response.status === 401) {
+          router.replace(`/login?next=${encodeURIComponent(`/${shopSlug}/onboarding`)}`);
+          return;
+        }
+        if (!response.ok) {
+          throw new Error(typeof data.detail === "string"
+            ? data.detail : "Could not load the call-transfer setting.");
+        }
+        if (data.provisioned !== true || data.shop_slug !== shopSlug) {
+          throw new Error("The AI Receptionist transfer setting does not match this shop.");
+        }
+        const conflict = Boolean(data.other_transfer_actions_detected);
+        setOtherTransferDetected(conflict);
+        setPhoneNumber(data.phone_number || "");
+        if (data.enabled) {
+          setChoice("yes");
+          // Existing transfer already saved to the shop's agent.
+          onReadyChange(!conflict);
+          if (!conflict) setSavedMessage("Live transfers are already configured for this shop.");
+        } else {
+          // An absent HighLevel action means transfers are off. Ask the owner
+          // to explicitly choose No or Yes before finishing setup.
+          setChoice("");
+          onReadyChange(false);
+        }
+        if (conflict) {
+          setError("Another transfer action exists on this shop's AI agent. " +
+            "Please contact DayTello support to review it before continuing.");
+        }
+      } catch (err) {
+        if (!canceled) {
+          onReadyChange(false);
+          setError(err instanceof Error ? err.message : "Could not load transfer settings.");
+        }
+      } finally {
+        if (!canceled) setLoading(false);
+      }
+    }
+    load();
+    return () => { canceled = true; };
+  }, [shopSlug, aiPhoneNumber, onReadyChange, router]);
+ 
+  function changeChoice(next) {
+    setChoice(next);
+    setError("");
+    setSavedMessage("");
+    onReadyChange(false);
+  }
+ 
+  function changePhone(next) {
+    setPhoneNumber(next);
+    setError("");
+    setSavedMessage("");
+    onReadyChange(false);
+  }
+ 
+  async function save() {
+    if (loading || saving || otherTransferDetected) return;
+    if (choice !== "yes" && choice !== "no") {
+      setError("Choose whether calls should transfer to a live person.");
+      return;
+    }
+    const digits = phoneNumber.replace(/\D/g, "");
+    if (choice === "yes" && !(digits.length === 10 ||
+      (digits.length === 11 && digits.startsWith("1")))) {
+      setError("Enter a valid 10-digit US or Canadian telephone number.");
+      return;
+    }
+    if (choice === "yes" && !loopConfirmed) {
+      setError("Please confirm the transfer number will not forward back to AI.");
+      return;
+    }
+    setSaving(true);
+    setError("");
+    setSavedMessage("");
+    onReadyChange(false);
+    try {
+      const response = await fetch("/api/ai-setup/staff-transfer", {
+        method: "POST",
+        headers: { Accept: "application/json", "Content-Type": "application/json" },
+        body: JSON.stringify({
+          enabled: choice === "yes",
+          phone_number: choice === "yes" ? phoneNumber.trim() : null,
+          confirm_no_forwarding_loop: choice === "yes" ? loopConfirmed : false,
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (response.status === 401) {
+        router.replace(`/login?next=${encodeURIComponent(`/${shopSlug}/onboarding`)}`);
+        return;
+      }
+      if (!response.ok) {
+        const detail = typeof data.detail === "string" ? data.detail :
+          (typeof data.detail?.message === "string" ? data.detail.message :
+            "Could not save the transfer setting. Please try again.");
+        throw new Error(detail);
+      }
+      if (data.shop_slug !== shopSlug || data.enabled !== (choice === "yes") ||
+        data.other_transfer_actions_detected) {
+        throw new Error("The saved transfer setting could not be verified for this shop.");
+      }
+      if (choice === "yes") {
+        const cleaned = `+${digits.length === 10 ? `1${digits}` : digits}`;
+        if (data.phone_number !== cleaned) {
+          throw new Error("The transfer destination could not be verified.");
+        }
+        setPhoneNumber(data.phone_number);
+        setSavedMessage("Saved for this AI receptionist. Test a real call before relying on transfers.");
+      } else {
+        setPhoneNumber("");
+        setSavedMessage("Saved: customer calls will not be transferred to an employee.");
+      }
+      onReadyChange(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save call transfers.");
+      onReadyChange(false);
+    } finally {
+      setSaving(false);
+    }
+  }
+ 
+  const choiceDisabled = loading || saving || otherTransferDetected;
+  const radioRow = { display: "flex", alignItems: "flex-start", gap: "10px",
+    padding: "10px 12px", background: "#fff", border: "1px solid #e2e8f0",
+    borderRadius: "10px", cursor: choiceDisabled ? "not-allowed" : "pointer" };
+  return (
+    <section aria-label="Choose how calls reach an employee" style={{
+      marginTop: "20px", padding: "20px", border: "1px solid #c4b5fd",
+      borderRadius: "16px", background: "#faf5ff",
+    }}>
+      <h3 style={{ margin: 0, color: "#312e81", fontSize: "20px", fontWeight: 800 }}>
+        When a caller asks to speak to an employee
+      </h3>
+      <p style={{ color: "#4338ca", fontSize: "14px", lineHeight: 1.6 }}>
+        Would you like DayTello to transfer these calls to a live phone number?
+        You can choose not to be interrupted. No texting is required.
+      </p>
+      {loading ? (
+        <p aria-live="polite">Loading your call-transfer setting...</p>
+      ) : (
+        <div style={{ display: "grid", gap: "10px" }}>
+          <label style={radioRow}>
+            <input type="radio" name="daytelloStaffTransfer" value="no"
+              checked={choice === "no"} disabled={choiceDisabled}
+              onChange={() => changeChoice("no")} />
+            <span><strong>No — do not transfer calls.</strong><br />
+              The AI receptionist will continue handling appointment and shop questions.</span>
+          </label>
+          <label style={radioRow}>
+            <input type="radio" name="daytelloStaffTransfer" value="yes"
+              checked={choice === "yes"} disabled={choiceDisabled}
+              onChange={() => changeChoice("yes")} />
+            <span><strong>Yes — try to connect callers to a live phone number.</strong><br />
+              If unanswered, the destination phone may provide its usual voicemail.</span>
+          </label>
+          {choice === "yes" ? (
+            <div style={{ padding: "10px 12px", background: "#fff", borderRadius: "10px" }}>
+              <label htmlFor="daytelloTransferNumber" style={{ display: "block", fontWeight: 800 }}>
+                Direct employee phone number
+              </label>
+              <input id="daytelloTransferNumber" type="tel" inputMode="tel"
+                value={phoneNumber} onChange={(event) => changePhone(event.target.value)}
+                disabled={choiceDisabled} placeholder="(555) 123-4567"
+                style={{ width: "100%", maxWidth: "320px", marginTop: "8px",
+                  padding: "12px", border: "1px solid #94a3b8", borderRadius: "9px" }} />
+              <label style={{ display: "flex", gap: "8px", alignItems: "flex-start",
+                marginTop: "12px", fontSize: "13px" }}>
+                <input type="checkbox" checked={loopConfirmed}
+                  disabled={choiceDisabled}
+                  onChange={(event) => { setLoopConfirmed(event.target.checked);
+                    onReadyChange(false); setSavedMessage(""); }} />
+                I confirm this phone number does not forward back to my AI receptionist
+                or to my business number if that number forwards to the AI.
+              </label>
+              <p style={{ fontSize: "12px", color: "#475569", lineHeight: 1.6 }}>
+                Use a direct line, not your published business number or DayTello AI number.
+                Test an answered call, an unanswered call, and voicemail afterward.
+              </p>
+            </div>
+          ) : null}
+          {error ? <p role="alert" style={{ color: "#991b1b", fontWeight: 700 }}>{error}</p> : null}
+          {savedMessage ? <p role="status" style={{ color: "#166534", fontWeight: 700 }}>
+            {savedMessage}</p> : null}
+          <div>
+            <button type="button" className={styles.continueButton}
+              disabled={choiceDisabled || !choice}
+              onClick={save}>
+              {saving ? "Saving..." : "Save Call Transfer Choice"}
+            </button>
+          </div>
+        </div>
+      )}
+      <p style={{ marginTop: "12px", color: "#64748b", fontSize: "12px", lineHeight: 1.5 }}>
+        A live transfer needs a real telephone test before the shop relies on it.
+        No two-way texting is included. Appointment texts are automated.
+      </p>
+    </section>
+  );
+}
+ 
 function AiPhoneForwardingHelp({
   aiPhoneNumber,
   shopSlug,
@@ -4972,7 +5222,7 @@ function AiPhoneForwardingHelp({
   loadingStatus = false,
 }) {
   if (!aiPhoneNumber) return null;
-
+ 
   return (
     <section
       aria-label="AI Receptionist phone forwarding instructions"
@@ -4994,7 +5244,7 @@ function AiPhoneForwardingHelp({
       >
         Your AI Receptionist phone number
       </h3>
-
+ 
       <a
         href={`tel:${aiPhoneNumber}`}
         style={{
@@ -5008,13 +5258,13 @@ function AiPhoneForwardingHelp({
       >
         {aiPhoneNumber}
       </a>
-
+ 
       <p style={{ marginTop: "10px", color: "#166534", lineHeight: 1.6 }}>
         You can give customers this number directly, or keep the business
         number they already know and forward calls to your AI Receptionist.
         Forwarding is optional.
       </p>
-
+ 
       <h4 style={{ marginTop: "18px", fontWeight: 800, color: "#065f46" }}>
         How to forward your existing business number
       </h4>
@@ -5039,14 +5289,14 @@ function AiPhoneForwardingHelp({
       <p style={{ marginTop: "10px", color: "#166534", fontSize: "13px", lineHeight: 1.6 }}>
         Your online booking page stays at <strong>daytello.com/{shopSlug}</strong>.
       </p>
-
+ 
       {phoneRouted === false && (
         <p role="alert" style={{ marginTop: "12px", color: "#92400e", fontWeight: 700 }}>
           DayTello has not yet verified that this number is routed to your AI
           Receptionist. Check again before forwarding your business calls.
         </p>
       )}
-
+ 
       {typeof refreshStatus === "function" && (
         <button
           type="button"
@@ -5061,7 +5311,7 @@ function AiPhoneForwardingHelp({
     </section>
   );
 }
-
+ 
 function ReviewStep({
   shopSlug,
   aiPhoneNumber,
@@ -5198,7 +5448,7 @@ function ReviewStep({
           phoneRouted={aiPhoneRouted}
         />
       ) : null}
-
+ 
       <div className={styles.footer}>
         <button
           type="button"
