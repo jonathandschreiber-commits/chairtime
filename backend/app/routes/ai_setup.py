@@ -735,12 +735,12 @@ def production_agent_prompt(shop: Shop) -> str:
         "staff, prices, durations or openings. Do not interpret unknown "
         "payment policy values.\n"
     )
-
+ 
 def production_shop_information_url(shop: Shop) -> str:
     return (f"{CHAIRTIME_PUBLIC_API_BASE_URL}/api/ai-setup/"
             f"tenant-webhook/{shop.slug}/shop-information")
-
-
+ 
+ 
 # Custom Action 2.0 settings exported from the tested working action.
 # This customApi definition belongs to the current HighLevel location.
 SHOP_INFORMATION_ACTION_NAME = "get_shop_information_v2"
@@ -748,8 +748,8 @@ DEFAULT_CUSTOM_API_CAP_ACTION_ID = "c4rnn404BkKWaJnDSo9h"
 SHOP_INFORMATION_OUTPUT_FIELDS = [
     "result.success", "result.shop_slug", "result.shop_information",
 ]
-
-
+ 
+ 
 def shop_information_cap_action_id(location_id: str, agent_data: dict) -> str:
     existing = find_action_by_name(agent_data, SHOP_INFORMATION_ACTION_NAME)
     parameters = (existing or {}).get("actionParameters") or {}
@@ -765,8 +765,8 @@ def shop_information_cap_action_id(location_id: str, agent_data: dict) -> str:
             "Custom Action 2.0 must be configured for this HighLevel location."
         ))
     return DEFAULT_CUSTOM_API_CAP_ACTION_ID
-
-
+ 
+ 
 def build_shop_information_action_payload(shop: Shop, agent_id: str,
                                          location_id: str,
                                          webhook_secret: str,
@@ -806,8 +806,8 @@ def build_shop_information_action_payload(shop: Shop, agent_id: str,
             "parameters": [], "calendarIds": [],
         },
     }
-
-
+ 
+ 
 def verify_shop_information_action(agent_data: dict, expected: dict) -> None:
     actions = [action for action in extract_actions(agent_data)
                if action.get("name") == expected["name"]]
@@ -842,24 +842,24 @@ def verify_shop_information_action(agent_data: dict, expected: dict) -> None:
             "HighLevel did not retain this shop's Custom Action 2.0 settings. "
             "The shop URL, authentication and response mapping must all match."
         ))
-
+ 
 def action_webhook_url(action: dict) -> Optional[str]:
     parameters = action.get("actionParameters") or {}
     if action.get("actionType") == "CAP":
         values = (parameters.get("schemaValues") or {}).get("requestBodyValues") or {}
         return (values.get("webhookUrl") or {}).get("value")
     return (parameters.get("apiDetails") or {}).get("url")
-
-
-
+ 
+ 
+ 
 AVAILABILITY_OUTPUT_FIELDS = [
     "success", "shop_slug", "target_date", "preferred_start_time",
     "availability_status", "has_availability", "availability_information",
     "message", "slots", "available_count", "barber", "service",
     "time_window", "price", "duration_minutes", "timezone", "checked_at",
 ]
-
-
+ 
+ 
 def build_availability_decision(shop: Shop, payload: dict, result: dict,
                                 now: Optional[datetime] = None) -> dict:
     # success describes a completed lookup, not the existence of a booking slot.
@@ -929,12 +929,12 @@ def build_availability_decision(shop: Shop, payload: dict, result: dict,
         pass
     response["availability_information"] = json.dumps(response, ensure_ascii=False)
     return response
-
-
+ 
+ 
 AVAILABILITY_ACTION_NAME = "check_availability_v2"
 DEFAULT_AVAILABILITY_CAP_ACTION_ID = "bR9XKm4U1N765bDxJ9Jd"
-
-
+ 
+ 
 def availability_cap_action_id(location_id: str, agent_data: dict) -> str:
     existing = find_action_by_name(agent_data, AVAILABILITY_ACTION_NAME)
     parameters = (existing or {}).get("actionParameters") or {}
@@ -949,8 +949,8 @@ def availability_cap_action_id(location_id: str, agent_data: dict) -> str:
         raise HTTPException(status_code=409, detail=
                             "Configure Custom Action 2.0 for this HighLevel location.")
     return DEFAULT_AVAILABILITY_CAP_ACTION_ID
-
-
+ 
+ 
 def build_production_availability_action_payload(shop: Shop, agent_id: str,
         location_id: str, webhook_secret: str, cap_action_id: str) -> dict:
     fields = {
@@ -994,8 +994,8 @@ def build_production_availability_action_payload(shop: Shop, agent_id: str,
                 ), "triggerMessage": "Let me check what's available.",
                 "schemaValues": {"requestBodyValues": values}, "parameters": [], "calendarIds": [],
             }}
-
-
+ 
+ 
 def normalize_availability_inputs(incoming: dict) -> dict:
     # HighLevel Custom Action 2.0 normalizes form field names to camelCase.
     # Legacy actions and public clients still use snake_case. Never change tenant identity.
@@ -1013,8 +1013,8 @@ def normalize_availability_inputs(incoming: dict) -> dict:
         if result.get(key) == "":
             result[key] = None
     return result
-
-
+ 
+ 
 def verify_availability_action(agent_data: dict, expected: dict) -> None:
     verify_shop_information_action(agent_data, expected)
     values = expected["actionParameters"]["schemaValues"]["requestBodyValues"]
@@ -1025,8 +1025,8 @@ def is_chairtime_tenant_action(action: dict) -> bool:
     # Classify by endpoint path, including a copy with a different name/host.
     url = action_webhook_url(action)
     return isinstance(url, str) and "/api/ai-setup/tenant-webhook/" in urlsplit(url).path
-
-
+ 
+ 
 def remove_extra_shop_actions(shop: Shop, agent_id: str, location_id: str) -> None:
     if str(shop.highlevel_agent_id or "") != agent_id:
         raise HTTPException(status_code=403, detail="AI agent does not belong to this shop.")
@@ -1066,7 +1066,7 @@ def remove_extra_shop_actions(shop: Shop, agent_id: str, location_id: str) -> No
                 or action.get("name") in {"book_appointment_v2"})
            for action in retained):
         raise HTTPException(status_code=502, detail="HighLevel retained an unverified copied shop action.")
-
+ 
 def verify_all_shop_action_bindings(shop: Shop, agent_id: str, location_id: str,
                                     webhook_secret: str, agent_data: dict) -> None:
     if str(shop.highlevel_agent_id or "") != agent_id:
@@ -1112,7 +1112,7 @@ def verify_all_shop_action_bindings(shop: Shop, agent_id: str, location_id: str,
            or action.get("name") in {"get_shop_information", "check_availability", "book_appointment_v2"}
            for action in actions):
         raise HTTPException(status_code=502, detail="An unverified copied shop action remains on this receptionist.")
-
+ 
 @router.post("/tenant-webhook/{shop_slug}/shop-information")
 async def production_shop_information(shop_slug: str, request: Request,
                                       db: Session = Depends(get_db)):
@@ -1139,8 +1139,8 @@ async def production_shop_information(shop_slug: str, request: Request,
     # The URL and its secret choose the shop. Ignore all body shop overrides.
     return build_shop_information(db=db, shop_slug=shop.slug,
                                   target_date=target_date)
-
-
+ 
+ 
 def build_production_agent_payload(
     shop: Shop,
     location_id: str,
@@ -1788,7 +1788,7 @@ def verify_action_after_warning(
  
     if expected_url:
         stored_url = action_webhook_url(refreshed_action)
-
+ 
         if stored_url != expected_url:
             return None
  
@@ -2283,7 +2283,7 @@ async def production_tenant_voice_availability(
             pass
  
     incoming = normalize_availability_inputs(incoming)
-
+ 
     service_name = incoming.get(
         "service_name"
     )
@@ -2312,7 +2312,7 @@ async def production_tenant_voice_availability(
         decision = build_availability_decision(shop, incoming, {})
         decision["missing_fields"] = missing_fields
         return decision
-
+ 
     request_payload = {
         "shop_slug": shop.slug,
         "service_name": str(
@@ -2341,7 +2341,7 @@ async def production_tenant_voice_availability(
     )
  
     result = build_availability_decision(shop, request_payload, result)
-
+ 
     logger.info(
         "production_voice_availability "
         "shop=%s duration_ms=%d "
@@ -3133,7 +3133,7 @@ def provision_production_ai_receptionist(
  
     remove_extra_shop_actions(shop, agent_id, location_id)
     agent_data = get_agent_detail(agent_id, location_id)
-
+ 
     information_url = production_shop_information_url(shop)
     information_payload = build_shop_information_action_payload(
         shop, agent_id, location_id, webhook_secret,
@@ -3150,7 +3150,7 @@ def provision_production_ai_receptionist(
     information = build_shop_information(db=db, shop_slug=shop.slug)
     if not information.get("success") or information.get("shop_slug") != shop.slug:
         raise HTTPException(status_code=502, detail="Shop information did not match this shop.")
-
+ 
     # Shared knowledge-base actions must not supply another shop's facts.
     agent_with_actions = get_agent_detail(agent_id, location_id)
     for action in extract_actions(agent_with_actions):
@@ -3163,7 +3163,7 @@ def provision_production_ai_receptionist(
                 )
                 if removed.status_code >= 400:
                     raise_highlevel_error(removed)
-
+ 
     availability_url = (
         production_availability_webhook_url(
             shop
@@ -3185,7 +3185,7 @@ def provision_production_ai_receptionist(
         payload=availability_payload, expected_url=availability_url,
     )
     verify_availability_action(get_agent_detail(agent_id, location_id), availability_payload)
-
+ 
     booking_result = (
         create_or_update_action(
             agent_id=agent_id,
@@ -3251,7 +3251,7 @@ def provision_production_ai_receptionist(
                 or api_details.get("method") != "POST"):
             raise HTTPException(status_code=502,
                                 detail=f"Could not verify shop action {name}")
-
+ 
     verify_shop_information_action(refreshed_agent, information_payload)
     verify_availability_action(refreshed_agent, availability_payload)
     refreshed_agent = update_production_agent_settings(
@@ -3275,11 +3275,11 @@ def provision_production_ai_receptionist(
     if any(find_action_by_name(refreshed_agent, name) for name in
            ("get_shop_information", "check_availability")):
         raise HTTPException(status_code=502, detail="The obsolete shop information action is still active.")
-
+ 
     verify_all_shop_action_bindings(
         shop, agent_id, location_id, webhook_secret, refreshed_agent,
     )
-
+ 
     # Publish changed instructions/actions for an already active number.
     # Use the verified existing route; never purchase another number here.
     _, _, routed_phone = get_shop_routed_phone_record(shop)
@@ -3289,7 +3289,7 @@ def provision_production_ai_receptionist(
             phone_number=str(routed_phone["phoneNumber"]),
         )
         refreshed_agent = get_agent_detail(agent_id, location_id)
-
+ 
     # Re-read after activation as well: a successful HTTP response is not
     # proof that HighLevel retained the right shop configuration.
     refreshed_agent = get_agent_detail(agent_id, location_id)
@@ -3298,7 +3298,7 @@ def provision_production_ai_receptionist(
     verify_all_shop_action_bindings(
         shop, agent_id, location_id, webhook_secret, refreshed_agent,
     )
-
+ 
     final_actions = [
         safe_action(action)
         for action in extract_actions(
@@ -6462,4 +6462,292 @@ def test_highlevel_internal_phone_host(
         "location_id": location_id,
         "response": body,
     }
-
+ 
+# DayTello staff transfer preference is stored as the shop's dedicated
+# HighLevel Voice AI CALL_TRANSFER action. An absent action means disabled.
+# This avoids adding another database field and ensures preferences stay
+# attached to the correct agent, not to the shared HighLevel location.
+DAYTELLO_STAFF_TRANSFER_ACTION_NAME = "DayTello - Live Staff Transfer"
+DAYTELLO_STAFF_TRANSFER_TRIGGER_PROMPT = (
+    "Only when the caller clearly asks to speak with a live person, "
+    "employee, staff member, or manager at this business, transfer "
+    "the call to the configured number. Do not transfer a normal "
+    "appointment booking, service question, or other request. "
+    "Do not promise a particular employee will answer."
+)
+DAYTELLO_STAFF_TRANSFER_TRIGGER_MESSAGE = (
+    "I'll try to connect you with someone at the business now."
+)
+ 
+ 
+class DayTelloStaffTransferRequest(BaseModel):
+    enabled: bool
+    phone_number: Optional[str] = None
+    # The owner must confirm the destination does not forward back to
+    # the AI line or to the business number that feeds that AI line.
+    confirm_no_forwarding_loop: bool = False
+ 
+ 
+def daytello_normalize_transfer_phone(value: Optional[str]) -> str:
+    """Only support a single US/Canada E.164 telephone number."""
+    digits = "".join(char for char in str(value or "") if char.isdigit())
+    if len(digits) == 10:
+        digits = "1" + digits
+    if len(digits) != 11 or not digits.startswith("1"):
+        raise HTTPException(
+            status_code=400,
+            detail="Enter a valid 10-digit US or Canadian transfer number.",
+        )
+    if digits[1] in "01" or digits[4] in "01":
+        raise HTTPException(
+            status_code=400,
+            detail="Enter a valid US or Canadian transfer number.",
+        )
+    return "+" + digits
+ 
+ 
+def daytello_phone_for_comparison(value: Optional[str]) -> str:
+    digits = "".join(char for char in str(value or "") if char.isdigit())
+    if len(digits) == 10:
+        digits = "1" + digits
+    return "+" + digits if len(digits) == 11 else ""
+ 
+ 
+def daytello_transfer_agent_for_owner(
+    current_user: User,
+    db: Session,
+    require_provisioned: bool = True,
+) -> tuple:
+    require_owner(current_user)
+    shop = get_current_shop(current_user=current_user, db=db)
+    if not shop.ai_voice_enabled:
+        raise HTTPException(status_code=403, detail="An AI Receptionist plan is required.")
+    agent_id = str(shop.highlevel_agent_id or "").strip()
+    if not agent_id:
+        if require_provisioned:
+            raise HTTPException(
+                status_code=409,
+                detail="Set up your AI Receptionist before configuring staff transfers.",
+            )
+        return shop, "", "", {}
+    require_shop_agent(shop=shop, agent_id=agent_id)
+    # Existing agent IDs must never be shared between DayTello tenants.
+    if db.query(Shop).filter(
+        Shop.highlevel_agent_id == agent_id,
+        Shop.id != shop.id,
+    ).first():
+        raise HTTPException(status_code=409, detail="AI agent ownership conflict.")
+    location_id = production_location_id(shop)
+    agent = get_agent_detail(agent_id=agent_id, location_id=location_id)
+    if (agent.get("locationId") and
+            str(agent["locationId"]) != location_id):
+        raise HTTPException(status_code=409, detail="AI agent location mismatch.")
+    if agent.get("agentName") == TEST_AGENT_NAME:
+        raise HTTPException(status_code=409, detail="Test agent cannot use shop transfers.")
+    return shop, agent_id, location_id, agent
+ 
+ 
+def daytello_transfer_actions(agent: dict) -> tuple:
+    all_actions = extract_actions(agent)
+    managed = [a for a in all_actions
+               if a.get("name") == DAYTELLO_STAFF_TRANSFER_ACTION_NAME]
+    other = [a for a in all_actions
+             if a.get("actionType") == "CALL_TRANSFER"
+             and a.get("name") != DAYTELLO_STAFF_TRANSFER_ACTION_NAME]
+    if len(managed) > 1 or any(a.get("actionType") != "CALL_TRANSFER"
+                                   for a in managed):
+        raise HTTPException(
+            status_code=409,
+            detail="Duplicate or incompatible staff transfer actions require review.",
+        )
+    return (managed[0] if managed else None), other
+ 
+ 
+def daytello_transfer_summary(agent: dict, provisioned: bool = True) -> dict:
+    if not provisioned:
+        return {
+            "success": True, "provisioned": False, "enabled": False,
+            "phone_number": None, "other_transfer_actions_detected": False,
+        }
+    managed, other = daytello_transfer_actions(agent)
+    parameters = (managed or {}).get("actionParameters") or {}
+    return {
+        "success": True,
+        "provisioned": True,
+        "enabled": managed is not None,
+        "phone_number": parameters.get("transferToValue") if managed else None,
+        "other_transfer_actions_detected": bool(other),
+    }
+ 
+ 
+def daytello_staff_transfer_payload(
+    agent_id: str, location_id: str, phone_number: str,
+) -> dict:
+    return {
+        "agentId": agent_id,
+        "locationId": location_id,
+        "actionType": "CALL_TRANSFER",
+        "name": DAYTELLO_STAFF_TRANSFER_ACTION_NAME,
+        "actionParameters": {
+            "triggerPrompt": DAYTELLO_STAFF_TRANSFER_TRIGGER_PROMPT,
+            "transferToType": "number",
+            "transferToValue": phone_number,
+            "triggerMessage": DAYTELLO_STAFF_TRANSFER_TRIGGER_MESSAGE,
+        },
+    }
+ 
+ 
+def daytello_verify_transfer_change(
+    agent_id: str,
+    location_id: str,
+    expected_phone: Optional[str],
+) -> dict:
+    refreshed = get_agent_detail(agent_id=agent_id, location_id=location_id)
+    action, other = daytello_transfer_actions(refreshed)
+    if other:
+        raise HTTPException(status_code=409, detail=(
+            "Another live-transfer action exists on this AI agent. "
+            "Review it in HighLevel before using DayTello transfers."
+        ))
+    if expected_phone is None:
+        if action is not None:
+            raise HTTPException(status_code=502, detail=(
+                "HighLevel did not remove the staff-transfer action."
+            ))
+    else:
+        wanted = daytello_staff_transfer_payload(agent_id, location_id, expected_phone)
+        if not action or not get_action_id(action) or (
+            (action.get("actionParameters") or {}) != wanted["actionParameters"]
+        ):
+            raise HTTPException(status_code=502, detail=(
+                "HighLevel did not retain the verified staff-transfer settings."
+            ))
+    return daytello_transfer_summary(refreshed)
+ 
+ 
+@router.get("/staff-transfer")
+def daytello_get_staff_transfer(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    shop, agent_id, _, agent = daytello_transfer_agent_for_owner(
+        current_user, db, require_provisioned=False,
+    )
+    summary = daytello_transfer_summary(agent, provisioned=bool(agent_id))
+    summary["shop_slug"] = shop.slug
+    return summary
+ 
+ 
+@router.post("/staff-transfer")
+def daytello_save_staff_transfer(
+    payload: DayTelloStaffTransferRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    shop, agent_id, location_id, agent = daytello_transfer_agent_for_owner(
+        current_user, db,
+    )
+    action, other = daytello_transfer_actions(agent)
+    if other:
+        raise HTTPException(status_code=409, detail=(
+            "This AI agent has another call-transfer action. "
+            "Review that action before changing DayTello transfers."
+        ))
+ 
+    if not payload.enabled:
+        # No configuration is stored unless a working CALL_TRANSFER action exists.
+        if action:
+            action_id = get_action_id(action)
+            if not action_id:
+                raise HTTPException(status_code=502, detail=(
+                    "HighLevel did not return an ID for the staff-transfer action."
+                ))
+            response = highlevel_raw_request(
+                method="DELETE",
+                path=f"/voice-ai/actions/{action_id}",
+                params={"agentId": agent_id, "locationId": location_id},
+            )
+            if response.status_code >= 400:
+                # A provider timeout/error might occur after deletion. Verify
+                # actual state before deciding whether the change failed.
+                try:
+                    verified = daytello_verify_transfer_change(
+                        agent_id, location_id, expected_phone=None,
+                    )
+                except HTTPException:
+                    raise_highlevel_error(response)
+                return {**verified, "shop_slug": shop.slug,
+                        "live_call_test_required": True}
+        verified = daytello_verify_transfer_change(
+            agent_id, location_id, expected_phone=None,
+        )
+        return {**verified, "shop_slug": shop.slug,
+                "live_call_test_required": True}
+ 
+    phone_number = daytello_normalize_transfer_phone(payload.phone_number)
+    if not payload.confirm_no_forwarding_loop:
+        raise HTTPException(status_code=400, detail=(
+            "Confirm the transfer destination does not forward back "
+            "to your AI Receptionist or existing forwarded business number."
+        ))
+ 
+    # Block transfers to the shop's own published business line (which might
+    # forward into AI), its AI line, or another AI line in this location.
+    shop_numbers = {
+        daytello_phone_for_comparison(getattr(shop, "phone", None)),
+        daytello_phone_for_comparison(shop.highlevel_phone_number),
+    }
+    if phone_number in shop_numbers:
+        raise HTTPException(status_code=400, detail=(
+            "Choose a direct staff number, not your business or AI number."
+        ))
+    _, location_numbers = get_location_phone_numbers(location_id=location_id)
+    for record in location_numbers:
+        record_phone = daytello_phone_for_comparison(record.get("phoneNumber"))
+        inbound_service = get_phone_inbound_service(record)
+        if record_phone == phone_number and str(inbound_service.get("type") or "") == "voice_ai":
+            raise HTTPException(status_code=400, detail=(
+                "This number already routes to a Voice AI receptionist. "
+                "Use a directly reachable staff or employee number instead."
+            ))
+ 
+    wanted = daytello_staff_transfer_payload(agent_id, location_id, phone_number)
+    old_params = (action or {}).get("actionParameters") or {}
+    if action and old_params == wanted["actionParameters"]:
+        verified = daytello_verify_transfer_change(agent_id, location_id, phone_number)
+        return {**verified, "shop_slug": shop.slug,
+                "live_call_test_required": True}
+ 
+    if action:
+        action_id = get_action_id(action)
+        if not action_id:
+            raise HTTPException(status_code=502, detail=(
+                "HighLevel did not return an ID for the staff-transfer action."
+            ))
+        response = highlevel_raw_request(
+            method="PUT", path=f"/voice-ai/actions/{action_id}",
+            json_body=wanted,
+        )
+    else:
+        response = highlevel_raw_request(
+            method="POST", path="/voice-ai/actions",
+            json_body=wanted,
+        )
+    if response.status_code >= 400:
+        # Do not issue a duplicate create if HighLevel saved the action but
+        # returned an error: read its actual state first.
+        try:
+            verified = daytello_verify_transfer_change(
+                agent_id, location_id, phone_number,
+            )
+        except HTTPException:
+            raise_highlevel_error(response)
+        return {**verified, "shop_slug": shop.slug,
+                "live_call_test_required": True}
+ 
+    verified = daytello_verify_transfer_change(
+        agent_id, location_id, phone_number,
+    )
+    return {**verified, "shop_slug": shop.slug,
+            "live_call_test_required": True}
+ 
