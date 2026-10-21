@@ -1,8 +1,7 @@
+import { serverApiBase } from "@/lib/server-api-base";
 import { cookies } from "next/headers";
 
-const BACKEND_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL ||
-  "https://chairtime-production-94da.up.railway.app";
+const BACKEND_URL = serverApiBase();
 
 export async function POST(request) {
   try {

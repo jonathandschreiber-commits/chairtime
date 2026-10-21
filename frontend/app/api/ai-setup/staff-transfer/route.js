@@ -1,11 +1,9 @@
+import { serverApiBase } from "@/lib/server-api-base";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
  
 // Same authenticated Railway proxy pattern as the existing AI setup routes.
-const BACKEND_URL = (
-  process.env.NEXT_PUBLIC_API_BASE_URL ||
-  "https://chairtime-production-94da.up.railway.app"
-).replace(/\/$/, "");
+const BACKEND_URL = serverApiBase();
  
 export const dynamic = "force-dynamic";
  

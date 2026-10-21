@@ -1,9 +1,11 @@
 "use client";
+import { clientApiBase } from "@/lib/client-api-base";
+
 
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
-const API_BASE = "https://chairtime-production-94da.up.railway.app";
+const API_BASE = clientApiBase();
 
 const QUICK_TAGS = [
   "VIP",

@@ -1,8 +1,10 @@
 "use client";
+import { clientApiBase } from "@/lib/client-api-base";
+
 
 import { useEffect, useMemo, useState } from "react";
 
-const API_BASE = "https://chairtime-production-94da.up.railway.app";
+const API_BASE = clientApiBase();
 
 const WEEKDAY_NAMES = {
   0: "Monday",

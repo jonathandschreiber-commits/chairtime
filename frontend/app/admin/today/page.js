@@ -1,9 +1,11 @@
 "use client";
+import { clientApiBase } from "@/lib/client-api-base";
+
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
-const API_BASE = "https://chairtime-production-94da.up.railway.app";
+const API_BASE = clientApiBase();
 
 const STATUS_LABELS = {
   confirmed: "Confirmed",

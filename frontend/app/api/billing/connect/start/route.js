@@ -1,9 +1,8 @@
+import { serverApiBase } from "@/lib/server-api-base";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
-const API_BASE =
-  process.env.CHAIRTIME_API_URL ||
-  "https://chairtime-production-94da.up.railway.app";
+const API_BASE = serverApiBase();
 
 export async function POST() {
   try {

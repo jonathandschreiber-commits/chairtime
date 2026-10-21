@@ -1,8 +1,8 @@
+import { serverApiBase } from "@/lib/server-api-base";
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 
-const API_BASE =
-  "https://chairtime-production-94da.up.railway.app";
+const API_BASE = serverApiBase();
 
 export async function GET(request) {
   const cookieStore = await cookies();
