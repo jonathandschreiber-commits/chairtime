@@ -27,10 +27,24 @@ logger = logging.getLogger(__name__)
 HIGHLEVEL_API_BASE_URL = "https://services.leadconnectorhq.com"
 HIGHLEVEL_VOICE_API_VERSION = "v3"
  
-CHAIRTIME_PUBLIC_API_BASE_URL = os.getenv(
-    "CHAIRTIME_PUBLIC_API_BASE_URL",
-    "https://chairtime-production-94da.up.railway.app",
-).rstrip("/")
+def configured_public_api_base_url() -> str:
+    """Never silently use another Railway environment for AI webhook actions."""
+    candidate = (os.getenv("CHAIRTIME_PUBLIC_API_BASE_URL") or "").strip()
+    if not candidate:
+        raise HTTPException(status_code=503, detail="Public AI webhook URL is not configured.")
+    parsed = urlsplit(candidate)
+    if (parsed.scheme != "https" or not parsed.netloc or parsed.username
+            or parsed.password or parsed.path not in ("", "/")
+            or parsed.query or parsed.fragment):
+        raise HTTPException(status_code=503, detail="Public AI webhook URL must be an HTTPS origin.")
+    expected_by_environment = {
+        "production": "chairtime-production-94da.up.railway.app",
+        "live": "welcoming-trust-live.up.railway.app",
+    }
+    expected_host = expected_by_environment.get(os.getenv("RAILWAY_ENVIRONMENT_NAME"))
+    if expected_host and parsed.hostname != expected_host:
+        raise HTTPException(status_code=503, detail="Public AI webhook URL points to the wrong Railway environment.")
+    return candidate.rstrip("/")
  
 CHAIRTIME_INTERNAL_API_BASE_URL = os.getenv(
     "CHAIRTIME_INTERNAL_API_BASE_URL",
@@ -737,7 +751,7 @@ def production_agent_prompt(shop: Shop) -> str:
     )
  
 def production_shop_information_url(shop: Shop) -> str:
-    return (f"{CHAIRTIME_PUBLIC_API_BASE_URL}/api/ai-setup/"
+    return (f"{configured_public_api_base_url()}/api/ai-setup/"
             f"tenant-webhook/{shop.slug}/shop-information")
  
  
@@ -1243,7 +1257,7 @@ def production_availability_webhook_url(
     shop: Shop,
 ) -> str:
     return (
-        f"{CHAIRTIME_PUBLIC_API_BASE_URL}"
+        f"{configured_public_api_base_url()}"
         f"/api/ai-setup/tenant-webhook/"
         f"{shop.slug}/availability"
     )
@@ -1253,7 +1267,7 @@ def production_booking_webhook_url(
     shop: Shop,
 ) -> str:
     return (
-        f"{CHAIRTIME_PUBLIC_API_BASE_URL}"
+        f"{configured_public_api_base_url()}"
         f"/api/ai-setup/tenant-webhook/"
         f"{shop.slug}/book"
     )
@@ -1510,7 +1524,7 @@ def tenant_availability_webhook_url(
     shop: Shop,
 ) -> str:
     return (
-        f"{CHAIRTIME_PUBLIC_API_BASE_URL}"
+        f"{configured_public_api_base_url()}"
         f"/api/ai-setup/webhook/"
         f"{shop.slug}/availability"
     )
@@ -1521,7 +1535,7 @@ def tenant_booking_webhook_url(
  
 ) -> str:
     return (
-        f"{CHAIRTIME_PUBLIC_API_BASE_URL}"
+        f"{configured_public_api_base_url()}"
         f"/api/ai-setup/webhook/"
         f"{shop.slug}/book"
     )
