@@ -14,15 +14,15 @@ This branch is intentionally NOT deployed or merged.
 1. Review these changes. HighLevel tests with actual signed payloads are still outstanding.
 2. Set `HIGHLEVEL_LOCATION_ID` to the intended location, if it is not already configured.
 3. Set `DAYTELLO_VOICEMAIL_NUMBER_SHOP_MAP` as a JSON dictionary with **dedicated** voicemail routing numbers mapped to exclusive shop slugs. Example for the existing **test-only** setup:
-   `{"+12403875085":"stan-s-shop"}`
-4. This number currently routes calls using Dave's test setup; **do not use it simultaneously for other shops**.
+   `{"+12029725238":"stan-s-shop"}`
+4. **Stan's Shop test AI number is +1 202-972-5238.** Dave's Shop test AI number is +1 240-387-5085. Do not map Dave's number to Stan, or share one number between shops. Confirm the real signed webhook `to` value before relying on the map; transfer/forwarding flows may behave differently.
 5. Confirm the active Railway service points to `daytello-testing` and deploy only when reviewing the PR is complete.
-6. The Marketplace app must be installed/authorized and subscribe to `InboundMessage` using the testing backend HTTPS URL before any events are delivered. The configured OAuth redirect at `/api/daytello/oauth/callback` is **not implemented yet**; do not attempt installation or authorization until it is.
+6. The Marketplace app must be installed/authorized and subscribe to `InboundMessage` using the testing backend HTTPS URL before any events are delivered. The OAuth callback at `/api/daytello/oauth/callback` is implemented on this isolated feature branch, but has **only simulated tests**; do not authorize/install the app until this is deployed to the isolated test backend and live OAuth behavior is reviewed.
 7. Leave HighLevel workflow `DayTello - Voicemail Notification TEST` in Draft.
 
 ## Limitations / next implementation
-- The current handler does **not** itself constitute a complete OAuth installation.
-- Add authenticated OAuth state handling and installation token storage before linking the app.
+- OAuth authorization initiation, callback and encrypted credential storage are implemented, but a real HighLevel OAuth installation and signed webhook have **not** been verified. OAuth is disabled by default.
+- Confirm the Marketplace application is installable while in its current Draft configuration before attempting authorization.
 - Add owner phone-number consent / opt-out handling, explicit per-shop notification settings, retries, and per-shop delivery logs *after* validating test voicemail payloads.
 - Add signed fixture integration tests, a webhook freshness/replay window and operational alerting before enabling production.
 - Validate HighLevel's event 'to' number for real two-stage call transfers. Never infer originating shop from same caller/timestamp.
