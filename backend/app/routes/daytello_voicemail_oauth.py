@@ -153,6 +153,7 @@ async def oauth_callback(
                 headers={
                     "Accept": "application/json",
                     "Content-Type": "application/x-www-form-urlencoded",
+                    "Version": "v3",
                 },
                 data={
                     "client_id": client_id,
