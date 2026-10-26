@@ -26,4 +26,5 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
       - name: Run offline voicemail unit tests
-        run: python -m unittest discover -s tests -p 'test_*.py' -v
+        run: python -m unittest discover -s tests -p 'test_voicemail*.py' -v
+          python -m unittest discover -s tests -p 'test_daytello_oauth.py' -v
