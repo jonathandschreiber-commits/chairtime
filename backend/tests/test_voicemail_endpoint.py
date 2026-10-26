@@ -68,7 +68,7 @@ class VoicemailEndpointTests(unittest.TestCase):
             {
                 "HIGHLEVEL_LOCATION_ID": "test-hl-location",
                 "DAYTELLO_VOICEMAIL_NUMBER_SHOP_MAP":
-                    '{"+12403875085":"stan-s-shop"}',
+                    '{"+12029725238":"stan-s-shop"}',
             },
         )
         self.env_patch.start()
@@ -79,7 +79,7 @@ class VoicemailEndpointTests(unittest.TestCase):
             "messageType": "CALL",
             "status": "voicemail",
             "messageId": "test-event-123",
-            "to": "+12403875085",
+            "to": "+12029725238",
             "from": "+14102088338",
             "messageTypeString": "TYPE_VOICEMAIL",
             "attachments": ["https://example.test/not-a-real-recording"],
@@ -118,7 +118,7 @@ class VoicemailEndpointTests(unittest.TestCase):
         with self.session_factory() as session:
             event = session.query(DayTelloVoicemailEvent).one()
             self.assertEqual(event.shop_id, "shop-stan-test")
-            self.assertEqual(event.receiving_number, "+12403875085")
+            self.assertEqual(event.receiving_number, "+12029725238")
             self.assertEqual(event.notification_status, "disabled")
 
     def test_duplicate_event_records_only_once(self):
@@ -134,7 +134,7 @@ class VoicemailEndpointTests(unittest.TestCase):
         self.assertEqual(self.count_events(), 0)
 
     def test_tampering_rejected(self):
-        payload = dict(self.payload, to="+12403875086")
+        payload = dict(self.payload, to="+12029725239")
         body = json.dumps(self.payload).encode("utf-8")
         original_signature = base64.b64encode(
             self.private_key.sign(body)
@@ -149,7 +149,7 @@ class VoicemailEndpointTests(unittest.TestCase):
         self.assertEqual(self.count_events(), 0)
 
     def test_unmapped_number_ignored(self):
-        payload = dict(self.payload, to="+12403875086")
+        payload = dict(self.payload, to="+12029725239")
         response = self.post(payload)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["action"], "ignored_unmapped_number")
@@ -174,7 +174,7 @@ class VoicemailEndpointTests(unittest.TestCase):
 
     def test_unknown_shop_ignored(self):
         os.environ["DAYTELLO_VOICEMAIL_NUMBER_SHOP_MAP"] = (
-            '{"+12403875085":"missing-shop"}'
+            '{"+12029725238":"missing-shop"}'
         )
         response = self.post()
         self.assertEqual(response.status_code, 200)
