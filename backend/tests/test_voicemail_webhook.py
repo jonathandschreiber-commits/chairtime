@@ -35,8 +35,8 @@ class SignatureTests(unittest.TestCase):
             self.assertTrue(voicemail.verify_ghl_signature(body, self.sign(body)))
 
     def test_tampering_rejected(self):
-        body = b'{"to":"+12403875085"}'
-        tampered = b'{"to":"+12403875086"}'
+        body = b'{"to":"+12029725238"}'
+        tampered = b'{"to":"+12029725239"}'
         with patch.object(voicemail, "GHL_WEBHOOK_ED25519_PUBLIC_KEY", self.public_key_pem):
             self.assertFalse(voicemail.verify_ghl_signature(tampered, self.sign(body)))
 
@@ -62,7 +62,7 @@ class RoutingTests(unittest.TestCase):
             self.assertEqual(error.exception.status_code, 503)
 
     def test_one_number_one_shop(self):
-        mapping = {"+12403875085": "stan-s-shop"}
+        mapping = {"+12029725238": "stan-s-shop"}
         with patch.dict(
             os.environ, {"DAYTELLO_VOICEMAIL_NUMBER_SHOP_MAP": json.dumps(mapping)}
         ):
@@ -71,8 +71,8 @@ class RoutingTests(unittest.TestCase):
     def test_duplicate_shop_mapping_rejected(self):
         self.check_bad_map(
             json.dumps({
-                "+12403875085": "stan-s-shop",
-                "+12403875086": "stan-s-shop",
+                "+12029725238": "stan-s-shop",
+                "+12029725239": "stan-s-shop",
             })
         )
 
@@ -86,7 +86,7 @@ class RoutingTests(unittest.TestCase):
         self.check_bad_map('{"2403875085": "stan-s-shop"}')
 
     def test_invalid_slug_rejected(self):
-        self.check_bad_map('{"+12403875085": "../stan-s-shop"}')
+        self.check_bad_map('{"+12029725238": "../stan-s-shop"}')
 
 
 class EventClassificationTests(unittest.TestCase):
