@@ -31,7 +31,9 @@ from app.routes.shops import router as shops_router
 from app.routes.team import router as team_router
 from app.routes.voice import router as voice_router
 from app.routes.voicemail_webhook import router as voicemail_router
+from app.routes.daytello_voicemail_oauth import router as daytello_oauth_router
 from app import voicemail_models  # noqa: F401 - registers voicemail table
+from app import voicemail_oauth_models  # noqa: F401 - registers OAuth tables
 
 
 def add_sqlite_column_if_missing(
@@ -710,6 +712,7 @@ app.include_router(payments_router, prefix="/api/payments", tags=["Service Payme
 
 # Signed, read-only voicemail intake. No owner SMS until separately enabled.
 app.include_router(voicemail_router, prefix="/api", tags=["Voicemail Intake"])
+app.include_router(daytello_oauth_router, prefix="/api", tags=["DayTello OAuth"])
 
 
 @app.get("/")
