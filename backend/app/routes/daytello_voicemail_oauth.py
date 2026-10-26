@@ -34,6 +34,7 @@ AUTHORIZATION_URL = (
 TOKEN_URL = "https://services.leadconnectorhq.com/oauth/token"
 REQUIRED_SCOPE = "conversations/message.readonly"
 MAX_CODE_LENGTH = 2048
+OAUTH_STATE_TTL_SECONDS = 30 * 60  # Allow time for HighLevel sign-in and location selection.
 
 
 def utc_now_naive():
@@ -83,7 +84,7 @@ def begin_oauth(
     db.add(DayTelloOAuthState(
         state_digest=digest,
         initiated_by_user_id=str(user.id),
-        expires_at=utc_now_naive() + timedelta(minutes=10),
+        expires_at=utc_now_naive() + timedelta(seconds=OAUTH_STATE_TTL_SECONDS),
     ))
     db.commit()
     url = AUTHORIZATION_URL + "?" + urlencode({
@@ -95,7 +96,7 @@ def begin_oauth(
     })
     return {
         "authorization_url": url,
-        "expires_in_seconds": 600,
+        "expires_in_seconds": OAUTH_STATE_TTL_SECONDS,
         "note": "Open only for the test HighLevel location; choose that location.",
     }
 
