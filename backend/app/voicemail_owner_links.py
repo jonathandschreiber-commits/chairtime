@@ -6,13 +6,38 @@ import json
 import os
 import re
 from datetime import datetime, timedelta, timezone
+from urllib.parse import urlsplit
 
 from cryptography.fernet import Fernet, InvalidToken
 from fastapi import HTTPException
 
 PHONE_RE = re.compile(r"^\+[1-9][0-9]{7,14}$")
 TOKEN_LIFETIME_SECONDS = 86400
-TEST_ORIGIN = "https://chairtime-production-94da.up.railway.app"
+PRODUCTION_HOST = "chairtime-production-94da.up.railway.app"
+
+def test_link_origin():
+    """Require explicit HTTPS testing origin, never issue production-domain links."""
+    raw = os.getenv("DAYTELLO_VOICEMAIL_TEST_PUBLIC_ORIGIN", "").strip()
+    if not raw:
+        raise HTTPException(503, "Test recording link URL is not configured")
+    try:
+        parsed = urlsplit(raw)
+        valid = (
+            parsed.scheme == "https"
+            and parsed.hostname is not None
+            and parsed.hostname.lower() != PRODUCTION_HOST
+            and parsed.port in (None, 443)
+            and parsed.username is None
+            and parsed.password is None
+            and parsed.path in ("", "/")
+            and not parsed.query
+            and not parsed.fragment
+        )
+    except ValueError:
+        valid = False
+    if not valid:
+        raise HTTPException(503, "Test recording link URL is invalid")
+    return raw.rstrip("/")
 
 
 def owner_phone_for_test_shop(shop_slug):
@@ -48,7 +73,7 @@ def make_recording_link(location_id, message_id, shop_id):
         "shop": shop_id, "expires": expires
     }, separators=(",", ":")).encode("utf-8")
     token = link_cipher().encrypt(data).decode("ascii")
-    return TEST_ORIGIN + "/api/daytello/voicemail/listen/" + token
+    return test_link_origin() + "/api/daytello/voicemail/listen/" + token
 
 
 def decode_recording_link(token):
