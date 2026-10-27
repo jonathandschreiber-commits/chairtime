@@ -113,7 +113,10 @@ class OwnerDeliveryRouteTests(unittest.TestCase):
         self.assertNotIn(b"test-token", response.content)
 
     def test_wrong_shop_cannot_listen(self):
-        with patch.object(owner.httpx, "AsyncClient", FakeHighLevelClient) as client:
+        with patch.object(
+            owner.httpx, "AsyncClient",
+            side_effect=AssertionError("Wrong-shop link must not call HighLevel"),
+        ) as client:
             response = self.client.get(self.path("another-shop"))
         self.assertEqual(response.status_code, 404)
         client.assert_not_called()
