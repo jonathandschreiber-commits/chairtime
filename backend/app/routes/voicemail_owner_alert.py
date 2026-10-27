@@ -34,7 +34,7 @@ def send_owner_voicemail_alert(location_id: str, message_id: str, shop_slug: str
             return
         link = make_recording_link(location_id, message_id, shop_id)
         text = f"DayTello TEST: New voicemail for {shop_name}. "
-        if isinstance(caller, str) and re.fullmatch(r"\\+[1-9][0-9]{7,14}", caller):
+        if isinstance(caller, str) and re.fullmatch(r"\+[1-9][0-9]{7,14}", caller):
             text += f"Caller: {caller}. "
         text += "Listen: " + link
         result = send_highlevel_sms(
