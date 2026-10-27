@@ -81,7 +81,7 @@ class VoicemailEndpointTests(unittest.TestCase):
             "messageId": "test-event-123",
             "to": "+12029725238",
             "from": "+14102088338",
-            "messageTypeString": "TYPE_VOICEMAIL",
+            "messageTypeString": "TYPE_CALL",
             "attachments": ["https://example.test/not-a-real-recording"],
         }
 
@@ -160,6 +160,13 @@ class VoicemailEndpointTests(unittest.TestCase):
         response = self.post(payload)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["action"], "ignored_other_location")
+        self.assertEqual(self.count_events(), 0)
+
+    def test_call_without_voicemail_status_ignored(self):
+        payload = dict(self.payload, status="completed", callStatus="no-answer")
+        response = self.post(payload)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["action"], "ignored_non_voicemail")
         self.assertEqual(self.count_events(), 0)
 
     def test_sms_ignored(self):
