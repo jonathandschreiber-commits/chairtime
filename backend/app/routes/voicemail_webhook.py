@@ -83,12 +83,12 @@ def configured_routing_map() -> dict:
 
 
 def is_voicemail_event(payload: dict) -> bool:
-    """HighLevel uses messageType=CALL with voicemail status in its example."""
+    """HighLevel sends a voicemail as CALL with status=voicemail."""
     return (
         payload.get("type") == "InboundMessage"
         and str(payload.get("direction", "")).lower() == "inbound"
         and str(payload.get("status", "")).lower() == "voicemail"
-        and payload.get("messageTypeString") == "TYPE_VOICEMAIL"
+        and payload.get("messageTypeString") in ("TYPE_CALL", "TYPE_VOICEMAIL")
     )
 
 
