@@ -12,13 +12,15 @@ import re
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import serialization
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import Shop
 from app.voicemail_models import DayTelloVoicemailEvent
+from app.voicemail_owner_links import owner_phone_for_test_shop
+from app.routes.voicemail_owner_alert import send_owner_voicemail_alert
 
 router = APIRouter()
 
@@ -91,7 +93,7 @@ def is_voicemail_event(payload: dict) -> bool:
 
 
 @router.post("/daytello/voicemail", status_code=200)
-async def receive_voicemail(request: Request, db: Session = Depends(get_db)):
+async def receive_voicemail(request: Request, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     # The current Ed25519 header is mandatory. Legacy RSA is not accepted.
     content_length = request.headers.get("content-length")
     if content_length:
@@ -142,12 +144,13 @@ async def receive_voicemail(request: Request, db: Session = Depends(get_db)):
     if shop.highlevel_location_id and shop.highlevel_location_id != location_id:
         return {"accepted": True, "action": "ignored_location_mismatch"}
 
+    recipient = owner_phone_for_test_shop(shop_slug)
     event = DayTelloVoicemailEvent(
         location_id=location_id,
         message_id=message_id,
         shop_id=shop.id,
         receiving_number=destination,
-        notification_status="disabled",
+        notification_status="queued" if recipient else "disabled",
     )
     try:
         db.add(event)
@@ -155,5 +158,10 @@ async def receive_voicemail(request: Request, db: Session = Depends(get_db)):
     except IntegrityError:
         db.rollback()
         return {"accepted": True, "action": "duplicate"}
-    # Deliberately no SMS, no recording download, no caller data in response.
+    if recipient:
+        background_tasks.add_task(
+            send_owner_voicemail_alert, location_id, message_id,
+            shop.slug, shop.name, shop.id, payload.get("from")
+        )
+        return {"accepted": True, "action": "queued_owner_notification"}
     return {"accepted": True, "action": "recorded_no_notification"}
