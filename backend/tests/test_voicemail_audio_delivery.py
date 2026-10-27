@@ -77,6 +77,7 @@ class OwnerDeliveryRouteTests(unittest.TestCase):
             "DAYTELLO_VOICEMAIL_TEST_ONLY": "true",
             "DAYTELLO_VOICEMAIL_OWNER_SMS_ENABLED": "true",
             "DAYTELLO_VOICEMAIL_LINK_KEY": Fernet.generate_key().decode("ascii"),
+            "DAYTELLO_VOICEMAIL_TEST_PUBLIC_ORIGIN": "https://daytello-voicemail-test.example.org",
             "DAYTELLO_VOICEMAIL_OWNER_PHONE_MAP":
                 json.dumps({"stan-s-shop": "+12025550129"}),
             "DAYTELLO_VOICEMAIL_TEST_RECIPIENT": "+12025550129",
@@ -99,9 +100,7 @@ class OwnerDeliveryRouteTests(unittest.TestCase):
     def path(self, shop_id="stan-1"):
         return make_recording_link(
             "test-location", "message-1", shop_id
-        ).replace(owner.__name__, owner.__name__).split(
-            "chairtime-production-94da.up.railway.app"
-        )[-1]
+        ).split("daytello-voicemail-test.example.org")[-1]
 
     def test_listening_returns_provider_audio_without_exposing_token(self):
         with patch.object(owner.httpx, "AsyncClient", FakeHighLevelClient):
