@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 from cryptography.fernet import Fernet, InvalidToken
 from fastapi import HTTPException
 
-PHONE_RE = re.compile(r"^\\+[1-9][0-9]{7,14}$")
+PHONE_RE = re.compile(r"^\+[1-9][0-9]{7,14}$")
 TOKEN_LIFETIME_SECONDS = 86400
 TEST_ORIGIN = "https://chairtime-production-94da.up.railway.app"
 
