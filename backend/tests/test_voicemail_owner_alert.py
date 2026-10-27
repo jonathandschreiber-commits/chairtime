@@ -26,6 +26,7 @@ class OwnerVoicemailSafetyTests(unittest.TestCase):
             }),
             "DAYTELLO_VOICEMAIL_TEST_RECIPIENT": "+12025550125",
             "DAYTELLO_VOICEMAIL_LINK_KEY": self.key,
+            "DAYTELLO_VOICEMAIL_TEST_PUBLIC_ORIGIN": "https://daytello-voicemail-test.example.org",
         })
         self.env.start()
 
