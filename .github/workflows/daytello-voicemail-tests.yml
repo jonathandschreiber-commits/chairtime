@@ -4,6 +4,10 @@ on:
   push:
     branches:
       - feature/daytello-voicemail-receiver-20261026
+      - feature/daytello-voicemail-owner-sms-20261027
+  pull_request:
+    branches:
+      - daytello-testing
   workflow_dispatch:
 
 permissions:
