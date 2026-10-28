@@ -5024,7 +5024,7 @@ function AiCallVoicemailSetup({ shopSlug, onReadyChange }) {
   async function save(event) {
     event.preventDefault();
     setError("");
-    const digits = number.replace(/\\D/g, "");
+    const digits = number.replace(/\D/g, "");
     const normalized = digits.length === 10 ? "+1" + digits :
       digits.length === 11 && digits[0] === "1" ? "+" + digits : "";
     if (!normalized) {
