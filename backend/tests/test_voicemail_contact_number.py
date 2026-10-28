@@ -136,13 +136,25 @@ class UnifiedPhoneTests(unittest.TestCase):
         os.environ["DAYTELLO_VOICEMAIL_TEST_RECIPIENT_MAP"] = (
             '{"shop-a":"+12025550199","shop-b":"+12025550198"}'
         )
-        with patch.object(route, "ensure_test_voicemail_number") as allocate:
+        def allocate(shop, db):
+            settings = DayTelloVoicemailShopSettings(
+                shop_id=shop.id, location_id="loc-test",
+                receiving_number="+12025550130",
+                notifications_enabled=False,
+            )
+            db.add(settings)
+            db.commit()
+            return settings
+        with patch.object(route, "ensure_test_voicemail_number", side_effect=allocate):
             response = self.client.put(
                 "/api/shops/shop-b/call-voicemail-number",
                 json={"phone_number": "+12025550199"},
             )
         self.assertEqual(response.status_code, 503)
-        allocate.assert_called_once()
+        with self.factory() as db:
+            prefs = db.get(DayTelloVoicemailShopSettings, "s2")
+            self.assertFalse(prefs.notifications_enabled)
+            self.assertIsNone(prefs.owner_phone)
 
     def test_second_shop_approved_recipient_is_accepted(self):
         self.user.shop_slug = "shop-b"
