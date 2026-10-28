@@ -115,7 +115,7 @@ export default function AIReceptionistPage() {
       if (!response.ok) throw new Error(result.detail || "Could not save your number.");
       setCallSettings(result);
       setOwnerNumber(formatPhoneNumber(result.phone_number));
-      setNumberMessage("Number saved. Please make a test call to confirm transfers.");
+      setNumberMessage("Phone number saved. Please test the call transfer and voicemail fallback.");
     } catch (err) {
       setNumberMessage(err.message || "Could not save your number.");
     } finally {
@@ -299,13 +299,14 @@ export default function AIReceptionistPage() {
                   DayTello will transfer callers to this number and send secure voicemail listening links here.
                   Choose a number that does not forward back to the AI receptionist.
                 </p>
-                <button type="submit" disabled={savingNumber || !provisioned || !callSettings?.ready}
+                <button type="submit" disabled={savingNumber || !provisioned}
                   className="rounded-xl bg-slate-900 px-5 py-3 font-bold text-white disabled:opacity-50">
                   {savingNumber ? "Saving..." : "Save Phone Number"}
                 </button>
                 {numberMessage && <p role="status" className="text-sm text-slate-700">{numberMessage}</p>}
-                {!callSettings?.ready && <p className="text-sm text-amber-700">
-                  DayTello is connecting your voicemail setup. No technical configuration is needed from you.
+                {callSettings && !callSettings.ready && <p className="text-sm text-slate-600">
+                  When you save, DayTello will attempt to assign a voicemail number automatically.
+                  No technical setup is required from you.
                 </p>}
               </form>
             </section>
