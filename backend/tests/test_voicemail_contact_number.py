@@ -130,6 +130,48 @@ class UnifiedPhoneTests(unittest.TestCase):
             self.assertTrue(settings.notifications_enabled)
             self.assertEqual(settings.owner_phone, "+12025550199")
 
+    def test_second_shop_requires_its_own_approved_recipient(self):
+        self.user.shop_slug = "shop-b"
+        self.user.shop_id = "s2"
+        os.environ["DAYTELLO_VOICEMAIL_TEST_RECIPIENT_MAP"] = (
+            '{"shop-a":"+12025550199","shop-b":"+12025550198"}'
+        )
+        with patch.object(route, "ensure_test_voicemail_number") as allocate:
+            response = self.client.put(
+                "/api/shops/shop-b/call-voicemail-number",
+                json={"phone_number": "+12025550199"},
+            )
+        self.assertEqual(response.status_code, 503)
+        allocate.assert_called_once()
+
+    def test_second_shop_approved_recipient_is_accepted(self):
+        self.user.shop_slug = "shop-b"
+        self.user.shop_id = "s2"
+        os.environ["DAYTELLO_VOICEMAIL_TEST_RECIPIENT_MAP"] = (
+            '{"shop-a":"+12025550199","shop-b":"+12025550198"}'
+        )
+        def allocate(shop, db):
+            settings = DayTelloVoicemailShopSettings(
+                shop_id=shop.id, location_id="loc-test",
+                receiving_number="+12025550130",
+                notifications_enabled=False,
+            )
+            db.add(settings)
+            db.commit()
+            return settings
+        with patch.object(route, "ensure_test_voicemail_number", side_effect=allocate), (
+             patch.object(route, "daytello_save_staff_transfer",
+                          return_value={"enabled": True, "phone_number": "+12025550198"})):
+            response = self.client.put(
+                "/api/shops/shop-b/call-voicemail-number",
+                json={"phone_number": "+12025550198"},
+            )
+        self.assertEqual(response.status_code, 200, response.text)
+        with self.factory() as db:
+            prefs = db.get(DayTelloVoicemailShopSettings, "s2")
+            self.assertEqual(prefs.owner_phone, "+12025550198")
+            self.assertTrue(prefs.notifications_enabled)
+
     def test_no_provisioning_fails_closed(self):
         self.user.shop_slug = "shop-b"
         self.user.shop_id = "s2"
