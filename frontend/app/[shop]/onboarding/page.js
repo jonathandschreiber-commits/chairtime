@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { useParams, useRouter } from "next/navigation";
@@ -129,6 +130,7 @@ export default function OnboardingPage() {
  
   const [provisioningAi, setProvisioningAi] =
     useState(false);
+  const autoProvisionAttemptedRef = useRef(null);
  
   // AI Receptionist phone-number chooser.
   // Selection is intentionally temporary at this stage.
@@ -629,6 +631,24 @@ export default function OnboardingPage() {
     shopSlug,
   ]);
  
+  // Optional test rollout: when the AI subscription and shop setup are
+  // already verified, create the dedicated agent automatically on Step 6.
+  // This uses the existing authenticated, idempotent provision endpoint.
+  // It never purchases a number, changes billing, or activates another shop.
+  useEffect(() => {
+    if (process.env.NEXT_PUBLIC_DAYTELLO_AUTOMATIC_AI_PROVISION !== "true") return;
+    if (!shopSlug || !aiVoiceEnabled || currentStep !== 6 || loading ||
+        loadingAiProvisionStatus || provisioningAi ||
+        !aiProvisionStatus || aiProvisionStatus.provisioned || aiProvisionStatusError) {
+      return;
+    }
+    if (autoProvisionAttemptedRef.current === shopSlug) return;
+    autoProvisionAttemptedRef.current = shopSlug;
+    void provisionAiReceptionist();
+  }, [shopSlug, aiVoiceEnabled, currentStep, loading,
+      loadingAiProvisionStatus, provisioningAi,
+      aiProvisionStatus, aiProvisionStatusError]);
+
   async function loadOnboardingData() {
     const aiSetupOnly = new URLSearchParams(window.location.search).get("setup") === "ai";
     setAiOnly(aiSetupOnly);
