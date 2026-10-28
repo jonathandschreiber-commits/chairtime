@@ -18,6 +18,7 @@ from app.routes.ai_setup import (
     daytello_save_staff_transfer,
 )
 from app.voicemail_models import DayTelloVoicemailShopSettings
+from app.voicemail_auto_provision import ensure_test_voicemail_number
 from app.voicemail_owner_links import (
     link_cipher,
     owner_phone_for_test_shop,
@@ -90,7 +91,7 @@ def set_owner_call_voicemail_number(
 
     settings = db.get(DayTelloVoicemailShopSettings, shop.id)
     if not settings:
-        raise HTTPException(409, "DayTello is still connecting your voicemail number")
+        settings = ensure_test_voicemail_number(shop, db)
     location = str(shop.highlevel_location_id or "").strip()
     if (
         not location
