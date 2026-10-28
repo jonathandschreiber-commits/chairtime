@@ -16,7 +16,7 @@ from app.routes.shops import require_owner_for_shop
 from app.voicemail_models import DayTelloVoicemailShopSettings
 
 router = APIRouter()
-PHONE = re.compile(r"^\\+[1-9][0-9]{7,14}$")
+PHONE = re.compile(r"^\+[1-9][0-9]{7,14}$")
 
 
 class VoicemailOwnerPreferences(BaseModel):
