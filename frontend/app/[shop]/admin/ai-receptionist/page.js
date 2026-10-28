@@ -115,7 +115,7 @@ export default function AIReceptionistPage() {
       if (!response.ok) throw new Error(result.detail || "Could not save your number.");
       setCallSettings(result);
       setOwnerNumber(formatPhoneNumber(result.phone_number));
-      setNumberMessage("Phone number saved. Please test the call transfer and voicemail fallback.");
+      setNumberMessage("Approved voicemail SMS recipient saved. Forwarding to your phone and voicemail fallback are not yet verified.");
     } catch (err) {
       setNumberMessage(err.message || "Could not save your number.");
     } finally {
@@ -296,7 +296,7 @@ export default function AIReceptionistPage() {
                   inputMode="tel" value={ownerNumber} onChange={(e) => setOwnerNumber(e.target.value)}
                   placeholder="(240) 555-1234" className="w-full rounded-xl border border-slate-300 p-3" required />
                 <p className="text-sm text-slate-600">
-                  DayTello will transfer callers to this number and send secure voicemail listening links here.
+                  DayTello will send secure voicemail listening links to this number. Call forwarding to this number must be verified separately.
                   Choose a number that does not forward back to the AI receptionist.
                 </p>
                 <button type="submit" disabled={savingNumber || !provisioned}
@@ -305,8 +305,7 @@ export default function AIReceptionistPage() {
                 </button>
                 {numberMessage && <p role="status" className="text-sm text-slate-700">{numberMessage}</p>}
                 {callSettings && !callSettings.ready && <p className="text-sm text-slate-600">
-                  When you save, DayTello will attempt to assign a voicemail number automatically.
-                  No technical setup is required from you.
+                  DayTello will attempt to assign a voicemail number automatically. SMS and forwarding are checked separately.
                 </p>}
               </form>
             </section>
