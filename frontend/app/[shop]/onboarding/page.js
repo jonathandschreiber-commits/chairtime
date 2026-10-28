@@ -4877,12 +4877,20 @@ function AiReceptionistStep({
       ) : null}
  
       {activePhoneNumber && provisioned ? (
-        <AiStaffTransferSetup
-          key={`${shopSlug}-${activePhoneNumber}`}
-          shopSlug={shopSlug}
-          aiPhoneNumber={activePhoneNumber}
-          onReadyChange={onStaffTransferReadyChange}
-        />
+        process.env.NEXT_PUBLIC_DAYTELLO_UNIFIED_VOICEMAIL_SETUP === "true" ? (
+          <AiCallVoicemailSetup
+            key={`${shopSlug}-${activePhoneNumber}`}
+            shopSlug={shopSlug}
+            onReadyChange={onStaffTransferReadyChange}
+          />
+        ) : (
+          <AiStaffTransferSetup
+            key={`${shopSlug}-${activePhoneNumber}`}
+            shopSlug={shopSlug}
+            aiPhoneNumber={activePhoneNumber}
+            onReadyChange={onStaffTransferReadyChange}
+          />
+        )
       ) : null}
  
       {statusError && (
@@ -4982,6 +4990,106 @@ function AiReceptionistStep({
   );
 }
  
+// Self-service onboarding: one number configures both verified call transfers
+// and the shop's own voicemail notifications. This remains test-feature flagged
+// until a real second-shop end-to-end call test validates provisioning.
+function AiCallVoicemailSetup({ shopSlug, onReadyChange }) {
+  const [number, setNumber] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    onReadyChange(false);
+    fetch("/api/ai-setup/call-voicemail-number?shop=" + encodeURIComponent(shopSlug), {
+      cache: "no-store",
+    }).then(async response => {
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.detail || "Cannot check phone setup.");
+      if (!active) return;
+      const saved = Boolean(result.ready && result.notifications_enabled && result.phone_number);
+      setNumber(result.phone_number || "");
+      setReady(saved);
+      onReadyChange(saved);
+    }).catch(err => {
+      if (active) setError(err.message || "Cannot check phone setup.");
+    }).finally(() => {
+      if (active) setLoading(false);
+    });
+    return () => { active = false; };
+  }, [shopSlug, onReadyChange]);
+
+  async function save(event) {
+    event.preventDefault();
+    setError("");
+    const digits = number.replace(/\\D/g, "");
+    const normalized = digits.length === 10 ? "+1" + digits :
+      digits.length === 11 && digits[0] === "1" ? "+" + digits : "";
+    if (!normalized) {
+      setError("Enter your 10-digit forwarding phone number.");
+      return;
+    }
+    setSaving(true);
+    try {
+      const response = await fetch("/api/ai-setup/call-voicemail-number", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ shop_slug: shopSlug, phone_number: normalized }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.detail || "Could not save the phone number.");
+      if (!result.ready || !result.call_transfer_enabled || !result.notifications_enabled) {
+        throw new Error("DayTello could not verify both phone services.");
+      }
+      setNumber(result.phone_number);
+      setReady(true);
+      onReadyChange(true);
+    } catch (err) {
+      setError(err.message || "Phone setup failed.");
+      setReady(false);
+      onReadyChange(false);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div style={{ marginTop: "20px", padding: "20px", background: "#fff",
+                  border: "1px solid #c7d2fe", borderRadius: "16px" }}>
+      <h3 style={{ fontSize: "18px", fontWeight: 800, margin: 0 }}>
+        Call Forwarding &amp; Voicemail
+      </h3>
+      <p style={{ margin: "8px 0 16px", color: "#475569" }}>
+        Where should DayTello transfer calls and send voicemail listening links?
+        Enter one number. DayTello handles the setup.
+      </p>
+      <form onSubmit={save}>
+        <label htmlFor="ai-owner-forward-number" style={{ fontWeight: 700 }}>
+          Your phone number
+        </label>
+        <input id="ai-owner-forward-number" type="tel" autoComplete="tel"
+               value={number} onChange={e => { setNumber(e.target.value); setReady(false); onReadyChange(false); }}
+               placeholder="(240) 555-1234" required
+               style={{ display: "block", margin: "8px 0 12px", padding: "12px",
+                        width: "100%", maxWidth: "340px", border: "1px solid #cbd5e1",
+                        borderRadius: "10px" }} />
+        <button type="submit" disabled={saving || loading} className={styles.continueButton}>
+          {saving ? "Saving..." : "Save Phone Number"}
+        </button>
+      </form>
+      {ready && <p role="status" style={{ color: "#047857", marginTop: "12px" }}>
+        Phone number saved for transfers and voicemail notifications.
+      </p>}
+      {error && <p role="alert" style={{ color: "#991b1b", marginTop: "12px" }}>{error}</p>}
+      {!ready && !error && !loading && <p style={{ color: "#64748b", marginTop: "12px" }}>
+        You can continue after your phone number is saved.
+      </p>}
+    </div>
+  );
+}
+
 // AI Receptionist live-human transfers are configured per shop's HighLevel agent.
 // The backend is authoritative. Nothing is considered saved until it reads back
 // the actual HighLevel CALL_TRANSFER action for this shop.
