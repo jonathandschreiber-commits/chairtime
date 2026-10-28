@@ -113,20 +113,29 @@ def set_owner_call_voicemail_number(
     if not PHONE.fullmatch(sender):
         raise HTTPException(503, "SMS sender is not configured")
 
-    # HighLevel verifies that the transfer destination is not the shop's
-    # AI/business number or another AI-agent number before updating the action.
-    # Clicking Save confirms the owner has checked that the destination does
-    # not forward calls back to the AI line.
+    # CRITICAL: transfer to the shop's *dedicated HighLevel voicemail DID*,
+    # never directly to the owner's mobile/Google Voice. The latter would
+    # bypass HighLevel's unanswered-call voicemail fallback.
+    #
+    # This action only configures the AI-to-voicemail-DID leg. Forwarding from
+    # the DID to the owner, including timeout/backup, must be independently
+    # provisioned and verified by the phone provider before completing
+    # fully automatic onboarding. Do not claim that routing is configured
+    # merely because the owner number was saved.
+    transfer_destination = settings.receiving_number
     transfer_result = daytello_save_staff_transfer(
         DayTelloStaffTransferRequest(
-            enabled=True, phone_number=number, confirm_no_forwarding_loop=True,
+            enabled=True, phone_number=transfer_destination,
+            confirm_no_forwarding_loop=True,
         ),
         current_user=current_user, db=db,
     )
-    if not transfer_result.get("enabled") or transfer_result.get("phone_number") != number:
-        raise HTTPException(502, "Call forwarding was not verified; no voicemail changes saved")
+    if (not transfer_result.get("enabled")
+            or transfer_result.get("phone_number") != transfer_destination):
+        raise HTTPException(502, "HighLevel voicemail transfer was not verified; no notification changes saved")
 
-    # SMS configuration changes only after HighLevel confirms call transfer.
+    # SMS configuration changes only after HighLevel confirms transfer to the
+    # dedicated voicemail number, not the owner's personal number.
     # Keep the current database preference untouched if the provider fails.
     settings.owner_phone = number
     settings.notifications_enabled = True
