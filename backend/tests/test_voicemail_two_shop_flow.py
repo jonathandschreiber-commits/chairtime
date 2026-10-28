@@ -158,7 +158,13 @@ class SignedTwoShopFlowTests(unittest.TestCase):
 
     def test_other_location_and_unmapped_numbers_cannot_deliver(self):
         elsewhere = self.post("+12025550121", "foreign-location", location="other-loc")
-        unknown = self.post("+12025550123", "unmapped-number")
+        # Signed unknown events may consult HighLevel inventory to find an
+        # explicitly labeled test number. Supply an empty provider inventory
+        # instead of making a network call during the offline test.
+        from app import voicemail_auto_provision
+        with patch.object(voicemail_auto_provision, "get_location_phone_numbers",
+                          return_value=({}, [])):
+            unknown = self.post("+12025550123", "unmapped-number")
         self.assertEqual(elsewhere.json()["action"], "ignored_other_location")
         # No legacy map was set; unknown incoming numbers fail closed, 503.
         self.assertEqual(unknown.status_code, 503)
