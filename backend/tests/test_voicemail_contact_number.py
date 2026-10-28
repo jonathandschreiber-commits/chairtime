@@ -100,6 +100,36 @@ class UnifiedPhoneTests(unittest.TestCase):
             self.client.put(self.url, json={"phone_number": "+12025550198"}).status_code, 503
         )
 
+    def test_unconfigured_shop_is_provisioned_during_save(self):
+        self.user.shop_slug = "shop-b"
+        self.user.shop_id = "s2"
+        with self.factory() as db:
+            shop = db.get(Shop, "s2")
+            shop.highlevel_location_id = "loc-test"
+            db.commit()
+        from app.voicemail_models import DayTelloVoicemailShopSettings
+        from unittest.mock import patch
+        def allocate(shop, db):
+            binding = DayTelloVoicemailShopSettings(
+                shop_id=shop.id, location_id="loc-test",
+                receiving_number="+12025550130", notifications_enabled=False,
+            )
+            db.add(binding)
+            db.commit()
+            return binding
+        with patch.object(route, "ensure_test_voicemail_number", side_effect=allocate), (
+             patch.object(route, "daytello_save_staff_transfer",
+                          return_value={"enabled": True, "phone_number": "+12025550199"})):
+            response = self.client.put(
+                "/api/shops/shop-b/call-voicemail-number",
+                json={"phone_number": "+12025550199"},
+            )
+        self.assertEqual(response.status_code, 200, response.text)
+        with self.factory() as db:
+            settings = db.get(DayTelloVoicemailShopSettings, "s2")
+            self.assertTrue(settings.notifications_enabled)
+            self.assertEqual(settings.owner_phone, "+12025550199")
+
     def test_no_provisioning_fails_closed(self):
         self.user.shop_slug = "shop-b"
         self.user.shop_id = "s2"
