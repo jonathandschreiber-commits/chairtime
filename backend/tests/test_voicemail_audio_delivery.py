@@ -83,6 +83,7 @@ class OwnerDeliveryRouteTests(unittest.TestCase):
             "DAYTELLO_VOICEMAIL_TEST_RECIPIENT": "+12025550129",
             "HIGHLEVEL_LOCATION_ID": "test-location",
             "HIGHLEVEL_API_TOKEN": "test-token",
+            "HIGHLEVEL_SMS_FROM_NUMBER": "+12025550124",
         })
         self.env.start()
         self.dbpatch = patch.object(owner, "SessionLocal", self.factory)
@@ -142,6 +143,46 @@ class OwnerDeliveryRouteTests(unittest.TestCase):
         with self.factory() as db:
             event = db.get(DayTelloVoicemailEvent, ("test-location", "message-1"))
             self.assertEqual(event.notification_status, "sent")
+
+
+    def test_missing_test_sender_does_not_attempt_delivery(self):
+        from app.routes.reminders import send_highlevel_sms
+        os.environ.pop("HIGHLEVEL_SMS_FROM_NUMBER", None)
+        with patch("app.routes.reminders.request.urlopen") as outbound:
+            result = send_highlevel_sms(
+                "+12025550129", "test",
+                shop_id="stan-1", shop_slug="stan-s-shop",
+                purpose="voicemail-owner-notification",
+            )
+        self.assertFalse(result["success"])
+        self.assertEqual(result["step"], "config")
+        outbound.assert_not_called()
+
+    def test_invalid_test_sender_does_not_attempt_delivery(self):
+        from app.routes.reminders import send_highlevel_sms
+        os.environ["HIGHLEVEL_SMS_FROM_NUMBER"] = "not-a-number"
+        with patch("app.routes.reminders.request.urlopen") as outbound:
+            result = send_highlevel_sms(
+                "+12025550129", "test",
+                shop_id="stan-1", shop_slug="stan-s-shop",
+                purpose="voicemail-owner-notification",
+            )
+        self.assertFalse(result["success"])
+        self.assertEqual(result["step"], "config")
+        outbound.assert_not_called()
+
+    def test_disabled_mode_cannot_send_owner_notification(self):
+        from app.routes.reminders import send_highlevel_sms
+        os.environ["DAYTELLO_VOICEMAIL_OWNER_SMS_ENABLED"] = "false"
+        with patch("app.routes.reminders.request.urlopen") as outbound:
+            result = send_highlevel_sms(
+                "+12025550129", "test",
+                shop_id="stan-1", shop_slug="stan-s-shop",
+                purpose="voicemail-owner-notification",
+            )
+        self.assertFalse(result["success"])
+        self.assertEqual(result["step"], "config")
+        outbound.assert_not_called()
 
 
 if __name__ == "__main__":
