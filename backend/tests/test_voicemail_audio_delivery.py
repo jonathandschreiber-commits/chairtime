@@ -121,6 +121,47 @@ class OwnerDeliveryRouteTests(unittest.TestCase):
         self.assertEqual(response.status_code, 404)
         client.assert_not_called()
 
+    def test_disabled_shop_revokes_existing_recording_link(self):
+        link_path = self.path()
+        with self.factory() as db:
+            shop = db.get(Shop, "stan-1")
+            shop.ai_voice_enabled = False
+            db.commit()
+        with patch.object(
+            owner.httpx, "AsyncClient",
+            side_effect=AssertionError("Disabled shop must not fetch audio"),
+        ) as client:
+            response = self.client.get(link_path)
+        self.assertEqual(response.status_code, 404)
+        client.assert_not_called()
+
+    def test_reassigned_shop_revokes_existing_recording_link(self):
+        link_path = self.path()
+        with self.factory() as db:
+            shop = db.get(Shop, "stan-1")
+            shop.highlevel_location_id = "another-location"
+            db.commit()
+        with patch.object(
+            owner.httpx, "AsyncClient",
+            side_effect=AssertionError("Reassigned shop must not fetch audio"),
+        ) as client:
+            response = self.client.get(link_path)
+        self.assertEqual(response.status_code, 404)
+        client.assert_not_called()
+
+    def test_missing_shop_revokes_existing_recording_link(self):
+        link_path = self.path()
+        with self.factory() as db:
+            db.delete(db.get(Shop, "stan-1"))
+            db.commit()
+        with patch.object(
+            owner.httpx, "AsyncClient",
+            side_effect=AssertionError("Deleted shop must not fetch audio"),
+        ) as client:
+            response = self.client.get(link_path)
+        self.assertEqual(response.status_code, 404)
+        client.assert_not_called()
+
     def test_disabled_mode_rejects_recording_links(self):
         os.environ["DAYTELLO_VOICEMAIL_TEST_ONLY"] = "false"
         response = self.client.get(self.path())
