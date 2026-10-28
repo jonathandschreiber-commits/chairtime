@@ -109,6 +109,8 @@ class ShopVoicemailSettingsTests(unittest.TestCase):
         ).status_code, 422)
 
     def test_not_provisioned_fails_closed(self):
+        self.user.shop_id = "shop-c"
+        self.user.shop_slug = "shop-c"
         response = self.client.patch(
             "/api/shops/shop-c/voicemail-settings",
             json={"notifications_enabled": True, "owner_phone": "+12025550199"},
