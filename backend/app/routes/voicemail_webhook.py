@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import Shop
-from app.voicemail_models import DayTelloVoicemailEvent
+from app.voicemail_models import DayTelloVoicemailEvent, DayTelloVoicemailShopSettings
 from app.voicemail_owner_links import owner_phone_for_test_shop
 from app.routes.voicemail_owner_alert import send_owner_voicemail_alert
 
@@ -132,19 +132,26 @@ async def receive_voicemail(request: Request, background_tasks: BackgroundTasks,
         raise HTTPException(422, "Voicemail event missing identifiers")
     if not message_id.strip() or len(message_id) > 128:
         raise HTTPException(422, "Invalid message identifier")
-    routing = configured_routing_map()
-    shop_slug = routing.get(destination)
-    if not shop_slug:
-        # Unknown numbers must not be guessed from caller number/timestamp.
-        return {"accepted": True, "action": "ignored_unmapped_number"}
-
-    shop = db.query(Shop).filter(Shop.slug == shop_slug).first()
+    # Explicit database binding takes precedence. Legacy routing stays
+    # available only for shops not yet provisioned into the database.
+    settings = db.query(DayTelloVoicemailShopSettings).filter(
+        DayTelloVoicemailShopSettings.location_id == location_id,
+        DayTelloVoicemailShopSettings.receiving_number == destination,
+    ).one_or_none()
+    if settings is not None:
+        shop = db.query(Shop).filter(Shop.id == settings.shop_id).first()
+    else:
+        routing = configured_routing_map()
+        shop_slug = routing.get(destination)
+        if not shop_slug:
+            return {"accepted": True, "action": "ignored_unmapped_number"}
+        shop = db.query(Shop).filter(Shop.slug == shop_slug).first()
     if not shop or not shop.ai_voice_enabled:
         return {"accepted": True, "action": "ignored_inactive_shop"}
     if shop.highlevel_location_id and shop.highlevel_location_id != location_id:
         return {"accepted": True, "action": "ignored_location_mismatch"}
 
-    recipient = owner_phone_for_test_shop(shop_slug)
+    recipient = owner_phone_for_test_shop(shop.slug, settings) if shop else None
     event = DayTelloVoicemailEvent(
         location_id=location_id,
         message_id=message_id,
