@@ -61,6 +61,11 @@ def public_status(shop: Shop, settings: DayTelloVoicemailShopSettings | None):
         "phone_number": settings.owner_phone if settings else None,
         "notifications_enabled": bool(settings.notifications_enabled) if settings else False,
         "voicemail_number": settings.receiving_number if settings else None,
+        "sms_ready": bool(settings and settings.owner_phone and settings.notifications_enabled),
+        # A relay DID being allocated does not prove its external forwarding
+        # destination or voicemail timeout. Never infer this from SMS readiness.
+        "forwarding_verified": False,
+        "setup_complete": False,
     }
 
 
@@ -134,18 +139,13 @@ def set_owner_call_voicemail_number(
             or transfer_result.get("phone_number") != transfer_destination):
         raise HTTPException(502, "HighLevel voicemail transfer was not verified; no notification changes saved")
 
-    # HighLevel's publicly documented phone-number API does not establish
-    # that the voicemail relay forwards to this owner. Do not claim a
-    # one-number configuration is complete or enable SMS until this leg
-    # is independently verified. Default is fail closed.
-    if os.getenv("DAYTELLO_VOICEMAIL_RELAY_FORWARDING_VERIFIED") != "true":
-        raise HTTPException(
-            409,
-            "Voicemail relay forwarding to this owner has not been verified; "
-            "notifications remain disabled",
-        )
-
-    # SMS configuration changes only after the verified relay prerequisite.
+    # SMS routing is independent of forwarding configuration. Allow this
+    # authenticated shop owner to activate notifications ONLY after the
+    # strict test recipient allowlist, message link, SMS sender and AI-to-relay
+    # transfer checks above pass. Do NOT claim the relay forwards to the
+    # owner: the public HighLevel number API cannot verify that leg.
+    # There is no global "verified" switch that could accidentally authorize
+    # every tenant or bypass its individual phone configuration.
     settings.owner_phone = number
     settings.notifications_enabled = True
     try:
@@ -162,4 +162,7 @@ def set_owner_call_voicemail_number(
         **public_status(shop, settings),
         "call_transfer_enabled": True,
         "live_call_test_required": True,
+        "message": ("Voicemail SMS notifications are configured for the approved "
+                    "test recipient. External call forwarding and HighLevel "
+                    "voicemail fallback still require verification."),
     }
