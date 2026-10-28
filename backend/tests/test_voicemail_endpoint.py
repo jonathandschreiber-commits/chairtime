@@ -143,6 +143,8 @@ class VoicemailEndpointTests(unittest.TestCase):
                 owner_phone="+12025550199", notifications_enabled=False,
             ))
             db.commit()
+        # Owner opt-out is exercised within the required isolated test mode.
+        os.environ["DAYTELLO_VOICEMAIL_TEST_ONLY"] = "true"
         os.environ["DAYTELLO_VOICEMAIL_OWNER_SMS_ENABLED"] = "true"
         with patch.object(voicemail_webhook, "send_owner_voicemail_alert") as send:
             response = self.post()
