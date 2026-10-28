@@ -73,6 +73,11 @@ class UnifiedPhoneTests(unittest.TestCase):
             response = self.client.put(self.url, json={"phone_number": "+12025550199"})
         self.assertEqual(response.status_code, 200, response.text)
         provider.assert_called_once()
+        self.assertEqual(
+            provider.call_args.args[0].phone_number, "+12025550123",
+            "AI must transfer to the dedicated HighLevel voicemail relay, "
+            "not to the owner's personal carrier voicemail",
+        )
         with self.factory() as db:
             prefs = db.get(DayTelloVoicemailShopSettings, "s1")
             self.assertEqual(prefs.owner_phone, "+12025550199")
