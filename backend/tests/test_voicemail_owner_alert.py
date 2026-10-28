@@ -4,6 +4,7 @@ Run in backend/: python -m unittest discover -s tests -p test_voicemail_owner_al
 """
 import json
 import os
+from datetime import datetime, timedelta, timezone
 import unittest
 from unittest.mock import patch
 
@@ -68,6 +69,26 @@ class OwnerVoicemailSafetyTests(unittest.TestCase):
         os.environ["DAYTELLO_VOICEMAIL_LINK_KEY"] = ""
         with self.assertRaises(HTTPException):
             make_recording_link("loc", "msg", "shop")
+
+
+    def test_expired_recording_link_is_rejected(self):
+        expired = {
+            "location": "location-demo",
+            "message": "message-demo",
+            "shop": "shop-demo",
+            "expires": int((datetime.now(timezone.utc) - timedelta(minutes=1)).timestamp()),
+        }
+        token = Fernet(self.key.encode("ascii")).encrypt(
+            json.dumps(expired).encode("utf-8")
+        ).decode("ascii")
+        with self.assertRaises(HTTPException) as error:
+            decode_recording_link(token)
+        self.assertEqual(error.exception.status_code, 404)
+
+    def test_invalid_recording_link_is_rejected(self):
+        with self.assertRaises(HTTPException) as error:
+            decode_recording_link("not-a-secure-token")
+        self.assertEqual(error.exception.status_code, 404)
 
 
 if __name__ == "__main__":
