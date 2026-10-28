@@ -149,15 +149,20 @@ async def receive_voicemail(request: Request, background_tasks: BackgroundTasks,
             if legacy_slug and shop and legacy_slug != shop.slug:
                 raise HTTPException(503, "Conflicting voicemail shop assignments")
     else:
-        routing = configured_routing_map()
-        shop_slug = routing.get(destination)
-        if not shop_slug:
-            return {"accepted": True, "action": "ignored_unmapped_number"}
-        shop = db.query(Shop).filter(Shop.slug == shop_slug).first()
-        if shop and db.get(DayTelloVoicemailShopSettings, shop.id) is not None:
-            # The shop has already migrated to its database voicemail route.
-            # Do not continue receiving on an old, reassigned legacy number.
-            raise HTTPException(503, "Stale legacy voicemail assignment")
+        # Isolated testing only: recover an unbound number if HighLevel
+        # inventory explicitly labels it for one matching AI-enabled shop.
+        from app.voicemail_auto_provision import bind_explicitly_labeled_test_voicemail
+        settings = bind_explicitly_labeled_test_voicemail(location_id, destination, db)
+        if settings is not None:
+            shop = db.query(Shop).filter(Shop.id == settings.shop_id).first()
+        else:
+            routing = configured_routing_map()
+            shop_slug = routing.get(destination)
+            if not shop_slug:
+                return {"accepted": True, "action": "ignored_unmapped_number"}
+            shop = db.query(Shop).filter(Shop.slug == shop_slug).first()
+            if shop and db.get(DayTelloVoicemailShopSettings, shop.id) is not None:
+                raise HTTPException(503, "Stale legacy voicemail assignment")
     if not shop or not shop.ai_voice_enabled:
         return {"accepted": True, "action": "ignored_inactive_shop"}
     if shop.highlevel_location_id and shop.highlevel_location_id != location_id:
