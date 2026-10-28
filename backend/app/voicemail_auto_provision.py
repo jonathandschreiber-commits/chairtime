@@ -113,3 +113,82 @@ def ensure_test_voicemail_number(shop: Shop, db):
         return binding
 
     raise HTTPException(409, "No safe, available voicemail number for this business")
+
+
+def bind_explicitly_labeled_test_voicemail(location_id: str, number: str, db):
+    """Recover a test DID named "<Shop name> - Voicemail TEST" in HighLevel.
+
+    Only called for a signed voicemail event after confirming the location.
+    Read-only provider verification precedes an exclusive database binding.
+    This does *not* enable owner SMS, purchase a number, or change call routes.
+    A missing/ambiguous match is ignored, never guessed by arrival order.
+    The usual authenticated owner-onboarding path is preferred for new shops.
+    """
+    if os.getenv("DAYTELLO_VOICEMAIL_TEST_ONLY") != "true":
+        return None
+    if not valid_phone(number):
+        return None
+    expected_location = os.getenv("HIGHLEVEL_LOCATION_ID", "").strip()
+    if not expected_location or location_id != expected_location:
+        return None
+
+    # Legacy assignments remain authoritative and cannot be re-claimed.
+    legacy_raw = os.getenv("DAYTELLO_VOICEMAIL_NUMBER_SHOP_MAP", "").strip()
+    legacy = configured_routing_map() if legacy_raw else {}
+    if number in legacy:
+        return None
+
+    # Never take over an AI line, a business number, or an existing tenant route.
+    shops = db.query(Shop).all()
+    if any(
+        number in (shop.highlevel_phone_number, shop.phone)
+        for shop in shops
+    ):
+        return None
+    if db.query(DayTelloVoicemailShopSettings).filter(
+        DayTelloVoicemailShopSettings.location_id == location_id,
+        DayTelloVoicemailShopSettings.receiving_number == number,
+    ).first():
+        return None
+
+    _, inventory = get_location_phone_numbers(location_id)
+    matched = [
+        record for record in inventory
+        if isinstance(record, dict) and record.get("phoneNumber") == number
+    ]
+    if len(matched) != 1:
+        return None
+    record = matched[0]
+    if get_phone_inbound_service(record).get("type") == "voice_ai":
+        return None
+
+    # Require an exact human-verified test label, not a fuzzy name or a
+    # guessed match based solely on caller-controlled webhook data.
+    label = str(record.get("friendlyName") or "").strip()
+    candidates = [
+        shop for shop in shops
+        if (
+            shop.ai_voice_enabled
+            and shop.highlevel_location_id == location_id
+            and label == f"{shop.name} - Voicemail TEST"
+            and db.get(DayTelloVoicemailShopSettings, shop.id) is None
+        )
+    ]
+    if len(candidates) != 1:
+        return None
+
+    binding = DayTelloVoicemailShopSettings(
+        shop_id=candidates[0].id,
+        location_id=location_id,
+        receiving_number=number,
+        owner_phone=None,
+        notifications_enabled=False,
+    )
+    db.add(binding)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(409, "Concurrent voicemail assignment requires review")
+    db.refresh(binding)
+    return binding
