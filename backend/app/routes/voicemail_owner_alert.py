@@ -12,6 +12,7 @@ from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
+from app.models import Shop
 from app.routes.reminders import send_highlevel_sms
 from app.voicemail_models import DayTelloVoicemailEvent
 from app.voicemail_owner_links import (
@@ -68,6 +69,15 @@ async def listen_to_voicemail(token: str):
     with SessionLocal() as session:
         receipt = session.get(DayTelloVoicemailEvent, (location_id, message_id))
         if not receipt or receipt.shop_id != shop_id:
+            raise HTTPException(404, "Recording link unavailable")
+        # Revoke outstanding bearer links when an AI shop is disabled,
+        # deleted, or reassigned to another HighLevel location.
+        shop = session.get(Shop, shop_id)
+        if (
+            not shop
+            or not shop.ai_voice_enabled
+            or shop.highlevel_location_id != location_id
+        ):
             raise HTTPException(404, "Recording link unavailable")
     api_token = os.getenv("HIGHLEVEL_API_TOKEN", "").strip()
     if not api_token:
