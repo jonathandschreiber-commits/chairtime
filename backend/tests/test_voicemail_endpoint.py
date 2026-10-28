@@ -165,6 +165,32 @@ class VoicemailEndpointTests(unittest.TestCase):
         self.assertEqual(response.status_code, 503)
         self.assertEqual(self.count_events(), 0)
 
+    def test_conflicting_legacy_and_database_routes_rejected(self):
+        with self.session_factory() as db:
+            db.add(Shop(
+                id="shop-other-test", slug="other-shop", name="Other Shop",
+                ai_voice_enabled=True, highlevel_location_id="test-hl-location",
+            ))
+            db.add(DayTelloVoicemailShopSettings(
+                shop_id="shop-other-test", location_id="test-hl-location",
+                receiving_number="+12029725238", notifications_enabled=False,
+            ))
+            db.commit()
+        response = self.post()
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(self.count_events(), 0)
+
+    def test_migrated_shop_rejects_stale_legacy_number(self):
+        with self.session_factory() as db:
+            db.add(DayTelloVoicemailShopSettings(
+                shop_id="shop-stan-test", location_id="test-hl-location",
+                receiving_number="+12029725239", notifications_enabled=False,
+            ))
+            db.commit()
+        response = self.post()
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(self.count_events(), 0)
+
     def test_duplicate_event_records_only_once(self):
         self.assertEqual(self.post().status_code, 200)
         again = self.post()
