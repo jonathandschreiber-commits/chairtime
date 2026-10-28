@@ -5029,7 +5029,7 @@ function AiCallVoicemailSetup({ shopSlug, onReadyChange }) {
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.detail || "Cannot check phone setup.");
       if (!active) return;
-      const saved = Boolean(result.ready && result.notifications_enabled && result.phone_number);
+      const saved = Boolean(result.setup_complete && result.phone_number);
       setNumber(result.phone_number || "");
       setReady(saved);
       onReadyChange(saved);
@@ -5060,12 +5060,13 @@ function AiCallVoicemailSetup({ shopSlug, onReadyChange }) {
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.detail || "Could not save the phone number.");
-      if (!result.ready || !result.call_transfer_enabled || !result.notifications_enabled) {
-        throw new Error("DayTello could not verify both phone services.");
-      }
       setNumber(result.phone_number);
-      setReady(true);
-      onReadyChange(true);
+      const complete = Boolean(result.setup_complete);
+      setReady(complete);
+      onReadyChange(complete);
+      if (!complete) {
+        setError("Voicemail SMS is configured, but forwarding to your phone and unanswered-call fallback are not yet verified. DayTello setup is not complete.");
+      }
     } catch (err) {
       setError(err.message || "Phone setup failed.");
       setReady(false);
@@ -5083,7 +5084,7 @@ function AiCallVoicemailSetup({ shopSlug, onReadyChange }) {
       </h3>
       <p style={{ margin: "8px 0 16px", color: "#475569" }}>
         Where should DayTello transfer calls and send voicemail listening links?
-        Enter one number. DayTello handles the setup.
+        Enter one number. DayTello saves your voicemail SMS recipient, but phone forwarding must be verified before setup is complete.
       </p>
       <form onSubmit={save}>
         <label htmlFor="ai-owner-forward-number" style={{ fontWeight: 700 }}>
@@ -5104,7 +5105,7 @@ function AiCallVoicemailSetup({ shopSlug, onReadyChange }) {
       </p>}
       {error && <p role="alert" style={{ color: "#991b1b", marginTop: "12px" }}>{error}</p>}
       {!ready && !error && !loading && <p style={{ color: "#64748b", marginTop: "12px" }}>
-        You can continue after your phone number is saved.
+        Setup is complete only after call forwarding and voicemail fallback are verified.
       </p>}
     </div>
   );
