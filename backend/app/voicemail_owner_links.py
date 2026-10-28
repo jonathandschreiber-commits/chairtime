@@ -40,16 +40,23 @@ def test_link_origin():
     return raw.rstrip("/")
 
 
-def owner_phone_for_test_shop(shop_slug):
+def owner_phone_for_test_shop(shop_slug, settings=None):
     if os.getenv("DAYTELLO_VOICEMAIL_OWNER_SMS_ENABLED") != "true":
         return None
     if os.getenv("DAYTELLO_VOICEMAIL_TEST_ONLY") != "true":
         raise HTTPException(503, "Test mode is required")
-    try:
-        owner_map = json.loads(os.getenv("DAYTELLO_VOICEMAIL_OWNER_PHONE_MAP", ""))
-    except ValueError:
-        raise HTTPException(503, "Owner destination map missing")
-    recipient = owner_map.get(shop_slug) if isinstance(owner_map, dict) else None
+    if settings is not None:
+        # A provisioned shop's preference takes precedence; never fall back
+        # to a legacy owner number when the owner has disabled notifications.
+        if not settings.notifications_enabled:
+            return None
+        recipient = settings.owner_phone
+    else:
+        try:
+            owner_map = json.loads(os.getenv("DAYTELLO_VOICEMAIL_OWNER_PHONE_MAP", ""))
+        except ValueError:
+            raise HTTPException(503, "Owner destination map missing")
+        recipient = owner_map.get(shop_slug) if isinstance(owner_map, dict) else None
     allowlisted = os.getenv("DAYTELLO_VOICEMAIL_TEST_RECIPIENT", "")
     if not recipient or not PHONE_RE.fullmatch(str(recipient)) or recipient != allowlisted:
         raise HTTPException(503, "Owner SMS recipient is not approved")
