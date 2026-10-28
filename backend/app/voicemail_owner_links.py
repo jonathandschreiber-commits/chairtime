@@ -57,7 +57,24 @@ def owner_phone_for_test_shop(shop_slug, settings=None):
         except ValueError:
             raise HTTPException(503, "Owner destination map missing")
         recipient = owner_map.get(shop_slug) if isinstance(owner_map, dict) else None
-    allowlisted = os.getenv("DAYTELLO_VOICEMAIL_TEST_RECIPIENT", "")
+    # Per-shop test approvals are optional; legacy single test-recipient
+    # configuration remains valid for the original Stan's Shop test.
+    raw_approvals = os.getenv("DAYTELLO_VOICEMAIL_TEST_RECIPIENT_MAP", "").strip()
+    if raw_approvals:
+        try:
+            approvals = json.loads(raw_approvals)
+        except ValueError:
+            raise HTTPException(503, "Test recipient approvals are invalid")
+        if not isinstance(approvals, dict) or any(
+            not isinstance(slug, str)
+            or not isinstance(number, str)
+            or not PHONE_RE.fullmatch(number)
+            for slug, number in approvals.items()
+        ):
+            raise HTTPException(503, "Test recipient approvals are invalid")
+        allowlisted = approvals.get(shop_slug)
+    else:
+        allowlisted = os.getenv("DAYTELLO_VOICEMAIL_TEST_RECIPIENT", "")
     if not recipient or not PHONE_RE.fullmatch(str(recipient)) or recipient != allowlisted:
         raise HTTPException(503, "Owner SMS recipient is not approved")
     return recipient
