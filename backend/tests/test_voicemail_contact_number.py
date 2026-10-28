@@ -44,7 +44,6 @@ class UnifiedPhoneTests(unittest.TestCase):
         self.env = patch.dict(os.environ, {
             "DAYTELLO_VOICEMAIL_TEST_ONLY": "true",
             "DAYTELLO_VOICEMAIL_OWNER_SMS_ENABLED": "true",
-            "DAYTELLO_VOICEMAIL_RELAY_FORWARDING_VERIFIED": "true",
             "DAYTELLO_VOICEMAIL_TEST_RECIPIENT": "+12025550199",
             "DAYTELLO_VOICEMAIL_LINK_KEY": Fernet.generate_key().decode(),
             "DAYTELLO_VOICEMAIL_TEST_PUBLIC_ORIGIN": "https://daytello-voicemail-test.example.org",
@@ -84,19 +83,21 @@ class UnifiedPhoneTests(unittest.TestCase):
             self.assertEqual(prefs.owner_phone, "+12025550199")
             self.assertTrue(prefs.notifications_enabled)
 
-    def test_unverified_relay_fails_closed_without_sms(self):
-        os.environ.pop("DAYTELLO_VOICEMAIL_RELAY_FORWARDING_VERIFIED", None)
+    def test_sms_enabled_without_claiming_external_forwarding(self):
         with patch.object(route, "daytello_save_staff_transfer", return_value={
             "enabled": True, "phone_number": "+12025550123",
         }):
             response = self.client.put(
                 self.url, json={"phone_number": "+12025550199"}
             )
-        self.assertEqual(response.status_code, 409, response.text)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertTrue(response.json()["sms_ready"])
+        self.assertFalse(response.json()["forwarding_verified"])
+        self.assertFalse(response.json()["setup_complete"])
         with self.factory() as db:
             record = db.get(DayTelloVoicemailShopSettings, "s1")
-            self.assertIsNone(record.owner_phone)
-            self.assertFalse(record.notifications_enabled)
+            self.assertEqual(record.owner_phone, "+12025550199")
+            self.assertTrue(record.notifications_enabled)
 
     def test_failed_transfer_leaves_notification_unchanged(self):
         with patch.object(
