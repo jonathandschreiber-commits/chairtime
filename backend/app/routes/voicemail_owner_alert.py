@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from app.database import SessionLocal
 from app.models import Shop
 from app.routes.reminders import send_highlevel_sms
-from app.voicemail_models import DayTelloVoicemailEvent
+from app.voicemail_models import DayTelloVoicemailEvent, DayTelloVoicemailShopSettings
 from app.voicemail_owner_links import (
     decode_recording_link, make_recording_link, owner_phone_for_test_shop,
 )
@@ -30,9 +30,19 @@ def send_owner_voicemail_alert(location_id: str, message_id: str, shop_slug: str
     """Only the webhook invokes this after committing a unique receipt."""
     status = "failed"
     try:
-        recipient = owner_phone_for_test_shop(shop_slug)
-        if not recipient:
-            return
+        with SessionLocal() as session:
+            settings = session.get(DayTelloVoicemailShopSettings, shop_id)
+            recipient = owner_phone_for_test_shop(shop_slug, settings)
+            if not recipient:
+                return
+            receipt = session.get(DayTelloVoicemailEvent, (location_id, message_id))
+            if not receipt or receipt.shop_id != shop_id:
+                return
+            if settings is not None and (
+                settings.location_id != location_id
+                or settings.receiving_number != receipt.receiving_number
+            ):
+                return
         link = make_recording_link(location_id, message_id, shop_id)
         text = f"DayTello TEST: New voicemail for {shop_name}. "
         if isinstance(caller, str) and re.fullmatch(r"\+[1-9][0-9]{7,14}", caller):
