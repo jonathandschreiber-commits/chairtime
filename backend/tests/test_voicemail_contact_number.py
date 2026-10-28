@@ -68,7 +68,7 @@ class UnifiedPhoneTests(unittest.TestCase):
 
     def test_one_number_saved_after_verified_transfer(self):
         with patch.object(route, "daytello_save_staff_transfer", return_value={
-            "enabled": True, "phone_number": "+12025550199",
+            "enabled": True, "phone_number": "+12025550123",
         }) as provider:
             response = self.client.put(self.url, json={"phone_number": "+12025550199"})
         self.assertEqual(response.status_code, 200, response.text)
@@ -124,7 +124,7 @@ class UnifiedPhoneTests(unittest.TestCase):
             return binding
         with patch.object(route, "ensure_test_voicemail_number", side_effect=allocate), (
              patch.object(route, "daytello_save_staff_transfer",
-                          return_value={"enabled": True, "phone_number": "+12025550199"})):
+                          return_value={"enabled": True, "phone_number": "+12025550130"})):
             response = self.client.put(
                 "/api/shops/shop-b/call-voicemail-number",
                 json={"phone_number": "+12025550199"},
@@ -178,7 +178,7 @@ class UnifiedPhoneTests(unittest.TestCase):
             return settings
         with patch.object(route, "ensure_test_voicemail_number", side_effect=allocate), (
              patch.object(route, "daytello_save_staff_transfer",
-                          return_value={"enabled": True, "phone_number": "+12025550198"})):
+                          return_value={"enabled": True, "phone_number": "+12025550130"})):
             response = self.client.put(
                 "/api/shops/shop-b/call-voicemail-number",
                 json={"phone_number": "+12025550198"},
