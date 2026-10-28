@@ -134,9 +134,18 @@ def set_owner_call_voicemail_number(
             or transfer_result.get("phone_number") != transfer_destination):
         raise HTTPException(502, "HighLevel voicemail transfer was not verified; no notification changes saved")
 
-    # SMS configuration changes only after HighLevel confirms transfer to the
-    # dedicated voicemail number, not the owner's personal number.
-    # Keep the current database preference untouched if the provider fails.
+    # HighLevel's publicly documented phone-number API does not establish
+    # that the voicemail relay forwards to this owner. Do not claim a
+    # one-number configuration is complete or enable SMS until this leg
+    # is independently verified. Default is fail closed.
+    if os.getenv("DAYTELLO_VOICEMAIL_RELAY_FORWARDING_VERIFIED") != "true":
+        raise HTTPException(
+            409,
+            "Voicemail relay forwarding to this owner has not been verified; "
+            "notifications remain disabled",
+        )
+
+    # SMS configuration changes only after the verified relay prerequisite.
     settings.owner_phone = number
     settings.notifications_enabled = True
     try:
