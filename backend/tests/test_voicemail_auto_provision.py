@@ -46,6 +46,44 @@ class ReservedNumberTests(unittest.TestCase):
         self.env.stop()
         self.engine.dispose()
 
+    def test_explicit_label_recovers_second_shop_without_sms(self):
+        with self.factory() as db:
+            db.get(Shop, "shop-b").name = "Bob's Shop"
+            db.commit()
+        with patch.object(auto, "get_location_phone_numbers", return_value=(
+            {}, [{"phoneNumber": "+12025550122",
+                  "friendlyName": "Bob's Shop - Voicemail TEST"}]
+        )):
+            with self.factory() as db:
+                bound = auto.bind_explicitly_labeled_test_voicemail(
+                    "loc-a", "+12025550122", db)
+                self.assertEqual(bound.shop_id, "shop-b")
+                self.assertFalse(bound.notifications_enabled)
+                self.assertIsNone(bound.owner_phone)
+                self.assertIsNone(auto.bind_explicitly_labeled_test_voicemail(
+                    "loc-a", "+12025550122", db))
+                self.assertEqual(db.query(DayTelloVoicemailShopSettings).count(), 1)
+
+    def test_unlabeled_number_cannot_be_claimed(self):
+        with patch.object(auto, "get_location_phone_numbers", return_value=(
+            {}, [{"phoneNumber": "+12025550122", "friendlyName": ""}]
+        )):
+            with self.factory() as db:
+                self.assertIsNone(auto.bind_explicitly_labeled_test_voicemail(
+                    "loc-a", "+12025550122", db))
+                self.assertEqual(db.query(DayTelloVoicemailShopSettings).count(), 0)
+
+    def test_labeled_number_must_not_reassign_legacy_or_other_location(self):
+        os.environ["DAYTELLO_VOICEMAIL_NUMBER_SHOP_MAP"] = (
+            '{"+12025550122":"shop-a"}'
+        )
+        with self.factory() as db:
+            self.assertIsNone(auto.bind_explicitly_labeled_test_voicemail(
+                "loc-a", "+12025550122", db))
+            self.assertIsNone(auto.bind_explicitly_labeled_test_voicemail(
+                "other-loc", "+12025550122", db))
+            self.assertEqual(db.query(DayTelloVoicemailShopSettings).count(), 0)
+
     def test_idempotent_and_exclusive_allocation(self):
         with self.factory() as db:
             a = db.get(Shop, "shop-a")
