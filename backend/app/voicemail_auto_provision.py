@@ -6,6 +6,7 @@ and verifies ownership against live HighLevel inventory. This code does not
 purchase a number or change upstream call forwarding.
 """
 import json
+import logging
 import os
 
 from fastapi import HTTPException
@@ -15,6 +16,29 @@ from app.models import Shop
 from app.routes.ai_setup import get_location_phone_numbers, get_phone_inbound_service
 from app.routes.voicemail_webhook import configured_routing_map, valid_phone
 from app.voicemail_models import DayTelloVoicemailShopSettings
+
+logger = logging.getLogger(__name__)
+
+
+def verified_phone_inventory(location_id: str):
+    """Read inventory, recording only non-sensitive upstream error metadata.
+
+    HighLevel API errors are mapped to HTTP 502 by ai_setup. Logging its
+    upstream status clarifies expired tokens vs missing phonenumbers.read
+    without disclosing bearer tokens, phone numbers or response bodies.
+    """
+    try:
+        return get_location_phone_numbers(location_id)
+    except HTTPException as exc:
+        detail = exc.detail if isinstance(exc.detail, dict) else {}
+        upstream = detail.get("highlevel_status")
+        logger.warning(
+            "DayTello voicemail number inventory verification failed: "
+            "upstream_status=%s gateway_status=%s",
+            upstream if isinstance(upstream, int) else "unavailable",
+            exc.status_code,
+        )
+        raise
 
 
 def reserved_numbers_for_shop(shop_slug: str) -> list[str]:
@@ -76,7 +100,7 @@ def ensure_test_voicemail_number(shop: Shop, db):
         for number in (other.highlevel_phone_number, other.phone)
         if number
     }
-    _, inventory = get_location_phone_numbers(location_id)
+    _, inventory = verified_phone_inventory(location_id)
     inventory_by_number = {}
     for item in inventory:
         if isinstance(item, dict) and valid_phone(item.get("phoneNumber")):
@@ -151,7 +175,7 @@ def bind_explicitly_labeled_test_voicemail(location_id: str, number: str, db):
     ).first():
         return None
 
-    _, inventory = get_location_phone_numbers(location_id)
+    _, inventory = verified_phone_inventory(location_id)
     matched = [
         record for record in inventory
         if isinstance(record, dict) and record.get("phoneNumber") == number
