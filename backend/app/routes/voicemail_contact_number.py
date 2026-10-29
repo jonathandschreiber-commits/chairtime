@@ -70,6 +70,48 @@ def public_status(shop: Shop, settings: DayTelloVoicemailShopSettings | None):
     }
 
 
+@router.get("/shops/{shop_slug}/voicemail-onboarding/readiness")
+def voicemail_onboarding_readiness(
+    shop_slug: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Read-only tenant-scoped gate. Never claim full setup from SMS readiness.
+
+    Provider forwarding to owner and unanswered-call backup cannot yet be
+    automatically verified by this integration, so this reports the exact
+    outstanding dependencies rather than declaring a new shop ready.
+    """
+    shop = owner_shop(db, shop_slug, current_user)
+    settings = db.get(DayTelloVoicemailShopSettings, shop.id)
+    expected = os.getenv("HIGHLEVEL_LOCATION_ID", "").strip()
+    connected = bool(shop.highlevel_agent_id and
+                     shop.highlevel_location_id and
+                     shop.highlevel_location_id == expected)
+    number_assigned = bool(
+        settings and settings.receiving_number and
+        settings.location_id == expected and connected
+    )
+    recipient_saved = bool(settings and settings.owner_phone)
+    sms_active = bool(
+        number_assigned and recipient_saved and
+        settings.notifications_enabled and
+        os.getenv("DAYTELLO_VOICEMAIL_OWNER_SMS_ENABLED") == "true"
+    )
+    return {
+        "shop_slug": shop.slug,
+        "ai_agent_connected": connected,
+        "voicemail_number_assigned": number_assigned,
+        "owner_number_saved": recipient_saved,
+        "sms_activated": sms_active,
+        "forwarding_to_owner_verified": False,
+        "voicemail_fallback_verified": False,
+        "ready_for_customer_calls": False,
+        "requires_manual_provider_setup": True,
+        "reason": "Automated provider forwarding and voicemail fallback verification are not implemented.",
+    }
+
+
 @router.get("/shops/{shop_slug}/call-voicemail-number")
 def get_owner_call_voicemail_number(
     shop_slug: str,
