@@ -27,9 +27,9 @@ class UnifiedPhoneTests(unittest.TestCase):
         with self.factory() as db:
             db.add_all([
                 Shop(id="s1", slug="shop-a", name="Shop A", ai_voice_enabled=True,
-                     highlevel_location_id="loc-test"),
+                     highlevel_location_id="loc-test", highlevel_agent_id="test-agent-a"),
                 Shop(id="s2", slug="shop-b", name="Shop B", ai_voice_enabled=True,
-                     highlevel_location_id="loc-test"),
+                     highlevel_location_id="loc-test", highlevel_agent_id="test-agent-b"),
                 DayTelloVoicemailShopSettings(
                     shop_id="s1", location_id="loc-test",
                     receiving_number="+12025550123",
@@ -204,6 +204,34 @@ class UnifiedPhoneTests(unittest.TestCase):
             prefs = db.get(DayTelloVoicemailShopSettings, "s2")
             self.assertEqual(prefs.owner_phone, "+12025550198")
             self.assertTrue(prefs.notifications_enabled)
+
+    def test_unprovisioned_owner_can_save_approved_phone_without_sending(self):
+        with self.factory() as db:
+            shop = db.get(Shop, "s1")
+            shop.highlevel_agent_id = None
+            db.commit()
+        with patch.object(route, "daytello_save_staff_transfer") as provider:
+            result = self.client.put(self.url, json={"phone_number": "+12025550199"})
+            provider.assert_not_called()
+        self.assertEqual(result.status_code, 200, result.text)
+        self.assertTrue(result.json()["pending_provisioning"])
+        self.assertFalse(result.json()["sms_ready"])
+        self.assertFalse(result.json()["notifications_enabled"])
+        self.assertFalse(result.json()["forwarding_verified"])
+        with self.factory() as db:
+            settings = db.get(DayTelloVoicemailShopSettings, "s1")
+            self.assertEqual(settings.owner_phone, "+12025550199")
+            self.assertFalse(settings.notifications_enabled)
+            self.assertEqual(settings.receiving_number, "+12025550123")
+
+    def test_unprovisioned_rejects_unapproved_recipient(self):
+        with self.factory() as db:
+            db.get(Shop, "s1").highlevel_agent_id = None
+            db.commit()
+        response = self.client.put(self.url, json={"phone_number": "+12025550198"})
+        self.assertEqual(response.status_code, 503)
+        with self.factory() as db:
+            self.assertIsNone(db.get(DayTelloVoicemailShopSettings, "s1").owner_phone)
 
     def test_no_provisioning_fails_closed(self):
         self.user.shop_slug = "shop-b"
