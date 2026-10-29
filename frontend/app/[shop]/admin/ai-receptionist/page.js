@@ -108,7 +108,11 @@ export default function AIReceptionistPage() {
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
         const detail = typeof data.detail === "string"
-          ? data.detail : "Could not verify the existing AI agent";
+          ? data.detail
+          : typeof data.detail?.message === "string"
+          ? data.detail.message + (data.detail.highlevel_status
+              ? ` (HighLevel HTTP ${data.detail.highlevel_status})` : "")
+          : `Could not verify the existing AI agent (HTTP ${response.status})`;
         throw new Error(detail);
       }
       setLinkAgentMessage(data.message || "Existing AI agent linked.");
