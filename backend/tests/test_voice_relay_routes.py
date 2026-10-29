@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 from app.database import get_db
 from app.routes.voice_relay import router
 from app.voice_relay_models import DayTelloVoiceRelayAssignment
+from app.voicemail_models import DayTelloVoicemailShopSettings
 
 
 DID = "+12405550123"
@@ -58,15 +59,37 @@ class FakeRelayQuery:
         return self.bindings.get(self.number)
 
 
+class FakeVoicemailQuery:
+    def __init__(self, receiving_number):
+        self.receiving_number = receiving_number
+        self.lookup_number = None
+
+    def filter(self, *args):
+        self.lookup_number = next(
+            (str(c.right.value) for c in args
+             if hasattr(c, "right") and hasattr(c.right, "value")), None
+        )
+        return self
+
+    def first(self):
+        if self.receiving_number and self.lookup_number == self.receiving_number:
+            return SimpleNamespace(shop_id="other-shop-id")
+        return None
+
+
 class FakeDB:
-    def __init__(self, enabled=True, owner_phone=OWNER, other_relay_number=None):
+    def __init__(self, enabled=True, owner_phone=OWNER, other_relay_number=None,
+                 other_voicemail_number=None):
         self.enabled = enabled
         self.owner_phone = owner_phone
         self.other_relay_number = other_relay_number
+        self.other_voicemail_number = other_voicemail_number
 
     def query(self, model):
         if model is DayTelloVoiceRelayAssignment:
             return FakeRelayQuery(self.enabled, self.other_relay_number)
+        if model is DayTelloVoicemailShopSettings:
+            return FakeVoicemailQuery(self.other_voicemail_number)
         return FakeQuery(SimpleNamespace(
             id="third-shop-id", ai_voice_enabled=True))
 
@@ -134,6 +157,25 @@ class RelayRouteTests(unittest.TestCase):
                               {"CallSid": CALL, "To": DID})
         self.assertEqual(result.status_code, 409)
         self.assertNotIn("<Dial", result.text)
+
+    def test_rejects_owner_phone_that_is_another_shops_voicemail_did(self):
+        # A HighLevel voicemail DID need not exist in the programmable
+        # relay table. It must still never be used as an owner's phone.
+        self.client.app.dependency_overrides[get_db] = lambda: FakeDB(
+            owner_phone=OWNER, other_voicemail_number=OWNER)
+        result = self.request("/api/daytello/voice-relay/inbound",
+                              {"CallSid": CALL, "To": DID})
+        self.assertEqual(result.status_code, 409)
+        self.assertNotIn("<Dial", result.text)
+
+    def test_voicemail_did_loop_is_rejected_on_dial_callback(self):
+        self.client.app.dependency_overrides[get_db] = lambda: FakeDB(
+            owner_phone=OWNER, other_voicemail_number=OWNER)
+        result = self.request("/api/daytello/voice-relay/dial-finished",
+                              {"CallSid": CALL, "To": DID,
+                               "DialCallStatus": "no-answer"})
+        self.assertEqual(result.status_code, 409)
+        self.assertNotIn("<Record", result.text)
 
     def test_disabled_relay_does_not_route(self):
         self.client.app.dependency_overrides[get_db] = lambda: FakeDB(enabled=False)
