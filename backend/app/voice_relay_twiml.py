@@ -81,9 +81,12 @@ def after_employee_dial(dial_call_status: str, recording_complete_url: str,
     authenticate the provider request and verify shop/DID ownership.
     """
     normalized = str(dial_call_status or "").strip().lower()
-    if normalized == "completed":
+    # "canceled" means the dial attempt was explicitly terminated before
+    # answer (for example via the provider API), not a ringing timeout.
+    # Never turn an intentionally canceled transfer into a voicemail prompt.
+    if normalized in {"completed", "canceled"}:
         return completed_recording()
-    if normalized in {"no-answer", "busy", "failed", "canceled"}:
+    if normalized in {"no-answer", "busy", "failed"}:
         return voicemail_after_unanswered(
             recording_complete_url, recording_ready_url
         )
