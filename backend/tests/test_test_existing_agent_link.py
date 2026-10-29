@@ -3,7 +3,7 @@ import os
 import unittest
 from unittest.mock import patch
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -124,6 +124,29 @@ class ExistingAgentRecoveryTests(unittest.TestCase):
         with patch.object(route, "get_location_phone_numbers", return_value=({}, [])):
             response = self.client.post(self.uri)
         self.assertEqual(response.status_code, 409)
+        with self.factory() as db:
+            self.assertIsNone(db.get(Shop, "bob").highlevel_agent_id)
+
+    def test_voice_agent_scope_denial_is_actionable_and_does_not_link(self):
+        with patch.object(route, "highlevel_request", side_effect=HTTPException(
+            502, {"message": "HighLevel rejected the Voice AI request.",
+                  "highlevel_status": 401, "highlevel_error": "secret-diagnostic"}
+        )):
+            response = self.client.post(self.uri)
+        self.assertEqual(response.status_code, 502, response.text)
+        self.assertIn("voice-ai-agents.readonly", response.json()["detail"])
+        self.assertNotIn("secret-diagnostic", response.text)
+        with self.factory() as db:
+            self.assertIsNone(db.get(Shop, "bob").highlevel_agent_id)
+
+    def test_phone_number_scope_denial_is_actionable_and_does_not_link(self):
+        with patch.object(route, "get_location_phone_numbers", side_effect=HTTPException(
+            502, {"highlevel_status": 403, "highlevel_error": "internal provider details"}
+        )):
+            response = self.client.post(self.uri)
+        self.assertEqual(response.status_code, 502, response.text)
+        self.assertIn("phonenumbers.read", response.json()["detail"])
+        self.assertNotIn("internal provider details", response.text)
         with self.factory() as db:
             self.assertIsNone(db.get(Shop, "bob").highlevel_agent_id)
 
