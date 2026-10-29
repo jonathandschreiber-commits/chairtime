@@ -70,3 +70,22 @@ def voicemail_after_unanswered(recording_complete_url: str,
 
 def completed_recording() -> str:
     return "<Response><Hangup /></Response>"
+
+
+def after_employee_dial(dial_call_status: str, recording_complete_url: str,
+                        recording_ready_url: str) -> str:
+    """Only unanswered or failed employee calls go to voicemail.
+
+    Twilio DialCallStatus "completed" means the employee leg connected.
+    Never record a voicemail after an answered conversation, or on an
+    unexpected/missing status. The signed callback route must independently
+    authenticate the provider request and verify shop/DID ownership.
+    """
+    normalized = str(dial_call_status or "").strip().lower()
+    if normalized == "completed":
+        return completed_recording()
+    if normalized in {"no-answer", "busy", "failed", "canceled"}:
+        return voicemail_after_unanswered(
+            recording_complete_url, recording_ready_url
+        )
+    raise ValueError("Unrecognized dial completion status")
