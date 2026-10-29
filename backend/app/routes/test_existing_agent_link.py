@@ -26,6 +26,37 @@ from app.voicemail_models import DayTelloVoicemailShopSettings
 
 router = APIRouter()
 
+def verified_highlevel_read(stage, action):
+    """Give an actionable failure reason without exposing provider bodies or tokens."""
+    try:
+        return action()
+    except HTTPException as exc:
+        detail = exc.detail
+        code = detail.get("highlevel_status") if isinstance(detail, dict) else None
+        if code in (401, 403):
+            permission = (
+                "voice-ai-agents.readonly" if stage == "Voice AI agent lookup"
+                else "phonenumbers.read"
+            )
+            raise HTTPException(
+                502,
+                f"{stage} was denied by HighLevel (HTTP {code}). "
+                f"Verify the isolated HIGHLEVEL_API_TOKEN has {permission} "
+                "and is valid for the correct HighLevel sub-account.",
+            ) from None
+        if code:
+            raise HTTPException(
+                502,
+                f"{stage} failed in HighLevel (HTTP {code}). "
+                "No changes were made to the shop.",
+            ) from None
+        raise HTTPException(
+            exc.status_code,
+            f"{stage} could not be verified. "
+            "Check the test backend HighLevel connection.",
+        ) from None
+
+
 
 @router.post("/test-link-existing-agent")
 def link_existing_bob_agent(
@@ -71,11 +102,14 @@ def link_existing_bob_agent(
 
     # Exact-name lookup only; never create an agent or accept an approximate
     # name, unknown number, or a shared agent.
-    payload = response_json(highlevel_request(
-        method="GET",
-        path="/voice-ai/agents",
-        params={"locationId": location_id, "page": 1, "pageSize": 100},
-    ))
+    payload = verified_highlevel_read(
+        "Voice AI agent lookup",
+        lambda: response_json(highlevel_request(
+            method="GET",
+            path="/voice-ai/agents",
+            params={"locationId": location_id, "page": 1, "pageSize": 100},
+        )),
+    )
     expected_name = production_agent_name(shop)
     candidates = [
         item for item in extract_agents(payload)
@@ -86,14 +120,20 @@ def link_existing_bob_agent(
     agent_id = str(candidates[0].get("id") or candidates[0].get("_id") or "").strip()
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", agent_id):
         raise HTTPException(409, "HighLevel agent ID was not valid")
-    detail = get_agent_detail(agent_id, location_id)
+    detail = verified_highlevel_read(
+        "Voice AI agent lookup",
+        lambda: get_agent_detail(agent_id, location_id),
+    )
     if (
         (detail.get("agentName") or detail.get("name")) != expected_name
         or (detail.get("locationId") and detail["locationId"] != location_id)
     ):
         raise HTTPException(409, "HighLevel agent details did not match Bob's Shop")
 
-    _, numbers = get_location_phone_numbers(location_id=location_id)
+    _, numbers = verified_highlevel_read(
+        "Phone-number inventory",
+        lambda: get_location_phone_numbers(location_id=location_id),
+    )
     matches = find_phone_numbers_routed_to_agent(numbers, agent_id)
     if len(matches) != 1:
         raise HTTPException(409, "Bob's AI phone routing could not be uniquely verified")
