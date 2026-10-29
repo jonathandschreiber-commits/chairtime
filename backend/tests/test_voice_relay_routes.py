@@ -168,5 +168,53 @@ class RelayRouteTests(unittest.TestCase):
             self.assertEqual(result.status_code, 404)
 
 
+    def test_public_origin_rejects_credentials_and_malformed_urls(self):
+        # The origin determines the exact URL used for signature verification.
+        for origin in (
+            "http://relay.example.test",
+            "https://user:secret@relay.example.test",
+            "https://relay.example.test:invalid",
+            "https://relay.example.test:0",
+            "https://relay.example.test/path",
+            "https://relay.example.test?query=1",
+            "https://relay.example.test#fragment",
+            "https://relay.example.test\\n",
+        ):
+            with self.subTest(origin=repr(origin)):
+                with patch.dict(os.environ, {
+                    "DAYTELLO_VOICE_RELAY_PUBLIC_ORIGIN": origin,
+                }):
+                    result = self.request("/api/daytello/voice-relay/inbound",
+                                          {"CallSid": CALL, "To": DID})
+                    self.assertEqual(result.status_code, 503)
+
+    def test_duplicate_form_fields_rejected_before_signature_check(self):
+        result = self.client.post("/api/daytello/voice-relay/inbound",
+                                  content=f"CallSid={CALL}&To={DID}&To={OWNER}",
+                                  headers={
+                                      "content-type": "application/x-www-form-urlencoded",
+                                      "x-twilio-signature": "invalid",
+                                  })
+        self.assertEqual(result.status_code, 400)
+
+    def test_missing_call_identifier_and_unknown_dial_status_fail_closed(self):
+        missing = self.request("/api/daytello/voice-relay/inbound", {"To": DID})
+        self.assertEqual(missing.status_code, 422)
+        unexpected = self.request("/api/daytello/voice-relay/dial-finished", {
+            "CallSid": CALL, "To": DID, "DialCallStatus": "mystery",
+        })
+        self.assertEqual(unexpected.status_code, 422)
+        self.assertNotIn("<Record", unexpected.text)
+
+    def test_disabled_relay_blocks_recording_callback_too(self):
+        self.client.app.dependency_overrides[get_db] = lambda: FakeDB(enabled=False)
+        result = self.request("/api/daytello/voice-relay/record-ready", {
+            "CallSid": CALL, "To": DID,
+            "RecordingStatus": "completed", "RecordingSid": "RE" + "b" * 32,
+        })
+        self.assertEqual(result.status_code, 404)
+        self.assertNotIn("notification_sent", result.text)
+
+
 if __name__ == "__main__":
     unittest.main()
