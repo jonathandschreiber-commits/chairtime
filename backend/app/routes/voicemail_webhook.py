@@ -12,13 +12,15 @@ import re
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import serialization
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import Shop
-from app.voicemail_models import DayTelloVoicemailEvent
+from app.voicemail_models import DayTelloVoicemailEvent, DayTelloVoicemailShopSettings
+from app.voicemail_owner_links import owner_phone_for_test_shop
+from app.routes.voicemail_owner_alert import send_owner_voicemail_alert
 
 router = APIRouter()
 
@@ -81,17 +83,17 @@ def configured_routing_map() -> dict:
 
 
 def is_voicemail_event(payload: dict) -> bool:
-    """HighLevel uses messageType=CALL with voicemail status in its example."""
+    """HighLevel sends a voicemail as CALL with status=voicemail."""
     return (
         payload.get("type") == "InboundMessage"
         and str(payload.get("direction", "")).lower() == "inbound"
         and str(payload.get("status", "")).lower() == "voicemail"
-        and payload.get("messageTypeString") == "TYPE_VOICEMAIL"
+        and payload.get("messageTypeString") in ("TYPE_CALL", "TYPE_VOICEMAIL")
     )
 
 
 @router.post("/daytello/voicemail", status_code=200)
-async def receive_voicemail(request: Request, db: Session = Depends(get_db)):
+async def receive_voicemail(request: Request, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     # The current Ed25519 header is mandatory. Legacy RSA is not accepted.
     content_length = request.headers.get("content-length")
     if content_length:
@@ -130,24 +132,49 @@ async def receive_voicemail(request: Request, db: Session = Depends(get_db)):
         raise HTTPException(422, "Voicemail event missing identifiers")
     if not message_id.strip() or len(message_id) > 128:
         raise HTTPException(422, "Invalid message identifier")
-    routing = configured_routing_map()
-    shop_slug = routing.get(destination)
-    if not shop_slug:
-        # Unknown numbers must not be guessed from caller number/timestamp.
-        return {"accepted": True, "action": "ignored_unmapped_number"}
-
-    shop = db.query(Shop).filter(Shop.slug == shop_slug).first()
+    # Explicit database binding takes precedence. Legacy routing stays
+    # available only for shops not yet provisioned into the database.
+    settings = db.query(DayTelloVoicemailShopSettings).filter(
+        DayTelloVoicemailShopSettings.location_id == location_id,
+        DayTelloVoicemailShopSettings.receiving_number == destination,
+    ).one_or_none()
+    if settings is not None:
+        shop = db.query(Shop).filter(Shop.id == settings.shop_id).first()
+        # During migration, both the old environment mapping and the new
+        # database route may exist. They must never disagree about ownership:
+        # a stale legacy number must not silently move to another tenant.
+        legacy_raw = os.getenv("DAYTELLO_VOICEMAIL_NUMBER_SHOP_MAP", "").strip()
+        if legacy_raw:
+            legacy_slug = configured_routing_map().get(destination)
+            if legacy_slug and shop and legacy_slug != shop.slug:
+                raise HTTPException(503, "Conflicting voicemail shop assignments")
+    else:
+        # Isolated testing only: recover an unbound number if HighLevel
+        # inventory explicitly labels it for one matching AI-enabled shop.
+        from app.voicemail_auto_provision import bind_explicitly_labeled_test_voicemail
+        settings = bind_explicitly_labeled_test_voicemail(location_id, destination, db)
+        if settings is not None:
+            shop = db.query(Shop).filter(Shop.id == settings.shop_id).first()
+        else:
+            routing = configured_routing_map()
+            shop_slug = routing.get(destination)
+            if not shop_slug:
+                return {"accepted": True, "action": "ignored_unmapped_number"}
+            shop = db.query(Shop).filter(Shop.slug == shop_slug).first()
+            if shop and db.get(DayTelloVoicemailShopSettings, shop.id) is not None:
+                raise HTTPException(503, "Stale legacy voicemail assignment")
     if not shop or not shop.ai_voice_enabled:
         return {"accepted": True, "action": "ignored_inactive_shop"}
     if shop.highlevel_location_id and shop.highlevel_location_id != location_id:
         return {"accepted": True, "action": "ignored_location_mismatch"}
 
+    recipient = owner_phone_for_test_shop(shop.slug, settings) if shop else None
     event = DayTelloVoicemailEvent(
         location_id=location_id,
         message_id=message_id,
         shop_id=shop.id,
         receiving_number=destination,
-        notification_status="disabled",
+        notification_status="queued" if recipient else "disabled",
     )
     try:
         db.add(event)
@@ -155,5 +182,10 @@ async def receive_voicemail(request: Request, db: Session = Depends(get_db)):
     except IntegrityError:
         db.rollback()
         return {"accepted": True, "action": "duplicate"}
-    # Deliberately no SMS, no recording download, no caller data in response.
+    if recipient:
+        background_tasks.add_task(
+            send_owner_voicemail_alert, location_id, message_id,
+            shop.slug, shop.name, shop.id, payload.get("from")
+        )
+        return {"accepted": True, "action": "queued_owner_notification"}
     return {"accepted": True, "action": "recorded_no_notification"}

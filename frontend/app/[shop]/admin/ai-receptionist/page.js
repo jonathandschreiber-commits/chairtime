@@ -30,6 +30,14 @@ export default function AIReceptionistPage() {
   const [loading, setLoading] = useState(true);
   const [statusData, setStatusData] = useState(null);
   const [error, setError] = useState("");
+  const [ownerNumber, setOwnerNumber] = useState("");
+  const [callSettings, setCallSettings] = useState(null);
+  const [savingNumber, setSavingNumber] = useState(false);
+  const [linkingAgent, setLinkingAgent] = useState(false);
+  const [linkAgentMessage, setLinkAgentMessage] = useState("");
+  const [numberMessage, setNumberMessage] = useState("");
+  const [activatingVoicemail, setActivatingVoicemail] = useState(false);
+  const [activationMessage, setActivationMessage] = useState("");
 
   const loadStatus = useCallback(async () => {
     setLoading(true);
@@ -77,6 +85,100 @@ export default function AIReceptionistPage() {
   useEffect(() => {
     loadStatus();
   }, [loadStatus]);
+
+  useEffect(() => {
+    if (!shopSlug) return;
+    fetch("/api/ai-setup/call-voicemail-number?shop=" + encodeURIComponent(shopSlug), {
+      cache: "no-store",
+    }).then(async (response) => {
+      if (!response.ok) return;
+      const result = await response.json();
+      setCallSettings(result);
+      if (result.phone_number) setOwnerNumber(formatPhoneNumber(result.phone_number));
+    }).catch(() => {});
+  }, [shopSlug]);
+
+  async function linkExistingAgent() {
+    if (linkingAgent) return;
+    setLinkingAgent(true);
+    setLinkAgentMessage("");
+    try {
+      const response = await fetch("/api/ai-setup/test-link-existing-agent", {
+        method: "POST",
+        cache: "no-store",
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const detail = typeof data.detail === "string"
+          ? data.detail
+          : typeof data.detail?.message === "string"
+          ? data.detail.message + (data.detail.highlevel_status
+              ? ` (HighLevel HTTP ${data.detail.highlevel_status})` : "")
+          : `Could not verify the existing AI agent (HTTP ${response.status})`;
+        throw new Error(detail);
+      }
+      setLinkAgentMessage(data.message || "Existing AI agent linked.");
+      await loadStatus();
+    } catch (err) {
+      setLinkAgentMessage(err.message || "AI agent verification failed.");
+    } finally {
+      setLinkingAgent(false);
+    }
+  }
+
+  async function saveOwnerNumber(event) {
+    event.preventDefault();
+    setNumberMessage("");
+    const digits = ownerNumber.replace(/\D/g, "");
+    const normalized = digits.length === 10 ? "+1" + digits :
+      digits.length === 11 && digits.startsWith("1") ? "+" + digits : "";
+    if (!normalized) {
+      setNumberMessage("Enter a valid 10-digit phone number.");
+      return;
+    }
+    setSavingNumber(true);
+    try {
+      const response = await fetch("/api/ai-setup/call-voicemail-number", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ shop_slug: shopSlug, phone_number: normalized }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.detail || "Could not save your number.");
+      setCallSettings(result);
+      setOwnerNumber(formatPhoneNumber(result.phone_number));
+      setNumberMessage(result.message || (result.sms_ready
+        ? "Voicemail SMS recipient saved. Forwarding still needs verification."
+        : "Phone number saved. Voicemail SMS will remain off until setup is verified."));
+    } catch (err) {
+      setNumberMessage(err.message || "Could not save your number.");
+    } finally {
+      setSavingNumber(false);
+    }
+  }
+
+  async function activateBobVoicemail() {
+    if (activatingVoicemail || shopSlug !== "bobs-shop" || !provisioned) return;
+    setActivatingVoicemail(true);
+    setActivationMessage("");
+    try {
+      const response = await fetch("/api/ai-setup/activate-bob-voicemail", {
+        method: "POST",
+        headers: { Accept: "application/json" },
+        cache: "no-store",
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(typeof result.detail === "string" ? result.detail : "Activation was not completed.");
+      }
+      setCallSettings(result);
+      setActivationMessage(result.message || "Bob's test voicemail notifications are enabled.");
+    } catch (err) {
+      setActivationMessage(err.message || "Activation could not be completed.");
+    } finally {
+      setActivatingVoicemail(false);
+    }
+  }
 
   const provisioned = Boolean(
     statusData?.provisioned
@@ -182,6 +284,21 @@ export default function AIReceptionistPage() {
                 </span>
               </div>
 
+              {!provisioned && shopSlug === "bobs-shop" && (
+                <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                  <p className="font-semibold text-slate-900">Existing HighLevel AI receptionist</p>
+                  <p className="mt-1 text-sm text-slate-700">
+                    Verify and connect Bob's already-created AI agent. This does not
+                    create another agent, alter HighLevel call routing, or enable SMS.
+                  </p>
+                  <button type="button" disabled={linkingAgent}
+                    onClick={linkExistingAgent}
+                    className="mt-3 rounded-xl bg-slate-900 px-4 py-3 font-semibold text-white disabled:opacity-50">
+                    {linkingAgent ? "Verifying existing AI agent…" : "Connect Existing AI Agent"}
+                  </button>
+                  {linkAgentMessage && <p role="status" className="mt-3 text-sm text-slate-700">{linkAgentMessage}</p>}
+                </div>
+              )}
               {provisioned && (
                 <div className="mt-6 rounded-2xl border border-emerald-200 bg-emerald-50 p-5">
                   <p className="font-extrabold text-emerald-800">
@@ -239,6 +356,51 @@ export default function AIReceptionistPage() {
                     </p>
                   </div>
                 </>
+              )}
+            </section>
+
+            <section className="bg-white rounded-3xl shadow-lg border border-sky-100 p-7">
+              <h2 className="text-2xl font-extrabold text-slate-900">Call Forwarding &amp; Voicemail</h2>
+              <p className="text-slate-600 mt-2">Save the phone number that should receive voicemail notifications. Call forwarding is configured separately.</p>
+              <form onSubmit={saveOwnerNumber} className="mt-5 space-y-3">
+                <label htmlFor="owner-forwarding-phone" className="block font-bold text-slate-700">Your phone number</label>
+                <input id="owner-forwarding-phone" type="tel" autoComplete="tel"
+                  inputMode="tel" value={ownerNumber} onChange={(e) => setOwnerNumber(e.target.value)}
+                  placeholder="(240) 555-1234" className="w-full rounded-xl border border-slate-300 p-3" required />
+                <p className="text-sm text-slate-600">
+                  Once voicemail notifications are activated, DayTello will send secure listening links to this number.
+                  Saving your number does not activate SMS or change call forwarding.
+                </p>
+                <button type="submit" disabled={savingNumber}
+                  className="rounded-xl bg-slate-900 px-5 py-3 font-bold text-white disabled:opacity-50">
+                  {savingNumber ? "Saving..." : "Save Phone Number"}
+                </button>
+                {numberMessage && <p role="status" className="text-sm text-slate-700">{numberMessage}</p>}
+                {callSettings && !callSettings.ready && <p className="text-sm text-slate-600">
+                  DayTello will attempt to assign a voicemail number automatically. SMS and forwarding are checked separately.
+                </p>}
+              </form>
+              {shopSlug === "bobs-shop" && provisioned && callSettings?.ready && (
+                <div className="mt-5 rounded-xl border border-sky-200 bg-sky-50 p-4">
+                  <p className="font-bold text-slate-900">Bob's Shop voicemail notifications — TEST</p>
+                  <p className="mt-1 text-sm text-slate-700">
+                    Your Google Voice transfer and HighLevel voicemail were already tested.
+                    This only enables the owner recording-link text; it will not change call forwarding.
+                  </p>
+                  <p className="mt-2 text-sm font-semibold text-slate-800">
+                    Status: {callSettings.notifications_enabled ? "SMS notifications enabled" : "SMS notifications off"}
+                  </p>
+                  {!callSettings.notifications_enabled && (
+                    <button type="button" disabled={activatingVoicemail}
+                      onClick={activateBobVoicemail}
+                      className="mt-3 rounded-xl bg-slate-900 px-5 py-3 font-bold text-white disabled:opacity-50">
+                      {activatingVoicemail ? "Activating..." : "Activate Voicemail Notifications"}
+                    </button>
+                  )}
+                  {activationMessage && (
+                    <p role="status" className="mt-3 text-sm text-slate-700">{activationMessage}</p>
+                  )}
+                </div>
               )}
             </section>
 

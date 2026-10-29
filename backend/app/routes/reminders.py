@@ -1,5 +1,6 @@
 import json
 import os
+import re
 from datetime import datetime, timedelta
 from urllib import error, request
 from zoneinfo import ZoneInfo
@@ -42,6 +43,21 @@ def send_highlevel_sms(phone: str, message: str, *, shop_id=None, shop_slug=None
                 "HIGHLEVEL_LOCATION_ID, or phone"
             ),
         }
+
+    # Owner voicemail notifications must never silently use a fallback sender.
+    # This is test-only; existing appointment reminders retain their behavior.
+    if purpose == "voicemail-owner-notification":
+        sender = os.getenv("HIGHLEVEL_SMS_FROM_NUMBER", "").strip()
+        if (
+            os.getenv("DAYTELLO_VOICEMAIL_TEST_ONLY") != "true"
+            or os.getenv("DAYTELLO_VOICEMAIL_OWNER_SMS_ENABLED") != "true"
+            or not re.fullmatch(r"\+[1-9][0-9]{7,14}", sender)
+        ):
+            return {
+                "success": False,
+                "step": "config",
+                "error": "Test voicemail SMS requires enabled test mode and an explicit E.164 sender",
+            }
 
     clean_phone = "".join(
         character
@@ -357,63 +373,3 @@ def send_reminders(
         "window_start": window_start.isoformat(),
         "window_end": window_end.isoformat(),
     }
-
-
-@router.get("/test-highlevel-location")
-def test_highlevel_location():
-    api_token = os.getenv(
-        "HIGHLEVEL_API_TOKEN"
-    )
-
-    location_id = os.getenv(
-        "HIGHLEVEL_LOCATION_ID"
-    )
-
-    if not api_token or not location_id:
-        return {
-            "success": False,
-            "error": (
-                "Missing HIGHLEVEL_API_TOKEN "
-                "or HIGHLEVEL_LOCATION_ID"
-            ),
-        }
-
-    location_req = request.Request(
-        (
-            "https://services.leadconnectorhq.com/"
-            f"locations/{location_id}"
-        ),
-        headers=highlevel_headers(
-            api_token,
-            location_id,
-        ),
-        method="GET",
-    )
-
-    try:
-        with request.urlopen(
-            location_req,
-            timeout=10,
-        ) as response:
-            return json.loads(
-                response.read().decode("utf-8")
-            )
-
-    except Exception as caught_error:
-        return {
-            "success": False,
-            "error": str(caught_error),
-        }
-
-
-@router.get("/test-highlevel-sms")
-def test_highlevel_sms(
-    phone: str,
-):
-    return send_highlevel_sms(
-        phone,
-        (
-            "ChairTime test message. "
-            "Reply STOP to unsubscribe."
-        ),
-    )

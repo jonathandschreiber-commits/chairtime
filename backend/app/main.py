@@ -30,7 +30,12 @@ from app.routes.shop_blocked_times import (
 from app.routes.shops import router as shops_router
 from app.routes.team import router as team_router
 from app.routes.voice import router as voice_router
+from app.routes.voicemail_shop_settings import router as voicemail_shop_settings_router
+from app.routes.voicemail_contact_number import router as voicemail_contact_number_router
+from app.routes.test_existing_agent_link import router as test_existing_agent_link_router
+from app.routes.voicemail_shop_provisioning import router as voicemail_shop_provisioning_router
 from app.routes.voicemail_webhook import router as voicemail_router
+from app.routes.voicemail_owner_alert import router as voicemail_owner_alert_router
 from app.routes.daytello_voicemail_oauth import router as daytello_oauth_router
 from app import voicemail_models  # noqa: F401 - registers voicemail table
 from app import voicemail_oauth_models  # noqa: F401 - registers OAuth tables
@@ -712,6 +717,11 @@ app.include_router(payments_router, prefix="/api/payments", tags=["Service Payme
 
 # Signed, read-only voicemail intake. No owner SMS until separately enabled.
 app.include_router(voicemail_router, prefix="/api", tags=["Voicemail Intake"])
+app.include_router(voicemail_shop_settings_router, prefix="/api", tags=["Voicemail Owner Settings"])
+app.include_router(voicemail_contact_number_router, prefix="/api", tags=["Owner Call and Voicemail"])
+app.include_router(test_existing_agent_link_router, prefix="/api/ai-setup", tags=["Existing Test Voice Agent"])
+app.include_router(voicemail_shop_provisioning_router, prefix="/api", tags=["Voicemail Provisioning Test"])
+app.include_router(voicemail_owner_alert_router, prefix="/api", tags=["Voicemail Recording Test"])
 app.include_router(daytello_oauth_router, prefix="/api", tags=["DayTello OAuth"])
 
 
