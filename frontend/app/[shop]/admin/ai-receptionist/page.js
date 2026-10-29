@@ -36,6 +36,8 @@ export default function AIReceptionistPage() {
   const [linkingAgent, setLinkingAgent] = useState(false);
   const [linkAgentMessage, setLinkAgentMessage] = useState("");
   const [numberMessage, setNumberMessage] = useState("");
+  const [activatingVoicemail, setActivatingVoicemail] = useState(false);
+  const [activationMessage, setActivationMessage] = useState("");
 
   const loadStatus = useCallback(async () => {
     setLoading(true);
@@ -152,6 +154,29 @@ export default function AIReceptionistPage() {
       setNumberMessage(err.message || "Could not save your number.");
     } finally {
       setSavingNumber(false);
+    }
+  }
+
+  async function activateBobVoicemail() {
+    if (activatingVoicemail || shopSlug !== "bobs-shop" || !provisioned) return;
+    setActivatingVoicemail(true);
+    setActivationMessage("");
+    try {
+      const response = await fetch("/api/ai-setup/activate-bob-voicemail", {
+        method: "POST",
+        headers: { Accept: "application/json" },
+        cache: "no-store",
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(typeof result.detail === "string" ? result.detail : "Activation was not completed.");
+      }
+      setCallSettings(result);
+      setActivationMessage(result.message || "Bob's test voicemail notifications are enabled.");
+    } catch (err) {
+      setActivationMessage(err.message || "Activation could not be completed.");
+    } finally {
+      setActivatingVoicemail(false);
     }
   }
 
@@ -355,6 +380,28 @@ export default function AIReceptionistPage() {
                   DayTello will attempt to assign a voicemail number automatically. SMS and forwarding are checked separately.
                 </p>}
               </form>
+              {shopSlug === "bobs-shop" && provisioned && callSettings?.ready && (
+                <div className="mt-5 rounded-xl border border-sky-200 bg-sky-50 p-4">
+                  <p className="font-bold text-slate-900">Bob's Shop voicemail notifications — TEST</p>
+                  <p className="mt-1 text-sm text-slate-700">
+                    Your Google Voice transfer and HighLevel voicemail were already tested.
+                    This only enables the owner recording-link text; it will not change call forwarding.
+                  </p>
+                  <p className="mt-2 text-sm font-semibold text-slate-800">
+                    Status: {callSettings.notifications_enabled ? "SMS notifications enabled" : "SMS notifications off"}
+                  </p>
+                  {!callSettings.notifications_enabled && (
+                    <button type="button" disabled={activatingVoicemail}
+                      onClick={activateBobVoicemail}
+                      className="mt-3 rounded-xl bg-slate-900 px-5 py-3 font-bold text-white disabled:opacity-50">
+                      {activatingVoicemail ? "Activating..." : "Activate Voicemail Notifications"}
+                    </button>
+                  )}
+                  {activationMessage && (
+                    <p role="status" className="mt-3 text-sm text-slate-700">{activationMessage}</p>
+                  )}
+                </div>
+              )}
             </section>
 
             <section className="bg-white rounded-3xl shadow-lg border border-fuchsia-100 p-7">
