@@ -528,7 +528,7 @@ def test_claim_existing_shop(
 
     owner_name = payload.owner_name.strip()
     email = payload.email.strip().lower()
-    if not owner_name or not re.fullmatch(r"[^\\s@]+@[^\\s@]+\\.[^\\s@]+", email):
+    if not owner_name or not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", email):
         raise HTTPException(422, "Enter a valid name and email")
     if len(payload.password.encode("utf-8")) > 72:
         raise HTTPException(422, "Password must be at most 72 bytes")
