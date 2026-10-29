@@ -107,7 +107,7 @@ def link_existing_bob_agent(
         lambda: response_json(highlevel_request(
             method="GET",
             path="/voice-ai/agents",
-            params={"locationId": location_id, "page": 1, "pageSize": 100},
+            params={"locationId": location_id, "page": 1, "pageSize": 50},
         )),
     )
     expected_name = production_agent_name(shop)
