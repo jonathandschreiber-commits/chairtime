@@ -194,18 +194,19 @@ def set_owner_call_voicemail_number(
     }
 
 
-class ConfirmBobVoicemailActivation(BaseModel):
+class ConfirmTestVoicemailActivation(BaseModel):
     model_config = ConfigDict(extra="forbid")
     confirmed_live_call_test: bool
 
 
-@router.post("/shops/bobs-shop/voicemail-notifications/activate-test")
-def activate_bob_voicemail_notifications(
-    payload: ConfirmBobVoicemailActivation,
+@router.post("/shops/{shop_slug}/voicemail-notifications/activate-test")
+def activate_shop_voicemail_notifications(
+    shop_slug: str,
+    payload: ConfirmTestVoicemailActivation,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Activate only Bob's preconfigured owner SMS; never touch call routing.
+    """Activate a verified test shop's owner SMS; never touch call routing.
 
     Requires an authenticated owner, explicit real-call confirmation,
     existing AI agent, verified voicemail number, and test allowlists.
@@ -218,7 +219,7 @@ def activate_bob_voicemail_notifications(
     if payload.confirmed_live_call_test is not True:
         raise HTTPException(409, "Confirm the completed live forwarding and voicemail test")
 
-    shop = owner_shop(db, "bobs-shop", current_user)
+    shop = owner_shop(db, shop_slug, current_user)
     if not str(shop.highlevel_agent_id or "").strip():
         raise HTTPException(409, "Existing AI agent is not connected")
     settings = db.get(DayTelloVoicemailShopSettings, shop.id)
@@ -250,5 +251,5 @@ def activate_bob_voicemail_notifications(
         **public_status(shop, settings),
         "call_routing_changed": False,
         "recording_delivery_test_required": True,
-        "message": "Bob's test voicemail SMS activated; call routing was not modified.",
+        "message": "Test voicemail SMS activated; call routing was not modified.",
     }
