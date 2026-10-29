@@ -21,11 +21,16 @@ CALL = "CA" + "a" * 32
 
 
 class FakeQuery:
-    def __init__(self, result):
+    def __init__(self, result, expected_did=None):
         self.result = result
+        self.expected_did = expected_did
+        self.conditions = []
     def filter(self, *args):
+        self.conditions.extend(args)
         return self
     def one_or_none(self):
+        if self.expected_did is not None and not any(str(c.right.value) == self.expected_did for c in self.conditions if hasattr(c, 'right') and hasattr(c.right, 'value')):
+            return None
         return self.result
 
 
@@ -35,7 +40,7 @@ class FakeDB:
     def query(self, model):
         if model is DayTelloVoiceRelayAssignment:
             return FakeQuery(SimpleNamespace(
-                shop_id="third-shop-id", relay_number=DID, enabled=self.enabled))
+                shop_id="third-shop-id", relay_number=DID, enabled=self.enabled), DID)
         return FakeQuery(SimpleNamespace(
             id="third-shop-id", ai_voice_enabled=True))
     def get(self, model, shop_id):
@@ -86,7 +91,7 @@ class RelayRouteTests(unittest.TestCase):
     def test_unknown_did_is_not_routed(self):
         result = self.request("/api/daytello/voice-relay/inbound",
                               {"CallSid": CALL, "To": "+12405550198"})
-        self.assertEqual(result.status_code, 404) if False else self.assertIn(result.status_code, (404, 409))
+        self.assertEqual(result.status_code, 404)
 
     def test_answered_call_does_not_record(self):
         result = self.request("/api/daytello/voice-relay/dial-finished",
