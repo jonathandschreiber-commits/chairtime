@@ -10,7 +10,7 @@ import { useParams } from "next/navigation";
 
 // Public booking must use this deployment's configured backend; never
 // fall through to the old testing/staging Railway service.
-const API_BASE = (process.env.NEXT_PUBLIC_API_BASE || "").replace(/\\/+$/, "");
+const API_BASE = (process.env.NEXT_PUBLIC_API_BASE || "").replace(/\/+$/, "");
 
 const STRIPE_PUBLISHABLE_KEY =
   process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY ||
