@@ -115,7 +115,9 @@ export default function AIReceptionistPage() {
       if (!response.ok) throw new Error(result.detail || "Could not save your number.");
       setCallSettings(result);
       setOwnerNumber(formatPhoneNumber(result.phone_number));
-      setNumberMessage("Approved voicemail SMS recipient saved. Forwarding to your phone and voicemail fallback are not yet verified.");
+      setNumberMessage(result.message || (result.sms_ready
+        ? "Voicemail SMS recipient saved. Forwarding still needs verification."
+        : "Phone number saved. Voicemail SMS will remain off until setup is verified."));
     } catch (err) {
       setNumberMessage(err.message || "Could not save your number.");
     } finally {
@@ -289,17 +291,17 @@ export default function AIReceptionistPage() {
 
             <section className="bg-white rounded-3xl shadow-lg border border-sky-100 p-7">
               <h2 className="text-2xl font-extrabold text-slate-900">Call Forwarding &amp; Voicemail</h2>
-              <p className="text-slate-600 mt-2">Enter one number for transferred calls and voicemail notifications.</p>
+              <p className="text-slate-600 mt-2">Save the phone number that should receive voicemail notifications. Call forwarding is configured separately.</p>
               <form onSubmit={saveOwnerNumber} className="mt-5 space-y-3">
                 <label htmlFor="owner-forwarding-phone" className="block font-bold text-slate-700">Your phone number</label>
                 <input id="owner-forwarding-phone" type="tel" autoComplete="tel"
                   inputMode="tel" value={ownerNumber} onChange={(e) => setOwnerNumber(e.target.value)}
                   placeholder="(240) 555-1234" className="w-full rounded-xl border border-slate-300 p-3" required />
                 <p className="text-sm text-slate-600">
-                  DayTello will send secure voicemail listening links to this number. Call forwarding to this number must be verified separately.
-                  Choose a number that does not forward back to the AI receptionist.
+                  Once voicemail notifications are activated, DayTello will send secure listening links to this number.
+                  Saving your number does not activate SMS or change call forwarding.
                 </p>
-                <button type="submit" disabled={savingNumber || !provisioned}
+                <button type="submit" disabled={savingNumber}
                   className="rounded-xl bg-slate-900 px-5 py-3 font-bold text-white disabled:opacity-50">
                   {savingNumber ? "Saving..." : "Save Phone Number"}
                 </button>
