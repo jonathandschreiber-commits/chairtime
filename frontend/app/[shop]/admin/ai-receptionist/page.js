@@ -33,6 +33,8 @@ export default function AIReceptionistPage() {
   const [ownerNumber, setOwnerNumber] = useState("");
   const [callSettings, setCallSettings] = useState(null);
   const [savingNumber, setSavingNumber] = useState(false);
+  const [linkingAgent, setLinkingAgent] = useState(false);
+  const [linkAgentMessage, setLinkAgentMessage] = useState("");
   const [numberMessage, setNumberMessage] = useState("");
 
   const loadStatus = useCallback(async () => {
@@ -93,6 +95,30 @@ export default function AIReceptionistPage() {
       if (result.phone_number) setOwnerNumber(formatPhoneNumber(result.phone_number));
     }).catch(() => {});
   }, [shopSlug]);
+
+  async function linkExistingAgent() {
+    if (linkingAgent) return;
+    setLinkingAgent(true);
+    setLinkAgentMessage("");
+    try {
+      const response = await fetch("/api/ai-setup/test-link-existing-agent", {
+        method: "POST",
+        cache: "no-store",
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const detail = typeof data.detail === "string"
+          ? data.detail : "Could not verify the existing AI agent";
+        throw new Error(detail);
+      }
+      setLinkAgentMessage(data.message || "Existing AI agent linked.");
+      await loadStatus();
+    } catch (err) {
+      setLinkAgentMessage(err.message || "AI agent verification failed.");
+    } finally {
+      setLinkingAgent(false);
+    }
+  }
 
   async function saveOwnerNumber(event) {
     event.preventDefault();
@@ -229,6 +255,21 @@ export default function AIReceptionistPage() {
                 </span>
               </div>
 
+              {!provisioned && shopSlug === "bobs-shop" && (
+                <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                  <p className="font-semibold text-slate-900">Existing HighLevel AI receptionist</p>
+                  <p className="mt-1 text-sm text-slate-700">
+                    Verify and connect Bob's already-created AI agent. This does not
+                    create another agent, alter HighLevel call routing, or enable SMS.
+                  </p>
+                  <button type="button" disabled={linkingAgent}
+                    onClick={linkExistingAgent}
+                    className="mt-3 rounded-xl bg-slate-900 px-4 py-3 font-semibold text-white disabled:opacity-50">
+                    {linkingAgent ? "Verifying existing AI agent…" : "Connect Existing AI Agent"}
+                  </button>
+                  {linkAgentMessage && <p role="status" className="mt-3 text-sm text-slate-700">{linkAgentMessage}</p>}
+                </div>
+              )}
               {provisioned && (
                 <div className="mt-6 rounded-2xl border border-emerald-200 bg-emerald-50 p-5">
                   <p className="font-extrabold text-emerald-800">
