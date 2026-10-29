@@ -62,13 +62,22 @@ class RelayTwiMLTests(unittest.TestCase):
         self.assertIsNotNone(result.find("Hangup"))
 
     def test_unanswered_or_busy_goes_to_voicemail(self):
-        for status in ("no-answer", "busy", "failed", "canceled"):
+        for status in ("no-answer", "busy", "failed"):
             with self.subTest(status=status):
                 result = ET.fromstring(after_employee_dial(
                     status, "https://example.test/record-finished",
                     "https://example.test/record-ready",
                 ))
                 self.assertIsNotNone(result.find("Record"))
+
+    def test_canceled_transfer_does_not_record_voicemail(self):
+        # Provider cancellation is not equivalent to an unanswered timeout.
+        result = ET.fromstring(after_employee_dial(
+            "canceled", "https://example.test/record-finished",
+            "https://example.test/record-ready",
+        ))
+        self.assertIsNone(result.find("Record"))
+        self.assertIsNotNone(result.find("Hangup"))
 
     def test_unexpected_status_fails_closed(self):
         with self.assertRaises(ValueError):
