@@ -81,6 +81,15 @@ def _assignment(db, did):
     if (not shop or not shop.ai_voice_enabled or not settings or
             not settings.owner_phone or not E164.fullmatch(settings.owner_phone)):
         raise HTTPException(409, "Shop call routing is incomplete")
+    # A relay DID must never forward to itself or another shop's relay DID.
+    # Reject even disabled assignments: those numbers could later be enabled.
+    if settings.owner_phone == did:
+        raise HTTPException(409, "Voicemail forwarding loop detected")
+    another_relay = db.query(DayTelloVoiceRelayAssignment).filter(
+        DayTelloVoiceRelayAssignment.relay_number == settings.owner_phone
+    ).one_or_none()
+    if another_relay is not None:
+        raise HTTPException(409, "Forwarding to a relay DID is not permitted")
     return binding, settings
 
 
