@@ -42,7 +42,7 @@ def _origin() -> str:
     except ValueError:
         raise HTTPException(503, "Voice relay origin unavailable")
     if (not origin or origin != origin.strip() or
-            any(ord(c) < 33 or ord(c) == 127 for c in origin) or
+            any(ord(c) < 33 or ord(c) == 127 or c == "\\" for c in origin) or
             u.scheme != "https" or not u.hostname or
             u.username is not None or u.password is not None or
             not valid_port or u.path or u.query or u.fragment):
