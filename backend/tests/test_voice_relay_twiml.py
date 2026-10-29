@@ -25,6 +25,24 @@ class RelayTwiMLTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             forward_to_employee("+12405550123", "https://example.test/callback", timeout=100)
 
+
+    def test_invalid_provider_callback_urls_are_rejected(self):
+        for url in (
+            "https://example.test:bad/voice",
+            "https://example.test:0/voice",
+            "https://example.test:65536/voice",
+            "https://example.test\\\\evil/voice",
+            "https://example.test\\n/voice",
+            "https://user@example.test/voice",
+            "https://example.test/voice#fragment",
+            "https://[bad-ipv6/voice",
+        ):
+            with self.subTest(url=repr(url)):
+                with self.assertRaises(ValueError):
+                    forward_to_employee("+12405550123", url)
+                with self.assertRaises(ValueError):
+                    voicemail_after_unanswered(url, "https://example.test/ready")
+
     def test_voicemail_callback_is_recording_complete(self):
         root = ET.fromstring(voicemail_after_unanswered(
             "https://example.test/voice/record-finished",
