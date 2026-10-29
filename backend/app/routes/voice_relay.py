@@ -33,8 +33,19 @@ def _enabled():
 
 def _origin() -> str:
     origin = os.getenv("DAYTELLO_VOICE_RELAY_PUBLIC_ORIGIN", "").rstrip("/")
-    u = urlsplit(origin)
-    if u.scheme != "https" or not u.netloc or u.path or u.query or u.fragment:
+    # Treat the configured public origin as a security boundary: reject
+    # userinfo, malformed ports, control characters and URL components that
+    # could alter the exact URL used for provider signature verification.
+    try:
+        u = urlsplit(origin)
+        valid_port = u.port is None or 1 <= u.port <= 65535
+    except ValueError:
+        raise HTTPException(503, "Voice relay origin unavailable")
+    if (not origin or origin != origin.strip() or
+            any(ord(c) < 33 or ord(c) == 127 for c in origin) or
+            u.scheme != "https" or not u.hostname or
+            u.username is not None or u.password is not None or
+            not valid_port or u.path or u.query or u.fragment):
         raise HTTPException(503, "Voice relay origin unavailable")
     return origin
 
