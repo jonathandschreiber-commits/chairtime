@@ -192,3 +192,63 @@ def set_owner_call_voicemail_number(
                     "test recipient. External call forwarding and HighLevel "
                     "voicemail fallback still require verification."),
     }
+
+
+class ConfirmBobVoicemailActivation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    confirmed_live_call_test: bool
+
+
+@router.post("/shops/bobs-shop/voicemail-notifications/activate-test")
+def activate_bob_voicemail_notifications(
+    payload: ConfirmBobVoicemailActivation,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Activate only Bob's preconfigured owner SMS; never touch call routing.
+
+    Requires an authenticated owner, explicit real-call confirmation,
+    existing AI agent, verified voicemail number, and test allowlists.
+    This is a temporary test-only recovery action, not general onboarding.
+    """
+    if os.getenv("DAYTELLO_VOICEMAIL_TEST_ONLY") != "true":
+        raise HTTPException(404, "Test-only activation unavailable")
+    if os.getenv("DAYTELLO_VOICEMAIL_OWNER_SMS_ENABLED") != "true":
+        raise HTTPException(409, "Voicemail SMS delivery is disabled")
+    if payload.confirmed_live_call_test is not True:
+        raise HTTPException(409, "Confirm the completed live forwarding and voicemail test")
+
+    shop = owner_shop(db, "bobs-shop", current_user)
+    if not str(shop.highlevel_agent_id or "").strip():
+        raise HTTPException(409, "Existing AI agent is not connected")
+    settings = db.get(DayTelloVoicemailShopSettings, shop.id)
+    if not settings or not settings.receiving_number or not settings.owner_phone:
+        raise HTTPException(409, "Voicemail destination and owner number must be saved")
+    expected_location = os.getenv("HIGHLEVEL_LOCATION_ID", "").strip()
+    if not expected_location or shop.highlevel_location_id != expected_location:
+        raise HTTPException(409, "Shop HighLevel location is not verified")
+    if settings.location_id != expected_location:
+        raise HTTPException(409, "Voicemail location mismatch")
+
+    # Keep tenant separation and the original approved recipient mandatory.
+    approved_test_recipient(shop.slug, settings.owner_phone)
+    link_cipher()
+    test_link_origin()
+    sender = os.getenv("HIGHLEVEL_SMS_FROM_NUMBER", "").strip()
+    if not PHONE.fullmatch(sender):
+        raise HTTPException(503, "SMS sender is not configured")
+
+    if not settings.notifications_enabled:
+        settings.notifications_enabled = True
+        try:
+            db.commit()
+            db.refresh(settings)
+        except Exception:
+            db.rollback()
+            raise HTTPException(502, "Could not activate voicemail notifications")
+    return {
+        **public_status(shop, settings),
+        "call_routing_changed": False,
+        "recording_delivery_test_required": True,
+        "message": "Bob's test voicemail SMS activated; call routing was not modified.",
+    }
