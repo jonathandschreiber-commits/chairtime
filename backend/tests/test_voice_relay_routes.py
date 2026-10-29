@@ -153,6 +153,13 @@ class RelayRouteTests(unittest.TestCase):
         self.assertEqual(result.status_code, 200)
         self.assertIn("<Record", result.text)
 
+    def test_canceled_transfer_hangs_up_without_voicemail(self):
+        result = self.request("/api/daytello/voice-relay/dial-finished",
+                              {"CallSid": CALL, "To": DID, "DialCallStatus": "canceled"})
+        self.assertEqual(result.status_code, 200)
+        self.assertNotIn("<Record", result.text)
+        self.assertIn("<Hangup", result.text)
+
     def test_recording_does_not_send_sms_prematurely(self):
         result = self.request("/api/daytello/voice-relay/record-ready", {
             "CallSid": CALL, "To": DID,
