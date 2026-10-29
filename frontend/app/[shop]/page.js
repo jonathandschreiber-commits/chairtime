@@ -8,8 +8,9 @@ import {
 } from "react";
 import { useParams } from "next/navigation";
 
-const API_BASE =
-  "https://chairtime-production-94da.up.railway.app";
+// Public booking must use this deployment's configured backend; never
+// fall through to the old testing/staging Railway service.
+const API_BASE = (process.env.NEXT_PUBLIC_API_BASE || "").replace(/\\/+$/, "");
 
 const STRIPE_PUBLISHABLE_KEY =
   process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY ||
