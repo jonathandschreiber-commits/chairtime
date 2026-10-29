@@ -3,7 +3,7 @@ import unittest
 from xml.etree import ElementTree as ET
 
 from app.voice_relay_twiml import (
-    forward_to_employee, voicemail_after_unanswered, completed_recording,
+    forward_to_employee, voicemail_after_unanswered, completed_recording, after_employee_dial,
 )
 
 
@@ -34,6 +34,30 @@ class RelayTwiMLTests(unittest.TestCase):
         self.assertEqual(record.attrib["recordingStatusCallbackEvent"], "completed")
         self.assertEqual(record.attrib["maxLength"], "120")
         self.assertIsNotNone(root.find("Hangup"))
+
+    def test_answered_employee_call_never_goes_to_voicemail(self):
+        result = ET.fromstring(after_employee_dial(
+            "completed", "https://example.test/record-finished",
+            "https://example.test/record-ready",
+        ))
+        self.assertIsNone(result.find("Record"))
+        self.assertIsNotNone(result.find("Hangup"))
+
+    def test_unanswered_or_busy_goes_to_voicemail(self):
+        for status in ("no-answer", "busy", "failed", "canceled"):
+            with self.subTest(status=status):
+                result = ET.fromstring(after_employee_dial(
+                    status, "https://example.test/record-finished",
+                    "https://example.test/record-ready",
+                ))
+                self.assertIsNotNone(result.find("Record"))
+
+    def test_unexpected_status_fails_closed(self):
+        with self.assertRaises(ValueError):
+            after_employee_dial(
+                "", "https://example.test/record-finished",
+                "https://example.test/record-ready",
+            )
 
     def test_finished_recording_hangs_up(self):
         self.assertIsNotNone(ET.fromstring(completed_recording()).find("Hangup"))
