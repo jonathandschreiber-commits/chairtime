@@ -33,6 +33,28 @@ class RelaySignatureTests(unittest.TestCase):
         self.assertFalse(verify_voice_provider_signature(
             url, fields, "", "private-test-token"))
 
+
+    def test_malformed_callback_urls_fail_closed_without_raising(self):
+        fields = {"CallSid": "CA123"}
+        token = "private-test-token"
+        for url in (
+            "https://example.test:invalid/voice",
+            "https://example.test:0/voice",
+            "https://example.test:65536/voice",
+            "https://example.test\\\\evil/voice",
+            "https://example.test\\n/voice",
+            "https://user:password@example.test/voice",
+            "https://example.test/voice#fragment",
+            "https://[bad-ipv6/voice",
+        ):
+            with self.subTest(url=repr(url)):
+                self.assertFalse(verify_voice_provider_signature(
+                    url, fields, signature(url, fields, token), token))
+        self.assertFalse(verify_voice_provider_signature(
+            "https://example.test/voice", fields, 123, token))
+        self.assertFalse(verify_voice_provider_signature(
+            "https://example.test/voice", fields, "sig", 123))
+
     def test_http_or_non_form_values_fail_closed(self):
         self.assertFalse(verify_voice_provider_signature(
             "http://daytello.example/voice", {}, "abc", "token"))
