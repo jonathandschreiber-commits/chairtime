@@ -34,17 +34,44 @@ class FakeQuery:
         return self.result
 
 
+class FakeRelayQuery:
+    def __init__(self, enabled, other_relay_number):
+        self.bindings = {
+            DID: SimpleNamespace(
+                shop_id="third-shop-id", relay_number=DID, enabled=enabled),
+        }
+        if other_relay_number:
+            self.bindings[other_relay_number] = SimpleNamespace(
+                shop_id="other-shop-id", relay_number=other_relay_number,
+                enabled=False,
+            )
+        self.number = None
+
+    def filter(self, *args):
+        self.number = next(
+            (str(c.right.value) for c in args
+             if hasattr(c, "right") and hasattr(c.right, "value")), None
+        )
+        return self
+
+    def one_or_none(self):
+        return self.bindings.get(self.number)
+
+
 class FakeDB:
-    def __init__(self, enabled=True):
+    def __init__(self, enabled=True, owner_phone=OWNER, other_relay_number=None):
         self.enabled = enabled
+        self.owner_phone = owner_phone
+        self.other_relay_number = other_relay_number
+
     def query(self, model):
         if model is DayTelloVoiceRelayAssignment:
-            return FakeQuery(SimpleNamespace(
-                shop_id="third-shop-id", relay_number=DID, enabled=self.enabled), DID)
+            return FakeRelayQuery(self.enabled, self.other_relay_number)
         return FakeQuery(SimpleNamespace(
             id="third-shop-id", ai_voice_enabled=True))
+
     def get(self, model, shop_id):
-        return SimpleNamespace(owner_phone=OWNER)
+        return SimpleNamespace(owner_phone=self.owner_phone)
 
 
 class RelayRouteTests(unittest.TestCase):
@@ -91,6 +118,27 @@ class RelayRouteTests(unittest.TestCase):
     def test_unknown_did_is_not_routed(self):
         result = self.request("/api/daytello/voice-relay/inbound",
                               {"CallSid": CALL, "To": "+12405550198"})
+        self.assertEqual(result.status_code, 404)
+
+    def test_rejects_self_forwarding_loop(self):
+        self.client.app.dependency_overrides[get_db] = lambda: FakeDB(owner_phone=DID)
+        result = self.request("/api/daytello/voice-relay/inbound",
+                              {"CallSid": CALL, "To": DID})
+        self.assertEqual(result.status_code, 409)
+        self.assertNotIn("<Dial", result.text)
+
+    def test_rejects_cross_shop_relay_even_if_disabled(self):
+        self.client.app.dependency_overrides[get_db] = lambda: FakeDB(
+            owner_phone=OWNER, other_relay_number=OWNER)
+        result = self.request("/api/daytello/voice-relay/inbound",
+                              {"CallSid": CALL, "To": DID})
+        self.assertEqual(result.status_code, 409)
+        self.assertNotIn("<Dial", result.text)
+
+    def test_disabled_relay_does_not_route(self):
+        self.client.app.dependency_overrides[get_db] = lambda: FakeDB(enabled=False)
+        result = self.request("/api/daytello/voice-relay/inbound",
+                              {"CallSid": CALL, "To": DID})
         self.assertEqual(result.status_code, 404)
 
     def test_answered_call_does_not_record(self):
