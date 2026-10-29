@@ -101,6 +101,14 @@ def _assignment(db, did):
     ).one_or_none()
     if another_relay is not None:
         raise HTTPException(409, "Forwarding to a relay DID is not permitted")
+    # A HighLevel voicemail DID is also a routing destination even when it
+    # is not registered in the separate programmable relay assignment table.
+    # Forwarding to one could create a loop or cross-tenant call disclosure.
+    voicemail_destination = db.query(DayTelloVoicemailShopSettings).filter(
+        DayTelloVoicemailShopSettings.receiving_number == settings.owner_phone
+    ).first()
+    if voicemail_destination is not None:
+        raise HTTPException(409, "Forwarding to a voicemail DID is not permitted")
     return binding, settings
 
 
