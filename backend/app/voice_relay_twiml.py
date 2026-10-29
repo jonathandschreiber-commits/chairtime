@@ -4,15 +4,14 @@ Not connected to live routing. Responses are deliberately pure and do not
 manage Twilio accounts, phone numbers, callbacks or SMS themselves.
 """
 import re
-from urllib.parse import urlsplit
+from app.voice_relay_security import valid_public_https_url
 from xml.etree import ElementTree as ET
 
 E164_US = re.compile(r"^\+1[2-9][0-9]{2}[2-9][0-9]{6}$")
 
 
 def _https_url(url: str) -> str:
-    parsed = urlsplit(url)
-    if parsed.scheme != "https" or not parsed.netloc or parsed.username or parsed.password or parsed.fragment:
+    if not valid_public_https_url(url):
         raise ValueError("A public HTTPS callback URL is required")
     return url
 
