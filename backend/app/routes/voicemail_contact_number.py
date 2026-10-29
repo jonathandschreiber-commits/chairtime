@@ -20,6 +20,7 @@ from app.routes.ai_setup import (
 from app.voicemail_models import DayTelloVoicemailShopSettings
 from app.voicemail_auto_provision import ensure_test_voicemail_number
 from app.voicemail_owner_links import (
+    approved_test_recipient,
     link_cipher,
     owner_phone_for_test_shop,
     test_link_origin,
@@ -91,9 +92,6 @@ def set_owner_call_voicemail_number(
     shop = owner_shop(db, shop_slug, current_user)
     if os.getenv("DAYTELLO_VOICEMAIL_TEST_ONLY") != "true":
         raise HTTPException(409, "Call and voicemail setup is not yet enabled for this shop")
-    if os.getenv("DAYTELLO_VOICEMAIL_OWNER_SMS_ENABLED") != "true":
-        raise HTTPException(409, "Voicemail notification setup is not yet ready")
-
     settings = db.get(DayTelloVoicemailShopSettings, shop.id)
     if not settings:
         settings = ensure_test_voicemail_number(shop, db)
@@ -106,6 +104,34 @@ def set_owner_call_voicemail_number(
         raise HTTPException(409, "Voicemail connection needs verification")
 
     number = payload.phone_number
+    approved_test_recipient(shop.slug, number)
+
+    # An isolated shop may already have a verified voicemail DID but no
+    # AI agent ID in DayTello yet. Save the approved owner's phone as
+    # PENDING without enabling SMS or modifying the HighLevel agent.
+    # This makes onboarding actionable instead of disabling Save.
+    if not str(shop.highlevel_agent_id or "").strip():
+        settings.owner_phone = number
+        settings.notifications_enabled = False
+        try:
+            db.commit()
+            db.refresh(settings)
+        except Exception:
+            db.rollback()
+            raise HTTPException(502, "Could not save the approved phone number")
+        return {
+            **public_status(shop, settings),
+            "pending_provisioning": True,
+            "live_call_test_required": True,
+            "message": (
+                "Phone number saved. Voicemail notifications remain off "
+                "until AI Receptionist provisioning and transfer verification finish."
+            ),
+        }
+
+    if os.getenv("DAYTELLO_VOICEMAIL_OWNER_SMS_ENABLED") != "true":
+        raise HTTPException(409, "Voicemail notification setup is not yet ready")
+
     # This temporary test allowlist prevents any new number receiving
     # voicemail SMS until it has been explicitly approved.
     settings_proxy = type("RequestedNotification", (), {
