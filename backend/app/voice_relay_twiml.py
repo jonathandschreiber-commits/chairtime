@@ -7,7 +7,7 @@ import re
 from urllib.parse import urlsplit
 from xml.etree import ElementTree as ET
 
-E164_US = re.compile(r"^\\+1[2-9][0-9]{2}[2-9][0-9]{6}$")
+E164_US = re.compile(r"^\+1[2-9][0-9]{2}[2-9][0-9]{6}$")
 
 
 def _https_url(url: str) -> str:
