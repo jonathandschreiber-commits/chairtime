@@ -18,6 +18,7 @@ from app.routes.ai_setup import (
     daytello_save_staff_transfer,
 )
 from app.voicemail_models import DayTelloVoicemailShopSettings
+from app.voice_relay_models import DayTelloVoiceRelayAssignment
 from app.voicemail_auto_provision import ensure_test_voicemail_number
 from app.voicemail_owner_links import (
     approved_test_recipient,
@@ -53,6 +54,26 @@ def owner_shop(db: Session, shop_slug: str, current_user: User) -> Shop:
     if str(current_user.shop_id or "") != str(shop.id):
         raise HTTPException(403, "Business access mismatch")
     return shop
+
+
+def reject_internal_owner_destination(db: Session, number: str) -> None:
+    """Never save a platform routing DID as the owner's external phone.
+
+    This validation precedes AI transfer changes and SMS activation. It also
+    rejects disabled relay assignments, which could be enabled later.
+    """
+    if db.query(DayTelloVoicemailShopSettings).filter(
+        DayTelloVoicemailShopSettings.receiving_number == number
+    ).first() is not None:
+        raise HTTPException(409, "Owner phone cannot be a voicemail routing number")
+    if db.query(DayTelloVoiceRelayAssignment).filter(
+        DayTelloVoiceRelayAssignment.relay_number == number
+    ).first() is not None:
+        raise HTTPException(409, "Owner phone cannot be a voice relay number")
+    if db.query(Shop).filter(
+        Shop.highlevel_phone_number == number
+    ).first() is not None:
+        raise HTTPException(409, "Owner phone cannot be an AI Receptionist number")
 
 
 def public_status(shop: Shop, settings: DayTelloVoicemailShopSettings | None):
@@ -155,6 +176,7 @@ def set_owner_call_voicemail_number(
         raise HTTPException(409, "Voicemail connection needs verification")
 
     number = payload.phone_number
+    reject_internal_owner_destination(db, number)
     approved_test_recipient(shop.slug, number)
 
     # An isolated shop may already have a verified voicemail DID but no
