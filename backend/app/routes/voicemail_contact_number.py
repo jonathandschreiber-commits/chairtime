@@ -20,6 +20,7 @@ from app.routes.ai_setup import (
 from app.voicemail_models import DayTelloVoicemailShopSettings
 from app.voicemail_owner_verification import (
     start_owner_verification, confirm_owner_verification,
+    disable_owner_voicemail_notifications,
 )
 from app.voice_relay_models import DayTelloVoiceRelayAssignment
 from app.voicemail_auto_provision import ensure_test_voicemail_number
@@ -490,3 +491,14 @@ def complete_owner_sms_verification(
     return confirm_owner_verification(
         db, shop.id, payload.phone_number, payload.code,
     )
+
+
+@router.post("/shops/{shop_slug}/voicemail-owner/notifications/disable")
+def disable_owner_sms_notifications(
+    shop_slug: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Owner-initiated SMS opt-out; no external provider or routing changes."""
+    shop = owner_shop(db, shop_slug, current_user)
+    return disable_owner_voicemail_notifications(db, shop.id)
