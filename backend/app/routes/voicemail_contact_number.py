@@ -56,7 +56,7 @@ def owner_shop(db: Session, shop_slug: str, current_user: User) -> Shop:
     return shop
 
 
-def reject_internal_owner_destination(db: Session, number: str) -> None:
+def reject_internal_owner_destination(db: Session, number: str, shop_id: str) -> None:
     """Never save a platform routing DID as the owner's external phone.
 
     This validation precedes AI transfer changes and SMS activation. It also
@@ -74,6 +74,14 @@ def reject_internal_owner_destination(db: Session, number: str) -> None:
         Shop.highlevel_phone_number == number
     ).first() is not None:
         raise HTTPException(409, "Owner phone cannot be an AI Receptionist number")
+    # A different shop's published business line can forward into its AI
+    # receptionist or another voicemail route even when it is not stored
+    # as highlevel_phone_number. Do not bridge calls between tenants.
+    if db.query(Shop).filter(
+        Shop.id != shop_id,
+        Shop.phone == number,
+    ).first() is not None:
+        raise HTTPException(409, "Owner phone cannot be another business's number")
 
 
 def _sms_configuration_complete(shop: Shop, settings: DayTelloVoicemailShopSettings | None) -> bool:
@@ -204,7 +212,7 @@ def set_owner_call_voicemail_number(
         raise HTTPException(409, "Voicemail connection needs verification")
 
     number = payload.phone_number
-    reject_internal_owner_destination(db, number)
+    reject_internal_owner_destination(db, number, shop.id)
     approved_test_recipient(shop.slug, number)
 
     # An isolated shop may already have a verified voicemail DID but no
@@ -334,7 +342,7 @@ def activate_shop_voicemail_notifications(
 
     # A legacy or separately saved phone may not have passed the owner-number
     # safety checks in the unified setup route. Re-check before activation.
-    reject_internal_owner_destination(db, settings.owner_phone)
+    reject_internal_owner_destination(db, settings.owner_phone, shop.id)
     # Keep tenant separation and the original approved recipient mandatory.
     approved_test_recipient(shop.slug, settings.owner_phone)
     link_cipher()
