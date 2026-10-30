@@ -125,15 +125,13 @@ def _assignment(db, did):
     ).first()
     if ai_destination is not None:
         raise HTTPException(409, "Forwarding to an AI receptionist number is not permitted")
-    # A different tenant's published business line may forward into its AI
-    # receptionist even when highlevel_phone_number is unset. Never bridge
-    # this shop's caller into a separate shop's call flow.
-    other_business = db.query(Shop).filter(
-        Shop.id != binding.shop_id,
+    # A published business line may forward back into an AI agent even for
+    # this same shop. Block both same-shop recursion and cross-shop disclosure.
+    business_destination = db.query(Shop).filter(
         Shop.phone == settings.owner_phone,
     ).first()
-    if other_business is not None:
-        raise HTTPException(409, "Forwarding to another business's phone is not permitted")
+    if business_destination is not None:
+        raise HTTPException(409, "Forwarding to a business routing number is not permitted")
     return binding, settings
 
 
