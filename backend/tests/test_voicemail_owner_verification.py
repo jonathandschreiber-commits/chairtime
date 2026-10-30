@@ -3,7 +3,13 @@ import os
 import unittest
 from unittest.mock import patch
 
-from fastapi import HTTPException
+from fastapi import FastAPI, HTTPException
+from fastapi.testclient import TestClient
+from app.database import get_db
+from app.models import User
+from app.routes.auth import get_current_user
+from app.routes import voicemail_contact_number as contact_route
+from app.voicemail_owner_links import approved_owner_recipient, owner_phone_for_test_shop
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -30,7 +36,8 @@ class OwnerVerificationTests(unittest.TestCase):
         self.factory = sessionmaker(bind=self.engine)
         with self.factory() as db:
             db.add_all([
-                Shop(id="shop-a", slug="shop-a", name="Shop A", ai_voice_enabled=True),
+                Shop(id="shop-a", slug="shop-a", name="Shop A", ai_voice_enabled=True,
+                     highlevel_location_id="loc-test", highlevel_agent_id="agent-a"),
                 Shop(id="shop-b", slug="shop-b", name="Shop B", ai_voice_enabled=True),
             ])
             db.commit()
@@ -39,6 +46,8 @@ class OwnerVerificationTests(unittest.TestCase):
             "DAYTELLO_VOICEMAIL_OWNER_SMS_ENABLED": "true",
             "DAYTELLO_VOICEMAIL_OWNER_VERIFICATION_ENABLED": "true",
             "DAYTELLO_VOICEMAIL_LINK_KEY": "x" * 48,
+            "HIGHLEVEL_LOCATION_ID": "loc-test",
+            "HIGHLEVEL_SMS_FROM_NUMBER": SENDER,
         })
         self.env.start()
         self.sent = []
@@ -121,6 +130,60 @@ class OwnerVerificationTests(unittest.TestCase):
                 self.assertEqual(error.exception.status_code, 502)
                 proof = db.get(DayTelloVoicemailOwnerVerification, "shop-a")
                 self.assertIsNone(proof.challenge_digest)
+
+    def test_verified_recipient_is_used_by_delivery_guard(self):
+        with self.factory() as db:
+            self.start(db)
+            code = self.code()
+            confirm_owner_verification(db, "shop-a", PHONE, code)
+            self.assertEqual(
+                approved_owner_recipient("shop-a", PHONE, db=db, shop_id="shop-a"),
+                PHONE,
+            )
+            with self.assertRaises(HTTPException):
+                owner_phone_for_test_shop(
+                    "shop-b",
+                    type("Settings", (), {
+                        "notifications_enabled": True,
+                        "owner_phone": PHONE,
+                        "shop_id": "shop-b",
+                    })(),
+                    db=db, shop_id="shop-b",
+                )
+
+    def test_authenticated_owner_verification_routes(self):
+        app = FastAPI()
+        app.include_router(contact_route.router, prefix="/api")
+        user = User(id="owner-a", role="owner", shop_id="shop-a",
+                    shop_slug="shop-a", email="owner@example.test",
+                    is_active=True)
+        app.dependency_overrides[get_current_user] = lambda: user
+
+        def db_override():
+            with self.factory() as db:
+                yield db
+
+        app.dependency_overrides[get_db] = db_override
+        with TestClient(app) as client:
+            base = "/api/shops/shop-a/voicemail-owner/verification"
+            denied = client.post(base + "/start", json={
+                "phone_number": PHONE, "consent_to_verification_sms": False,
+            })
+            self.assertEqual(denied.status_code, 409)
+            started = client.post(base + "/start", json={
+                "phone_number": PHONE, "consent_to_verification_sms": True,
+            })
+            self.assertEqual(started.status_code, 200, started.text)
+            self.assertFalse(started.json()["notifications_enabled"])
+            confirmed = client.post(base + "/confirm", json={
+                "phone_number": PHONE, "code": self.code(),
+            })
+            self.assertEqual(confirmed.status_code, 200, confirmed.text)
+            self.assertTrue(confirmed.json()["owner_number_verified"])
+            # An authenticated owner of another shop cannot use this URL.
+            other = client.post("/api/shops/shop-b/voicemail-owner/verification/confirm",
+                                json={"phone_number": PHONE, "code": "000000"})
+            self.assertEqual(other.status_code, 403)
 
     def test_feature_flag_off_fails_closed(self):
         with patch.dict(os.environ, {
