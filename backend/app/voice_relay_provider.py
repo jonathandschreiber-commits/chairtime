@@ -9,6 +9,7 @@ API contract: https://www.twilio.com/docs/phone-numbers/api/incomingphonenumber-
 import hashlib
 import os
 import re
+from decimal import Decimal, InvalidOperation
 
 import httpx
 from fastapi import HTTPException
@@ -158,6 +159,53 @@ class VoiceRelayNumberProvider:
             raise HTTPException(409, "No eligible voice numbers in this area code")
         return candidates[0]
 
+    def verify_monthly_number_cost(self):
+        """Fail closed unless live account pricing fits the operator's USD cap.
+
+        This checks the recurring *local DID* fee only. Voice minutes,
+        recording, messaging, taxes and any other fees are separate.
+        """
+        raw_cap = os.getenv("DAYTELLO_VOICE_RELAY_MAX_MONTHLY_USD", "").strip()
+        try:
+            cap = Decimal(raw_cap)
+        except (InvalidOperation, ValueError):
+            raise HTTPException(503, "Voice relay monthly cost ceiling unavailable")
+        if not cap.is_finite() or cap <= 0:
+            raise HTTPException(503, "Voice relay monthly cost ceiling unavailable")
+        try:
+            response = self.client.request(
+                "GET", "https://pricing.twilio.com/v1/PhoneNumbers/Countries/US",
+                auth=(self.key_sid, self.key_secret),
+                headers={"Accept": "application/json"},
+            )
+        except httpx.RequestError:
+            raise HTTPException(503, "Voice provider pricing could not be verified")
+        if response.status_code != 200:
+            raise HTTPException(502, "Voice provider pricing could not be verified")
+        try:
+            payload = response.json()
+        except ValueError:
+            raise HTTPException(502, "Voice provider pricing could not be verified")
+        if (not isinstance(payload, dict)
+                or payload.get("iso_country") != "US"
+                or payload.get("price_unit") != "USD"
+                or not isinstance(payload.get("phone_number_prices"), list)):
+            raise HTTPException(409, "Voice provider local number price is unavailable")
+        local = [item for item in payload["phone_number_prices"]
+                 if isinstance(item, dict) and item.get("number_type") == "local"]
+        if len(local) != 1:
+            raise HTTPException(409, "Voice provider local number price is unavailable")
+        try:
+            current = Decimal(str(local[0]["current_price"]))
+            base = Decimal(str(local[0]["base_price"]))
+        except (KeyError, InvalidOperation, ValueError):
+            raise HTTPException(409, "Voice provider local number price is unavailable")
+        if (not current.is_finite() or not base.is_finite()
+                or current <= 0 or base <= 0):
+            raise HTTPException(409, "Voice provider local number price is unavailable")
+        if max(current, base) > cap:
+            raise HTTPException(409, "Voice relay monthly number cost exceeds approved ceiling")
+
     def purchase_approved_number(self, shop_id, phone_number, *, approved=False):
         """Purchase *one exact* DID only after explicit cost authorization.
 
@@ -182,6 +230,9 @@ class VoiceRelayNumberProvider:
         if any(r.get("phone_number") == phone_number
                for r in self._list(number=phone_number)):
             raise HTTPException(409, "This phone number is already in use")
+        # Confirm account-specific monthly DID price before any chargeable POST.
+        # Other usage charges remain outside this ceiling.
+        self.verify_monthly_number_cost()
         url = relay_inbound_url(
             os.getenv("DAYTELLO_VOICE_RELAY_PUBLIC_ORIGIN", "").rstrip("/"))
         try:
