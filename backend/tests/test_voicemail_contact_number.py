@@ -92,6 +92,9 @@ class UnifiedPhoneTests(unittest.TestCase):
             )
         self.assertEqual(response.status_code, 200, response.text)
         self.assertTrue(response.json()["sms_ready"])
+        # SMS activation alone must never be exposed as customer-call readiness.
+        self.assertFalse(response.json()["ready"])
+        self.assertTrue(response.json()["settings_saved"])
         self.assertFalse(response.json()["forwarding_verified"])
         self.assertFalse(response.json()["setup_complete"])
         with self.factory() as db:
