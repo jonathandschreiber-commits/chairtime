@@ -106,6 +106,15 @@ def _assignment(db, did):
     if (not shop or not shop.ai_voice_enabled or not settings or
             not settings.owner_phone or not E164.fullmatch(settings.owner_phone)):
         raise HTTPException(409, "Shop call routing is incomplete")
+    # The enabled relay DID must still be the shop's saved voicemail DID.
+    # Reject stale or cross-location settings before dialing an employee,
+    # creating a recording, or accepting a recording-status callback.
+    expected_location = os.getenv("HIGHLEVEL_LOCATION_ID", "").strip()
+    if (settings.receiving_number != binding.relay_number or
+            not expected_location or
+            settings.location_id != expected_location or
+            shop.highlevel_location_id != expected_location):
+        raise HTTPException(409, "Shop relay route and location do not match")
     # A relay DID must never forward to itself or another shop's relay DID.
     # Reject even disabled assignments: those numbers could later be enabled.
     if settings.owner_phone == did:
