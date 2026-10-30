@@ -69,7 +69,22 @@ def approved_test_recipient(shop_slug, recipient):
     return recipient
 
 
-def owner_phone_for_test_shop(shop_slug, settings=None):
+def approved_owner_recipient(shop_slug, recipient, *, db=None, shop_id=None):
+    """Allow a stored, verified owner phone without a per-shop env map.
+
+    Existing test allowlists remain the default until the platform-wide
+    verification feature is deliberately enabled. Never fall back to the
+    allowlist if verification is enabled but the proof is missing.
+    """
+    if os.getenv("DAYTELLO_VOICEMAIL_OWNER_VERIFICATION_ENABLED") == "true":
+        if db is None or not shop_id:
+            raise HTTPException(503, "Owner SMS verification context unavailable")
+        from app.voicemail_owner_verification import verified_owner_recipient
+        return verified_owner_recipient(db, shop_id, recipient)
+    return approved_test_recipient(shop_slug, recipient)
+
+
+def owner_phone_for_test_shop(shop_slug, settings=None, *, db=None, shop_id=None):
     if os.getenv("DAYTELLO_VOICEMAIL_OWNER_SMS_ENABLED") != "true":
         return None
     if os.getenv("DAYTELLO_VOICEMAIL_TEST_ONLY") != "true":
@@ -85,7 +100,10 @@ def owner_phone_for_test_shop(shop_slug, settings=None):
         except ValueError:
             raise HTTPException(503, "Owner destination map missing")
         recipient = owner_map.get(shop_slug) if isinstance(owner_map, dict) else None
-    return approved_test_recipient(shop_slug, recipient)
+    return approved_owner_recipient(
+        shop_slug, recipient, db=db,
+        shop_id=shop_id or (settings.shop_id if settings is not None else None),
+    )
 
 
 def link_cipher():
