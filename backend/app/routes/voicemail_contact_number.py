@@ -21,6 +21,7 @@ from app.voicemail_models import DayTelloVoicemailShopSettings
 from app.voice_relay_models import DayTelloVoiceRelayAssignment
 from app.voicemail_auto_provision import ensure_test_voicemail_number
 from app.voice_relay_provisioning import reserve_relay_for_area_code
+from app.voice_relay_provider import VoiceRelayNumberProvider
 from app.voicemail_owner_links import (
     approved_test_recipient,
     link_cipher,
@@ -289,6 +290,20 @@ def set_owner_call_voicemail_number(
     if not PHONE.fullmatch(sender):
         raise HTTPException(503, "SMS sender is not configured")
 
+    # For a programmable relay DID, verify the Twilio inbound webhook
+    # before changing the HighLevel AI transfer. Activation remains test-only
+    # and requires a separate platform permission for live test calls.
+    relay = db.get(DayTelloVoiceRelayAssignment, shop.id)
+    if relay:
+        if relay.relay_number != settings.receiving_number:
+            raise HTTPException(409, "Relay number and voicemail settings disagree")
+        if os.getenv("DAYTELLO_VOICE_RELAY_ALLOW_TEST_CALLS") != "true":
+            raise HTTPException(409, "Voice relay live testing is not enabled")
+        verified_relay = VoiceRelayNumberProvider().find_existing(
+            str(shop.id), expected_number=relay.relay_number)
+        if not verified_relay or not verified_relay.get("route_verified"):
+            raise HTTPException(409, "Relay provider routing could not be verified")
+
     # CRITICAL: transfer to the shop's *dedicated HighLevel voicemail DID*,
     # never directly to the owner's mobile/Google Voice. The latter would
     # bypass HighLevel's unanswered-call voicemail fallback.
@@ -319,6 +334,10 @@ def set_owner_call_voicemail_number(
     # every tenant or bypass its individual phone configuration.
     settings.owner_phone = number
     settings.notifications_enabled = True
+    if relay:
+        # Enabled only after authenticated owner approval, provider read-back,
+        # safe destination validation and verified HighLevel transfer.
+        relay.enabled = True
     try:
         db.commit()
     except Exception:
@@ -332,6 +351,7 @@ def set_owner_call_voicemail_number(
     return {
         **public_status(shop, settings),
         "call_transfer_enabled": True,
+        "test_relay_enabled_for_calls": bool(relay),
         "live_call_test_required": True,
         "message": ("Voicemail SMS notifications are configured for the approved "
                     "test recipient. External call forwarding and HighLevel "
