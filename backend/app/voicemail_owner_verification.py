@@ -168,3 +168,38 @@ def confirm_owner_verification(db, shop_id, phone, code):
     proof.expires_at = None
     db.commit()
     return {"owner_number_verified": True, "notifications_enabled": False}
+
+
+def disable_owner_voicemail_notifications(db, shop_id):
+    """Owner opt-out: revoke SMS proof and stop future owner alerts atomically.
+
+    This never changes provider call routing or voicemail capture. The
+    authenticated route is responsible for checking shop ownership.
+    """
+    from app.models import Shop
+    from app.voicemail_models import DayTelloVoicemailShopSettings
+
+    # Serialize opt-out against verification/activation for this shop on PG.
+    shop = db.query(Shop).filter(Shop.id == shop_id).with_for_update().one_or_none()
+    if shop is None:
+        raise HTTPException(404, "Shop not found")
+    proof = db.get(DayTelloVoicemailOwnerVerification, shop_id)
+    settings = db.get(DayTelloVoicemailShopSettings, shop_id)
+    if proof is not None:
+        proof.verified_at = None
+        proof.challenge_digest = None
+        proof.challenge_salt = None
+        proof.expires_at = None
+    if settings is not None:
+        settings.notifications_enabled = False
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise HTTPException(502, "Could not disable voicemail notifications")
+    return {
+        "notifications_enabled": False,
+        "owner_number_verified": False,
+        "call_routing_changed": False,
+        "message": "Owner voicemail texts disabled. Call routing was not changed.",
+    }
