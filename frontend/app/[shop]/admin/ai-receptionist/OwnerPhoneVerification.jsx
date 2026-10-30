@@ -107,7 +107,7 @@ export default function OwnerPhoneVerification({ shopSlug, ownerNumber }) {
           </label>
           <input id="voicemail-owner-code" inputMode="numeric" autoComplete="one-time-code"
             maxLength={6} pattern="[0-9]{6}" value={code}
-            onChange={(event) => setCode(event.target.value.replace(/\\D/g, "").slice(0, 6))}
+            onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
             className="w-full rounded-lg border border-slate-300 p-3" />
           <button type="button" disabled={busy || code.length !== 6}
             onClick={() => submit("confirm")}
