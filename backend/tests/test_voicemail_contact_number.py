@@ -14,6 +14,7 @@ from app.models import Shop, User
 from app.routes.auth import get_current_user
 from app.routes import voicemail_contact_number as route
 from app.voicemail_models import DayTelloVoicemailShopSettings
+from app.voice_relay_models import DayTelloVoiceRelayAssignment
 
 
 class UnifiedPhoneTests(unittest.TestCase):
@@ -101,6 +102,43 @@ class UnifiedPhoneTests(unittest.TestCase):
             record = db.get(DayTelloVoicemailShopSettings, "s1")
             self.assertEqual(record.owner_phone, "+12025550199")
             self.assertTrue(record.notifications_enabled)
+
+    def assert_internal_owner_number_rejected(self, number):
+        os.environ["DAYTELLO_VOICEMAIL_TEST_RECIPIENT"] = number
+        with patch.object(route, "daytello_save_staff_transfer") as transfer:
+            result = self.client.put(self.url, json={"phone_number": number})
+        self.assertEqual(result.status_code, 409, result.text)
+        transfer.assert_not_called()
+        with self.factory() as db:
+            prefs = db.get(DayTelloVoicemailShopSettings, "s1")
+            self.assertIsNone(prefs.owner_phone)
+            self.assertFalse(prefs.notifications_enabled)
+
+    def test_owner_number_cannot_equal_own_voicemail_did(self):
+        self.assert_internal_owner_number_rejected("+12025550123")
+
+    def test_owner_number_cannot_be_another_shop_voicemail_did(self):
+        with self.factory() as db:
+            db.add(DayTelloVoicemailShopSettings(
+                shop_id="s2", location_id="loc-test",
+                receiving_number="+12025550198", notifications_enabled=False,
+            ))
+            db.commit()
+        self.assert_internal_owner_number_rejected("+12025550198")
+
+    def test_owner_number_cannot_be_an_ai_receptionist_did(self):
+        with self.factory() as db:
+            db.get(Shop, "s2").highlevel_phone_number = "+12025550198"
+            db.commit()
+        self.assert_internal_owner_number_rejected("+12025550198")
+
+    def test_owner_number_cannot_be_disabled_voice_relay_did(self):
+        with self.factory() as db:
+            db.add(DayTelloVoiceRelayAssignment(
+                shop_id="s2", relay_number="+12025550198", enabled=False,
+            ))
+            db.commit()
+        self.assert_internal_owner_number_rejected("+12025550198")
 
     def test_failed_transfer_leaves_notification_unchanged(self):
         with patch.object(
