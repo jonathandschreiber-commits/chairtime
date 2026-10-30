@@ -10,6 +10,15 @@ Applies to all new AI Receptionist shops. No per-shop changes in Railway, Vercel
 - Owner SMS includes a secure, expiring playable recording link.
 - These steps were live-call tested for Stan's and Bob's Shop; do not alter their phone assignments during development.
 
+## Programmable voice relay development (2026-10-30; offline only)
+- The isolated relay now stores signed inbound CallSid -> shop/DID ownership, including the provider AccountSid, so a recording-status callback can be matched even when Twilio omits `To`.
+- Completed recording callbacks are persisted once per RecordingSid. A duplicate callback cannot schedule a second owner SMS. A signed, shop-scoped, 24-hour recording link uses a separate Twilio audio proxy rather than treating a Twilio RecordingSid as a HighLevel message ID.
+- The owner SMS reuses the existing HighLevel tracked sender and remains gated behind explicit test recipient approval, opt-in, shop/location checks, and test-only feature flags.
+- The audio proxy requires a platform-managed Twilio API key SID/secret (`DAYTELLO_VOICE_RELAY_API_KEY_SID`, `DAYTELLO_VOICE_RELAY_API_KEY_SECRET`) and `DAYTELLO_VOICE_RELAY_ACCOUNT_SID`. The webhook uses `DAYTELLO_VOICE_RELAY_AUTH_TOKEN` to verify Twilio signatures. These are platform-wide integration settings, **not per-shop owner configuration**.
+- Provider audio is fetched with server-side Basic authentication from the exact Twilio Recordings API endpoint, with redirects disabled, bounded size, content-type checks, and no credentials exposed to owners. If a provider redirect is returned, playback fails closed until a verified redirect handling path is implemented.
+- GitHub Actions only validates mocked provider callbacks and responses. No real DID, Twilio account, HighLevel call transfer, SMS delivery, Railway environment, or recording playback has been live-verified.
+- **Still blocked:** a provider-backed idempotent DID purchase/reservation and webhook configuration path, explicit purchase cost controls, transfer verification, a live recording callback and audio retrieval test, owner SMS receipt, and complete Test Shop 3 acceptance. Do not mark customer-ready.
+
 ## Existing implementation to reuse
 - `app/routes/ai_setup.py`: HighLevel number inventory and purchase, AI agent provisioning, and `daytello_save_staff_transfer` for the AI-to-DID leg.
 - `app/voicemail_auto_provision.py`: test-only allocation from pre-reserved DIDs, verified against inventory and tenant claims; **does not buy a DID or configure external forwarding**.
