@@ -155,6 +155,41 @@ class ClaimTests(unittest.TestCase):
                 self.reserve(db, provider=provider)
             self.assertFalse(provider.calls)
 
+    def test_same_shop_legacy_voicemail_did_is_not_adopted_as_relay(self):
+        # Existing HighLevel voicemail routes must remain untouched even
+        # when the legacy DID belongs to the requesting shop.
+        provider = FakeProvider()
+        with self.factory() as db:
+            db.add(DayTelloVoicemailShopSettings(
+                shop_id="shop-a", location_id="loc-a",
+                receiving_number=NUMBER, notifications_enabled=True,
+            ))
+            db.commit()
+            with self.assertRaises(HTTPException) as error:
+                self.reserve(db, provider=provider)
+            self.assertEqual(error.exception.status_code, 409)
+            self.assertIsNone(db.get(DayTelloVoiceRelayAssignment, "shop-a"))
+            self.assertTrue(db.get(DayTelloVoicemailShopSettings, "shop-a").notifications_enabled)
+        self.assertFalse(provider.calls)
+
+    def test_existing_relay_rejects_mismatched_voicemail_location(self):
+        # A stale cross-location settings row is not proof of a safe relay.
+        provider = FakeProvider()
+        with self.factory() as db:
+            db.add(DayTelloVoiceRelayAssignment(
+                shop_id="shop-a", relay_number=NUMBER, enabled=False,
+            ))
+            db.add(DayTelloVoicemailShopSettings(
+                shop_id="shop-a", location_id="other-location",
+                receiving_number=NUMBER, notifications_enabled=False,
+            ))
+            db.commit()
+            with self.assertRaises(HTTPException) as error:
+                self.reserve(db, provider=provider)
+            self.assertEqual(error.exception.status_code, 409)
+            self.assertFalse(db.get(DayTelloVoiceRelayAssignment, "shop-a").enabled)
+        self.assertFalse(provider.calls)
+
     def test_cannot_replace_existing_shops_relay(self):
         provider = FakeProvider()
         with self.factory() as db:
