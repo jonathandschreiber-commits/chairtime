@@ -26,3 +26,15 @@ test("verification API requires exact +1 E.164 destination", () => {
     assert.equal(isValidUsOwnerPhone(input), false, input);
   }
 });
+
+test("AI provisioning alone is never displayed as live telephone readiness", async () => {
+  const { readFileSync } = await import("node:fs");
+  const source = readFileSync(
+    new URL("../app/[shop]/admin/ai-receptionist/page.js", import.meta.url),
+    "utf8"
+  );
+  // The backend's provisioned flag only confirms an AI agent record.
+  // It cannot prove a real transfer, voicemail fallback, SMS or playback.
+  assert.match(source, /\?\s*"AI Agent Connected — Phone Setup Incomplete"\s*:\s*"Setup Required"/);
+  assert.doesNotMatch(source, /\?\s*"Active"\s*:\s*"Setup Required"/);
+});
