@@ -10,6 +10,7 @@ from sqlalchemy.pool import StaticPool
 from app.database import Base
 from app.models import Shop
 from app.voicemail_models import DayTelloVoicemailShopSettings
+from app.voice_relay_models import DayTelloVoiceRelayAssignment
 from app import voicemail_auto_provision as auto
 
 
@@ -113,6 +114,33 @@ class ReservedNumberTests(unittest.TestCase):
             self.assertEqual(a.receiving_number, "+12025550122")
             b = auto.ensure_test_voicemail_number(db.get(Shop, "shop-b"), db)
             self.assertEqual(b.receiving_number, "+12025550121")
+
+    def test_allocation_skips_disabled_programmable_relay_number(self):
+        # Relay numbers remain reserved even while disabled. A voicemail
+        # allocation must not cause cross-system DID ownership ambiguity.
+        with self.factory() as db:
+            db.add(DayTelloVoiceRelayAssignment(
+                shop_id="shop-b", relay_number="+12025550121", enabled=False,
+            ))
+            db.commit()
+            bound = auto.ensure_test_voicemail_number(db.get(Shop, "shop-a"), db)
+            self.assertEqual(bound.receiving_number, "+12025550122")
+            self.assertFalse(bound.notifications_enabled)
+
+    def test_labeled_recovery_rejects_programmable_relay_number(self):
+        with self.factory() as db:
+            db.add(DayTelloVoiceRelayAssignment(
+                shop_id="shop-a", relay_number="+12025550122", enabled=False,
+            ))
+            db.commit()
+        with patch.object(auto, "get_location_phone_numbers", return_value=(
+            {}, [{"phoneNumber": "+12025550122",
+                  "friendlyName": "Shop B - Voicemail TEST"}]
+        )):
+            with self.factory() as db:
+                self.assertIsNone(auto.bind_explicitly_labeled_test_voicemail(
+                    "loc-a", "+12025550122", db))
+                self.assertEqual(db.query(DayTelloVoicemailShopSettings).count(), 0)
 
     def test_allocation_rejects_ai_number(self):
         with self.factory() as db:
