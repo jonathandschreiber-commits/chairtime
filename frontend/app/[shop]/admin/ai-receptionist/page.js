@@ -280,7 +280,7 @@ export default function AIReceptionistPage() {
                   }
                 >
                   {provisioned
-                    ? "Active"
+                    ? "AI Agent Connected — Phone Setup Incomplete"
                     : "Setup Required"}
                 </span>
               </div>
