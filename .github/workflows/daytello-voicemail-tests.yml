@@ -41,3 +41,14 @@ jobs:
           python -m unittest discover -s tests -p 'test_daytello_token_refresh.py' -v
           python -m unittest discover -s tests -p 'test_test_owner_claim.py' -v
           python -m unittest discover -s tests -p 'test_test_existing_agent_link.py' -v
+
+  frontend-owner-phone-tests:
+    name: Verify owner phone onboarding UI helpers (offline)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Test phone normalization and verification destination validation
+        run: node --test frontend/tests/owner-phone.test.mjs
