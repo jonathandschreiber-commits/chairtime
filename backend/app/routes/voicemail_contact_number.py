@@ -18,12 +18,15 @@ from app.routes.ai_setup import (
     daytello_save_staff_transfer,
 )
 from app.voicemail_models import DayTelloVoicemailShopSettings
+from app.voicemail_owner_verification import (
+    start_owner_verification, confirm_owner_verification,
+)
 from app.voice_relay_models import DayTelloVoiceRelayAssignment
 from app.voicemail_auto_provision import ensure_test_voicemail_number
 from app.voice_relay_provisioning import reserve_relay_for_area_code
 from app.voice_relay_provider import VoiceRelayNumberProvider
 from app.voicemail_owner_links import (
-    approved_test_recipient,
+    approved_owner_recipient,
     link_cipher,
     owner_phone_for_test_shop,
     test_link_origin,
@@ -83,7 +86,7 @@ def reject_internal_owner_destination(db: Session, number: str, shop_id: str) ->
         raise HTTPException(409, "Owner phone cannot be a business routing number")
 
 
-def _sms_configuration_complete(shop: Shop, settings: DayTelloVoicemailShopSettings | None) -> bool:
+def _sms_configuration_complete(shop: Shop, settings: DayTelloVoicemailShopSettings | None, db=None) -> bool:
     """Report SMS as configured only when all local delivery guards pass.
 
     This is a read-only configuration check, NOT proof that a live voicemail
@@ -104,7 +107,7 @@ def _sms_configuration_complete(shop: Shop, settings: DayTelloVoicemailShopSetti
     ):
         return False
     try:
-        approved_test_recipient(shop.slug, settings.owner_phone)
+        approved_owner_recipient(shop.slug, settings.owner_phone, db=db, shop_id=shop.id)
         link_cipher()
         test_link_origin()
     except HTTPException:
@@ -112,7 +115,7 @@ def _sms_configuration_complete(shop: Shop, settings: DayTelloVoicemailShopSetti
     return True
 
 
-def public_status(shop: Shop, settings: DayTelloVoicemailShopSettings | None):
+def public_status(shop: Shop, settings: DayTelloVoicemailShopSettings | None, db=None):
     return {
         "shop_slug": shop.slug,
         # A saved settings row only proves a partial setup. Forwarding and
@@ -123,7 +126,7 @@ def public_status(shop: Shop, settings: DayTelloVoicemailShopSettings | None):
         "phone_number": settings.owner_phone if settings else None,
         "notifications_enabled": bool(settings.notifications_enabled) if settings else False,
         "voicemail_number": settings.receiving_number if settings else None,
-        "sms_ready": _sms_configuration_complete(shop, settings),
+        "sms_ready": _sms_configuration_complete(shop, settings, db),
         # A relay DID being allocated does not prove its external forwarding
         # destination or voicemail timeout. Never infer this from SMS readiness.
         "forwarding_verified": False,
@@ -161,7 +164,7 @@ def voicemail_onboarding_readiness(
     )
     sms_active = bool(
         number_assigned and recipient_saved and
-        _sms_configuration_complete(shop, settings)
+        _sms_configuration_complete(shop, settings, db)
     )
     return {
         "shop_slug": shop.slug,
@@ -223,7 +226,7 @@ def get_owner_call_voicemail_number(
 ):
     shop = owner_shop(db, shop_slug, current_user)
     settings = db.get(DayTelloVoicemailShopSettings, shop.id)
-    return public_status(shop, settings)
+    return public_status(shop, settings, db)
 
 
 @router.put("/shops/{shop_slug}/call-voicemail-number")
@@ -250,7 +253,7 @@ def set_owner_call_voicemail_number(
 
     number = payload.phone_number
     reject_internal_owner_destination(db, number, shop.id)
-    approved_test_recipient(shop.slug, number)
+    approved_owner_recipient(shop.slug, number, db=db, shop_id=shop.id)
 
     # An isolated shop may already have a verified voicemail DID but no
     # AI agent ID in DayTello yet. Save the approved owner's phone as
@@ -266,7 +269,7 @@ def set_owner_call_voicemail_number(
             db.rollback()
             raise HTTPException(502, "Could not save the approved phone number")
         return {
-            **public_status(shop, settings),
+            **public_status(shop, settings, db),
             "pending_provisioning": True,
             "live_call_test_required": True,
             "message": (
@@ -283,7 +286,7 @@ def set_owner_call_voicemail_number(
     settings_proxy = type("RequestedNotification", (), {
         "notifications_enabled": True, "owner_phone": number,
     })()
-    owner_phone_for_test_shop(shop.slug, settings_proxy)
+    owner_phone_for_test_shop(shop.slug, settings_proxy, db=db, shop_id=shop.id)
     link_cipher()
     test_link_origin()
     sender = os.getenv("HIGHLEVEL_SMS_FROM_NUMBER", "").strip()
@@ -349,7 +352,7 @@ def set_owner_call_voicemail_number(
         )
     db.refresh(settings)
     return {
-        **public_status(shop, settings),
+        **public_status(shop, settings, db),
         "call_transfer_enabled": True,
         "test_relay_enabled_for_calls": bool(relay),
         "live_call_test_required": True,
@@ -400,7 +403,7 @@ def activate_shop_voicemail_notifications(
     # safety checks in the unified setup route. Re-check before activation.
     reject_internal_owner_destination(db, settings.owner_phone, shop.id)
     # Keep tenant separation and the original approved recipient mandatory.
-    approved_test_recipient(shop.slug, settings.owner_phone)
+    approved_owner_recipient(shop.slug, settings.owner_phone, db=db, shop_id=shop.id)
     link_cipher()
     test_link_origin()
     sender = os.getenv("HIGHLEVEL_SMS_FROM_NUMBER", "").strip()
@@ -416,8 +419,74 @@ def activate_shop_voicemail_notifications(
             db.rollback()
             raise HTTPException(502, "Could not activate voicemail notifications")
     return {
-        **public_status(shop, settings),
+        **public_status(shop, settings, db),
         "call_routing_changed": False,
         "recording_delivery_test_required": True,
         "message": "Test voicemail SMS activated; call routing was not modified.",
     }
+
+
+class OwnerSMSVerificationStart(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    phone_number: str
+    consent_to_verification_sms: bool = False
+
+    @field_validator("phone_number")
+    @classmethod
+    def valid_number(cls, value):
+        if not PHONE.fullmatch(value):
+            raise ValueError("Enter a US phone number including +1")
+        return value
+
+
+class OwnerSMSVerificationConfirm(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    phone_number: str
+    code: str
+
+    @field_validator("phone_number")
+    @classmethod
+    def valid_number(cls, value):
+        if not PHONE.fullmatch(value):
+            raise ValueError("Enter a US phone number including +1")
+        return value
+
+
+@router.post("/shops/{shop_slug}/voicemail-owner/verification/start")
+def begin_owner_sms_verification(
+    shop_slug: str,
+    payload: OwnerSMSVerificationStart,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Verify an owner's number without per-shop Railway allowlist edits.
+
+    This sends a verification text only with explicit consent and does not
+    enable voicemail alerts or alter live phone routing.
+    """
+    shop = owner_shop(db, shop_slug, current_user)
+    if (not shop.highlevel_agent_id
+            or not shop.highlevel_location_id
+            or shop.highlevel_location_id != os.getenv("HIGHLEVEL_LOCATION_ID", "").strip()):
+        raise HTTPException(409, "Shop SMS connection is not verified")
+    reject_internal_owner_destination(db, payload.phone_number, shop.id)
+    sender = os.getenv("HIGHLEVEL_SMS_FROM_NUMBER", "").strip()
+    return start_owner_verification(
+        db, shop.id, payload.phone_number,
+        consent=payload.consent_to_verification_sms, sender=sender,
+    )
+
+
+@router.post("/shops/{shop_slug}/voicemail-owner/verification/confirm")
+def complete_owner_sms_verification(
+    shop_slug: str,
+    payload: OwnerSMSVerificationConfirm,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Possession check only; subsequent setup must still verify routing."""
+    shop = owner_shop(db, shop_slug, current_user)
+    reject_internal_owner_destination(db, payload.phone_number, shop.id)
+    return confirm_owner_verification(
+        db, shop.id, payload.phone_number, payload.code,
+    )
