@@ -86,6 +86,28 @@ def ensure_test_voicemail_number(shop: Shop, db):
     if existing:
         if existing.location_id != location_id or not valid_phone(existing.receiving_number):
             raise HTTPException(409, "Existing voicemail route needs review")
+        # A saved DID is not automatically safe forever. A cross-tenant
+        # business line, relay (even disabled), or cross-location claim must
+        # stop setup rather than being accepted as an idempotent success.
+        number = existing.receiving_number
+        if (
+            number in (shop.highlevel_phone_number, shop.phone)
+            or db.query(Shop).filter(
+                Shop.id != shop.id,
+                (Shop.highlevel_phone_number == number) | (Shop.phone == number),
+            ).first() is not None
+            or db.query(DayTelloVoiceRelayAssignment).filter(
+                DayTelloVoiceRelayAssignment.relay_number == number,
+            ).first() is not None
+            or db.query(DayTelloVoicemailShopSettings).filter(
+                DayTelloVoicemailShopSettings.shop_id != shop.id,
+                DayTelloVoicemailShopSettings.receiving_number == number,
+            ).first() is not None
+        ):
+            raise HTTPException(409, "Existing voicemail number conflicts with another route")
+        legacy_raw = os.getenv("DAYTELLO_VOICEMAIL_NUMBER_SHOP_MAP", "").strip()
+        if legacy_raw and configured_routing_map().get(number) not in (None, shop.slug):
+            raise HTTPException(409, "Existing voicemail number conflicts with legacy mapping")
         return existing
 
     candidates = reserved_numbers_for_shop(shop.slug)
@@ -120,7 +142,7 @@ def ensure_test_voicemail_number(shop: Shop, db):
         if number in (shop.highlevel_phone_number, shop.phone):
             continue
         if db.query(DayTelloVoicemailShopSettings).filter(
-            DayTelloVoicemailShopSettings.location_id == location_id,
+            # A physical DID is exclusive across all HighLevel locations.
             DayTelloVoicemailShopSettings.receiving_number == number,
         ).first():
             continue
@@ -178,7 +200,7 @@ def bind_explicitly_labeled_test_voicemail(location_id: str, number: str, db):
     ):
         return None
     if db.query(DayTelloVoicemailShopSettings).filter(
-        DayTelloVoicemailShopSettings.location_id == location_id,
+        # A DID claimed in another location is still unavailable.
         DayTelloVoicemailShopSettings.receiving_number == number,
     ).first():
         return None
