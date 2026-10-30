@@ -16,9 +16,11 @@ from sqlalchemy.pool import StaticPool
 
 from app.database import Base
 from app.models import Shop
+from app.voicemail_models import DayTelloVoicemailShopSettings
 from app.voicemail_owner_verification import (
     DayTelloVoicemailOwnerVerification, start_owner_verification,
     confirm_owner_verification, verified_owner_recipient,
+    disable_owner_voicemail_notifications,
 )
 
 PHONE = "+12025550199"
@@ -203,6 +205,63 @@ class OwnerVerificationTests(unittest.TestCase):
                 start_owner_verification(
                     db, "shop-a", PHONE, consent=True, sender="123")
         self.assertFalse(self.sent)
+
+
+    def test_opt_out_revokes_proof_and_disables_alerts_without_routing(self):
+        with self.factory() as db:
+            self.start(db)
+            confirm_owner_verification(db, "shop-a", PHONE, self.code())
+            db.add(DayTelloVoicemailShopSettings(
+                shop_id="shop-a", location_id="loc-test",
+                receiving_number="+12025550131", owner_phone=PHONE,
+                notifications_enabled=True,
+            ))
+            db.commit()
+            result = disable_owner_voicemail_notifications(db, "shop-a")
+            self.assertFalse(result["notifications_enabled"])
+            self.assertFalse(result["call_routing_changed"])
+            settings = db.get(DayTelloVoicemailShopSettings, "shop-a")
+            self.assertEqual(settings.receiving_number, "+12025550131")
+            self.assertEqual(settings.owner_phone, PHONE)
+            self.assertFalse(settings.notifications_enabled)
+            with self.assertRaises(HTTPException):
+                verified_owner_recipient(db, "shop-a", PHONE)
+            self.assertFalse(db.get(
+                DayTelloVoicemailOwnerVerification, "shop-a"
+            ).challenge_digest)
+            # Repeating opt-out is safe and does not send SMS.
+            self.assertFalse(disable_owner_voicemail_notifications(
+                db, "shop-a")["notifications_enabled"])
+            self.assertEqual(len(self.sent), 1)
+
+    def test_opt_out_route_rejects_other_shop_and_revokes_otp(self):
+        app = FastAPI()
+        app.include_router(contact_route.router, prefix="/api")
+        user = User(id="owner-a", role="owner", shop_id="shop-a",
+                    shop_slug="shop-a", email="owner@example.test",
+                    is_active=True)
+        app.dependency_overrides[get_current_user] = lambda: user
+
+        def db_override():
+            with self.factory() as db:
+                yield db
+
+        app.dependency_overrides[get_db] = db_override
+        with self.factory() as db:
+            self.start(db)
+            code = self.code()
+        with TestClient(app) as client:
+            wrong_shop = client.post(
+                "/api/shops/shop-b/voicemail-owner/notifications/disable")
+            self.assertEqual(wrong_shop.status_code, 403)
+            response = client.post(
+                "/api/shops/shop-a/voicemail-owner/notifications/disable")
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertFalse(response.json()["notifications_enabled"])
+            replay = client.post(
+                "/api/shops/shop-a/voicemail-owner/verification/confirm",
+                json={"phone_number": PHONE, "code": code})
+            self.assertEqual(replay.status_code, 409)
 
 
 if __name__ == "__main__":
