@@ -34,7 +34,10 @@ class FakeTwilio:
                  available=None, monthly_price="1.15", price_payload=None,
                  price_status=200):
         self.owned = list(owned or [])
-        self.available = list(available or [])
+        self.available = list(available if available is not None else [
+            {"phone_number": NUMBER, "capabilities": {"voice": True},
+             "address_requirements": "none"},
+        ])
         self.requests = []
         self.fail_after_purchase = fail_after_purchase
         self.fail_before_purchase = fail_before_purchase
@@ -191,7 +194,40 @@ class ProviderTests(unittest.TestCase):
         self.assertEqual(result["number"], NUMBER)
         self.assertTrue(result["route_verified"])
         self.assertEqual(len([r for r in fake.requests if r.method == "POST"]), 1)
-        self.assertEqual(len([r for r in fake.requests if r.method == "GET"]), 5)
+        self.assertEqual(len([r for r in fake.requests if r.method == "GET"]), 6)
+
+    def test_exact_local_number_required_before_purchase(self):
+        fake = FakeTwilio(available=[])
+        with self.assertRaises(HTTPException) as error:
+            self.provider(fake).purchase_approved_number(
+                SHOP, NUMBER, approved=True)
+        self.assertEqual(error.exception.status_code, 409)
+        self.assertFalse(any(r.method == "POST" for r in fake.requests))
+        self.assertFalse(any(r.url.host == "pricing.twilio.com" for r in fake.requests))
+
+    def test_tollfree_number_cannot_use_local_price_ceiling(self):
+        tollfree = "+18885550123"
+        fake = FakeTwilio(available=[
+            {"phone_number": tollfree, "capabilities": {"voice": True},
+             "address_requirements": "none"},
+        ])
+        # Mock inventory returning a toll-free DID from the local endpoint
+        # cannot prove its type. Use a separate local inventory check and
+        # reject the special toll-free prefix before the chargeable call.
+        with self.assertRaises(HTTPException):
+            self.provider(fake).purchase_approved_number(
+                SHOP, NUMBER, approved=True)
+        self.assertFalse(any(r.method == "POST" for r in fake.requests))
+
+    def test_local_inventory_query_is_exact_and_read_only(self):
+        fake = FakeTwilio()
+        self.provider(fake).purchase_approved_number(SHOP, NUMBER, approved=True)
+        searches = [r for r in fake.requests
+                    if "/AvailablePhoneNumbers/US/Local.json" in r.url.path]
+        self.assertEqual(len(searches), 1)
+        self.assertEqual(searches[0].url.params["Contains"], NUMBER)
+        self.assertEqual(searches[0].url.params["VoiceEnabled"], "true")
+        self.assertEqual(len([r for r in fake.requests if r.method == "POST"]), 1)
 
     def test_missing_monthly_cost_ceiling_blocks_purchase(self):
         fake = FakeTwilio()
