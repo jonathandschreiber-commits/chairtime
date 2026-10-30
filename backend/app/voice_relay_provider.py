@@ -127,6 +127,37 @@ class VoiceRelayNumberProvider:
             raise HTTPException(409, "Voice relay number ownership is ambiguous")
         return self.verify_route(exact[0], shop_id, expected_number)
 
+    def find_available_voice_number(self, area_code):
+        """Choose one voice-capable US DID without making a purchase.
+
+        Twilio availability is a snapshot, not a reservation. The caller must
+        still obtain explicit purchase approval and handle a sold-out result.
+        """
+        if (not isinstance(area_code, str)
+                or not re.fullmatch(r"[2-9][0-9]{2}", area_code)):
+            raise HTTPException(422, "Invalid US area code")
+        payload = self._request(
+            "GET", "AvailablePhoneNumbers/US/Local.json",
+            params={"AreaCode": area_code, "VoiceEnabled": "true",
+                    "PageSize": 20},
+        )
+        records = payload.get("available_phone_numbers")
+        if not isinstance(records, list):
+            raise HTTPException(502, "Voice number availability was not verified")
+        candidates = sorted({
+            r["phone_number"] for r in records
+            if (isinstance(r, dict)
+                and isinstance(r.get("phone_number"), str)
+                and US_NUMBER.fullmatch(r["phone_number"])
+                and r["phone_number"][2:5] == area_code
+                and isinstance(r.get("capabilities"), dict)
+                and r["capabilities"].get("voice") is True
+                and r.get("address_requirements") == "none")
+        })
+        if not candidates:
+            raise HTTPException(409, "No eligible voice numbers in this area code")
+        return candidates[0]
+
     def purchase_approved_number(self, shop_id, phone_number, *, approved=False):
         """Purchase *one exact* DID only after explicit cost authorization.
 
