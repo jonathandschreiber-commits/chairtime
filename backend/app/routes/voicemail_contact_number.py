@@ -58,7 +58,11 @@ def owner_shop(db: Session, shop_slug: str, current_user: User) -> Shop:
 def public_status(shop: Shop, settings: DayTelloVoicemailShopSettings | None):
     return {
         "shop_slug": shop.slug,
-        "ready": bool(settings),
+        # A saved settings row only proves a partial setup. Forwarding and
+        # unanswered-call fallback are not provider-verified, so never expose
+        # this as a ready-to-use customer phone system.
+        "ready": False,
+        "settings_saved": bool(settings),
         "phone_number": settings.owner_phone if settings else None,
         "notifications_enabled": bool(settings.notifications_enabled) if settings else False,
         "voicemail_number": settings.receiving_number if settings else None,
