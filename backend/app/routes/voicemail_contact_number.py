@@ -92,11 +92,16 @@ def voicemail_onboarding_readiness(
     connected = bool(shop.highlevel_agent_id and
                      shop.highlevel_location_id and
                      shop.highlevel_location_id == expected)
+    # Persisted strings are not proof that the assigned DID or owner
+    # recipient is dialable. A malformed value must never be described as
+    # an assigned number or an activated SMS destination.
     number_assigned = bool(
-        settings and settings.receiving_number and
+        settings and PHONE.fullmatch(settings.receiving_number or "") and
         settings.location_id == expected and connected
     )
-    recipient_saved = bool(settings and settings.owner_phone)
+    recipient_saved = bool(
+        settings and PHONE.fullmatch(settings.owner_phone or "")
+    )
     sms_active = bool(
         number_assigned and recipient_saved and
         settings.notifications_enabled and
