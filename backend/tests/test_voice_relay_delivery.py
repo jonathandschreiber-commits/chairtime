@@ -20,7 +20,7 @@ from app.routes.voice_relay import router
 from app.voice_relay_models import DayTelloVoiceRelayAssignment
 from app.voice_relay_delivery import (
     DayTelloVoiceRelayCall, DayTelloVoiceRelayRecording,
-    make_relay_recording_link,
+    make_relay_recording_link, send_relay_owner_alert,
 )
 from app.voicemail_models import DayTelloVoicemailShopSettings
 from app.voicemail_owner_links import decode_recording_link
@@ -39,6 +39,8 @@ class DeliveryDB(FakeDB):
         self.pending = None
         self.notifications_enabled = True
         self.owner_phone = OWNER
+        self.receiving_number = DID
+        self.location_id = "test-location"
 
     def __enter__(self):
         return self
@@ -59,7 +61,7 @@ class DeliveryDB(FakeDB):
         if model is DayTelloVoicemailShopSettings:
             return SimpleNamespace(
                 owner_phone=self.owner_phone, notifications_enabled=self.notifications_enabled,
-                receiving_number=DID, location_id="test-location",
+                receiving_number=self.receiving_number, location_id=self.location_id,
             )
         if model is DayTelloVoiceRelayAssignment:
             return SimpleNamespace(
@@ -257,6 +259,59 @@ class SignedRecordingDeliveryTests(unittest.TestCase):
              patch("app.voice_relay_delivery.SessionLocal", return_value=self.db):
             response = self.client.get("/api/daytello/voice-relay/listen/" + token)
         self.assertEqual(response.status_code, 404)
+
+    def test_queued_sms_rechecks_current_did_and_location(self):
+        # A recording can be queued before an owner changes routing. No SMS
+        # should be sent against stale voicemail DID or location settings.
+        for field, value in (
+            ("receiving_number", "+12405550199"),
+            ("location_id", "different-location"),
+        ):
+            with self.subTest(field=field):
+                setattr(self.db, field, value)
+                receipt = SimpleNamespace(
+                    recording_sid=RECORDING, account_sid=ACCOUNT,
+                    shop_id="third-shop-id", relay_number=DID,
+                    notification_status="queued",
+                )
+                self.db.recordings[RECORDING] = receipt
+                with patch("app.voice_relay_delivery.SessionLocal", return_value=self.db), \\
+                     patch("app.voice_relay_delivery.send_highlevel_sms") as send_sms:
+                    send_relay_owner_alert(RECORDING)
+                send_sms.assert_not_called()
+                self.assertEqual(receipt.notification_status, "failed")
+                setattr(self.db, field, DID if field == "receiving_number" else "test-location")
+
+    def test_current_route_still_sends_one_queued_owner_sms(self):
+        receipt = SimpleNamespace(
+            recording_sid=RECORDING, account_sid=ACCOUNT,
+            shop_id="third-shop-id", relay_number=DID,
+            notification_status="queued",
+        )
+        self.db.recordings[RECORDING] = receipt
+        with patch("app.voice_relay_delivery.SessionLocal", return_value=self.db), \\
+             patch("app.voice_relay_delivery.send_highlevel_sms",
+                   return_value={"success": True}) as send_sms:
+            send_relay_owner_alert(RECORDING)
+        send_sms.assert_called_once()
+        self.assertEqual(receipt.notification_status, "sent")
+
+    def test_old_recording_link_revoked_on_did_or_location_change(self):
+        self.inbound()
+        self.assertEqual(self.recording().status_code, 200)
+        token = make_relay_recording_link(
+            self.db.recordings[RECORDING], OWNER).rsplit("/", 1)[1]
+        for field, value in (
+            ("receiving_number", "+12405550199"),
+            ("location_id", "different-location"),
+        ):
+            with self.subTest(field=field):
+                setattr(self.db, field, value)
+                with patch("app.voice_relay_delivery.SessionLocal", return_value=self.db):
+                    response = self.client.get(
+                        "/api/daytello/voice-relay/listen/" + token)
+                self.assertEqual(response.status_code, 404)
+                setattr(self.db, field, DID if field == "receiving_number" else "test-location")
 
     def test_purpose_bound_recording_link(self):
         receipt = SimpleNamespace(
