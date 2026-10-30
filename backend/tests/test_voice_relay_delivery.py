@@ -239,7 +239,8 @@ class SignedRecordingDeliveryTests(unittest.TestCase):
         token = make_relay_recording_link(
             self.db.recordings[RECORDING], OWNER).rsplit("/", 1)[1]
         self.db.notifications_enabled = False
-        response = self.client.get("/api/daytello/voice-relay/listen/" + token)
+        with patch("app.voice_relay_delivery.SessionLocal", return_value=self.db):
+            response = self.client.get("/api/daytello/voice-relay/listen/" + token)
         self.assertEqual(response.status_code, 404)
 
     def test_owner_number_change_revokes_previously_issued_relay_link(self):
@@ -249,7 +250,8 @@ class SignedRecordingDeliveryTests(unittest.TestCase):
             self.db.recordings[RECORDING], OWNER).rsplit("/", 1)[1]
         # A separately approved new recipient must not inherit the old link.
         self.db.owner_phone = "+12405550177"
-        response = self.client.get("/api/daytello/voice-relay/listen/" + token)
+        with patch("app.voice_relay_delivery.SessionLocal", return_value=self.db):
+            response = self.client.get("/api/daytello/voice-relay/listen/" + token)
         self.assertEqual(response.status_code, 404)
 
     def test_purpose_bound_recording_link(self):
