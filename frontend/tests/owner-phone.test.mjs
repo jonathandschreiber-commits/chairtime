@@ -12,6 +12,7 @@ test("normalizes valid US owner numbers without changing destination", () => {
 test("rejects invalid NANP numbers, extensions, and malformed input", () => {
   for (const input of [
     "", "123", "+1202555019", "+120255501990", "+10125550199",
+    "++12025550199", "202+5550199",
     "+12021550199", "+12025550199x2", "+12025550199 ext 2",
     "\\+12025550199", "2025550199;DROP", "+442071234567",
     null, {}, 2025550199,
