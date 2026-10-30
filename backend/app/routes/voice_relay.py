@@ -55,11 +55,19 @@ async def _verified(request: Request):
     body = await request.body()
     if len(body) > 8192:
         raise HTTPException(413, "Voice callback too large")
-    if "application/x-www-form-urlencoded" not in request.headers.get("content-type", ""):
-        raise HTTPException(415, "Voice callback must be form encoded")
+    # Never accept lookalike MIME types or an encoding we do not decode.
+    # Signed fields must be interpreted identically by us and the provider.
+    content_type = request.headers.get("content-type", "")
+    media_type, _, parameters = content_type.partition(";")
+    if (media_type.strip().lower() != "application/x-www-form-urlencoded" or
+            parameters.strip().lower() not in ("", "charset=utf-8", 'charset="utf-8"')):
+        raise HTTPException(415, "Voice callback must be UTF-8 form encoded")
     from urllib.parse import parse_qsl
     try:
-        parts = parse_qsl(body.decode("utf-8"), keep_blank_values=True, strict_parsing=True)
+        parts = parse_qsl(
+            body.decode("utf-8"), keep_blank_values=True, strict_parsing=True,
+            encoding="utf-8", errors="strict", max_num_fields=64,
+        )
     except (UnicodeError, ValueError):
         raise HTTPException(400, "Invalid voice callback")
     if len(parts) != len(set(k for k, _ in parts)):
