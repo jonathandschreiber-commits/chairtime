@@ -1,0 +1,172 @@
+"""Offline exclusive DID claim tests; all provider operations are mocked."""
+import os
+import unittest
+from unittest.mock import patch
+
+from fastapi import HTTPException
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
+
+from app.database import Base
+from app.models import Shop
+from app.voice_relay_models import DayTelloVoiceRelayAssignment
+from app.voice_relay_provisioning import reserve_or_purchase_relay_for_shop
+from app.voicemail_models import DayTelloVoicemailShopSettings
+
+NUMBER = "+12405550123"
+OTHER = "+12405550124"
+
+
+class FakeProvider:
+    def __init__(self, *, error=None):
+        self.calls = []
+        self.error = error
+
+    def purchase_approved_number(self, shop_id, number, *, approved=False):
+        self.calls.append((shop_id, number, approved))
+        if self.error:
+            raise self.error
+        return {"number": number, "provider_sid": "PN" + "c" * 32,
+                "route_verified": True}
+
+
+class ClaimTests(unittest.TestCase):
+    def setUp(self):
+        self.engine = create_engine(
+            "sqlite://", connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        Base.metadata.create_all(self.engine)
+        self.factory = sessionmaker(bind=self.engine)
+        with self.factory() as db:
+            db.add_all([
+                Shop(id="shop-a", slug="shop-a", name="Shop A",
+                     ai_voice_enabled=True, highlevel_location_id="loc-a",
+                     highlevel_agent_id="agent-a"),
+                Shop(id="shop-b", slug="shop-b", name="Shop B",
+                     ai_voice_enabled=True, highlevel_location_id="loc-a",
+                     highlevel_agent_id="agent-b"),
+            ])
+            db.commit()
+        self.env = patch.dict(os.environ, {
+            "DAYTELLO_VOICE_RELAY_TEST_ONLY": "true",
+            "HIGHLEVEL_LOCATION_ID": "loc-a",
+        })
+        self.env.start()
+
+    def tearDown(self):
+        self.env.stop()
+        self.engine.dispose()
+
+    def reserve(self, db, shop_id="shop-a", number=NUMBER, **kwargs):
+        return reserve_or_purchase_relay_for_shop(
+            db.get(Shop, shop_id), db, number, **kwargs)
+
+    def test_creates_exclusive_disabled_claim_and_owner_settings(self):
+        provider = FakeProvider()
+        with self.factory() as db:
+            result = self.reserve(db, provider=provider)
+            self.assertEqual(result["relay_number"], NUMBER)
+            self.assertFalse(result["enabled_for_calls"])
+            self.assertTrue(result["live_call_test_required"])
+            claim = db.get(DayTelloVoiceRelayAssignment, "shop-a")
+            settings = db.get(DayTelloVoicemailShopSettings, "shop-a")
+            self.assertEqual(claim.relay_number, NUMBER)
+            self.assertFalse(claim.enabled)
+            self.assertEqual(settings.receiving_number, NUMBER)
+            self.assertFalse(settings.notifications_enabled)
+            self.assertIsNone(settings.owner_phone)
+        self.assertEqual(provider.calls, [("shop-a", NUMBER, False)])
+
+    def test_repeated_claim_does_not_create_duplicate_rows(self):
+        provider = FakeProvider()
+        with self.factory() as db:
+            self.reserve(db, provider=provider)
+            self.reserve(db, provider=provider)
+            self.assertEqual(db.query(DayTelloVoiceRelayAssignment).count(), 1)
+            self.assertEqual(db.query(DayTelloVoicemailShopSettings).count(), 1)
+
+    def test_other_shop_cannot_claim_same_number(self):
+        provider = FakeProvider()
+        with self.factory() as db:
+            self.reserve(db, provider=provider)
+            with self.assertRaises(HTTPException) as error:
+                self.reserve(db, "shop-b", provider=provider)
+            self.assertEqual(error.exception.status_code, 409)
+            self.assertEqual(len(provider.calls), 1)
+
+    def test_cannot_claim_published_business_or_ai_number(self):
+        provider = FakeProvider()
+        with self.factory() as db:
+            db.get(Shop, "shop-b").phone = NUMBER
+            db.commit()
+            with self.assertRaises(HTTPException):
+                self.reserve(db, provider=provider)
+            self.assertFalse(provider.calls)
+
+    def test_cannot_claim_existing_legacy_voicemail_did(self):
+        provider = FakeProvider()
+        with self.factory() as db:
+            db.add(DayTelloVoicemailShopSettings(
+                shop_id="shop-b", location_id="loc-a",
+                receiving_number=NUMBER, notifications_enabled=False,
+            ))
+            db.commit()
+            with self.assertRaises(HTTPException):
+                self.reserve(db, provider=provider)
+            self.assertFalse(provider.calls)
+
+    def test_cannot_replace_existing_shops_relay(self):
+        provider = FakeProvider()
+        with self.factory() as db:
+            self.reserve(db, provider=provider)
+            with self.assertRaises(HTTPException):
+                self.reserve(db, number=OTHER, provider=provider)
+            self.assertEqual(len(provider.calls), 1)
+
+    def test_provider_failure_never_claims_number(self):
+        provider = FakeProvider(error=HTTPException(409, "Not available"))
+        with self.factory() as db:
+            with self.assertRaises(HTTPException):
+                self.reserve(db, provider=provider)
+            self.assertIsNone(db.get(DayTelloVoiceRelayAssignment, "shop-a"))
+            self.assertIsNone(db.get(DayTelloVoicemailShopSettings, "shop-a"))
+
+    def test_paid_purchase_requires_postgres_lock(self):
+        provider = FakeProvider()
+        with self.factory() as db:
+            with self.assertRaises(HTTPException) as error:
+                self.reserve(db, approved=True, provider=provider)
+            self.assertEqual(error.exception.status_code, 503)
+            self.assertFalse(provider.calls)
+
+    def test_approved_purchase_calls_provider_after_lock_check(self):
+        # Unit simulation only; SQLite does not provide row-level locking.
+        provider = FakeProvider()
+        with patch("app.voice_relay_provisioning._require_purchase_lock"):
+            with self.factory() as db:
+                self.reserve(db, approved=True, provider=provider)
+        self.assertEqual(provider.calls, [("shop-a", NUMBER, True)])
+
+    def test_unconnected_ai_shop_never_calls_provider(self):
+        provider = FakeProvider()
+        with self.factory() as db:
+            db.get(Shop, "shop-a").highlevel_agent_id = None
+            db.commit()
+            with self.assertRaises(HTTPException):
+                self.reserve(db, provider=provider)
+        self.assertFalse(provider.calls)
+
+    def test_feature_disabled_does_not_claim_number(self):
+        provider = FakeProvider()
+        with patch.dict(os.environ, {"DAYTELLO_VOICE_RELAY_TEST_ONLY": "false"}):
+            with self.factory() as db:
+                with self.assertRaises(HTTPException) as error:
+                    self.reserve(db, provider=provider)
+                self.assertEqual(error.exception.status_code, 404)
+        self.assertFalse(provider.calls)
+
+
+if __name__ == "__main__":
+    unittest.main()
