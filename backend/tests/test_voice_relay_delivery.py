@@ -275,7 +275,7 @@ class SignedRecordingDeliveryTests(unittest.TestCase):
                     notification_status="queued",
                 )
                 self.db.recordings[RECORDING] = receipt
-                with patch("app.voice_relay_delivery.SessionLocal", return_value=self.db), \\
+                with patch("app.voice_relay_delivery.SessionLocal", return_value=self.db), \
                      patch("app.voice_relay_delivery.send_highlevel_sms") as send_sms:
                     send_relay_owner_alert(RECORDING)
                 send_sms.assert_not_called()
@@ -289,7 +289,7 @@ class SignedRecordingDeliveryTests(unittest.TestCase):
             notification_status="queued",
         )
         self.db.recordings[RECORDING] = receipt
-        with patch("app.voice_relay_delivery.SessionLocal", return_value=self.db), \\
+        with patch("app.voice_relay_delivery.SessionLocal", return_value=self.db), \
              patch("app.voice_relay_delivery.send_highlevel_sms",
                    return_value={"success": True}) as send_sms:
             send_relay_owner_alert(RECORDING)
