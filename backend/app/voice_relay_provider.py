@@ -159,6 +159,30 @@ class VoiceRelayNumberProvider:
             raise HTTPException(409, "No eligible voice numbers in this area code")
         return candidates[0]
 
+    def verify_exact_local_number_available(self, phone_number):
+        """Prove the exact DID is an available US *local* number.
+
+        An E.164 prefix alone cannot establish a number's Twilio type.
+        Without this check a toll-free or other DID could be purchased
+        against the cheaper local-number price ceiling.
+        """
+        payload = self._request(
+            "GET", "AvailablePhoneNumbers/US/Local.json",
+            params={"Contains": phone_number, "VoiceEnabled": "true",
+                    "PageSize": 20},
+        )
+        records = payload.get("available_phone_numbers")
+        if not isinstance(records, list) or payload.get("next_page_uri"):
+            raise HTTPException(409, "Exact local relay number availability is unverified")
+        matches = [r for r in records if (
+            isinstance(r, dict) and r.get("phone_number") == phone_number
+            and isinstance(r.get("capabilities"), dict)
+            and r["capabilities"].get("voice") is True
+            and r.get("address_requirements") == "none"
+        )]
+        if len(matches) != 1:
+            raise HTTPException(409, "Exact local relay number availability is unverified")
+
     def verify_monthly_number_cost(self):
         """Fail closed unless live account pricing fits the operator's USD cap.
 
@@ -230,6 +254,7 @@ class VoiceRelayNumberProvider:
         if any(r.get("phone_number") == phone_number
                for r in self._list(number=phone_number)):
             raise HTTPException(409, "This phone number is already in use")
+        self.verify_exact_local_number_available(phone_number)
         # Confirm account-specific monthly DID price before any chargeable POST.
         # Other usage charges remain outside this ceiling.
         self.verify_monthly_number_cost()
