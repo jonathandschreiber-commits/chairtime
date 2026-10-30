@@ -108,7 +108,12 @@ class FakeVoicemailQuery:
 class FakeDB:
     def __init__(self, enabled=True, owner_phone=OWNER, other_relay_number=None,
                  other_voicemail_number=None, other_ai_number=None,
-                 other_business_number=None, business_shop_id="other-shop-id"):
+                 other_business_number=None, business_shop_id="other-shop-id",
+                 receiving_number=DID, location_id="loc-a",
+                 shop_location_id="loc-a"):
+        self.receiving_number = receiving_number
+        self.location_id = location_id
+        self.shop_location_id = shop_location_id
         self.enabled = enabled
         self.owner_phone = owner_phone
         self.other_relay_number = other_relay_number
@@ -133,7 +138,8 @@ class FakeDB:
         if model is DayTelloVoicemailShopSettings:
             return FakeVoicemailQuery(self.other_voicemail_number)
         return FakeQuery(SimpleNamespace(
-            id="third-shop-id", ai_voice_enabled=True),
+            id="third-shop-id", ai_voice_enabled=True,
+            highlevel_location_id=self.shop_location_id),
             other_ai_number=self.other_ai_number,
             other_business_number=self.other_business_number,
             business_shop_id=self.business_shop_id)
@@ -141,7 +147,11 @@ class FakeDB:
     def get(self, model, shop_id):
         if model is DayTelloVoiceRelayCall:
             return self.calls.get(shop_id)
-        return SimpleNamespace(owner_phone=self.owner_phone)
+        return SimpleNamespace(
+            owner_phone=self.owner_phone,
+            receiving_number=self.receiving_number,
+            location_id=self.location_id,
+        )
 
 
 class RelayRouteTests(unittest.TestCase):
@@ -155,6 +165,7 @@ class RelayRouteTests(unittest.TestCase):
             "DAYTELLO_VOICE_RELAY_AUTH_TOKEN": "test-only-secret",
             "DAYTELLO_VOICE_RELAY_PUBLIC_ORIGIN": "https://relay.example.test",
             "DAYTELLO_VOICE_RELAY_ACCOUNT_SID": ACCOUNT,
+            "HIGHLEVEL_LOCATION_ID": "loc-a",
         })
         self.env.start()
 
@@ -248,6 +259,38 @@ class RelayRouteTests(unittest.TestCase):
         result = self.request("/api/daytello/voice-relay/inbound",
                               {"CallSid": CALL, "To": "+12405550198"})
         self.assertEqual(result.status_code, 404)
+
+    def test_stale_voicemail_did_cannot_forward_or_record(self):
+        # An enabled relay assignment alone does not authorize a different
+        # voicemail DID saved against the same shop.
+        self.client.app.dependency_overrides[get_db] = lambda: FakeDB(
+            receiving_number="+12405550199")
+        response = self.request("/api/daytello/voice-relay/inbound",
+                                {"CallSid": CALL, "To": DID})
+        self.assertEqual(response.status_code, 409)
+        self.assertNotIn("<Dial", response.text)
+        self.seed_call()
+        callback = self.request("/api/daytello/voice-relay/dial-finished",
+                                {"CallSid": CALL, "To": DID,
+                                 "DialCallStatus": "no-answer"})
+        self.assertEqual(callback.status_code, 409)
+        self.assertNotIn("<Record", callback.text)
+
+    def test_relay_rejects_wrong_voicemail_location(self):
+        self.client.app.dependency_overrides[get_db] = lambda: FakeDB(
+            location_id="another-location")
+        response = self.request("/api/daytello/voice-relay/inbound",
+                                {"CallSid": CALL, "To": DID})
+        self.assertEqual(response.status_code, 409)
+        self.assertNotIn("<Dial", response.text)
+
+    def test_relay_rejects_shop_location_change(self):
+        self.client.app.dependency_overrides[get_db] = lambda: FakeDB(
+            shop_location_id="another-location")
+        response = self.request("/api/daytello/voice-relay/inbound",
+                                {"CallSid": CALL, "To": DID})
+        self.assertEqual(response.status_code, 409)
+        self.assertNotIn("<Dial", response.text)
 
     def test_rejects_self_forwarding_loop(self):
         self.client.app.dependency_overrides[get_db] = lambda: FakeDB(owner_phone=DID)
