@@ -7,7 +7,7 @@ import os
 import re
 from urllib.parse import urlsplit
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -18,8 +18,14 @@ from app.voice_relay_twiml import (
     forward_to_employee, after_employee_dial, completed_recording,
 )
 from app.voicemail_models import DayTelloVoicemailShopSettings
+from app.voice_relay_delivery import (
+    router as relay_recording_router, remember_relay_call,
+    recorded_call_for_callback, accept_completed_recording,
+    send_relay_owner_alert,
+)
 
 router = APIRouter()
+router.include_router(relay_recording_router)
 E164 = re.compile(r"^\+1[2-9][0-9]{2}[2-9][0-9]{6}$")
 SID = re.compile(r"^CA[a-fA-F0-9]{32}$")
 
@@ -143,7 +149,8 @@ def _xml(value):
 @router.post("/daytello/voice-relay/inbound")
 async def relay_inbound(request: Request, db: Session = Depends(get_db)):
     fields, origin = await _verified(request)
-    _, settings = _assignment(db, fields.get("To"))
+    binding, settings = _assignment(db, fields.get("To"))
+    remember_relay_call(db, fields, binding)
     return _xml(forward_to_employee(
         settings.owner_phone, origin + "/api/daytello/voice-relay/dial-finished",
     ))
@@ -152,7 +159,8 @@ async def relay_inbound(request: Request, db: Session = Depends(get_db)):
 @router.post("/daytello/voice-relay/dial-finished")
 async def relay_dial_finished(request: Request, db: Session = Depends(get_db)):
     fields, origin = await _verified(request)
-    _assignment(db, fields.get("To"))
+    call = recorded_call_for_callback(db, fields) if not fields.get("To") else None
+    _assignment(db, call.relay_number if call else fields.get("To"))
     status = fields.get("DialCallStatus", "")
     try:
         xml = after_employee_dial(
@@ -168,18 +176,26 @@ async def relay_dial_finished(request: Request, db: Session = Depends(get_db)):
 @router.post("/daytello/voice-relay/record-finished")
 async def relay_record_finished(request: Request, db: Session = Depends(get_db)):
     fields, _ = await _verified(request)
-    _assignment(db, fields.get("To"))
+    call = recorded_call_for_callback(db, fields) if not fields.get("To") else None
+    _assignment(db, call.relay_number if call else fields.get("To"))
     return _xml(completed_recording())
 
 
 @router.post("/daytello/voice-relay/record-ready")
-async def relay_record_ready(request: Request, db: Session = Depends(get_db)):
-    """Do not text yet. Recording storage and delivery integration is pending."""
+async def relay_record_ready(request: Request, background_tasks: BackgroundTasks,
+                             db: Session = Depends(get_db)):
+    """Deduplicate a signed completed recording before scheduling owner SMS."""
     fields, _ = await _verified(request)
-    _assignment(db, fields.get("To"))
+    # Twilio recording status callbacks need not include the original To.
+    # Never use an arbitrary callback destination as tenant identity.
+    call = recorded_call_for_callback(db, fields)
+    binding, settings = _assignment(db, call.relay_number)
+    if binding.shop_id != call.shop_id:
+        raise HTTPException(409, "Voice call tenant assignment changed")
     if fields.get("RecordingStatus") != "completed":
-        return {"accepted": True, "notification_sent": False}
-    if not re.fullmatch(r"RE[a-fA-F0-9]{32}", fields.get("RecordingSid", "")):
-        raise HTTPException(422, "Invalid recording identifier")
-    return {"accepted": True, "notification_sent": False,
-            "reason": "Recording delivery integration not enabled"}
+        return {"accepted": True, "notification_sent": False,
+                "action": "ignored_non_completed"}
+    action, recording_sid = accept_completed_recording(db, fields, binding, settings)
+    if recording_sid:
+        background_tasks.add_task(send_relay_owner_alert, recording_sid)
+    return {"accepted": True, "notification_sent": False, "action": action}
