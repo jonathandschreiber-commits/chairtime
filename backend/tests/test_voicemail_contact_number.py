@@ -382,6 +382,57 @@ class UnifiedPhoneTests(unittest.TestCase):
         with self.factory() as db:
             self.assertIsNone(db.get(DayTelloVoicemailShopSettings, "s1").owner_phone)
 
+    def test_relay_prepare_requires_explicit_owner_purchase_approval(self):
+        endpoint = "/api/shops/shop-a/voice-relay/prepare-test"
+        with patch.object(route, "reserve_relay_for_area_code") as provider:
+            result = self.client.post(
+                endpoint, json={"area_code": "240",
+                                "authorize_number_purchase": False})
+        self.assertEqual(result.status_code, 409)
+        provider.assert_not_called()
+
+    def test_relay_prepare_rejects_disabled_platform_purchase_gate(self):
+        endpoint = "/api/shops/shop-a/voice-relay/prepare-test"
+        with patch.object(route, "reserve_relay_for_area_code") as provider:
+            result = self.client.post(
+                endpoint, json={"area_code": "240",
+                                "authorize_number_purchase": True})
+        self.assertEqual(result.status_code, 409)
+        provider.assert_not_called()
+
+    def test_relay_prepare_is_tenant_scoped_and_never_claims_live_ready(self):
+        endpoint = "/api/shops/shop-a/voice-relay/prepare-test"
+        with patch.dict(os.environ, {
+            "DAYTELLO_VOICE_RELAY_TEST_ONLY": "true",
+            "DAYTELLO_VOICE_RELAY_PURCHASE_ENABLED": "true",
+        }), patch.object(route, "reserve_relay_for_area_code",
+                         return_value={
+                             "shop_slug": "shop-a", "relay_number": "+12405550123",
+                             "provider_route_verified": True,
+                             "enabled_for_calls": False,
+                         }) as provider:
+            result = self.client.post(
+                endpoint, json={"area_code": "240",
+                                "authorize_number_purchase": True})
+        self.assertEqual(result.status_code, 200, result.text)
+        self.assertFalse(result.json()["ready_for_customer_calls"])
+        self.assertFalse(result.json()["enabled_for_calls"])
+        self.assertEqual(provider.call_args.args[0].id, "s1")
+        self.assertEqual(provider.call_args.args[2], "240")
+        self.assertTrue(provider.call_args.kwargs["approved"])
+
+    def test_relay_prepare_cannot_access_other_shop(self):
+        endpoint = "/api/shops/shop-b/voice-relay/prepare-test"
+        with patch.dict(os.environ, {
+            "DAYTELLO_VOICE_RELAY_TEST_ONLY": "true",
+            "DAYTELLO_VOICE_RELAY_PURCHASE_ENABLED": "true",
+        }), patch.object(route, "reserve_relay_for_area_code") as provider:
+            result = self.client.post(
+                endpoint, json={"area_code": "240",
+                                "authorize_number_purchase": True})
+        self.assertIn(result.status_code, (403, 404))
+        provider.assert_not_called()
+
     def test_no_provisioning_fails_closed(self):
         self.user.shop_slug = "shop-b"
         self.user.shop_id = "s2"
