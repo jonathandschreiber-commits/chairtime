@@ -65,6 +65,13 @@ def reserve_or_purchase_relay_for_shop(shop: Shop, db, number: str, *,
     if locked is None or locked.id != shop.id:
         raise HTTPException(404, "Shop not found")
     settings, existing = _check_number_conflicts(db, shop.id, number)
+    # A legacy HighLevel voicemail DID cannot be silently adopted as a
+    # programmable relay just because it belongs to this same shop. Preserve
+    # existing working routes until an explicit migration is designed.
+    if settings is not None and existing is None:
+        raise HTTPException(409, "Existing voicemail number is not a relay assignment")
+    if settings is not None and settings.location_id != expected_location:
+        raise HTTPException(409, "Existing voicemail location does not match AI connection")
     if existing and existing.relay_number != number:
         raise HTTPException(409, "Shop has a different relay number")
     if settings and settings.receiving_number != number:
