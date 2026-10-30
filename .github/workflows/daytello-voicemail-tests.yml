@@ -10,6 +10,8 @@ on:
   pull_request:
     branches:
       - daytello-testing
+      # PR #5 targets this feature branch while zero-touch onboarding is built.
+      - feature/daytello-voicemail-owner-sms-20261027
   workflow_dispatch:
 
 permissions:
