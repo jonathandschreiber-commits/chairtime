@@ -35,6 +35,7 @@ class DeliveryDB(FakeDB):
         self.recordings = {}
         self.pending = None
         self.notifications_enabled = True
+        self.owner_phone = OWNER
 
     def __enter__(self):
         return self
@@ -54,7 +55,7 @@ class DeliveryDB(FakeDB):
             )
         if model is DayTelloVoicemailShopSettings:
             return SimpleNamespace(
-                owner_phone=OWNER, notifications_enabled=self.notifications_enabled,
+                owner_phone=self.owner_phone, notifications_enabled=self.notifications_enabled,
                 receiving_number=DID, location_id="test-location",
             )
         if model is DayTelloVoiceRelayAssignment:
@@ -183,7 +184,7 @@ class SignedRecordingDeliveryTests(unittest.TestCase):
     def test_owner_link_proxies_audio_with_server_side_provider_auth(self):
         self.inbound()
         self.assertEqual(self.recording().status_code, 200)
-        link = make_relay_recording_link(self.db.recordings[RECORDING])
+        link = make_relay_recording_link(self.db.recordings[RECORDING], OWNER)
         token = link.rsplit("/", 1)[1]
         requests = []
         def provider(request):
@@ -213,7 +214,7 @@ class SignedRecordingDeliveryTests(unittest.TestCase):
         self.inbound()
         self.assertEqual(self.recording().status_code, 200)
         token = make_relay_recording_link(
-            self.db.recordings[RECORDING]).rsplit("/", 1)[1]
+            self.db.recordings[RECORDING], OWNER).rsplit("/", 1)[1]
         real_async_client = httpx.AsyncClient
         def client_factory(**kwargs):
             return real_async_client(
@@ -232,12 +233,31 @@ class SignedRecordingDeliveryTests(unittest.TestCase):
         self.assertEqual(response.status_code, 502)
         self.assertNotIn("not audio", response.text)
 
+    def test_owner_opt_out_revokes_previously_issued_relay_link(self):
+        self.inbound()
+        self.assertEqual(self.recording().status_code, 200)
+        token = make_relay_recording_link(
+            self.db.recordings[RECORDING], OWNER).rsplit("/", 1)[1]
+        self.db.notifications_enabled = False
+        response = self.client.get("/api/daytello/voice-relay/listen/" + token)
+        self.assertEqual(response.status_code, 404)
+
+    def test_owner_number_change_revokes_previously_issued_relay_link(self):
+        self.inbound()
+        self.assertEqual(self.recording().status_code, 200)
+        token = make_relay_recording_link(
+            self.db.recordings[RECORDING], OWNER).rsplit("/", 1)[1]
+        # A separately approved new recipient must not inherit the old link.
+        self.db.owner_phone = "+12405550177"
+        response = self.client.get("/api/daytello/voice-relay/listen/" + token)
+        self.assertEqual(response.status_code, 404)
+
     def test_purpose_bound_recording_link(self):
         receipt = SimpleNamespace(
             account_sid=ACCOUNT, recording_sid=RECORDING,
             shop_id="third-shop-id",
         )
-        link = make_relay_recording_link(receipt)
+        link = make_relay_recording_link(receipt, OWNER)
         self.assertTrue(link.startswith(
             "https://relay.example.test/api/daytello/voice-relay/listen/"))
         token = link.rsplit("/", 1)[1]
