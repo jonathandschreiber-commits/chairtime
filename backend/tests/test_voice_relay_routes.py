@@ -124,7 +124,7 @@ class RelayRouteTests(unittest.TestCase):
     def tearDown(self):
         self.env.stop()
 
-    def request(self, path, fields, valid=True):
+    def request(self, path, fields, valid=True, content_type="application/x-www-form-urlencoded"):
         from urllib.parse import urlencode
         body = urlencode(fields)
         signed = "https://relay.example.test" + path
@@ -133,9 +133,55 @@ class RelayRouteTests(unittest.TestCase):
             b"test-only-secret", signed.encode(), hashlib.sha1,
         ).digest()).decode() if valid else "invalid-signature"
         return self.client.post(path, content=body, headers={
-            "content-type": "application/x-www-form-urlencoded",
+            "content-type": content_type,
             "x-twilio-signature": signature,
         })
+
+    def test_rejects_ambiguous_content_types_before_routing(self):
+        fields = {"CallSid": CALL, "To": DID}
+        for content_type in (
+            "text/plain; application/x-www-form-urlencoded",
+            "application/x-www-form-urlencoded-evil",
+            "application/x-www-form-urlencoded; charset=iso-8859-1",
+            "application/x-www-form-urlencoded; charset=utf-8; boundary=bad",
+        ):
+            with self.subTest(content_type=content_type):
+                result = self.request(
+                    "/api/daytello/voice-relay/inbound", fields,
+                    content_type=content_type,
+                )
+                self.assertEqual(result.status_code, 415)
+                self.assertNotIn("<Dial", result.text)
+
+    def test_valid_utf8_form_content_type_still_routes(self):
+        result = self.request(
+            "/api/daytello/voice-relay/inbound",
+            {"CallSid": CALL, "To": DID},
+            content_type="application/x-www-form-urlencoded; charset=UTF-8",
+        )
+        self.assertEqual(result.status_code, 200)
+        self.assertIn("<Dial", result.text)
+
+    def test_invalid_percent_encoded_utf8_is_rejected(self):
+        # parse_qsl's default errors='replace' would silently normalize %FF.
+        result = self.client.post(
+            "/api/daytello/voice-relay/inbound",
+            content=f"CallSid={CALL}&To=%FF",
+            headers={"content-type": "application/x-www-form-urlencoded",
+                     "x-twilio-signature": "invalid"},
+        )
+        self.assertEqual(result.status_code, 400)
+        self.assertNotIn("<Dial", result.text)
+
+    def test_excessive_form_fields_are_rejected(self):
+        result = self.client.post(
+            "/api/daytello/voice-relay/inbound",
+            content="&".join(f"field{i}=value" for i in range(65)),
+            headers={"content-type": "application/x-www-form-urlencoded",
+                     "x-twilio-signature": "invalid"},
+        )
+        self.assertEqual(result.status_code, 400)
+        self.assertNotIn("<Dial", result.text)
 
     def test_inbound_dials_one_shops_saved_number(self):
         response = self.request("/api/daytello/voice-relay/inbound",
