@@ -131,7 +131,7 @@ def accept_completed_recording(db, fields, binding, settings):
     expected_location = os.getenv("HIGHLEVEL_LOCATION_ID", "").strip()
     if not expected_location or shop.highlevel_location_id != expected_location:
         raise HTTPException(409, "SMS provider location mismatch")
-    recipient = owner_phone_for_test_shop(shop.slug, settings)
+    recipient = owner_phone_for_test_shop(shop.slug, settings, db=db, shop_id=shop.id)
     receipt = DayTelloVoiceRelayRecording(
         recording_sid=recording_sid, account_sid=account_sid,
         call_sid=call.call_sid, shop_id=call.shop_id,
@@ -168,7 +168,7 @@ def send_relay_owner_alert(recording_sid):
                     binding.relay_number != receipt.relay_number or
                     shop.highlevel_location_id != os.getenv("HIGHLEVEL_LOCATION_ID", "").strip()):
                 return
-            recipient = owner_phone_for_test_shop(shop.slug, settings)
+            recipient = owner_phone_for_test_shop(shop.slug, settings, db=db, shop_id=shop.id)
             if not recipient:
                 return
             link = make_relay_recording_link(receipt)
