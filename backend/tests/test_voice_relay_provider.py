@@ -30,8 +30,10 @@ def record(shop=SHOP, number=NUMBER, **overrides):
 
 
 class FakeTwilio:
-    def __init__(self, owned=None, *, fail_after_purchase=False, fail_before_purchase=False):
+    def __init__(self, owned=None, *, fail_after_purchase=False, fail_before_purchase=False,
+                 available=None):
         self.owned = list(owned or [])
+        self.available = list(available or [])
         self.requests = []
         self.fail_after_purchase = fail_after_purchase
         self.fail_before_purchase = fail_before_purchase
@@ -40,6 +42,9 @@ class FakeTwilio:
         self.requests.append(request)
         assert request.url.host == "api.twilio.com"
         assert request.headers.get("authorization", "").startswith("Basic ")
+        if request.method == "GET" and "/AvailablePhoneNumbers/" in request.url.path:
+            assert request.url.params.get("VoiceEnabled") == "true"
+            return httpx.Response(200, json={"available_phone_numbers": self.available})
         if request.method == "GET":
             if "FriendlyName" in request.url.params:
                 label = request.url.params["FriendlyName"]
@@ -85,6 +90,40 @@ class ProviderTests(unittest.TestCase):
         client = httpx.Client(transport=httpx.MockTransport(fake.handle))
         self.addCleanup(client.close)
         return VoiceRelayNumberProvider(client=client)
+
+    def test_selects_only_valid_voice_number_from_requested_area_code(self):
+        fake = FakeTwilio(available=[
+            {"phone_number": OTHER, "capabilities": {"voice": True},
+             "address_requirements": "none"},
+            {"phone_number": "+13015550123", "capabilities": {"voice": True},
+             "address_requirements": "none"},
+            {"phone_number": NUMBER, "capabilities": {"voice": True},
+             "address_requirements": "none"},
+            {"phone_number": "+12405550125", "capabilities": {"voice": False},
+             "address_requirements": "none"},
+            {"phone_number": "+12405550126", "capabilities": {"voice": True},
+             "address_requirements": "local"},
+        ])
+        chosen = self.provider(fake).find_available_voice_number("240")
+        self.assertEqual(chosen, NUMBER)
+        self.assertTrue(all(r.method == "GET" for r in fake.requests))
+
+    def test_no_eligible_number_fails_without_purchase(self):
+        fake = FakeTwilio(available=[
+            {"phone_number": NUMBER, "capabilities": {"voice": True},
+             "address_requirements": "local"},
+        ])
+        with self.assertRaises(HTTPException) as error:
+            self.provider(fake).find_available_voice_number("240")
+        self.assertEqual(error.exception.status_code, 409)
+        self.assertTrue(all(r.method == "GET" for r in fake.requests))
+
+    def test_invalid_area_code_fails_before_provider(self):
+        fake = FakeTwilio()
+        with self.assertRaises(HTTPException) as error:
+            self.provider(fake).find_available_voice_number("000")
+        self.assertEqual(error.exception.status_code, 422)
+        self.assertFalse(fake.requests)
 
     def test_no_approval_never_purchases(self):
         fake = FakeTwilio()
