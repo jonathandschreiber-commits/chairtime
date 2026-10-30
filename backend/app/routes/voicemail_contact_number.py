@@ -76,6 +76,35 @@ def reject_internal_owner_destination(db: Session, number: str) -> None:
         raise HTTPException(409, "Owner phone cannot be an AI Receptionist number")
 
 
+def _sms_configuration_complete(shop: Shop, settings: DayTelloVoicemailShopSettings | None) -> bool:
+    """Report SMS as configured only when all local delivery guards pass.
+
+    This is a read-only configuration check, NOT proof that a live voicemail
+    was received, a text was delivered, or external forwarding works.
+    """
+    expected_location = os.getenv("HIGHLEVEL_LOCATION_ID", "").strip()
+    if not (
+        settings
+        and settings.notifications_enabled
+        and PHONE.fullmatch(settings.owner_phone or "")
+        and PHONE.fullmatch(settings.receiving_number or "")
+        and shop.highlevel_agent_id
+        and expected_location
+        and shop.highlevel_location_id == expected_location
+        and settings.location_id == expected_location
+        and os.getenv("DAYTELLO_VOICEMAIL_OWNER_SMS_ENABLED") == "true"
+        and PHONE.fullmatch(os.getenv("HIGHLEVEL_SMS_FROM_NUMBER", "").strip())
+    ):
+        return False
+    try:
+        approved_test_recipient(shop.slug, settings.owner_phone)
+        link_cipher()
+        test_link_origin()
+    except HTTPException:
+        return False
+    return True
+
+
 def public_status(shop: Shop, settings: DayTelloVoicemailShopSettings | None):
     return {
         "shop_slug": shop.slug,
@@ -87,7 +116,7 @@ def public_status(shop: Shop, settings: DayTelloVoicemailShopSettings | None):
         "phone_number": settings.owner_phone if settings else None,
         "notifications_enabled": bool(settings.notifications_enabled) if settings else False,
         "voicemail_number": settings.receiving_number if settings else None,
-        "sms_ready": bool(settings and settings.owner_phone and settings.notifications_enabled),
+        "sms_ready": _sms_configuration_complete(shop, settings),
         # A relay DID being allocated does not prove its external forwarding
         # destination or voicemail timeout. Never infer this from SMS readiness.
         "forwarding_verified": False,
@@ -125,8 +154,7 @@ def voicemail_onboarding_readiness(
     )
     sms_active = bool(
         number_assigned and recipient_saved and
-        settings.notifications_enabled and
-        os.getenv("DAYTELLO_VOICEMAIL_OWNER_SMS_ENABLED") == "true"
+        _sms_configuration_complete(shop, settings)
     )
     return {
         "shop_slug": shop.slug,
