@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import os
 import unittest
+import httpx
 from types import SimpleNamespace
 from unittest.mock import patch
 from urllib.parse import urlencode
@@ -34,6 +35,12 @@ class DeliveryDB(FakeDB):
         self.recordings = {}
         self.pending = None
         self.notifications_enabled = True
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
 
     def get(self, model, identifier):
         if model is DayTelloVoiceRelayCall:
@@ -98,6 +105,8 @@ class SignedRecordingDeliveryTests(unittest.TestCase):
             "DAYTELLO_VOICEMAIL_TEST_PUBLIC_ORIGIN": "https://relay.example.test",
             "DAYTELLO_VOICEMAIL_LINK_KEY": Fernet.generate_key().decode(),
             "HIGHLEVEL_LOCATION_ID": "test-location",
+            "DAYTELLO_VOICE_RELAY_API_KEY_SID": "SK" + "e" * 32,
+            "DAYTELLO_VOICE_RELAY_API_KEY_SECRET": "test-api-key-secret",
         })
         self.env.start()
         self.send = patch(
@@ -170,6 +179,58 @@ class SignedRecordingDeliveryTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json()["action"], "disabled")
         self.assertFalse(self.notifications)
+
+    def test_owner_link_proxies_audio_with_server_side_provider_auth(self):
+        self.inbound()
+        self.assertEqual(self.recording().status_code, 200)
+        link = make_relay_recording_link(self.db.recordings[RECORDING])
+        token = link.rsplit("/", 1)[1]
+        requests = []
+        def provider(request):
+            requests.append(request)
+            self.assertEqual(request.url.host, "api.twilio.com")
+            self.assertIn("/Recordings/" + RECORDING + ".mp3", request.url.path)
+            self.assertTrue(request.headers.get("authorization", "").startswith("Basic "))
+            return httpx.Response(
+                200, headers={"content-type": "audio/mpeg"}, content=b"mock-mp3"
+            )
+        real_async_client = httpx.AsyncClient
+        def client_factory(**kwargs):
+            return real_async_client(
+                transport=httpx.MockTransport(provider), **kwargs,
+            )
+        with patch("app.voice_relay_delivery.SessionLocal", return_value=self.db), \
+             patch("app.voice_relay_delivery.httpx.AsyncClient",
+                   side_effect=client_factory):
+            response = self.client.get(
+                "/api/daytello/voice-relay/listen/" + token)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.content, b"mock-mp3")
+        self.assertEqual(response.headers["cache-control"], "private, no-store")
+        self.assertEqual(len(requests), 1)
+
+    def test_owner_link_rejects_unexpected_provider_content(self):
+        self.inbound()
+        self.assertEqual(self.recording().status_code, 200)
+        token = make_relay_recording_link(
+            self.db.recordings[RECORDING]).rsplit("/", 1)[1]
+        real_async_client = httpx.AsyncClient
+        def client_factory(**kwargs):
+            return real_async_client(
+                transport=httpx.MockTransport(
+                    lambda _: httpx.Response(
+                        200, headers={"content-type": "text/html"},
+                        content=b"<html>not audio</html>",
+                    )
+                ), **kwargs,
+            )
+        with patch("app.voice_relay_delivery.SessionLocal", return_value=self.db), \
+             patch("app.voice_relay_delivery.httpx.AsyncClient",
+                   side_effect=client_factory):
+            response = self.client.get(
+                "/api/daytello/voice-relay/listen/" + token)
+        self.assertEqual(response.status_code, 502)
+        self.assertNotIn("not audio", response.text)
 
     def test_purpose_bound_recording_link(self):
         receipt = SimpleNamespace(
