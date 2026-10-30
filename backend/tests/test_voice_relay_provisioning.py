@@ -11,7 +11,9 @@ from sqlalchemy.pool import StaticPool
 from app.database import Base
 from app.models import Shop
 from app.voice_relay_models import DayTelloVoiceRelayAssignment
-from app.voice_relay_provisioning import reserve_or_purchase_relay_for_shop
+from app.voice_relay_provisioning import (
+    reserve_or_purchase_relay_for_shop, reserve_relay_for_area_code,
+)
 from app.voicemail_models import DayTelloVoicemailShopSettings
 
 NUMBER = "+12405550123"
@@ -21,7 +23,12 @@ OTHER = "+12405550124"
 class FakeProvider:
     def __init__(self, *, error=None):
         self.calls = []
+        self.selections = []
         self.error = error
+
+    def find_available_voice_number(self, area_code):
+        self.selections.append(area_code)
+        return NUMBER
 
     def purchase_approved_number(self, shop_id, number, *, approved=False):
         self.calls.append((shop_id, number, approved))
@@ -62,6 +69,37 @@ class ClaimTests(unittest.TestCase):
     def reserve(self, db, shop_id="shop-a", number=NUMBER, **kwargs):
         return reserve_or_purchase_relay_for_shop(
             db.get(Shop, shop_id), db, number, **kwargs)
+
+    def test_area_code_flow_requires_purchase_approval(self):
+        provider = FakeProvider()
+        with self.factory() as db:
+            with self.assertRaises(HTTPException) as error:
+                reserve_relay_for_area_code(
+                    db.get(Shop, "shop-a"), db, "240", provider=provider)
+        self.assertEqual(error.exception.status_code, 409)
+        self.assertFalse(provider.selections)
+        self.assertFalse(provider.calls)
+
+    def test_area_code_flow_selects_number_after_approval(self):
+        provider = FakeProvider()
+        with patch("app.voice_relay_provisioning._require_purchase_lock"):
+            with self.factory() as db:
+                result = reserve_relay_for_area_code(
+                    db.get(Shop, "shop-a"), db, "240",
+                    approved=True, provider=provider)
+        self.assertEqual(result["relay_number"], NUMBER)
+        self.assertEqual(provider.selections, ["240"])
+        self.assertEqual(provider.calls, [("shop-a", NUMBER, True)])
+
+    def test_area_code_retry_reuses_saved_did_without_new_selection(self):
+        provider = FakeProvider()
+        with self.factory() as db:
+            self.reserve(db, provider=provider)
+            result = reserve_relay_for_area_code(
+                db.get(Shop, "shop-a"), db, "301", provider=provider)
+        self.assertEqual(result["relay_number"], NUMBER)
+        self.assertFalse(provider.selections)
+        self.assertEqual(provider.calls[-1], ("shop-a", NUMBER, False))
 
     def test_creates_exclusive_disabled_claim_and_owner_settings(self):
         provider = FakeProvider()
