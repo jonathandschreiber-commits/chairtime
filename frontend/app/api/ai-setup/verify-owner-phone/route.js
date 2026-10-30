@@ -43,6 +43,31 @@ export async function POST(request) {
   if (typeof slug !== "string" || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) {
     return NextResponse.json({ detail: "Invalid shop." }, { status: 400 });
   }
+  // Opt-out is always explicit. It revokes the verified recipient and stops
+  // owner texts, but cannot change provider call routing or voicemail capture.
+  // Do not require a phone number to opt out: a lost phone must not trap an owner.
+  if (action === "disable") {
+    if (payload.confirm_disable_notifications !== true) {
+      return NextResponse.json({ detail: "Confirm that voicemail texts should be disabled." }, { status: 409 });
+    }
+    try {
+      const response = await fetch(
+        `${serverApiBase()}/api/shops/${encodeURIComponent(slug)}/voicemail-owner/notifications/disable`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+          cache: "no-store",
+        }
+      );
+      const data = await response.json().catch(() => ({ detail: "Could not disable voicemail texts." }));
+      return NextResponse.json(data, {
+        status: response.status,
+        headers: { "Cache-Control": "no-store" },
+      });
+    } catch {
+      return NextResponse.json({ detail: "Could not disable voicemail texts." }, { status: 502 });
+    }
+  }
   if (!isValidUsOwnerPhone(phone)) {
     return NextResponse.json({ detail: "Enter a valid +1 phone number." }, { status: 422 });
   }
