@@ -13,12 +13,14 @@ from fastapi.testclient import TestClient
 from app.database import get_db
 from app.routes.voice_relay import router
 from app.voice_relay_models import DayTelloVoiceRelayAssignment
+from app.voice_relay_delivery import DayTelloVoiceRelayCall
 from app.voicemail_models import DayTelloVoicemailShopSettings
 
 
 DID = "+12405550123"
 OWNER = "+12405550124"
 CALL = "CA" + "a" * 32
+ACCOUNT = "AC" + "d" * 32
 
 
 class FakeQuery:
@@ -114,6 +116,16 @@ class FakeDB:
         self.other_ai_number = other_ai_number
         self.other_business_number = other_business_number
         self.business_shop_id = business_shop_id
+        self.calls = {}
+
+    def add(self, record):
+        self.calls[record.call_sid] = record
+
+    def commit(self):
+        pass
+
+    def rollback(self):
+        pass
 
     def query(self, model):
         if model is DayTelloVoiceRelayAssignment:
@@ -127,6 +139,8 @@ class FakeDB:
             business_shop_id=self.business_shop_id)
 
     def get(self, model, shop_id):
+        if model is DayTelloVoiceRelayCall:
+            return self.calls.get(shop_id)
         return SimpleNamespace(owner_phone=self.owner_phone)
 
 
@@ -140,6 +154,7 @@ class RelayRouteTests(unittest.TestCase):
             "DAYTELLO_VOICE_RELAY_TEST_ONLY": "true",
             "DAYTELLO_VOICE_RELAY_AUTH_TOKEN": "test-only-secret",
             "DAYTELLO_VOICE_RELAY_PUBLIC_ORIGIN": "https://relay.example.test",
+            "DAYTELLO_VOICE_RELAY_ACCOUNT_SID": ACCOUNT,
         })
         self.env.start()
 
@@ -148,6 +163,8 @@ class RelayRouteTests(unittest.TestCase):
 
     def request(self, path, fields, valid=True, content_type="application/x-www-form-urlencoded"):
         from urllib.parse import urlencode
+        fields = dict(fields)
+        fields.setdefault("AccountSid", ACCOUNT)
         body = urlencode(fields)
         signed = "https://relay.example.test" + path
         signed += "".join(k + fields[k] for k in sorted(fields))
@@ -329,13 +346,13 @@ class RelayRouteTests(unittest.TestCase):
         self.assertNotIn("<Record", result.text)
         self.assertIn("<Hangup", result.text)
 
-    def test_recording_does_not_send_sms_prematurely(self):
+    def test_recording_callback_without_known_inbound_call_fails_closed(self):
         result = self.request("/api/daytello/voice-relay/record-ready", {
             "CallSid": CALL, "To": DID,
             "RecordingStatus": "completed", "RecordingSid": "RE" + "b" * 32,
         })
-        self.assertEqual(result.status_code, 200)
-        self.assertFalse(result.json()["notification_sent"])
+        self.assertEqual(result.status_code, 404)
+        self.assertNotIn("notification_sent", result.text)
 
     def test_feature_disabled_by_default(self):
         with patch.dict(os.environ, {"DAYTELLO_VOICE_RELAY_TEST_ONLY": "false"}):
