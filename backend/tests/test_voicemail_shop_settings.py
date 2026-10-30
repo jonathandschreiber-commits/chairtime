@@ -62,18 +62,59 @@ class ShopVoicemailSettingsTests(unittest.TestCase):
             403,
         )
 
-    def test_owner_can_set_notification_preference(self):
+    def test_owner_can_save_phone_without_activating_notifications(self):
         response = self.client.patch(
             "/api/shops/shop-a/voicemail-settings",
-            json={"notifications_enabled": True, "owner_phone": "+12025550199"},
+            json={"notifications_enabled": False, "owner_phone": "+12025550199"},
         )
         self.assertEqual(response.status_code, 200)
-        self.assertTrue(response.json()["notifications_enabled"])
+        self.assertFalse(response.json()["notifications_enabled"])
         with self.factory() as db:
             a = db.get(DayTelloVoicemailShopSettings, "shop-a")
             b = db.get(DayTelloVoicemailShopSettings, "shop-b")
             self.assertEqual(a.owner_phone, "+12025550199")
+            self.assertFalse(a.notifications_enabled)
             self.assertIsNone(b.owner_phone)
+
+    def test_unverified_preference_cannot_activate_notifications(self):
+        response = self.client.patch(
+            "/api/shops/shop-a/voicemail-settings",
+            json={"notifications_enabled": True, "owner_phone": "+12025550199"},
+        )
+        self.assertEqual(response.status_code, 409, response.text)
+        with self.factory() as db:
+            prefs = db.get(DayTelloVoicemailShopSettings, "shop-a")
+            self.assertIsNone(prefs.owner_phone)
+            self.assertFalse(prefs.notifications_enabled)
+
+    def test_active_recipient_cannot_be_swapped_without_reverification(self):
+        with self.factory() as db:
+            prefs = db.get(DayTelloVoicemailShopSettings, "shop-a")
+            prefs.owner_phone = "+12025550198"
+            prefs.notifications_enabled = True
+            db.commit()
+        response = self.client.patch(
+            "/api/shops/shop-a/voicemail-settings",
+            json={"notifications_enabled": True, "owner_phone": "+12025550199"},
+        )
+        self.assertEqual(response.status_code, 409, response.text)
+        with self.factory() as db:
+            prefs = db.get(DayTelloVoicemailShopSettings, "shop-a")
+            self.assertEqual(prefs.owner_phone, "+12025550198")
+            self.assertTrue(prefs.notifications_enabled)
+
+    def test_owner_can_disable_existing_notifications(self):
+        with self.factory() as db:
+            prefs = db.get(DayTelloVoicemailShopSettings, "shop-a")
+            prefs.owner_phone = "+12025550198"
+            prefs.notifications_enabled = True
+            db.commit()
+        response = self.client.patch(
+            "/api/shops/shop-a/voicemail-settings",
+            json={"notifications_enabled": False, "owner_phone": "+12025550198"},
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertFalse(response.json()["notifications_enabled"])
 
     def test_owner_cannot_change_routing_or_another_shop(self):
         response = self.client.patch(
