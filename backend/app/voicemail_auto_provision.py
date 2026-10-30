@@ -108,6 +108,16 @@ def ensure_test_voicemail_number(shop: Shop, db):
         legacy_raw = os.getenv("DAYTELLO_VOICEMAIL_NUMBER_SHOP_MAP", "").strip()
         if legacy_raw and configured_routing_map().get(number) not in (None, shop.slug):
             raise HTTPException(409, "Existing voicemail number conflicts with legacy mapping")
+        # A previously saved database claim is not proof that the DID is
+        # still assigned to this HighLevel location or remains a non-AI line.
+        # Revalidate before treating a repeat setup request as successful.
+        _, inventory = verified_phone_inventory(location_id)
+        matches = [
+            item for item in inventory
+            if isinstance(item, dict) and item.get("phoneNumber") == number
+        ]
+        if len(matches) != 1 or get_phone_inbound_service(matches[0]).get("type") == "voice_ai":
+            raise HTTPException(409, "Existing voicemail number needs provider verification")
         return existing
 
     candidates = reserved_numbers_for_shop(shop.slug)
