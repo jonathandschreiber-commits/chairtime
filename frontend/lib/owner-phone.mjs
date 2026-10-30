@@ -8,7 +8,7 @@ export function normalizeUsOwnerPhone(value) {
   const trimmed = value.trim();
   // Reject letters, extensions and other unexpected characters rather than
   // silently stripping them into a different destination.
-  if (!/^[+()\- .0-9]+$/.test(trimmed)) return null;
+  if (!/^\+?[()\- .0-9]+$/.test(trimmed)) return null;
   const digits = trimmed.replace(/\D/g, "");
   const normalized = digits.length === 10 ? "+1" + digits
     : digits.length === 11 && digits.startsWith("1") ? "+" + digits
