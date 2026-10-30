@@ -23,11 +23,12 @@ CALL = "CA" + "a" * 32
 
 class FakeQuery:
     def __init__(self, result, expected_did=None, other_ai_number=None,
-                 other_business_number=None):
+                 other_business_number=None, business_shop_id="other-shop-id"):
         self.result = result
         self.expected_did = expected_did
         self.other_ai_number = other_ai_number
         self.other_business_number = other_business_number
+        self.business_shop_id = business_shop_id
         self.conditions = []
     def filter(self, *args):
         self.conditions.extend(args)
@@ -48,7 +49,15 @@ class FakeQuery:
             and getattr(getattr(c, "right", None), "value", None) == self.other_business_number
             for c in self.conditions
         ):
-            return SimpleNamespace(id="other-shop-id")
+            # Model the old SQL filter excluding this same shop's own line.
+            excluded = any(
+                getattr(getattr(c, "left", None), "key", None) == "id"
+                and getattr(getattr(c, "right", None), "value", None) == self.business_shop_id
+                and getattr(getattr(c, "operator", None), "__name__", "") == "ne"
+                for c in self.conditions
+            )
+            if not excluded:
+                return SimpleNamespace(id=self.business_shop_id)
         return None
 
 
@@ -97,13 +106,14 @@ class FakeVoicemailQuery:
 class FakeDB:
     def __init__(self, enabled=True, owner_phone=OWNER, other_relay_number=None,
                  other_voicemail_number=None, other_ai_number=None,
-                 other_business_number=None):
+                 other_business_number=None, business_shop_id="other-shop-id"):
         self.enabled = enabled
         self.owner_phone = owner_phone
         self.other_relay_number = other_relay_number
         self.other_voicemail_number = other_voicemail_number
         self.other_ai_number = other_ai_number
         self.other_business_number = other_business_number
+        self.business_shop_id = business_shop_id
 
     def query(self, model):
         if model is DayTelloVoiceRelayAssignment:
@@ -113,7 +123,8 @@ class FakeDB:
         return FakeQuery(SimpleNamespace(
             id="third-shop-id", ai_voice_enabled=True),
             other_ai_number=self.other_ai_number,
-            other_business_number=self.other_business_number)
+            other_business_number=self.other_business_number,
+            business_shop_id=self.business_shop_id)
 
     def get(self, model, shop_id):
         return SimpleNamespace(owner_phone=self.owner_phone)
@@ -251,6 +262,16 @@ class RelayRouteTests(unittest.TestCase):
         # highlevel_phone_number assignment in the database.
         self.client.app.dependency_overrides[get_db] = lambda: FakeDB(
             owner_phone=OWNER, other_business_number=OWNER)
+        result = self.request("/api/daytello/voice-relay/inbound",
+                              {"CallSid": CALL, "To": DID})
+        self.assertEqual(result.status_code, 409)
+        self.assertNotIn("<Dial", result.text)
+
+    def test_same_shop_business_phone_blocks_inbound_relay(self):
+        # A published line can loop back into this shop's AI receptionist.
+        self.client.app.dependency_overrides[get_db] = lambda: FakeDB(
+            owner_phone=OWNER, other_business_number=OWNER,
+            business_shop_id="third-shop-id")
         result = self.request("/api/daytello/voice-relay/inbound",
                               {"CallSid": CALL, "To": DID})
         self.assertEqual(result.status_code, 409)
