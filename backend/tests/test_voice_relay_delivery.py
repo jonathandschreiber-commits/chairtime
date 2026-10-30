@@ -250,7 +250,8 @@ class SignedRecordingDeliveryTests(unittest.TestCase):
             self.db.recordings[RECORDING], OWNER).rsplit("/", 1)[1]
         # A separately approved new recipient must not inherit the old link.
         self.db.owner_phone = "+12405550177"
-        with patch("app.voice_relay_delivery.SessionLocal", return_value=self.db):
+        with patch.dict(os.environ, {"DAYTELLO_VOICEMAIL_TEST_RECIPIENT": "+12405550177"}), \
+             patch("app.voice_relay_delivery.SessionLocal", return_value=self.db):
             response = self.client.get("/api/daytello/voice-relay/listen/" + token)
         self.assertEqual(response.status_code, 404)
 
