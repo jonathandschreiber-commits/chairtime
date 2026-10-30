@@ -382,6 +382,85 @@ class UnifiedPhoneTests(unittest.TestCase):
         with self.factory() as db:
             self.assertIsNone(db.get(DayTelloVoicemailShopSettings, "s1").owner_phone)
 
+    def test_test_relay_activation_requires_platform_call_permission(self):
+        with self.factory() as db:
+            db.add(DayTelloVoiceRelayAssignment(
+                shop_id="s1", relay_number="+12025550123", enabled=False))
+            db.commit()
+        with patch.object(route, "daytello_save_staff_transfer") as transfer:
+            result = self.client.put(
+                self.url, json={"phone_number": "+12025550199"})
+        self.assertEqual(result.status_code, 409)
+        transfer.assert_not_called()
+        with self.factory() as db:
+            self.assertFalse(db.get(DayTelloVoiceRelayAssignment, "s1").enabled)
+
+    def test_test_relay_activation_requires_verified_provider_route(self):
+        with self.factory() as db:
+            db.add(DayTelloVoiceRelayAssignment(
+                shop_id="s1", relay_number="+12025550123", enabled=False))
+            db.commit()
+        with patch.dict(os.environ, {
+            "DAYTELLO_VOICE_RELAY_ALLOW_TEST_CALLS": "true",
+        }), patch.object(route, "VoiceRelayNumberProvider") as provider, (
+             patch.object(route, "daytello_save_staff_transfer") as transfer):
+            provider.return_value.find_existing.return_value = None
+            result = self.client.put(
+                self.url, json={"phone_number": "+12025550199"})
+        self.assertEqual(result.status_code, 409)
+        transfer.assert_not_called()
+        with self.factory() as db:
+            self.assertFalse(db.get(DayTelloVoiceRelayAssignment, "s1").enabled)
+
+    def test_test_relay_activation_after_verified_ai_transfer(self):
+        with self.factory() as db:
+            db.add(DayTelloVoiceRelayAssignment(
+                shop_id="s1", relay_number="+12025550123", enabled=False))
+            db.commit()
+        with patch.dict(os.environ, {
+            "DAYTELLO_VOICE_RELAY_ALLOW_TEST_CALLS": "true",
+        }), patch.object(route, "VoiceRelayNumberProvider") as provider, (
+             patch.object(route, "daytello_save_staff_transfer",
+                          return_value={
+                              "enabled": True, "phone_number": "+12025550123",
+                          }) as transfer):
+            provider.return_value.find_existing.return_value = {
+                "number": "+12025550123", "route_verified": True,
+            }
+            result = self.client.put(
+                self.url, json={"phone_number": "+12025550199"})
+        self.assertEqual(result.status_code, 200, result.text)
+        self.assertTrue(result.json()["test_relay_enabled_for_calls"])
+        self.assertFalse(result.json()["ready"])
+        transfer.assert_called_once()
+        with self.factory() as db:
+            self.assertTrue(db.get(DayTelloVoiceRelayAssignment, "s1").enabled)
+            settings = db.get(DayTelloVoicemailShopSettings, "s1")
+            self.assertTrue(settings.notifications_enabled)
+            self.assertEqual(settings.owner_phone, "+12025550199")
+
+    def test_test_relay_transfer_mismatch_never_activates(self):
+        with self.factory() as db:
+            db.add(DayTelloVoiceRelayAssignment(
+                shop_id="s1", relay_number="+12025550123", enabled=False))
+            db.commit()
+        with patch.dict(os.environ, {
+            "DAYTELLO_VOICE_RELAY_ALLOW_TEST_CALLS": "true",
+        }), patch.object(route, "VoiceRelayNumberProvider") as provider, (
+             patch.object(route, "daytello_save_staff_transfer",
+                          return_value={
+                              "enabled": True, "phone_number": "+12405550198",
+                          })):
+            provider.return_value.find_existing.return_value = {
+                "number": "+12025550123", "route_verified": True,
+            }
+            result = self.client.put(
+                self.url, json={"phone_number": "+12025550199"})
+        self.assertEqual(result.status_code, 502)
+        with self.factory() as db:
+            self.assertFalse(db.get(DayTelloVoiceRelayAssignment, "s1").enabled)
+            self.assertFalse(db.get(DayTelloVoicemailShopSettings, "s1").notifications_enabled)
+
     def test_relay_prepare_requires_explicit_owner_purchase_approval(self):
         endpoint = "/api/shops/shop-a/voice-relay/prepare-test"
         with patch.object(route, "reserve_relay_for_area_code") as provider:
