@@ -31,17 +31,31 @@ def record(shop=SHOP, number=NUMBER, **overrides):
 
 class FakeTwilio:
     def __init__(self, owned=None, *, fail_after_purchase=False, fail_before_purchase=False,
-                 available=None):
+                 available=None, monthly_price="1.15", price_payload=None,
+                 price_status=200):
         self.owned = list(owned or [])
         self.available = list(available or [])
         self.requests = []
         self.fail_after_purchase = fail_after_purchase
         self.fail_before_purchase = fail_before_purchase
+        self.monthly_price = monthly_price
+        self.price_payload = price_payload
+        self.price_status = price_status
 
     def handle(self, request):
         self.requests.append(request)
-        assert request.url.host == "api.twilio.com"
         assert request.headers.get("authorization", "").startswith("Basic ")
+        if request.url.host == "pricing.twilio.com":
+            assert request.method == "GET"
+            assert request.url.path == "/v1/PhoneNumbers/Countries/US"
+            payload = self.price_payload if self.price_payload is not None else {
+                "iso_country": "US", "price_unit": "USD",
+                "phone_number_prices": [{"number_type": "local",
+                    "current_price": self.monthly_price,
+                    "base_price": self.monthly_price}],
+            }
+            return httpx.Response(self.price_status, json=payload)
+        assert request.url.host == "api.twilio.com"
         if request.method == "GET" and "/AvailablePhoneNumbers/" in request.url.path:
             assert request.url.params.get("VoiceEnabled") == "true"
             return httpx.Response(200, json={"available_phone_numbers": self.available})
@@ -80,6 +94,7 @@ class ProviderTests(unittest.TestCase):
             "DAYTELLO_VOICE_RELAY_PUBLIC_ORIGIN": "https://relay.example.test",
             "DAYTELLO_VOICE_RELAY_TEST_ONLY": "true",
             "DAYTELLO_VOICE_RELAY_PURCHASE_ENABLED": "true",
+            "DAYTELLO_VOICE_RELAY_MAX_MONTHLY_USD": "2.00",
         })
         self.env.start()
 
@@ -176,7 +191,58 @@ class ProviderTests(unittest.TestCase):
         self.assertEqual(result["number"], NUMBER)
         self.assertTrue(result["route_verified"])
         self.assertEqual(len([r for r in fake.requests if r.method == "POST"]), 1)
-        self.assertEqual(len([r for r in fake.requests if r.method == "GET"]), 4)
+        self.assertEqual(len([r for r in fake.requests if r.method == "GET"]), 5)
+
+    def test_missing_monthly_cost_ceiling_blocks_purchase(self):
+        fake = FakeTwilio()
+        with patch.dict(os.environ, {"DAYTELLO_VOICE_RELAY_MAX_MONTHLY_USD": ""}):
+            with self.assertRaises(HTTPException) as error:
+                self.provider(fake).purchase_approved_number(
+                    SHOP, NUMBER, approved=True)
+        self.assertEqual(error.exception.status_code, 503)
+        self.assertFalse(any(r.method == "POST" for r in fake.requests))
+
+    def test_monthly_cost_above_ceiling_blocks_purchase(self):
+        fake = FakeTwilio(monthly_price="2.01")
+        with self.assertRaises(HTTPException) as error:
+            self.provider(fake).purchase_approved_number(
+                SHOP, NUMBER, approved=True)
+        self.assertEqual(error.exception.status_code, 409)
+        self.assertFalse(any(r.method == "POST" for r in fake.requests))
+
+    def test_invalid_or_non_us_price_blocks_purchase(self):
+        for payload in (
+            {"iso_country": "CA", "price_unit": "USD",
+             "phone_number_prices": [{"number_type": "local",
+                                      "base_price": "1.00", "current_price": "1.00"}]},
+            {"iso_country": "US", "price_unit": "USD",
+             "phone_number_prices": [{"number_type": "local",
+                                      "base_price": "NaN", "current_price": "1.00"}]},
+            {"iso_country": "US", "price_unit": "USD",
+             "phone_number_prices": []},
+        ):
+            with self.subTest(payload=payload):
+                fake = FakeTwilio(price_payload=payload)
+                with self.assertRaises(HTTPException):
+                    self.provider(fake).purchase_approved_number(
+                        SHOP, NUMBER, approved=True)
+                self.assertFalse(any(r.method == "POST" for r in fake.requests))
+
+    def test_pricing_api_error_blocks_purchase(self):
+        fake = FakeTwilio(price_status=503)
+        with self.assertRaises(HTTPException) as error:
+            self.provider(fake).purchase_approved_number(
+                SHOP, NUMBER, approved=True)
+        self.assertEqual(error.exception.status_code, 502)
+        self.assertFalse(any(r.method == "POST" for r in fake.requests))
+
+    def test_existing_number_does_not_need_new_purchase_cost_check(self):
+        fake = FakeTwilio([record()])
+        with patch.dict(os.environ, {"DAYTELLO_VOICE_RELAY_MAX_MONTHLY_USD": ""}):
+            result = self.provider(fake).purchase_approved_number(SHOP, NUMBER)
+        self.assertTrue(result["route_verified"])
+        self.assertFalse(any(r.url.host == "pricing.twilio.com" for r in fake.requests))
+        self.assertFalse(any(r.method == "POST" for r in fake.requests))
 
     def test_lost_purchase_response_recovers_without_second_charge(self):
         fake = FakeTwilio(fail_after_purchase=True)
