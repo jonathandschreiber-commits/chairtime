@@ -400,10 +400,11 @@ class UnifiedPhoneTests(unittest.TestCase):
             db.add(DayTelloVoiceRelayAssignment(
                 shop_id="s1", relay_number="+12025550123", enabled=False))
             db.commit()
-        with patch.dict(os.environ, {
-            "DAYTELLO_VOICE_RELAY_ALLOW_TEST_CALLS": "true",
-        }), patch.object(route, "VoiceRelayNumberProvider") as provider, (
-             patch.object(route, "daytello_save_staff_transfer") as transfer):
+        with (
+            patch.dict(os.environ, {"DAYTELLO_VOICE_RELAY_ALLOW_TEST_CALLS": "true"}),
+            patch.object(route, "VoiceRelayNumberProvider") as provider,
+            patch.object(route, "daytello_save_staff_transfer") as transfer,
+        ):
             provider.return_value.find_existing.return_value = None
             result = self.client.put(
                 self.url, json={"phone_number": "+12025550199"})
@@ -417,13 +418,14 @@ class UnifiedPhoneTests(unittest.TestCase):
             db.add(DayTelloVoiceRelayAssignment(
                 shop_id="s1", relay_number="+12025550123", enabled=False))
             db.commit()
-        with patch.dict(os.environ, {
-            "DAYTELLO_VOICE_RELAY_ALLOW_TEST_CALLS": "true",
-        }), patch.object(route, "VoiceRelayNumberProvider") as provider, (
-             patch.object(route, "daytello_save_staff_transfer",
-                          return_value={
-                              "enabled": True, "phone_number": "+12025550123",
-                          }) as transfer):
+        with (
+            patch.dict(os.environ, {"DAYTELLO_VOICE_RELAY_ALLOW_TEST_CALLS": "true"}),
+            patch.object(route, "VoiceRelayNumberProvider") as provider,
+            patch.object(route, "daytello_save_staff_transfer",
+                         return_value={
+                             "enabled": True, "phone_number": "+12025550123",
+                         }) as transfer,
+        ):
             provider.return_value.find_existing.return_value = {
                 "number": "+12025550123", "route_verified": True,
             }
@@ -444,13 +446,14 @@ class UnifiedPhoneTests(unittest.TestCase):
             db.add(DayTelloVoiceRelayAssignment(
                 shop_id="s1", relay_number="+12025550123", enabled=False))
             db.commit()
-        with patch.dict(os.environ, {
-            "DAYTELLO_VOICE_RELAY_ALLOW_TEST_CALLS": "true",
-        }), patch.object(route, "VoiceRelayNumberProvider") as provider, (
-             patch.object(route, "daytello_save_staff_transfer",
-                          return_value={
-                              "enabled": True, "phone_number": "+12405550198",
-                          })):
+        with (
+            patch.dict(os.environ, {"DAYTELLO_VOICE_RELAY_ALLOW_TEST_CALLS": "true"}),
+            patch.object(route, "VoiceRelayNumberProvider") as provider,
+            patch.object(route, "daytello_save_staff_transfer",
+                         return_value={
+                             "enabled": True, "phone_number": "+12405550198",
+                         }),
+        ):
             provider.return_value.find_existing.return_value = {
                 "number": "+12025550123", "route_verified": True,
             }
