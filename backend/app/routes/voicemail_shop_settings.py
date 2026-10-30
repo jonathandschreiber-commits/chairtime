@@ -76,6 +76,13 @@ def update_voicemail_settings(
         raise HTTPException(409, "Voicemail number must be provisioned first")
     if payload.notifications_enabled and payload.owner_phone is None:
         raise HTTPException(422, "A notification phone is required")
+    # This preferences endpoint may save a phone or disable alerts, but must
+    # never bypass the separate, test-only verified activation flow. An
+    # already-active recipient cannot be silently swapped either.
+    if payload.notifications_enabled and not prefs.notifications_enabled:
+        raise HTTPException(409, "Voicemail notifications require verified activation")
+    if payload.notifications_enabled and payload.owner_phone != prefs.owner_phone:
+        raise HTTPException(409, "Disable and re-verify the new notification recipient")
     prefs.owner_phone = payload.owner_phone
     prefs.notifications_enabled = payload.notifications_enabled
     db.commit()
