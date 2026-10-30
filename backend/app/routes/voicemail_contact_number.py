@@ -74,14 +74,11 @@ def reject_internal_owner_destination(db: Session, number: str, shop_id: str) ->
         Shop.highlevel_phone_number == number
     ).first() is not None:
         raise HTTPException(409, "Owner phone cannot be an AI Receptionist number")
-    # A different shop's published business line can forward into its AI
-    # receptionist or another voicemail route even when it is not stored
-    # as highlevel_phone_number. Do not bridge calls between tenants.
-    if db.query(Shop).filter(
-        Shop.id != shop_id,
-        Shop.phone == number,
-    ).first() is not None:
-        raise HTTPException(409, "Owner phone cannot be another business's number")
+    # Even this shop's published business line may forward into its AI agent.
+    # Reject all published business numbers to prevent same-shop recursion
+    # as well as cross-tenant call disclosure.
+    if db.query(Shop).filter(Shop.phone == number).first() is not None:
+        raise HTTPException(409, "Owner phone cannot be a business routing number")
 
 
 def _sms_configuration_complete(shop: Shop, settings: DayTelloVoicemailShopSettings | None) -> bool:
