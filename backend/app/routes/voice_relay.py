@@ -159,8 +159,11 @@ async def relay_inbound(request: Request, db: Session = Depends(get_db)):
 @router.post("/daytello/voice-relay/dial-finished")
 async def relay_dial_finished(request: Request, db: Session = Depends(get_db)):
     fields, origin = await _verified(request)
-    call = recorded_call_for_callback(db, fields) if not fields.get("To") else None
-    _assignment(db, call.relay_number if call else fields.get("To"))
+    # Every callback must belong to an inbound CallSid we previously stored.
+    # A signed provider request with a plausible To alone is not a tenant
+    # binding: never start voicemail for an unrelated or unknown call.
+    call = recorded_call_for_callback(db, fields)
+    _assignment(db, call.relay_number)
     status = fields.get("DialCallStatus", "")
     try:
         xml = after_employee_dial(
@@ -176,8 +179,11 @@ async def relay_dial_finished(request: Request, db: Session = Depends(get_db)):
 @router.post("/daytello/voice-relay/record-finished")
 async def relay_record_finished(request: Request, db: Session = Depends(get_db)):
     fields, _ = await _verified(request)
-    call = recorded_call_for_callback(db, fields) if not fields.get("To") else None
-    _assignment(db, call.relay_number if call else fields.get("To"))
+    # Every callback must belong to an inbound CallSid we previously stored.
+    # A signed provider request with a plausible To alone is not a tenant
+    # binding: never start voicemail for an unrelated or unknown call.
+    call = recorded_call_for_callback(db, fields)
+    _assignment(db, call.relay_number)
     return _xml(completed_recording())
 
 
