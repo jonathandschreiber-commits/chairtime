@@ -4,6 +4,8 @@ Twilio RecordingSids are not HighLevel message IDs. Persist the signed voice
 call's DID binding and each completed recording before scheduling owner SMS.
 No provider numbers, telephone routing or deployment settings are changed.
 """
+import hashlib
+import hmac
 import json
 import logging
 import os
@@ -99,14 +101,17 @@ def recorded_call_for_callback(db, fields):
     return call
 
 
-def make_relay_recording_link(recording):
-    """Purpose-bound encrypted bearer link; expires after 24 hours."""
+def make_relay_recording_link(recording, recipient):
+    """Purpose-bound link expires in 24 hours and is revoked on owner phone change."""
+    if not isinstance(recipient, str) or not re.fullmatch(r"\+1[2-9][0-9]{2}[2-9][0-9]{6}", recipient):
+        raise HTTPException(409, "Verified owner recipient required")
     expires = int((datetime.now(timezone.utc) + timedelta(hours=24)).timestamp())
     payload = {
         "purpose": "voice-relay",
         "location": recording.account_sid,
         "message": recording.recording_sid,
         "shop": recording.shop_id,
+        "recipient_hash": hashlib.sha256(recipient.encode("ascii")).hexdigest(),
         "expires": expires,
     }
     token = link_cipher().encrypt(
@@ -171,7 +176,7 @@ def send_relay_owner_alert(recording_sid):
             recipient = owner_phone_for_test_shop(shop.slug, settings, db=db, shop_id=shop.id)
             if not recipient:
                 return
-            link = make_relay_recording_link(receipt)
+            link = make_relay_recording_link(receipt, recipient)
             result = send_highlevel_sms(
                 recipient, f"DayTello TEST: New voicemail for {shop.name}. Listen: {link}",
                 shop_id=shop.id, shop_slug=shop.slug,
@@ -208,10 +213,19 @@ async def listen_to_relay_recording(token: str):
         receipt = db.get(DayTelloVoiceRelayRecording, recording_sid)
         shop = db.get(Shop, shop_id)
         binding = db.get(DayTelloVoiceRelayAssignment, shop_id)
+        settings = db.get(DayTelloVoicemailShopSettings, shop_id)
         if (not receipt or receipt.account_sid != account_sid or
                 receipt.shop_id != shop_id or not shop or
                 not shop.ai_voice_enabled or not binding or
-                not binding.enabled or binding.relay_number != receipt.relay_number):
+                not binding.enabled or binding.relay_number != receipt.relay_number or
+                not settings or settings.receiving_number != receipt.relay_number):
+            raise HTTPException(404, "Recording link unavailable")
+        # Revocation must apply to previously issued links too: opting out,
+        # losing consent, or changing the approved owner number denies playback.
+        recipient = owner_phone_for_test_shop(shop.slug, settings, db=db, shop_id=shop.id)
+        fingerprint = payload.get("recipient_hash")
+        if (not recipient or not isinstance(fingerprint, str) or
+                not hmac.compare_digest(hashlib.sha256(recipient.encode("ascii")).hexdigest(), fingerprint)):
             raise HTTPException(404, "Recording link unavailable")
     key_sid = os.getenv("DAYTELLO_VOICE_RELAY_API_KEY_SID", "").strip()
     key_secret = os.getenv("DAYTELLO_VOICE_RELAY_API_KEY_SECRET", "").strip()
