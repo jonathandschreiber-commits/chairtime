@@ -109,6 +109,14 @@ def _assignment(db, did):
     ).first()
     if voicemail_destination is not None:
         raise HTTPException(409, "Forwarding to a voicemail DID is not permitted")
+    # The AI receptionist's own inbound number is another possible loop,
+    # including numbers belonging to a different tenant. Never send the
+    # employee leg into any shop's AI receptionist.
+    ai_destination = db.query(Shop).filter(
+        Shop.highlevel_phone_number == settings.owner_phone
+    ).first()
+    if ai_destination is not None:
+        raise HTTPException(409, "Forwarding to an AI receptionist number is not permitted")
     return binding, settings
 
 
