@@ -106,3 +106,28 @@ def reserve_or_purchase_relay_for_shop(shop: Shop, db, number: str, *,
         "enabled_for_calls": bool(other_shop_relay and other_shop_relay.enabled),
         "live_call_test_required": True,
     }
+
+
+def reserve_relay_for_area_code(shop: Shop, db, area_code: str, *,
+                                approved=False, provider=None):
+    """Zero-touch number selection after a shop-level purchase approval.
+
+    Existing assignments are always recovered first; a retry never chooses
+    a second number merely because availability inventory has changed.
+    """
+    provider = provider or VoiceRelayNumberProvider()
+    existing = db.get(DayTelloVoiceRelayAssignment, shop.id)
+    if existing:
+        return reserve_or_purchase_relay_for_shop(
+            shop, db, existing.relay_number,
+            approved=False, provider=provider,
+        )
+    if approved is not True:
+        raise HTTPException(409, "Voice relay purchase is not authorized")
+    # Do not select a number before verifying the platform is in test mode.
+    if os.getenv("DAYTELLO_VOICE_RELAY_TEST_ONLY") != "true":
+        raise HTTPException(404, "Voice relay provisioning is disabled")
+    number = provider.find_available_voice_number(area_code)
+    return reserve_or_purchase_relay_for_shop(
+        shop, db, number, approved=True, provider=provider,
+    )
