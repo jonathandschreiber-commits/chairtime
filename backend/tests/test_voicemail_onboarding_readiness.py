@@ -1,6 +1,7 @@
 """Guardrails for new shop voicemail onboarding status (offline)."""
 import os
 import unittest
+from cryptography.fernet import Fernet
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -50,13 +51,42 @@ class ReadinessTests(unittest.TestCase):
             owner_phone="+12025550199", notifications_enabled=True
         )
         with patch("app.routes.voicemail_contact_number.require_owner_for_shop", return_value="test-salon-3"):
-            with patch.dict(os.environ, {"HIGHLEVEL_LOCATION_ID": "test-location",
-                                         "DAYTELLO_VOICEMAIL_OWNER_SMS_ENABLED": "true"}):
+            with patch.dict(os.environ, {
+                "HIGHLEVEL_LOCATION_ID": "test-location",
+                "DAYTELLO_VOICEMAIL_OWNER_SMS_ENABLED": "true",
+                "DAYTELLO_VOICEMAIL_TEST_ONLY": "true",
+                "DAYTELLO_VOICEMAIL_TEST_RECIPIENT": "+12025550199",
+                "DAYTELLO_VOICEMAIL_TEST_RECIPIENT_MAP": "",
+                "DAYTELLO_VOICEMAIL_LINK_KEY": Fernet.generate_key().decode(),
+                "DAYTELLO_VOICEMAIL_TEST_PUBLIC_ORIGIN": "https://voicemail.example.test",
+                "HIGHLEVEL_SMS_FROM_NUMBER": "+12025550124",
+            }):
                 result = voicemail_onboarding_readiness("test-salon-3", FakeDB(settings), owner())
         self.assertTrue(result["sms_activated"])
         self.assertFalse(result["ready_for_customer_calls"])
         self.assertFalse(result["forwarding_to_owner_verified"])
 
+
+    def test_sms_flag_without_delivery_configuration_is_not_active(self):
+        settings = SimpleNamespace(
+            receiving_number="+12025550188", location_id="test-location",
+            owner_phone="+12025550199", notifications_enabled=True,
+        )
+        with patch("app.routes.voicemail_contact_number.require_owner_for_shop", return_value="test-salon-3"):
+            with patch.dict(os.environ, {
+                "HIGHLEVEL_LOCATION_ID": "test-location",
+                "DAYTELLO_VOICEMAIL_OWNER_SMS_ENABLED": "true",
+                "DAYTELLO_VOICEMAIL_TEST_ONLY": "true",
+                "DAYTELLO_VOICEMAIL_TEST_RECIPIENT": "+12025550199",
+                "DAYTELLO_VOICEMAIL_TEST_RECIPIENT_MAP": "",
+                "DAYTELLO_VOICEMAIL_LINK_KEY": "",
+                "HIGHLEVEL_SMS_FROM_NUMBER": "+12025550124",
+            }):
+                result = voicemail_onboarding_readiness("test-salon-3", FakeDB(settings), owner())
+        self.assertTrue(result["voicemail_number_assigned"])
+        self.assertTrue(result["owner_number_saved"])
+        self.assertFalse(result["sms_activated"])
+        self.assertFalse(result["ready_for_customer_calls"])
 
     def test_malformed_assigned_did_does_not_activate_sms(self):
         settings = SimpleNamespace(
