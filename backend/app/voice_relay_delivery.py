@@ -157,6 +157,24 @@ def accept_completed_recording(db, fields, binding, settings):
     return ("queued" if recipient else "disabled"), recording_sid if recipient else None
 
 
+def relay_receipt_route_is_current(receipt, shop, settings, binding) -> bool:
+    """Recheck tenant DID and location before SMS or recording playback.
+
+    A recording callback can queue an alert before the owner changes a shop's
+    voicemail number or HighLevel location. Never deliver against stale state.
+    """
+    expected_location = os.getenv("HIGHLEVEL_LOCATION_ID", "").strip()
+    return bool(
+        expected_location and shop and shop.ai_voice_enabled and
+        settings and binding and binding.enabled and
+        binding.shop_id == receipt.shop_id and
+        binding.relay_number == receipt.relay_number and
+        settings.receiving_number == receipt.relay_number and
+        settings.location_id == expected_location and
+        shop.highlevel_location_id == expected_location
+    )
+
+
 def send_relay_owner_alert(recording_sid):
     """Send once after durable receipt, using the existing tracked SMS sender."""
     status = "failed"
@@ -168,10 +186,7 @@ def send_relay_owner_alert(recording_sid):
             shop = db.get(Shop, receipt.shop_id)
             settings = db.get(DayTelloVoicemailShopSettings, receipt.shop_id)
             binding = db.get(DayTelloVoiceRelayAssignment, receipt.shop_id)
-            if (not shop or not shop.ai_voice_enabled or not settings or
-                    not binding or not binding.enabled or
-                    binding.relay_number != receipt.relay_number or
-                    shop.highlevel_location_id != os.getenv("HIGHLEVEL_LOCATION_ID", "").strip()):
+            if not relay_receipt_route_is_current(receipt, shop, settings, binding):
                 return
             recipient = owner_phone_for_test_shop(shop.slug, settings, db=db, shop_id=shop.id)
             if not recipient:
@@ -215,10 +230,8 @@ async def listen_to_relay_recording(token: str):
         binding = db.get(DayTelloVoiceRelayAssignment, shop_id)
         settings = db.get(DayTelloVoicemailShopSettings, shop_id)
         if (not receipt or receipt.account_sid != account_sid or
-                receipt.shop_id != shop_id or not shop or
-                not shop.ai_voice_enabled or not binding or
-                not binding.enabled or binding.relay_number != receipt.relay_number or
-                not settings or settings.receiving_number != receipt.relay_number):
+                receipt.shop_id != shop_id or
+                not relay_receipt_route_is_current(receipt, shop, settings, binding)):
             raise HTTPException(404, "Recording link unavailable")
         # Revocation must apply to previously issued links too: opting out,
         # losing consent, or changing the approved owner number denies playback.
