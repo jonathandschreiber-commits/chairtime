@@ -234,6 +234,34 @@ class OwnerVerificationTests(unittest.TestCase):
                 db, "shop-a")["notifications_enabled"])
             self.assertEqual(len(self.sent), 1)
 
+    def test_opt_out_is_tenant_scoped_and_works_with_sms_feature_disabled(self):
+        # An owner can revoke consent even if the SMS verification feature
+        # has since been disabled. No provider call or other tenant is touched.
+        with self.factory() as db:
+            self.start(db, shop="shop-a", phone=PHONE)
+            confirm_owner_verification(db, "shop-a", PHONE, self.code())
+            self.start(db, shop="shop-b", phone=OTHER)
+            confirm_owner_verification(db, "shop-b", OTHER, self.code())
+            for shop_id, phone in (("shop-a", PHONE), ("shop-b", OTHER)):
+                db.add(DayTelloVoicemailShopSettings(
+                    shop_id=shop_id, location_id="loc-test",
+                    receiving_number="+12025550131" if shop_id == "shop-a" else "+12025550132",
+                    owner_phone=phone, notifications_enabled=True,
+                ))
+            db.commit()
+            with patch.dict(os.environ, {
+                "DAYTELLO_VOICEMAIL_OWNER_VERIFICATION_ENABLED": "false",
+                "DAYTELLO_VOICEMAIL_OWNER_SMS_ENABLED": "false",
+            }):
+                result = disable_owner_voicemail_notifications(db, "shop-a")
+                self.assertFalse(result["notifications_enabled"])
+                self.assertFalse(result["call_routing_changed"])
+            self.assertFalse(db.get(DayTelloVoicemailShopSettings, "shop-a").notifications_enabled)
+            self.assertTrue(db.get(DayTelloVoicemailShopSettings, "shop-b").notifications_enabled)
+            self.assertIsNone(db.get(DayTelloVoicemailOwnerVerification, "shop-a").verified_at)
+            self.assertEqual(verified_owner_recipient(db, "shop-b", OTHER), OTHER)
+            self.assertEqual(len(self.sent), 2)
+
     def test_opt_out_route_rejects_other_shop_and_revokes_otp(self):
         app = FastAPI()
         app.include_router(contact_route.router, prefix="/api")
