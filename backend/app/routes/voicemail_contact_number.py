@@ -20,6 +20,7 @@ from app.routes.ai_setup import (
 from app.voicemail_models import DayTelloVoicemailShopSettings
 from app.voice_relay_models import DayTelloVoiceRelayAssignment
 from app.voicemail_auto_provision import ensure_test_voicemail_number
+from app.voice_relay_provisioning import reserve_relay_for_area_code
 from app.voicemail_owner_links import (
     approved_test_recipient,
     link_cipher,
@@ -173,6 +174,44 @@ def voicemail_onboarding_readiness(
         "requires_manual_provider_setup": True,
         "reason": "Automated provider forwarding and voicemail fallback verification are not implemented.",
     }
+
+
+class PrepareTestVoiceRelay(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    area_code: str
+    authorize_number_purchase: bool = False
+
+    @field_validator("area_code")
+    @classmethod
+    def validate_area_code(cls, value):
+        if not isinstance(value, str) or not re.fullmatch(r"[2-9][0-9]{2}", value):
+            raise ValueError("Enter a valid three-digit US area code")
+        return value
+
+
+@router.post("/shops/{shop_slug}/voice-relay/prepare-test")
+def prepare_test_voice_relay(
+    shop_slug: str,
+    payload: PrepareTestVoiceRelay,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Owner-approved test DID purchase and disabled exclusive assignment.
+
+    No purchase without an explicit owner confirmation and platform gate.
+    This does not enable call routing, send SMS or declare customer readiness.
+    """
+    shop = owner_shop(db, shop_slug, current_user)
+    if payload.authorize_number_purchase is not True:
+        raise HTTPException(409, "Approve the relay number purchase before setup")
+    if (os.getenv("DAYTELLO_VOICE_RELAY_TEST_ONLY") != "true" or
+            os.getenv("DAYTELLO_VOICE_RELAY_PURCHASE_ENABLED") != "true"):
+        raise HTTPException(409, "Automatic relay number purchasing is not enabled")
+    result = reserve_relay_for_area_code(
+        shop, db, payload.area_code, approved=True,
+    )
+    return {**result, "ready_for_customer_calls": False,
+            "next_step": "Save the approved owner transfer number"}
 
 
 @router.get("/shops/{shop_slug}/call-voicemail-number")
