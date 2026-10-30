@@ -103,6 +103,55 @@ class UnifiedPhoneTests(unittest.TestCase):
             self.assertEqual(record.owner_phone, "+12025550199")
             self.assertTrue(record.notifications_enabled)
 
+    def test_saved_sms_flag_not_ready_when_global_delivery_is_disabled(self):
+        with self.factory() as db:
+            prefs = db.get(DayTelloVoicemailShopSettings, "s1")
+            prefs.owner_phone = "+12025550199"
+            prefs.notifications_enabled = True
+            db.commit()
+        with patch.dict(os.environ, {"DAYTELLO_VOICEMAIL_OWNER_SMS_ENABLED": "false"}):
+            response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertTrue(response.json()["notifications_enabled"])
+        self.assertFalse(response.json()["sms_ready"])
+        self.assertFalse(response.json()["ready"])
+
+    def test_saved_sms_flag_not_ready_when_recipient_is_not_approved(self):
+        with self.factory() as db:
+            prefs = db.get(DayTelloVoicemailShopSettings, "s1")
+            prefs.owner_phone = "+12025550199"
+            prefs.notifications_enabled = True
+            db.commit()
+        with patch.dict(os.environ, {
+            "DAYTELLO_VOICEMAIL_TEST_RECIPIENT_MAP": "",
+            "DAYTELLO_VOICEMAIL_TEST_RECIPIENT": "+12025550198",
+        }):
+            response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertFalse(response.json()["sms_ready"])
+
+    def test_saved_sms_flag_not_ready_without_secure_link_configuration(self):
+        with self.factory() as db:
+            prefs = db.get(DayTelloVoicemailShopSettings, "s1")
+            prefs.owner_phone = "+12025550199"
+            prefs.notifications_enabled = True
+            db.commit()
+        with patch.dict(os.environ, {"DAYTELLO_VOICEMAIL_LINK_KEY": ""}):
+            response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertFalse(response.json()["sms_ready"])
+
+    def test_saved_sms_flag_not_ready_with_invalid_voicemail_did(self):
+        with self.factory() as db:
+            prefs = db.get(DayTelloVoicemailShopSettings, "s1")
+            prefs.owner_phone = "+12025550199"
+            prefs.receiving_number = "invalid-did"
+            prefs.notifications_enabled = True
+            db.commit()
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertFalse(response.json()["sms_ready"])
+
     def assert_internal_owner_number_rejected(self, number):
         os.environ["DAYTELLO_VOICEMAIL_TEST_RECIPIENT"] = number
         with patch.object(route, "daytello_save_staff_transfer") as transfer:
