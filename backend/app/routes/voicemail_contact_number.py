@@ -304,6 +304,9 @@ def activate_shop_voicemail_notifications(
     if settings.location_id != expected_location:
         raise HTTPException(409, "Voicemail location mismatch")
 
+    # A legacy or separately saved phone may not have passed the owner-number
+    # safety checks in the unified setup route. Re-check before activation.
+    reject_internal_owner_destination(db, settings.owner_phone)
     # Keep tenant separation and the original approved recipient mandatory.
     approved_test_recipient(shop.slug, settings.owner_phone)
     link_cipher()
