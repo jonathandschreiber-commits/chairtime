@@ -207,16 +207,12 @@ class ProviderTests(unittest.TestCase):
 
     def test_tollfree_number_cannot_use_local_price_ceiling(self):
         tollfree = "+18885550123"
-        fake = FakeTwilio(available=[
-            {"phone_number": tollfree, "capabilities": {"voice": True},
-             "address_requirements": "none"},
-        ])
-        # Mock inventory returning a toll-free DID from the local endpoint
-        # cannot prove its type. Use a separate local inventory check and
-        # reject the special toll-free prefix before the chargeable call.
+        # Twilio's US Local inventory does not list toll-free numbers.
+        # An exact-number request must not bypass the Local inventory check.
+        fake = FakeTwilio()
         with self.assertRaises(HTTPException):
             self.provider(fake).purchase_approved_number(
-                SHOP, NUMBER, approved=True)
+                SHOP, tollfree, approved=True)
         self.assertFalse(any(r.method == "POST" for r in fake.requests))
 
     def test_local_inventory_query_is_exact_and_read_only(self):
