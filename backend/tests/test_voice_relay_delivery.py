@@ -31,7 +31,10 @@ RECORDING = "RE" + "b" * 32
 
 class DeliveryDB(FakeDB):
     def __init__(self):
-        super().__init__()
+        # Signed delivery tests use a separate test location from the
+        # general relay route tests. Keep the mocked shop and settings
+        # consistent with the configured provider location.
+        super().__init__(location_id="test-location", shop_location_id="test-location")
         self.recordings = {}
         self.pending = None
         self.notifications_enabled = True
