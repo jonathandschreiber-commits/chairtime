@@ -176,6 +176,16 @@ class RelayRouteTests(unittest.TestCase):
             "x-twilio-signature": signature,
         })
 
+    def seed_call(self):
+        # Simulate the durable binding written by a prior signed inbound
+        # callback, without granting trust to the later callback's To field.
+        db = self.client.app.dependency_overrides[get_db]()
+        db.calls[CALL] = SimpleNamespace(
+            call_sid=CALL, account_sid=ACCOUNT,
+            shop_id="third-shop-id", relay_number=DID,
+        )
+        self.client.app.dependency_overrides[get_db] = lambda: db
+
     def test_rejects_ambiguous_content_types_before_routing(self):
         fields = {"CallSid": CALL, "To": DID}
         for content_type in (
@@ -297,6 +307,7 @@ class RelayRouteTests(unittest.TestCase):
     def test_cross_shop_business_phone_blocks_dial_callback(self):
         self.client.app.dependency_overrides[get_db] = lambda: FakeDB(
             owner_phone=OWNER, other_business_number=OWNER)
+        self.seed_call()
         result = self.request("/api/daytello/voice-relay/dial-finished",
                               {"CallSid": CALL, "To": DID,
                                "DialCallStatus": "no-answer"})
@@ -306,6 +317,7 @@ class RelayRouteTests(unittest.TestCase):
     def test_ai_receptionist_loop_is_rejected_on_dial_callback(self):
         self.client.app.dependency_overrides[get_db] = lambda: FakeDB(
             owner_phone=OWNER, other_ai_number=OWNER)
+        self.seed_call()
         result = self.request("/api/daytello/voice-relay/dial-finished",
                               {"CallSid": CALL, "To": DID,
                                "DialCallStatus": "no-answer"})
@@ -315,6 +327,7 @@ class RelayRouteTests(unittest.TestCase):
     def test_voicemail_did_loop_is_rejected_on_dial_callback(self):
         self.client.app.dependency_overrides[get_db] = lambda: FakeDB(
             owner_phone=OWNER, other_voicemail_number=OWNER)
+        self.seed_call()
         result = self.request("/api/daytello/voice-relay/dial-finished",
                               {"CallSid": CALL, "To": DID,
                                "DialCallStatus": "no-answer"})
@@ -328,22 +341,54 @@ class RelayRouteTests(unittest.TestCase):
         self.assertEqual(result.status_code, 404)
 
     def test_answered_call_does_not_record(self):
+        self.seed_call()
         result = self.request("/api/daytello/voice-relay/dial-finished",
                               {"CallSid": CALL, "To": DID, "DialCallStatus": "completed"})
         self.assertEqual(result.status_code, 200)
         self.assertNotIn("<Record", result.text)
 
     def test_missed_call_prompts_voicemail(self):
+        self.seed_call()
         result = self.request("/api/daytello/voice-relay/dial-finished",
                               {"CallSid": CALL, "To": DID, "DialCallStatus": "no-answer"})
         self.assertEqual(result.status_code, 200)
         self.assertIn("<Record", result.text)
 
     def test_canceled_transfer_hangs_up_without_voicemail(self):
+        self.seed_call()
         result = self.request("/api/daytello/voice-relay/dial-finished",
                               {"CallSid": CALL, "To": DID, "DialCallStatus": "canceled"})
         self.assertEqual(result.status_code, 200)
         self.assertNotIn("<Record", result.text)
+        self.assertIn("<Hangup", result.text)
+
+    def test_unknown_dial_callback_cannot_start_voicemail_even_with_to(self):
+        result = self.request("/api/daytello/voice-relay/dial-finished", {
+            "CallSid": CALL, "To": DID, "DialCallStatus": "no-answer",
+        })
+        self.assertEqual(result.status_code, 404)
+        self.assertNotIn("<Record", result.text)
+
+    def test_dial_callback_to_must_match_saved_inbound_call(self):
+        self.seed_call()
+        result = self.request("/api/daytello/voice-relay/dial-finished", {
+            "CallSid": CALL, "To": OWNER, "DialCallStatus": "no-answer",
+        })
+        self.assertEqual(result.status_code, 409)
+        self.assertNotIn("<Record", result.text)
+
+    def test_record_finished_requires_saved_inbound_call(self):
+        result = self.request("/api/daytello/voice-relay/record-finished", {
+            "CallSid": CALL, "To": DID,
+        })
+        self.assertEqual(result.status_code, 404)
+
+    def test_record_finished_accepts_matching_saved_call(self):
+        self.seed_call()
+        result = self.request("/api/daytello/voice-relay/record-finished", {
+            "CallSid": CALL, "To": DID,
+        })
+        self.assertEqual(result.status_code, 200)
         self.assertIn("<Hangup", result.text)
 
     def test_recording_callback_without_known_inbound_call_fails_closed(self):
@@ -393,6 +438,7 @@ class RelayRouteTests(unittest.TestCase):
     def test_missing_call_identifier_and_unknown_dial_status_fail_closed(self):
         missing = self.request("/api/daytello/voice-relay/inbound", {"To": DID})
         self.assertEqual(missing.status_code, 422)
+        self.seed_call()
         unexpected = self.request("/api/daytello/voice-relay/dial-finished", {
             "CallSid": CALL, "To": DID, "DialCallStatus": "mystery",
         })
