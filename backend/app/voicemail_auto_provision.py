@@ -13,6 +13,7 @@ from fastapi import HTTPException
 from sqlalchemy.exc import IntegrityError
 
 from app.models import Shop
+from app.voice_relay_models import DayTelloVoiceRelayAssignment
 from app.routes.ai_setup import get_location_phone_numbers, get_phone_inbound_service
 from app.routes.voicemail_webhook import configured_routing_map, valid_phone
 from app.voicemail_models import DayTelloVoicemailShopSettings
@@ -109,6 +110,13 @@ def ensure_test_voicemail_number(shop: Shop, db):
     for number in candidates:
         if number in other_shop_numbers:
             continue
+        # Programmable voice relay assignments are independent of HighLevel
+        # voicemail settings. Never claim the same DID in both systems, even
+        # when the relay is currently disabled and could be enabled later.
+        if db.query(DayTelloVoiceRelayAssignment).filter(
+            DayTelloVoiceRelayAssignment.relay_number == number,
+        ).first() is not None:
+            continue
         if number in (shop.highlevel_phone_number, shop.phone):
             continue
         if db.query(DayTelloVoicemailShopSettings).filter(
@@ -173,6 +181,12 @@ def bind_explicitly_labeled_test_voicemail(location_id: str, number: str, db):
         DayTelloVoicemailShopSettings.location_id == location_id,
         DayTelloVoicemailShopSettings.receiving_number == number,
     ).first():
+        return None
+    # A previously claimed programmable relay DID must not be silently
+    # reassigned by the signed-event recovery path either.
+    if db.query(DayTelloVoiceRelayAssignment).filter(
+        DayTelloVoiceRelayAssignment.relay_number == number,
+    ).first() is not None:
         return None
 
     _, inventory = verified_phone_inventory(location_id)
