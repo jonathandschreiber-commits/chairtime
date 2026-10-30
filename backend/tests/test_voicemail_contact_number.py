@@ -140,6 +140,20 @@ class UnifiedPhoneTests(unittest.TestCase):
             db.commit()
         self.assert_internal_owner_number_rejected("+12025550198")
 
+    def test_test_activation_rejects_previously_saved_internal_did(self):
+        with self.factory() as db:
+            prefs = db.get(DayTelloVoicemailShopSettings, "s1")
+            prefs.owner_phone = "+12025550123"
+            db.commit()
+        os.environ["DAYTELLO_VOICEMAIL_TEST_RECIPIENT"] = "+12025550123"
+        response = self.client.post(
+            "/api/shops/shop-a/voicemail-notifications/activate-test",
+            json={"confirmed_live_call_test": True},
+        )
+        self.assertEqual(response.status_code, 409, response.text)
+        with self.factory() as db:
+            self.assertFalse(db.get(DayTelloVoicemailShopSettings, "s1").notifications_enabled)
+
     def test_failed_transfer_leaves_notification_unchanged(self):
         with patch.object(
             route, "daytello_save_staff_transfer",
