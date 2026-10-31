@@ -170,6 +170,28 @@ class ProviderTests(unittest.TestCase):
         self.assertTrue(result["route_verified"])
         self.assertTrue(all(r.method == "GET" for r in fake.requests))
 
+    def test_discovers_provider_owned_reserves_without_railway_pool_or_purchase(self):
+        # The platform can use pre-labeled inventory without editing a
+        # per-number environment variable. Every API request remains GET.
+        fake = FakeTwilio([
+            record(friendly_name="DayTello Relay Reserve"),
+            record(number=OTHER, sid="PN" + "d" * 32,
+                   friendly_name="Unrelated business"),
+        ])
+        with patch.dict(os.environ, {
+            "DAYTELLO_VOICE_RELAY_PREOWNED_NUMBER_POOL": "",
+            "DAYTELLO_VOICE_RELAY_PURCHASE_ENABLED": "false",
+        }):
+            provider = self.provider(fake)
+            self.assertEqual(provider.list_reserved_relay_numbers(), [NUMBER])
+            self.assertIsNone(provider.find_existing(SHOP))
+            verified = provider.purchase_approved_number(
+                SHOP, NUMBER, approved=False)
+        self.assertEqual(verified["number"], NUMBER)
+        self.assertTrue(verified["route_verified"])
+        self.assertTrue(fake.requests)
+        self.assertTrue(all(r.method == "GET" for r in fake.requests))
+
     def test_preowned_reserve_rejects_wrong_label_or_route(self):
         with patch.dict(os.environ, {
             "DAYTELLO_VOICE_RELAY_PREOWNED_NUMBER_POOL": '["'+NUMBER+'"]',
