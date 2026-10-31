@@ -70,13 +70,13 @@ deliberately separate from request handling and cannot alter phone routing,
 purchase numbers, or change HighLevel/Railway settings.
 
 An authorized operator in an **isolated test environment** may invoke
-`python -m app.voice_relay_recovery_worker --execute --limit 25` only after
+`python -m app.voice_relay_recovery_worker --execute --shop-id <exact-shop-uuid> --limit 25` only after
 explicit approval to send test owner SMS and after setting all four flags:
 `DAYTELLO_VOICE_RELAY_TEST_ONLY=true`,
 `DAYTELLO_VOICEMAIL_TEST_ONLY=true`,
 `DAYTELLO_VOICEMAIL_OWNER_SMS_ENABLED=true`, and
 `DAYTELLO_VOICE_RELAY_RECOVERY_WORKER_ENABLED=true`.
-Missing `--execute`, a missing flag, or an invalid batch size fails closed.
+Missing `--execute`, an exact `--shop-id`, a missing flag, or an invalid batch size fails closed. Recovery scans are strictly limited to the selected shop; never use another tenant's ID or a shared wildcard. The worker still does not schedule itself.
 No invocation has been performed against a provider.
 
 The worker examines at most 100 queued receipts per invocation and only
