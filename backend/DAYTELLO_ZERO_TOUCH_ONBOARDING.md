@@ -79,7 +79,9 @@ explicit approval to send test owner SMS and after setting all four flags:
 Missing `--execute`, a missing flag, or an invalid batch size fails closed.
 No invocation has been performed against a provider.
 
-The worker examines at most 100 queued receipts per invocation, reuses the
+The worker examines at most 100 queued receipts per invocation and only
+considers receipts that have remained queued for **at least five minutes**,
+allowing ordinary background dispatch time to finish. It reuses the
 atomic queued-to-sending claim, and **never retries sending/failed receipts**,
 because provider acceptance may be ambiguous. The reported count is examined
 receipts, not confirmed SMS deliveries. It does not loop or schedule itself;
