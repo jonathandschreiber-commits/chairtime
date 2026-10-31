@@ -87,3 +87,21 @@ because provider acceptance may be ambiguous. The reported count is examined
 receipts, not confirmed SMS deliveries. It does not loop or schedule itself;
 connecting an isolated scheduler, observability, and proving provider-backed
 delivery remain release blockers.
+
+
+### Read-only recovery preflight (not scheduled)
+
+In the isolated test environment, an operator may run
+`python -m app.voice_relay_recovery_worker --preview --shop-id <exact-shop-uuid> --limit 25`
+to see a bounded count of eligible queued receipts before authorizing a recovery.
+Preview requires both `DAYTELLO_VOICE_RELAY_TEST_ONLY=true` and
+`DAYTELLO_VOICEMAIL_TEST_ONLY=true`, but does **not** require SMS enablement
+or the recovery execution flag. It does not claim receipts, contact the SMS
+provider, purchase numbers, or change routing. `--preview` and `--execute`
+are mutually exclusive. Both require an exact shop ID and a limit of 1–100.
+
+The preview count includes only that shop's receipts queued for at least five
+minutes and is capped at the requested limit. It is a snapshot, not a promise
+of SMS delivery or an exact count of future work. No scheduler is connected;
+a separate, explicitly approved isolated scheduler and provider-backed
+verification are still required before automated recovery is operational.
