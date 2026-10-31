@@ -92,5 +92,49 @@ class VoiceRelayRecoveryWorkerTests(unittest.TestCase):
         self.assertIn("SMS delivery not confirmed", stdout.getvalue())
 
 
+    def test_preview_only_needs_isolated_test_flags_and_never_executes(self):
+        preview_flags = {**FLAGS,
+            "DAYTELLO_VOICEMAIL_OWNER_SMS_ENABLED": "false",
+            "DAYTELLO_VOICE_RELAY_RECOVERY_WORKER_ENABLED": "false",
+        }
+        with patch.dict(os.environ, preview_flags), \
+             patch("app.voice_relay_delivery.preview_queued_relay_alerts",
+                   return_value=2) as preview, \
+             patch("app.voice_relay_delivery.recover_queued_relay_alerts") as recover:
+            self.assertEqual(run_once(shop_id="third-shop-id", limit=4, preview=True), 2)
+        preview.assert_called_once_with(shop_id="third-shop-id", limit=4)
+        recover.assert_not_called()
+
+    def test_preview_rejects_non_test_environment(self):
+        with patch.dict(os.environ, {**FLAGS, "DAYTELLO_VOICEMAIL_TEST_ONLY": "false"}), \
+             patch("app.voice_relay_delivery.preview_queued_relay_alerts") as preview:
+            with self.assertRaises(PermissionError):
+                run_once(shop_id="third-shop-id", preview=True)
+        preview.assert_not_called()
+
+    def test_preview_and_execution_are_mutually_exclusive(self):
+        with patch.dict(os.environ, FLAGS):
+            with self.assertRaises(ValueError):
+                run_once(shop_id="third-shop-id", preview=True, execute=True)
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            with self.assertRaises(SystemExit) as result:
+                main(["--preview", "--execute", "--shop-id", "third-shop-id"])
+        self.assertEqual(result.exception.code, 2)
+
+    def test_cli_preview_reports_count_without_sms(self):
+        stdout = io.StringIO()
+        with patch.dict(os.environ, FLAGS), \
+             patch("app.voice_relay_delivery.preview_queued_relay_alerts",
+                   return_value=3) as preview, \
+             patch("app.voice_relay_delivery.recover_queued_relay_alerts") as recover, \
+             contextlib.redirect_stdout(stdout):
+            self.assertEqual(main(["--preview", "--shop-id", "third-shop-id"]), 0)
+        preview.assert_called_once_with(shop_id="third-shop-id", limit=25)
+        recover.assert_not_called()
+        self.assertIn("Preview: up to 3 eligible", stdout.getvalue())
+        self.assertIn("no SMS sent", stdout.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()
