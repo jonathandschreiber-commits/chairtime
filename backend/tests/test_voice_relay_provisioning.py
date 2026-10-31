@@ -101,6 +101,20 @@ class ClaimTests(unittest.TestCase):
         self.assertFalse(provider.selections)
         self.assertEqual(provider.calls[-1], ("shop-a", NUMBER, False))
 
+    def test_area_code_retry_with_stale_approval_does_not_select_or_purchase(self):
+        provider = FakeProvider()
+        with self.factory() as db:
+            self.reserve(db, provider=provider)
+            result = reserve_relay_for_area_code(
+                db.get(Shop, "shop-a"), db, "301",
+                approved=True, provider=provider)
+            self.assertEqual(result["relay_number"], NUMBER)
+            self.assertEqual(db.query(DayTelloVoiceRelayAssignment).count(), 1)
+        self.assertFalse(provider.selections)
+        self.assertEqual(provider.calls, [
+            ("shop-a", NUMBER, False), ("shop-a", NUMBER, False),
+        ])
+
     def test_creates_exclusive_disabled_claim_and_owner_settings(self):
         provider = FakeProvider()
         with self.factory() as db:
@@ -131,8 +145,9 @@ class ClaimTests(unittest.TestCase):
         provider = FakeProvider()
         with self.factory() as db:
             self.reserve(db, provider=provider)
-            with patch("app.voice_relay_provisioning._require_purchase_lock"):
-                self.reserve(db, approved=True, provider=provider)
+            # A repeated approval must be safe on SQLite because recovery
+            # is read-only and cannot buy another DID.
+            self.reserve(db, approved=True, provider=provider)
             self.assertEqual(db.query(DayTelloVoiceRelayAssignment).count(), 1)
         self.assertEqual(provider.calls, [
             ("shop-a", NUMBER, False), ("shop-a", NUMBER, False),
