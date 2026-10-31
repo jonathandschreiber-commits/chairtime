@@ -20,9 +20,9 @@ class VoiceRelayRecoveryWorkerTests(unittest.TestCase):
     def test_explicit_execution_is_required_even_when_enabled(self):
         with patch.dict(os.environ, FLAGS):
             with self.assertRaises(PermissionError):
-                run_once()
+                run_once(shop_id="third-shop-id")
             with self.assertRaises(PermissionError):
-                run_once(execute=1)
+                run_once(shop_id="third-shop-id", execute=1)
 
     def test_all_four_flags_are_required(self):
         for flag in FLAGS:
@@ -30,7 +30,7 @@ class VoiceRelayRecoveryWorkerTests(unittest.TestCase):
                 disabled = {**FLAGS, flag: "false"}
                 with patch.dict(os.environ, disabled):
                     with self.assertRaises(PermissionError) as error:
-                        run_once(execute=True)
+                        run_once(shop_id="third-shop-id", execute=True)
                     self.assertIn(flag, str(error.exception))
 
     def test_rejects_invalid_batch_sizes_before_importing_delivery(self):
@@ -38,7 +38,7 @@ class VoiceRelayRecoveryWorkerTests(unittest.TestCase):
             for limit in (0, 101, True, "25", -1):
                 with self.subTest(limit=limit):
                     with self.assertRaises(ValueError):
-                        run_once(limit=limit, execute=True)
+                        run_once(shop_id="third-shop-id", limit=limit, execute=True)
 
     def test_one_batch_delegates_to_atomic_delivery_recovery(self):
         with patch.dict(os.environ, FLAGS):
@@ -46,8 +46,29 @@ class VoiceRelayRecoveryWorkerTests(unittest.TestCase):
                 "app.voice_relay_delivery.recover_queued_relay_alerts",
                 return_value=3,
             ) as recover:
-                self.assertEqual(run_once(limit=7, execute=True), 3)
-            recover.assert_called_once_with(limit=7)
+                self.assertEqual(run_once(shop_id="third-shop-id", limit=7, execute=True), 3)
+            recover.assert_called_once_with(shop_id="third-shop-id", limit=7)
+
+    def test_shop_scope_is_mandatory_and_validated_before_delivery_import(self):
+        with patch.dict(os.environ, FLAGS), patch(
+            "app.voice_relay_delivery.recover_queued_relay_alerts",
+        ) as recover:
+            for shop_id in (None, "", " ", "../other-shop", "a" * 129, 123):
+                with self.subTest(shop_id=shop_id):
+                    with self.assertRaises(ValueError):
+                        run_once(shop_id=shop_id, execute=True)
+            recover.assert_not_called()
+
+    def test_cli_rejects_missing_shop_scope_without_sending(self):
+        stderr = io.StringIO()
+        with patch.dict(os.environ, FLAGS), patch(
+            "app.voice_relay_delivery.recover_queued_relay_alerts",
+        ) as recover, contextlib.redirect_stderr(stderr):
+            with self.assertRaises(SystemExit) as result:
+                main(["--execute"])
+        self.assertEqual(result.exception.code, 2)
+        self.assertIn("exact shop ID", stderr.getvalue())
+        recover.assert_not_called()
 
     def test_cli_requires_opt_in_without_attempting_recovery(self):
         stderr = io.StringIO()
@@ -65,8 +86,8 @@ class VoiceRelayRecoveryWorkerTests(unittest.TestCase):
                  return_value=2,
              ) as recover, \
              contextlib.redirect_stdout(stdout):
-            self.assertEqual(main(["--execute", "--limit", "4"]), 0)
-        recover.assert_called_once_with(limit=4)
+            self.assertEqual(main(["--execute", "--shop-id", "third-shop-id", "--limit", "4"]), 0)
+        recover.assert_called_once_with(shop_id="third-shop-id", limit=4)
         self.assertIn("Examined 2 queued", stdout.getvalue())
         self.assertIn("SMS delivery not confirmed", stdout.getvalue())
 
