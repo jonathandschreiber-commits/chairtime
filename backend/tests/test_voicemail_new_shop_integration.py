@@ -23,7 +23,7 @@ from app.database import Base, get_db
 from app.models import Shop, User
 from app.routes.auth import get_current_user
 from app.routes import ai_setup, voicemail_contact_number, voice_relay
-from app import voice_relay_delivery
+from app import voice_relay_delivery, voice_relay_provider
 from app.voice_relay_models import DayTelloVoiceRelayAssignment
 from app.voicemail_models import DayTelloVoicemailShopSettings
 
@@ -523,8 +523,46 @@ class NewShopIntegrationTests(unittest.TestCase):
 
     def test_discovered_reserve_ai_number_to_forwarding_voicemail_sms_and_audio(self):
         # No shop-specific DID or static pool existed before AI activation.
-        # Discover the provider-owned reserve, then exercise forwarding,
-        # missed-call recording, SMS and audio with mocked external I/O.
+        # Exercise the real Twilio inventory adapter against mocked HTTP,
+        # rather than faking its find_existing result. This verifies exact
+        # provider ownership, reserve label and inbound webhook configuration
+        # in the same end-to-end test as the call and owner SMS.
+        seen_inventory_requests = []
+        reserve_record = {
+            "account_sid": ACCOUNT,
+            "friendly_name": voice_relay_provider.RESERVE_LABEL,
+            "phone_number": RELAY,
+            "sid": "PN" + "e" * 32,
+            "voice_url": "https://relay.example.test/api/daytello/voice-relay/inbound",
+            "voice_method": "POST",
+            "voice_application_sid": None,
+            "trunk_sid": None,
+            "capabilities": {"voice": True},
+            "status": "in-use",
+        }
+
+        def inventory(request):
+            seen_inventory_requests.append(request)
+            self.assertEqual(request.method, "GET", "No provider purchase or route change")
+            self.assertEqual(request.url.host, "api.twilio.com")
+            self.assertTrue(request.url.path.endswith("/IncomingPhoneNumbers.json"))
+            self.assertTrue(request.headers.get("authorization", "").startswith("Basic "))
+            query = request.url.params
+            if query.get("FriendlyName") == voice_relay_provider.RESERVE_LABEL:
+                records = [reserve_record]
+            elif query.get("PhoneNumber") == RELAY:
+                records = [reserve_record]
+            else:
+                records = []
+            return httpx.Response(200, json={
+                "incoming_phone_numbers": records, "next_page_uri": None,
+            })
+
+        provider_client = httpx.Client(transport=httpx.MockTransport(inventory))
+        self.addCleanup(provider_client.close)
+        real_provider = voice_relay_provider.VoiceRelayNumberProvider(
+            client=provider_client,
+        )
         with (
             patch.dict(os.environ, {
                 "DAYTELLO_VOICE_RELAY_PREOWNED_NUMBER_POOL": "",
@@ -539,7 +577,7 @@ class NewShopIntegrationTests(unittest.TestCase):
             patch.object(ai_setup, "purchase_one_highlevel_phone_number",
                          side_effect=AssertionError("Unexpected AI number purchase")),
             patch.object(voicemail_contact_number, "VoiceRelayNumberProvider",
-                         return_value=self._pooled_provider()),
+                         return_value=real_provider),
             patch.object(voice_relay_delivery, "SessionLocal", self.factory),
             patch.object(voice_relay_delivery, "send_highlevel_sms",
                          side_effect=self._capture_sms),
@@ -600,6 +638,17 @@ class NewShopIntegrationTests(unittest.TestCase):
                 self.assertEqual(
                     db.get(DayTelloVoicemailShopSettings, "stan-id").owner_phone,
                     "+12405550133")
+            # Both reserve discovery and exact DID read-back occurred.
+            # No HighLevel AI number or Twilio relay number was purchased.
+            self.assertGreaterEqual(len(seen_inventory_requests), 3)
+            self.assertTrue(any(
+                request.url.params.get("FriendlyName") == voice_relay_provider.RESERVE_LABEL
+                for request in seen_inventory_requests
+            ))
+            self.assertTrue(any(
+                request.url.params.get("PhoneNumber") == RELAY
+                for request in seen_inventory_requests
+            ))
 
     def test_reserved_pool_does_not_take_another_shops_did(self):
         with self.factory() as db:
