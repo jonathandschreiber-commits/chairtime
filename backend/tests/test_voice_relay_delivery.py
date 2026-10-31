@@ -22,6 +22,7 @@ from app.voice_relay_models import DayTelloVoiceRelayAssignment
 from app.voice_relay_delivery import (
     DayTelloVoiceRelayCall, DayTelloVoiceRelayRecording,
     make_relay_recording_link, send_relay_owner_alert, recover_queued_relay_alerts,
+    preview_queued_relay_alerts,
 )
 from app.voicemail_models import DayTelloVoicemailShopSettings
 from app.voicemail_owner_links import decode_recording_link
@@ -418,6 +419,34 @@ class SignedRecordingDeliveryTests(unittest.TestCase):
             send_relay_owner_alert(RECORDING)
         send_sms.assert_called_once()
         self.assertEqual(receipt.notification_status, "failed")
+
+
+    def test_recovery_preview_is_read_only_tenant_scoped_and_age_gated(self):
+        old = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=10)
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        def receipt(sid, shop_id, created_at):
+            return SimpleNamespace(
+                recording_sid=sid, account_sid=ACCOUNT,
+                shop_id=shop_id, relay_number=DID,
+                notification_status="queued", created_at=created_at,
+            )
+        target = receipt(RECORDING, "third-shop-id", old)
+        other = receipt("RE" + "c" * 32, "another-shop-id", old)
+        recent = receipt("RE" + "d" * 32, "third-shop-id", now)
+        self.db.recordings = {r.recording_sid: r for r in (target, other, recent)}
+        with patch("app.voice_relay_delivery.SessionLocal", return_value=self.db), \
+             patch("app.voice_relay_delivery.send_relay_owner_alert") as send:
+            self.assertEqual(preview_queued_relay_alerts(shop_id="third-shop-id", limit=10), 1)
+            self.assertEqual(preview_queued_relay_alerts(shop_id="another-shop-id", limit=10), 1)
+        send.assert_not_called()
+        self.assertTrue(all(r.notification_status == "queued" for r in (target, other, recent)))
+
+    def test_recovery_preview_fails_closed_outside_test_mode(self):
+        with patch.dict(os.environ, {"DAYTELLO_VOICE_RELAY_TEST_ONLY": "false"}), \
+             patch("app.voice_relay_delivery.SessionLocal") as open_db:
+            with self.assertRaises(PermissionError):
+                preview_queued_relay_alerts(shop_id="third-shop-id")
+        open_db.assert_not_called()
 
     def test_recovery_reclaims_queued_receipts_without_duplicate_sms(self):
         # Simulate a crash after the receipt commit but before background
