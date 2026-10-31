@@ -346,6 +346,43 @@ class SignedRecordingDeliveryTests(unittest.TestCase):
         send_sms.assert_called_once()
         self.assertEqual(receipt.notification_status, "sent")
 
+    def test_disabling_relay_after_queue_prevents_any_sms_claim(self):
+        receipt = SimpleNamespace(
+            recording_sid=RECORDING, account_sid=ACCOUNT,
+            shop_id="third-shop-id", relay_number=DID,
+            notification_status="queued",
+        )
+        self.db.recordings[RECORDING] = receipt
+        with patch.dict(os.environ, {"DAYTELLO_VOICE_RELAY_TEST_ONLY": "false"}), \
+             patch("app.voice_relay_delivery.SessionLocal") as open_db, \
+             patch("app.voice_relay_delivery.send_highlevel_sms") as send_sms:
+            send_relay_owner_alert(RECORDING)
+        open_db.assert_not_called()
+        send_sms.assert_not_called()
+        self.assertEqual(receipt.notification_status, "queued")
+
+    def test_disabling_relay_mid_dispatch_prevents_provider_sms(self):
+        receipt = SimpleNamespace(
+            recording_sid=RECORDING, account_sid=ACCOUNT,
+            shop_id="third-shop-id", relay_number=DID,
+            notification_status="queued",
+        )
+        self.db.recordings[RECORDING] = receipt
+
+        def disable_during_recipient_check(*args, **kwargs):
+            os.environ["DAYTELLO_VOICE_RELAY_TEST_ONLY"] = "false"
+            return OWNER
+
+        with patch.dict(os.environ, {"DAYTELLO_VOICE_RELAY_TEST_ONLY": "true"}), \
+             patch("app.voice_relay_delivery.SessionLocal", return_value=self.db), \
+             patch("app.voice_relay_delivery.owner_phone_for_test_shop",
+                   side_effect=disable_during_recipient_check), \
+             patch("app.voice_relay_delivery.send_highlevel_sms") as send_sms:
+            send_relay_owner_alert(RECORDING)
+        send_sms.assert_not_called()
+        # The receipt was already claimed; never retry an ambiguous attempt.
+        self.assertEqual(receipt.notification_status, "failed")
+
     def test_concurrent_owner_sms_attempt_is_claimed_once(self):
         receipt = SimpleNamespace(
             recording_sid=RECORDING, account_sid=ACCOUNT,
