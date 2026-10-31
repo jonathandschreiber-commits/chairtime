@@ -4,6 +4,7 @@ Never called automatically on production requests. Purchases require explicit
 approval and a PostgreSQL row lock for the duration of provider operations.
 The adapter is intentionally independent of HighLevel's legacy DID pool.
 """
+import json
 import os
 
 from fastapi import HTTPException
@@ -14,6 +15,7 @@ from app.models import Shop
 from app.voice_relay_models import DayTelloVoiceRelayAssignment
 from app.voice_relay_provider import VoiceRelayNumberProvider, US_NUMBER
 from app.voicemail_models import DayTelloVoicemailShopSettings
+from app.routes.voicemail_webhook import configured_routing_map, valid_phone
 
 
 def _require_purchase_lock(db, approved):
@@ -24,7 +26,32 @@ def _require_purchase_lock(db, approved):
         raise HTTPException(503, "Relay purchase requires a locking database")
 
 
+def _check_legacy_number_reservations(number):
+    """Never adopt a HighLevel voicemail DID as a programmable relay.
+
+    Legacy routing can exist only in platform configuration, with no database
+    claim yet. The reserved test pool is likewise not relay inventory.
+    Invalid reservation configuration must fail closed before provider calls.
+    """
+    legacy_raw = os.getenv("DAYTELLO_VOICEMAIL_NUMBER_SHOP_MAP", "").strip()
+    if legacy_raw and number in configured_routing_map():
+        raise HTTPException(409, "Relay number is reserved for HighLevel voicemail")
+    pool_raw = os.getenv("DAYTELLO_VOICEMAIL_TEST_NUMBER_POOL", "").strip()
+    if pool_raw:
+        try:
+            pool = json.loads(pool_raw)
+        except (TypeError, ValueError):
+            raise HTTPException(503, "Reserved voicemail number pool is invalid")
+        if (not isinstance(pool, list)
+                or any(not valid_phone(item) for item in pool)
+                or len(set(pool)) != len(pool)):
+            raise HTTPException(503, "Reserved voicemail number pool is invalid")
+        if number in pool:
+            raise HTTPException(409, "Relay number is reserved for HighLevel voicemail")
+
+
 def _check_number_conflicts(db, shop_id, number):
+    _check_legacy_number_reservations(number)
     if db.query(Shop).filter(or_(
         Shop.highlevel_phone_number == number, Shop.phone == number,
     )).first() is not None:
