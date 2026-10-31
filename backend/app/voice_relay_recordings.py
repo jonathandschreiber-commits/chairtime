@@ -36,15 +36,21 @@ def verified_recording_url(url: str, account_sid: str, recording_sid: str) -> st
     The eventual audio proxy must authenticate with the provider server-side,
     enforce content/size limits, and never expose provider credentials.
     """
+    # urlsplit strips certain control characters and validates ports lazily.
+    # Reject the original untrusted URL before accepting a provider resource.
+    if (not isinstance(url, str) or
+            any(ord(c) < 33 or ord(c) == 127 or c == "\\\\" for c in url)):
+        raise HTTPException(422, "Invalid recording resource")
     try:
         parsed = urlsplit(url)
+        port = parsed.port
     except (TypeError, ValueError):
         raise HTTPException(422, "Invalid recording resource")
     expected = (
         f"/2010-04-01/Accounts/{account_sid}/Recordings/{recording_sid}"
     )
     if (parsed.scheme != "https" or parsed.hostname != "api.twilio.com"
-            or parsed.port not in (None, 443) or parsed.username is not None
+            or port not in (None, 443) or parsed.username is not None
             or parsed.password is not None or parsed.query or parsed.fragment
             or parsed.path not in (expected, expected + ".json")):
         raise HTTPException(422, "Invalid recording resource")
