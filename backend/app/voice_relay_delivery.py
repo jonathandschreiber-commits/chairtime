@@ -224,7 +224,7 @@ def send_relay_owner_alert(recording_sid):
 
 
 
-def recover_queued_relay_alerts(limit=25):
+def recover_queued_relay_alerts(*, shop_id, limit=25):
     """Explicit test-only recovery for alerts stranded before task dispatch.
 
     A process can stop after a recording receipt commits but before its
@@ -234,19 +234,22 @@ def recover_queued_relay_alerts(limit=25):
     normal background dispatch time to run before a recovery scan. The
     queued -> sending conditional UPDATE in send_relay_owner_alert still
     prevents duplicate sends if the original task is also running.
-    Return the number of receipts examined, not confirmed SMS deliveries.
+    Recovery is explicitly scoped to one shop so a test worker cannot drain
+    other tenants' queued notifications. Return examined, not delivered count.
     """
     if (os.getenv("DAYTELLO_VOICE_RELAY_TEST_ONLY") != "true" or
             os.getenv("DAYTELLO_VOICEMAIL_TEST_ONLY") != "true" or
             os.getenv("DAYTELLO_VOICEMAIL_OWNER_SMS_ENABLED") != "true"):
         return 0
+    if not isinstance(shop_id, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}", shop_id):
+        raise ValueError("Recovery requires an exact valid shop ID")
     if type(limit) is not int or not 1 <= limit <= 100:
         raise ValueError("Recovery batch size must be between 1 and 100")
     # DateTime columns are timezone-naive UTC in the existing database.
     cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - RECOVERY_MIN_AGE
     with SessionLocal() as db:
         pending = db.query(DayTelloVoiceRelayRecording).filter_by(
-            notification_status="queued",
+            notification_status="queued", shop_id=shop_id,
         ).filter(
             DayTelloVoiceRelayRecording.created_at <= cutoff,
         ).order_by(
