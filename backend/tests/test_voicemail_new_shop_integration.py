@@ -179,6 +179,8 @@ class NewShopIntegrationTests(unittest.TestCase):
         with (
             patch.object(ai_setup, "get_shop_routed_phone_record",
                          return_value=(None, [routed], routed)),
+            patch.object(ai_setup, "get_location_phone_numbers",
+                         return_value=(None, [routed])),
             patch.object(ai_setup, "get_agent_detail", side_effect=self._get_agent),
             patch.object(ai_setup, "highlevel_raw_request", side_effect=self._save_action),
             patch.object(voicemail_contact_number, "VoiceRelayNumberProvider",
