@@ -16,6 +16,7 @@ from app.voice_relay_models import DayTelloVoiceRelayAssignment
 from app.voice_relay_security import verify_voice_provider_signature
 from app.voice_relay_twiml import (
     forward_to_employee, after_employee_dial, completed_recording,
+    screen_owner_call, owner_screen_result,
 )
 from app.voicemail_models import DayTelloVoicemailShopSettings
 from app.voice_relay_delivery import (
@@ -162,7 +163,45 @@ async def relay_inbound(request: Request, db: Session = Depends(get_db)):
     remember_relay_call(db, fields, binding)
     return _xml(forward_to_employee(
         settings.owner_phone, origin + "/api/daytello/voice-relay/dial-finished",
+        owner_screen_url=(origin + "/api/daytello/voice-relay/owner-screen"
+                          + "?parent=" + fields["CallSid"]),
     ))
+
+
+def _screened_owner_leg(db, fields, parent_sid):
+    """Resolve the signed callee callback to the saved inbound relay call."""
+    if not SID.fullmatch(parent_sid or ""):
+        raise HTTPException(422, "Invalid parent call identifier")
+    if fields.get("ParentCallSid") and fields["ParentCallSid"] != parent_sid:
+        raise HTTPException(409, "Owner leg parent call mismatch")
+    call = recorded_call_for_callback(db, {
+        "CallSid": parent_sid, "AccountSid": fields.get("AccountSid"),
+    })
+    binding, settings = _assignment(db, call.relay_number)
+    if binding.shop_id != call.shop_id:
+        raise HTTPException(409, "Voice call tenant assignment changed")
+    if fields.get("To") != settings.owner_phone:
+        raise HTTPException(409, "Owner leg destination mismatch")
+    return call
+
+
+@router.post("/daytello/voice-relay/owner-screen")
+async def relay_owner_screen(request: Request, db: Session = Depends(get_db)):
+    """Twilio <Number url> asks the called owner to press 1 before bridging."""
+    fields, origin = await _verified(request)
+    parent = request.query_params.get("parent")
+    _screened_owner_leg(db, fields, parent)
+    return _xml(screen_owner_call(
+        origin + "/api/daytello/voice-relay/owner-accept?parent=" + parent,
+    ))
+
+
+@router.post("/daytello/voice-relay/owner-accept")
+async def relay_owner_accept(request: Request, db: Session = Depends(get_db)):
+    """A human's 1 bridges; voicemail greetings and silence do not."""
+    fields, _ = await _verified(request)
+    _screened_owner_leg(db, fields, request.query_params.get("parent"))
+    return _xml(owner_screen_result(fields.get("Digits")))
 
 
 @router.post("/daytello/voice-relay/dial-finished")
@@ -183,6 +222,7 @@ async def relay_dial_finished(request: Request, db: Session = Depends(get_db)):
             status,
             origin + "/api/daytello/voice-relay/record-finished",
             origin + "/api/daytello/voice-relay/record-ready",
+            dial_bridged=fields.get("DialBridged"),
         )
     except ValueError:
         raise HTTPException(422, "Invalid dial completion")
