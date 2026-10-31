@@ -70,9 +70,9 @@ class DeliveryDB(FakeDB):
         raise AssertionError(f"Unexpected model {model}")
 
     def query(self, model):
-        if model is not DayTelloVoiceRelayRecording:
-            raise AssertionError(f"Unexpected queried model {model}")
-        return RecordingClaimQuery(self)
+        if model is DayTelloVoiceRelayRecording:
+            return RecordingClaimQuery(self)
+        return super().query(model)
 
     def add(self, record):
         self.pending = record
