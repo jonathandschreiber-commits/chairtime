@@ -333,6 +333,28 @@ class SignedRecordingDeliveryTests(unittest.TestCase):
                 self.assertEqual(receipt.notification_status, "failed")
                 setattr(self.db, field, DID if field == "receiving_number" else "test-location")
 
+    def test_queued_sms_rejects_stale_or_unconfigured_provider_account(self):
+        # A callback queued before an account rotation must not text a
+        # recording link that cannot be played under the current account.
+        for account in ("AC" + "f" * 32, ""):
+            with self.subTest(account=account or "unconfigured"):
+                receipt = SimpleNamespace(
+                    recording_sid=RECORDING, account_sid=ACCOUNT,
+                    shop_id="third-shop-id", relay_number=DID,
+                    notification_status="queued",
+                )
+                self.db.recordings[RECORDING] = receipt
+                with patch.dict(os.environ, {
+                    "DAYTELLO_VOICE_RELAY_ACCOUNT_SID": account,
+                }), patch(
+                    "app.voice_relay_delivery.SessionLocal", return_value=self.db,
+                ), patch(
+                    "app.voice_relay_delivery.send_highlevel_sms",
+                ) as send_sms:
+                    send_relay_owner_alert(RECORDING)
+                send_sms.assert_not_called()
+                self.assertEqual(receipt.notification_status, "failed")
+
     def test_current_route_still_sends_one_queued_owner_sms(self):
         receipt = SimpleNamespace(
             recording_sid=RECORDING, account_sid=ACCOUNT,
