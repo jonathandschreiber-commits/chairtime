@@ -85,7 +85,6 @@ def reserve_or_purchase_relay_for_shop(shop: Shop, db, number: str, *,
     if (not shop.ai_voice_enabled or not shop.highlevel_agent_id
             or not expected_location or shop.highlevel_location_id != expected_location):
         raise HTTPException(409, "Shop AI Receptionist connection is incomplete")
-    _require_purchase_lock(db, approved)
     # Keep this transaction open across provider calls. A concurrent setup
     # for the same shop cannot purchase a second DID in PostgreSQL.
     locked = db.query(Shop).filter(Shop.id == shop.id).with_for_update().one_or_none()
@@ -116,6 +115,11 @@ def reserve_or_purchase_relay_for_shop(shop: Shop, db, number: str, *,
     # If the provider has lost the DID, fail closed rather than incurring a
     # second charge or silently adopting a replacement on a retry.
     purchase_approved = approved is True and other_shop_relay is None
+    # An existing saved DID is read back without a purchase. Repeated client
+    # approval must not turn a harmless recovery into a chargeable operation,
+    # nor require PostgreSQL merely to verify an existing assignment.
+    # New purchases still require a PostgreSQL row lock before provider I/O.
+    _require_purchase_lock(db, purchase_approved)
     verified = provider.purchase_approved_number(
         str(shop.id), number, approved=purchase_approved)
     if not verified.get("route_verified") or verified.get("number") != number:
