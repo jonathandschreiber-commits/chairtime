@@ -406,6 +406,45 @@ class SignedRecordingDeliveryTests(unittest.TestCase):
         # The receipt was already claimed; never retry an ambiguous attempt.
         self.assertEqual(receipt.notification_status, "failed")
 
+    def test_recovery_flag_revocation_before_claim_does_not_open_database(self):
+        receipt = SimpleNamespace(
+            recording_sid=RECORDING, account_sid=ACCOUNT,
+            shop_id="third-shop-id", relay_number=DID,
+            notification_status="queued",
+        )
+        self.db.recordings[RECORDING] = receipt
+        with patch.dict(os.environ, {
+            "DAYTELLO_VOICE_RELAY_RECOVERY_WORKER_ENABLED": "false",
+        }), patch("app.voice_relay_delivery.SessionLocal") as open_db, \
+             patch("app.voice_relay_delivery.send_highlevel_sms") as send_sms:
+            send_relay_owner_alert(RECORDING, recovery=True)
+        open_db.assert_not_called()
+        send_sms.assert_not_called()
+        self.assertEqual(receipt.notification_status, "queued")
+
+    def test_recovery_revoked_mid_dispatch_never_contacts_sms_provider(self):
+        receipt = SimpleNamespace(
+            recording_sid=RECORDING, account_sid=ACCOUNT,
+            shop_id="third-shop-id", relay_number=DID,
+            notification_status="queued",
+        )
+        self.db.recordings[RECORDING] = receipt
+
+        def revoke_during_recipient_check(*args, **kwargs):
+            os.environ["DAYTELLO_VOICE_RELAY_RECOVERY_WORKER_ENABLED"] = "false"
+            return OWNER
+
+        with patch.dict(os.environ, {
+            "DAYTELLO_VOICE_RELAY_RECOVERY_WORKER_ENABLED": "true",
+        }), patch("app.voice_relay_delivery.SessionLocal", return_value=self.db), \
+             patch("app.voice_relay_delivery.owner_phone_for_test_shop",
+                   side_effect=revoke_during_recipient_check), \
+             patch("app.voice_relay_delivery.send_highlevel_sms") as send_sms:
+            send_relay_owner_alert(RECORDING, recovery=True)
+        send_sms.assert_not_called()
+        # Already claimed; never automatically retry a potentially ambiguous send.
+        self.assertEqual(receipt.notification_status, "failed")
+
     def test_concurrent_owner_sms_attempt_is_claimed_once(self):
         receipt = SimpleNamespace(
             recording_sid=RECORDING, account_sid=ACCOUNT,
@@ -571,7 +610,7 @@ class SignedRecordingDeliveryTests(unittest.TestCase):
                 recover_queued_relay_alerts(shop_id="third-shop-id", limit=2), 1
             )
         scan.assert_called_once_with(shop_id="third-shop-id", limit=2)
-        send.assert_called_once_with(RECORDING)
+        send.assert_called_once_with(RECORDING, recovery=True)
         self.assertEqual(examined, [RECORDING])
 
     def test_recovery_stops_if_disabled_after_backlog_scan(self):
