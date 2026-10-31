@@ -39,7 +39,7 @@ def verified_recording_url(url: str, account_sid: str, recording_sid: str) -> st
     # urlsplit strips certain control characters and validates ports lazily.
     # Reject the original untrusted URL before accepting a provider resource.
     if (not isinstance(url, str) or
-            any(ord(c) < 33 or ord(c) == 127 or c == "\\\\" for c in url)):
+            any(ord(c) < 33 or ord(c) == 127 or c == chr(92) for c in url)):
         raise HTTPException(422, "Invalid recording resource")
     try:
         parsed = urlsplit(url)
