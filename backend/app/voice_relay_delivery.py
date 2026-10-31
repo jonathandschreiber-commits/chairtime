@@ -182,7 +182,18 @@ def relay_receipt_route_is_current(receipt, shop, settings, binding) -> bool:
     )
 
 
-def send_relay_owner_alert(recording_sid):
+def _relay_sms_authorized(*, recovery=False):
+    """Recovery permission is independent of ordinary callback SMS delivery."""
+    return bool(
+        os.getenv("DAYTELLO_VOICE_RELAY_TEST_ONLY") == "true" and
+        os.getenv("DAYTELLO_VOICEMAIL_TEST_ONLY") == "true" and
+        os.getenv("DAYTELLO_VOICEMAIL_OWNER_SMS_ENABLED") == "true" and
+        (not recovery or
+         os.getenv("DAYTELLO_VOICE_RELAY_RECOVERY_WORKER_ENABLED") == "true")
+    )
+
+
+def send_relay_owner_alert(recording_sid, *, recovery=False):
     """Claim one SMS attempt atomically before any provider I/O.
 
     Duplicate background tasks may execute in separate workers. The durable
@@ -192,9 +203,7 @@ def send_relay_owner_alert(recording_sid):
     """
     # A queued background task may outlive a test-mode shutdown. Never claim
     # a receipt or send an owner SMS after the relay is explicitly disabled.
-    if (os.getenv("DAYTELLO_VOICE_RELAY_TEST_ONLY") != "true" or
-            os.getenv("DAYTELLO_VOICEMAIL_TEST_ONLY") != "true" or
-            os.getenv("DAYTELLO_VOICEMAIL_OWNER_SMS_ENABLED") != "true"):
+    if not _relay_sms_authorized(recovery=recovery):
         return
     with SessionLocal() as db:
         claimed = db.query(DayTelloVoiceRelayRecording).filter_by(
@@ -220,9 +229,7 @@ def send_relay_owner_alert(recording_sid):
             link = make_relay_recording_link(receipt, recipient)
             # Recheck immediately before provider I/O: a flag may be disabled
             # while the worker was validating the saved shop/recipient state.
-            if (os.getenv("DAYTELLO_VOICE_RELAY_TEST_ONLY") != "true" or
-                    os.getenv("DAYTELLO_VOICEMAIL_TEST_ONLY") != "true" or
-                    os.getenv("DAYTELLO_VOICEMAIL_OWNER_SMS_ENABLED") != "true"):
+            if not _relay_sms_authorized(recovery=recovery):
                 return
             result = send_highlevel_sms(
                 recipient, f"DayTello TEST: New voicemail for {shop.name}. Listen: {link}",
@@ -297,7 +304,9 @@ def recover_queued_relay_alerts(*, shop_id, limit=25):
                 os.getenv("DAYTELLO_VOICEMAIL_OWNER_SMS_ENABLED") != "true" or
                 os.getenv("DAYTELLO_VOICE_RELAY_RECOVERY_WORKER_ENABLED") != "true"):
             break
-        send_relay_owner_alert(recording_sid)
+        # The execution flag may be revoked after the batch-level check;
+        # delivery rechecks it before claiming and before provider I/O.
+        send_relay_owner_alert(recording_sid, recovery=True)
         examined += 1
     return examined
 
