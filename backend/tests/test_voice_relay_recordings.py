@@ -44,6 +44,11 @@ class VoiceRelayRecordingTests(unittest.TestCase):
             f"https://api.twilio.com{path}?redirect=https://evil.example",
             f"https://user:password@api.twilio.com{path}",
             f"https://api.twilio.com{path}/extra",
+            f"https://api.twilio.com:bad{path}",
+            f"https://api.twilio.com:65536{path}",
+            f"https://api.twilio.com{path}\n",
+            f"https://api.twilio.com{path}\t",
+            f"https://api.twilio.com{path}" + chr(92),
             f"https://api.twilio.com/2010-04-01/Accounts/{ACCOUNT}/Recordings/RE{'c'*32}",
         ):
             with self.subTest(url=url), self.assertRaises(HTTPException):
