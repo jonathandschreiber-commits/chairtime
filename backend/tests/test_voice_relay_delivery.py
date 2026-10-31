@@ -69,6 +69,11 @@ class DeliveryDB(FakeDB):
             )
         raise AssertionError(f"Unexpected model {model}")
 
+    def query(self, model):
+        if model is not DayTelloVoiceRelayRecording:
+            raise AssertionError(f"Unexpected queried model {model}")
+        return RecordingClaimQuery(self)
+
     def add(self, record):
         self.pending = record
 
@@ -90,6 +95,26 @@ class DeliveryDB(FakeDB):
 
     def rollback(self):
         self.pending = None
+
+
+class RecordingClaimQuery:
+    """Simulate the database's conditional queued -> sending UPDATE."""
+
+    def __init__(self, db):
+        self.db = db
+        self.filters = {}
+
+    def filter_by(self, **kwargs):
+        self.filters = kwargs
+        return self
+
+    def update(self, values, synchronize_session=False):
+        assert synchronize_session is False
+        receipt = self.db.recordings.get(self.filters["recording_sid"])
+        if not receipt or receipt.notification_status != self.filters["notification_status"]:
+            return 0
+        receipt.notification_status = values["notification_status"]
+        return 1
 
 
 class SignedRecordingDeliveryTests(unittest.TestCase):
@@ -295,6 +320,55 @@ class SignedRecordingDeliveryTests(unittest.TestCase):
             send_relay_owner_alert(RECORDING)
         send_sms.assert_called_once()
         self.assertEqual(receipt.notification_status, "sent")
+
+    def test_concurrent_owner_sms_attempt_is_claimed_once(self):
+        receipt = SimpleNamespace(
+            recording_sid=RECORDING, account_sid=ACCOUNT,
+            shop_id="third-shop-id", relay_number=DID,
+            notification_status="queued",
+        )
+        self.db.recordings[RECORDING] = receipt
+
+        def send_with_reentrant_worker(*args, **kwargs):
+            # Simulate a second worker processing the same queued recording
+            # while the first worker is still waiting for the SMS provider.
+            send_relay_owner_alert(RECORDING)
+            return {"success": True}
+
+        with patch("app.voice_relay_delivery.SessionLocal", return_value=self.db), \\
+             patch("app.voice_relay_delivery.send_highlevel_sms",
+                   side_effect=send_with_reentrant_worker) as send_sms:
+            send_relay_owner_alert(RECORDING)
+        send_sms.assert_called_once()
+        self.assertEqual(receipt.notification_status, "sent")
+
+    def test_ambiguous_failed_owner_sms_is_not_retried(self):
+        receipt = SimpleNamespace(
+            recording_sid=RECORDING, account_sid=ACCOUNT,
+            shop_id="third-shop-id", relay_number=DID,
+            notification_status="queued",
+        )
+        self.db.recordings[RECORDING] = receipt
+        with patch("app.voice_relay_delivery.SessionLocal", return_value=self.db), \\
+             patch("app.voice_relay_delivery.send_highlevel_sms",
+                   return_value={"success": False}) as send_sms:
+            send_relay_owner_alert(RECORDING)
+            send_relay_owner_alert(RECORDING)
+        send_sms.assert_called_once()
+        self.assertEqual(receipt.notification_status, "failed")
+
+    def test_in_progress_owner_sms_is_not_sent_again(self):
+        receipt = SimpleNamespace(
+            recording_sid=RECORDING, account_sid=ACCOUNT,
+            shop_id="third-shop-id", relay_number=DID,
+            notification_status="sending",
+        )
+        self.db.recordings[RECORDING] = receipt
+        with patch("app.voice_relay_delivery.SessionLocal", return_value=self.db), \\
+             patch("app.voice_relay_delivery.send_highlevel_sms") as send_sms:
+            send_relay_owner_alert(RECORDING)
+        send_sms.assert_not_called()
+        self.assertEqual(receipt.notification_status, "sending")
 
     def test_old_recording_link_revoked_on_did_or_location_change(self):
         self.inbound()
