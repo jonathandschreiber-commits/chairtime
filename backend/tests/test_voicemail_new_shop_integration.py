@@ -414,7 +414,7 @@ class NewShopIntegrationTests(unittest.TestCase):
             self.assertEqual(self.sent[0][0], OWNER)
             self.assertEqual(self.sent[0][2]["shop_id"], "new-id")
             link = self.sent[0][1].split("Listen: ", 1)[1]
-            audio = b"\\xff\\xfb\\x90\\x64reserve-audio"
+            audio = b"\xff\xfb\x90\x64reserve-audio"
             original_client = httpx.AsyncClient
             def audio_response(request):
                 self.assertEqual(request.method, "GET")
