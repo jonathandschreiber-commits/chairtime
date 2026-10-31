@@ -22,11 +22,11 @@ def _response(child):
     return ET.tostring(root, encoding="unicode")
 
 
-def forward_to_employee(phone: str, dial_complete_url: str, timeout: int = 15) -> str:
+def forward_to_employee(phone: str, dial_complete_url: str, timeout: int = 5) -> str:
     """Dial employee, then hand control back via signed provider callback.
 
     Twilio's Dial has an approximately 5-second additional buffer, therefore
-    15 here corresponds to roughly 20 seconds of ringing.
+    5 here corresponds to roughly 10 seconds of ringing (about two rings).\n    A short ring window helps the DayTello voicemail prompt answer before the\n    owner's carrier voicemail intercepts the transferred call.
     Never pass the owner number in an inbound request: it must come from the
     authenticated shop's stored settings after DID-based tenant resolution.
     """
