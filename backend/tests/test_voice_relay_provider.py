@@ -157,6 +157,45 @@ class ProviderTests(unittest.TestCase):
                 self.provider(fake).purchase_approved_number(SHOP, NUMBER, approved=True)
         self.assertFalse(any(r.method == "POST" for r in fake.requests))
 
+    def test_preowned_reserve_number_is_read_only_and_reusable(self):
+        fake = FakeTwilio([record(friendly_name="DayTello Relay Reserve")])
+        with patch.dict(os.environ, {
+            "DAYTELLO_VOICE_RELAY_PREOWNED_NUMBER_POOL": '["'+NUMBER+'"]',
+            "DAYTELLO_VOICE_RELAY_PURCHASE_ENABLED": "false",
+        }):
+            provider = self.provider(fake)
+            self.assertIsNone(provider.find_existing(SHOP))
+            result = provider.purchase_approved_number(SHOP, NUMBER, approved=False)
+        self.assertEqual(result["number"], NUMBER)
+        self.assertTrue(result["route_verified"])
+        self.assertTrue(all(r.method == "GET" for r in fake.requests))
+
+    def test_preowned_reserve_rejects_wrong_label_or_route(self):
+        with patch.dict(os.environ, {
+            "DAYTELLO_VOICE_RELAY_PREOWNED_NUMBER_POOL": '["'+NUMBER+'"]',
+        }):
+            for changes in (
+                {"friendly_name": "Another Shop"},
+                {"voice_url": "https://other.example.test/voice"},
+                {"account_sid": "AC" + "f" * 32},
+            ):
+                with self.subTest(changes=changes):
+                    fake = FakeTwilio([record(**changes)])
+                    with self.assertRaises(HTTPException):
+                        self.provider(fake).find_existing(
+                            SHOP, expected_number=NUMBER)
+                    self.assertTrue(all(r.method == "GET" for r in fake.requests))
+
+    def test_invalid_reserve_pool_never_contacts_provider(self):
+        fake = FakeTwilio([record(friendly_name="DayTello Relay Reserve")])
+        with patch.dict(os.environ, {
+            "DAYTELLO_VOICE_RELAY_PREOWNED_NUMBER_POOL": '["'+NUMBER+'","'+NUMBER+'"]',
+        }):
+            with self.assertRaises(HTTPException) as error:
+                self.provider(fake).find_existing(SHOP, expected_number=NUMBER)
+        self.assertEqual(error.exception.status_code, 503)
+        self.assertTrue(all(r.method == "GET" for r in fake.requests))
+
     def test_reuses_exact_existing_number_without_purchase(self):
         fake = FakeTwilio([record()])
         result = self.provider(fake).purchase_approved_number(SHOP, NUMBER)
