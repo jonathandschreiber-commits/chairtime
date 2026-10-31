@@ -740,5 +740,201 @@ class NewShopIntegrationTests(unittest.TestCase):
             )
 
 
+    def test_two_new_shops_independently_allocate_forward_record_and_text(self):
+        # One provider reserve inventory, two independently verified owners,
+        # two customer-selected AI numbers. No per-shop Railway mapping,
+        # Twilio number purchase, or live provider modification.
+        from datetime import datetime, timezone
+        from app.voicemail_owner_verification import DayTelloVoicemailOwnerVerification
+
+        second_relay = "+12405550126"
+        second_ai = "+12405550127"
+        second_owner_phone = "+12405550128"
+        second_call = "CA" + "e" * 32
+        second_recording = "RE" + "f" * 32
+        second_owner = User(
+            id="owner-second", role="owner", shop_slug="second-shop",
+            shop_id="second-id", is_active=True, email="second@example.test",
+        )
+        with self.factory() as db:
+            db.add(Shop(
+                id="second-id", slug="second-shop", name="Second Shop",
+                ai_voice_enabled=True, highlevel_location_id="loc-test",
+                highlevel_agent_id="agent-second",
+            ))
+            for shop_id, phone in (("new-id", OWNER),
+                                   ("second-id", second_owner_phone)):
+                db.add(DayTelloVoicemailOwnerVerification(
+                    shop_id=shop_id, phone=phone,
+                    verified_at=datetime.now(timezone.utc).replace(tzinfo=None),
+                ))
+            db.commit()
+
+        records = []
+        for idx, number in enumerate((RELAY, second_relay)):
+            records.append({
+                "account_sid": ACCOUNT,
+                "friendly_name": voice_relay_provider.RESERVE_LABEL,
+                "phone_number": number,
+                "sid": "PN" + str(idx + 1) * 32,
+                "voice_url": "https://relay.example.test/api/daytello/voice-relay/inbound",
+                "voice_method": "POST",
+                "voice_application_sid": None,
+                "trunk_sid": None,
+                "capabilities": {"voice": True},
+                "status": "in-use",
+            })
+        provider_requests = []
+
+        def inventory(request):
+            provider_requests.append(request)
+            self.assertEqual(request.method, "GET", "No provider writes or purchases")
+            self.assertEqual(request.url.host, "api.twilio.com")
+            self.assertTrue(request.headers.get("authorization", "").startswith("Basic "))
+            label = request.url.params.get("FriendlyName")
+            number = request.url.params.get("PhoneNumber")
+            found = [r for r in records
+                     if (label is None or r["friendly_name"] == label)
+                     and (number is None or r["phone_number"] == number)]
+            return httpx.Response(200, json={
+                "incoming_phone_numbers": found, "next_page_uri": None,
+            })
+
+        provider_client = httpx.Client(transport=httpx.MockTransport(inventory))
+        self.addCleanup(provider_client.close)
+        provider = voice_relay_provider.VoiceRelayNumberProvider(
+            client=provider_client,
+        )
+        actions = {}
+
+        def agent_detail(agent_id, location_id):
+            self.assertEqual(location_id, "loc-test")
+            return {
+                "agentName": "DayTello " + agent_id,
+                "locationId": location_id,
+                "actions": [actions[agent_id]] if agent_id in actions else [],
+            }
+
+        def save_action(method, path, json_body=None, **kwargs):
+            self.assertEqual(method, "POST")
+            self.assertEqual(path, "/voice-ai/actions")
+            agent_id = json_body["agentId"]
+            actions[agent_id] = {"_id": "action-" + agent_id, **json_body}
+            return SimpleNamespace(status_code=201)
+
+        with (
+            patch.dict(os.environ, {
+                "DAYTELLO_VOICE_RELAY_PREOWNED_NUMBER_POOL": "",
+                "DAYTELLO_VOICE_RELAY_PURCHASE_ENABLED": "false",
+                "DAYTELLO_VOICEMAIL_OWNER_VERIFICATION_ENABLED": "true",
+                "DAYTELLO_VOICEMAIL_TEST_RECIPIENT_MAP": "",
+            }),
+            patch.object(ai_setup, "get_location_phone_numbers",
+                         return_value=(None, [
+                             {"phoneNumber": AI_NUMBER},
+                             {"phoneNumber": second_ai},
+                         ])),
+            patch.object(ai_setup, "route_phone_number_to_shop_agent",
+                         side_effect=lambda **kw: {"phoneNumber": kw["phone_number"]}),
+            patch.object(ai_setup, "get_agent_detail", side_effect=agent_detail),
+            patch.object(ai_setup, "highlevel_raw_request", side_effect=save_action),
+            patch.object(ai_setup, "purchase_one_highlevel_phone_number",
+                         side_effect=AssertionError("Unexpected AI number purchase")),
+            patch.object(voicemail_contact_number, "VoiceRelayNumberProvider",
+                         return_value=provider),
+            patch.object(voice_relay_delivery, "SessionLocal", self.factory),
+            patch.object(voice_relay_delivery, "send_highlevel_sms",
+                         side_effect=self._capture_sms),
+        ):
+            shops = (
+                (self.owner, "new-shop", "new-id", AI_NUMBER, OWNER,
+                 RELAY, CALL, RECORDING),
+                (second_owner, "second-shop", "second-id", second_ai,
+                 second_owner_phone, second_relay, second_call, second_recording),
+            )
+            for owner, slug, shop_id, ai_number, phone, relay, call, recording in shops:
+                self.client.app.dependency_overrides[get_current_user] = lambda o=owner: o
+                activated = self.client.post(
+                    "/api/ai-setup/phone-number/purchase",
+                    json={"phone_number": ai_number},
+                )
+                self.assertEqual(activated.status_code, 200, activated.text)
+                self.assertTrue(activated.json()["already_owned"])
+                self.assertTrue(activated.json()["voicemail_relay_prebound"])
+                saved = self.client.put(
+                    "/api/shops/" + slug + "/call-voicemail-number",
+                    json={"phone_number": phone},
+                )
+                self.assertEqual(saved.status_code, 200, saved.text)
+                self.assertTrue(saved.json()["test_relay_enabled_for_calls"])
+                self.assertEqual(
+                    actions[owner.shop_id.replace("new-id", "agent-new")
+                            .replace("second-id", "agent-second")]
+                    ["actionParameters"]["transferToValue"], relay,
+                )
+                inbound = self._signed_callback(
+                    "/api/daytello/voice-relay/inbound",
+                    {"CallSid": call, "To": relay},
+                )
+                self.assertEqual(inbound.status_code, 200, inbound.text)
+                self.assertIn(phone, inbound.text)
+                self.assertIn('timeout="5"', inbound.text)
+                missed = self._signed_callback(
+                    "/api/daytello/voice-relay/dial-finished",
+                    {"CallSid": call, "DialCallStatus": "no-answer"},
+                )
+                self.assertEqual(missed.status_code, 200, missed.text)
+                self.assertIn("<Record", missed.text)
+                completed = self._signed_callback(
+                    "/api/daytello/voice-relay/record-ready",
+                    {"CallSid": call, "RecordingStatus": "completed",
+                     "RecordingSid": recording},
+                )
+                self.assertEqual(completed.status_code, 200, completed.text)
+                self.assertEqual(completed.json()["action"], "queued")
+
+            self.assertEqual(len(self.sent), 2)
+            for idx, (_, _, shop_id, _, phone, relay, call, recording) in enumerate(shops):
+                recipient, message, metadata = self.sent[idx]
+                self.assertEqual(recipient, phone)
+                self.assertEqual(metadata["shop_id"], shop_id)
+                self.assertEqual(metadata["source_id"], recording)
+                link = message.split("Listen: ", 1)[1]
+                audio = b"\xff\xfb\x90\x64" + shop_id.encode()
+                original_client = httpx.AsyncClient
+
+                def audio_response(request):
+                    self.assertEqual(request.method, "GET")
+                    self.assertIn(recording + ".mp3", str(request.url))
+                    self.assertTrue(
+                        request.headers.get("authorization", "").startswith("Basic ")
+                    )
+                    return httpx.Response(
+                        200, headers={"content-type": "audio/mpeg"}, content=audio,
+                    )
+
+                with patch.object(
+                    voice_relay_delivery.httpx, "AsyncClient",
+                    side_effect=lambda **kw: original_client(
+                        transport=httpx.MockTransport(audio_response), **kw,
+                    ),
+                ):
+                    playback = self.client.get(urlsplit(link).path)
+                self.assertEqual(playback.status_code, 200, playback.text)
+                self.assertEqual(playback.content, audio)
+
+            with self.factory() as db:
+                first = db.get(DayTelloVoiceRelayAssignment, "new-id")
+                second = db.get(DayTelloVoiceRelayAssignment, "second-id")
+                self.assertEqual(first.relay_number, RELAY)
+                self.assertEqual(second.relay_number, second_relay)
+                self.assertTrue(first.enabled)
+                self.assertTrue(second.enabled)
+                self.assertEqual(
+                    db.get(DayTelloVoicemailShopSettings, "stan-id").owner_phone,
+                    "+12405550133",
+                )
+            self.assertGreaterEqual(len(provider_requests), 6)
+
 if __name__ == "__main__":
     unittest.main()
