@@ -420,6 +420,28 @@ class RelayRouteTests(unittest.TestCase):
         self.assertEqual(result.status_code, 409)
         self.assertNotIn("<Record", result.text)
 
+    def test_dial_callback_rejects_reassigned_tenant_even_with_valid_signature(self):
+        # The saved CallSid belongs to the former tenant. The DID now
+        # resolves to another shop; no new voicemail may be recorded.
+        self.seed_call()
+        db = self.client.app.dependency_overrides[get_db]()
+        db.calls[CALL].shop_id = "former-shop-id"
+        result = self.request("/api/daytello/voice-relay/dial-finished", {
+            "CallSid": CALL, "To": DID, "DialCallStatus": "no-answer",
+        })
+        self.assertEqual(result.status_code, 409)
+        self.assertNotIn("<Record", result.text)
+
+    def test_record_finished_rejects_reassigned_tenant(self):
+        self.seed_call()
+        db = self.client.app.dependency_overrides[get_db]()
+        db.calls[CALL].shop_id = "former-shop-id"
+        result = self.request("/api/daytello/voice-relay/record-finished", {
+            "CallSid": CALL, "To": DID,
+        })
+        self.assertEqual(result.status_code, 409)
+        self.assertNotIn("<Hangup", result.text)
+
     def test_record_finished_requires_saved_inbound_call(self):
         result = self.request("/api/daytello/voice-relay/record-finished", {
             "CallSid": CALL, "To": DID,
