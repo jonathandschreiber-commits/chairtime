@@ -13,7 +13,7 @@ from urllib.parse import urlencode, urlsplit
 
 import httpx
 from cryptography.fernet import Fernet
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -173,6 +173,22 @@ class NewShopIntegrationTests(unittest.TestCase):
                          side_effect=self._capture_sms),
         ):
             self._activate_customer_selected_ai_number()
+            # HighLevel number activation itself now recovers a pre-owned
+            # relay, before the owner provides a forwarding destination.
+            with self.factory() as db:
+                relay = db.get(DayTelloVoiceRelayAssignment, "new-id")
+                self.assertIsNotNone(relay)
+                self.assertEqual(relay.relay_number, RELAY)
+                self.assertFalse(relay.enabled)
+                prepared = db.get(DayTelloVoicemailShopSettings, "new-id")
+                self.assertEqual(prepared.receiving_number, RELAY)
+                self.assertIsNone(prepared.owner_phone)
+                self.assertFalse(prepared.notifications_enabled)
+                self.assertEqual(
+                    db.get(DayTelloVoicemailShopSettings, "stan-id").owner_phone,
+                    "+12405550133",
+                )
+            self.assertIsNone(self.agent_action)
             saved = self.client.put(
                 "/api/shops/new-shop/call-voicemail-number",
                 json={"phone_number": OWNER},
@@ -252,10 +268,23 @@ class NewShopIntegrationTests(unittest.TestCase):
 
     def test_no_preowned_relay_never_purchases_or_changes_transfer(self):
         with (
+            patch.object(ai_setup, "get_location_phone_numbers",
+                         return_value=(None, [{"phoneNumber": AI_NUMBER}])),
+            patch.object(ai_setup, "route_phone_number_to_shop_agent",
+                         return_value={"phoneNumber": AI_NUMBER}),
+            patch.object(ai_setup, "get_agent_detail", side_effect=self._get_agent),
+            patch.object(ai_setup, "purchase_one_highlevel_phone_number",
+                         side_effect=AssertionError("Unexpected AI number purchase")),
             patch.object(voicemail_contact_number, "VoiceRelayNumberProvider",
                          return_value=self._provider(found=False)),
             patch.object(voicemail_contact_number, "daytello_save_staff_transfer") as transfer,
         ):
+            selected = self.client.post(
+                "/api/ai-setup/phone-number/purchase",
+                json={"phone_number": AI_NUMBER},
+            )
+            self.assertEqual(selected.status_code, 200, selected.text)
+            self.assertFalse(selected.json()["voicemail_relay_prebound"])
             response = self.client.put(
                 "/api/shops/new-shop/call-voicemail-number",
                 json={"phone_number": OWNER},
@@ -263,8 +292,36 @@ class NewShopIntegrationTests(unittest.TestCase):
         self.assertEqual(response.status_code, 409, response.text)
         transfer.assert_not_called()
         with self.factory() as db:
+            self.assertEqual(db.get(Shop, "new-id").highlevel_phone_number, AI_NUMBER)
             self.assertIsNone(db.get(DayTelloVoiceRelayAssignment, "new-id"))
             self.assertIsNone(db.get(DayTelloVoicemailShopSettings, "new-id"))
+            self.assertEqual(
+                db.get(DayTelloVoicemailShopSettings, "stan-id").owner_phone,
+                "+12405550133",
+            )
+
+    def test_relay_inventory_failure_does_not_turn_ai_activation_into_purchase_failure(self):
+        with (
+            patch.object(ai_setup, "get_location_phone_numbers",
+                         return_value=(None, [{"phoneNumber": AI_NUMBER}])),
+            patch.object(ai_setup, "route_phone_number_to_shop_agent",
+                         return_value={"phoneNumber": AI_NUMBER}),
+            patch.object(ai_setup, "get_agent_detail", side_effect=self._get_agent),
+            patch.object(ai_setup, "purchase_one_highlevel_phone_number",
+                         side_effect=AssertionError("Unexpected AI number purchase")),
+            patch.object(voicemail_contact_number, "VoiceRelayNumberProvider",
+                         side_effect=HTTPException(503, "Relay inventory unavailable")),
+        ):
+            response = self.client.post(
+                "/api/ai-setup/phone-number/purchase",
+                json={"phone_number": AI_NUMBER},
+            )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertTrue(response.json()["already_owned"])
+        self.assertFalse(response.json()["voicemail_relay_prebound"])
+        with self.factory() as db:
+            self.assertEqual(db.get(Shop, "new-id").highlevel_phone_number, AI_NUMBER)
+            self.assertIsNone(db.get(DayTelloVoiceRelayAssignment, "new-id"))
             self.assertEqual(
                 db.get(DayTelloVoicemailShopSettings, "stan-id").owner_phone,
                 "+12405550133",
