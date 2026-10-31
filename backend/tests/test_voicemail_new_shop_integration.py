@@ -171,6 +171,77 @@ class NewShopIntegrationTests(unittest.TestCase):
             "x-twilio-signature": signature,
         })
 
+    def test_existing_highlevel_ai_number_sync_to_relay_missed_call_and_sms(self):
+        # A shop can already have a customer-selected HighLevel number
+        # before the DayTello sync endpoint runs. That path must pre-bind the
+        # same provider-owned relay without a second number purchase.
+        routed = {"phoneNumber": AI_NUMBER, "friendlyName": "New Shop AI"}
+        with (
+            patch.object(ai_setup, "get_shop_routed_phone_record",
+                         return_value=(None, [routed], routed)),
+            patch.object(ai_setup, "get_agent_detail", side_effect=self._get_agent),
+            patch.object(ai_setup, "highlevel_raw_request", side_effect=self._save_action),
+            patch.object(voicemail_contact_number, "VoiceRelayNumberProvider",
+                         return_value=self._provider()),
+            patch.object(voice_relay_delivery, "SessionLocal", self.factory),
+            patch.object(voice_relay_delivery, "send_highlevel_sms",
+                         side_effect=self._capture_sms),
+            patch.object(ai_setup, "purchase_one_highlevel_phone_number",
+                         side_effect=AssertionError("Unexpected number purchase")),
+        ):
+            synced = self.client.post("/api/ai-setup/phone-number/sync")
+            self.assertEqual(synced.status_code, 200, synced.text)
+            self.assertEqual(synced.json()["phone_number"], AI_NUMBER)
+            with self.factory() as db:
+                self.assertEqual(db.get(Shop, "new-id").highlevel_phone_number, AI_NUMBER)
+                relay = db.get(DayTelloVoiceRelayAssignment, "new-id")
+                self.assertIsNotNone(relay)
+                self.assertEqual(relay.relay_number, RELAY)
+                self.assertFalse(relay.enabled)
+                self.assertIsNone(
+                    db.get(DayTelloVoicemailShopSettings, "new-id").owner_phone
+                )
+            # The backward-compatible /assign alias must remain idempotent.
+            assigned = self.client.post("/api/ai-setup/phone-number/assign")
+            self.assertEqual(assigned.status_code, 200, assigned.text)
+            with self.factory() as db:
+                self.assertEqual(db.query(DayTelloVoiceRelayAssignment).count(), 1)
+            saved = self.client.put(
+                "/api/shops/new-shop/call-voicemail-number",
+                json={"phone_number": OWNER},
+            )
+            self.assertEqual(saved.status_code, 200, saved.text)
+            self.assertTrue(saved.json()["test_relay_enabled_for_calls"])
+            self.assertEqual(
+                self.agent_action["actionParameters"]["transferToValue"], RELAY
+            )
+            inbound = self._signed_callback(
+                "/api/daytello/voice-relay/inbound", {"To": RELAY},
+            )
+            self.assertEqual(inbound.status_code, 200, inbound.text)
+            self.assertIn(OWNER, inbound.text)
+            missed = self._signed_callback(
+                "/api/daytello/voice-relay/dial-finished",
+                {"DialCallStatus": "no-answer"},
+            )
+            self.assertEqual(missed.status_code, 200, missed.text)
+            self.assertIn("<Record", missed.text)
+            completed = self._signed_callback(
+                "/api/daytello/voice-relay/record-ready",
+                {"RecordingStatus": "completed", "RecordingSid": RECORDING},
+            )
+            self.assertEqual(completed.status_code, 200, completed.text)
+            self.assertEqual(completed.json()["action"], "queued")
+            self.assertEqual(len(self.sent), 1)
+            self.assertEqual(self.sent[0][0], OWNER)
+            self.assertEqual(self.sent[0][2]["shop_id"], "new-id")
+            self.assertIn("Listen: https://relay.example.test/", self.sent[0][1])
+            with self.factory() as db:
+                self.assertEqual(
+                    db.get(DayTelloVoicemailShopSettings, "stan-id").owner_phone,
+                    "+12405550133",
+                )
+
     def test_selected_ai_number_to_missed_call_sms_and_playable_link(self):
         with (
             patch.object(ai_setup, "get_location_phone_numbers",
