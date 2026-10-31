@@ -107,6 +107,7 @@ class NewShopIntegrationTests(unittest.TestCase):
         verified = {"number": RELAY, "route_verified": True}
         provider = SimpleNamespace(
             find_existing=lambda shop_id, **kw: verified if found else None,
+            list_reserved_relay_numbers=lambda: [],
             purchase_approved_number=lambda shop_id, number, *, approved=False:
                 self._no_purchase(shop_id, number, approved, verified),
         )
@@ -120,6 +121,7 @@ class NewShopIntegrationTests(unittest.TestCase):
             find_existing=lambda shop_id, **kw: (
                 verified if kw.get("expected_number") == RELAY else None
             ),
+            list_reserved_relay_numbers=lambda: [RELAY],
             purchase_approved_number=lambda shop_id, number, *, approved=False:
                 self._no_purchase(shop_id, number, approved, verified),
         )
@@ -355,12 +357,13 @@ class NewShopIntegrationTests(unittest.TestCase):
                     "+12405550133",
                 )
 
-    def test_reserved_pool_ai_number_to_forwarding_voicemail_sms_and_audio(self):
-        # No shop-specific relay DID existed before AI activation. Allocate
-        # a provider-verified reserve DID with no provider writes or charges.
+    def test_discovered_reserve_ai_number_to_forwarding_voicemail_sms_and_audio(self):
+        # No shop-specific DID or static pool existed before AI activation.
+        # Discover the provider-owned reserve, then exercise forwarding,
+        # missed-call recording, SMS and audio with mocked external I/O.
         with (
             patch.dict(os.environ, {
-                "DAYTELLO_VOICE_RELAY_PREOWNED_NUMBER_POOL": '["'+RELAY+'"]',
+                "DAYTELLO_VOICE_RELAY_PREOWNED_NUMBER_POOL": "",
                 "DAYTELLO_VOICE_RELAY_PURCHASE_ENABLED": "false",
             }),
             patch.object(ai_setup, "get_location_phone_numbers",
