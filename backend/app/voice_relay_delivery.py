@@ -176,12 +176,25 @@ def relay_receipt_route_is_current(receipt, shop, settings, binding) -> bool:
 
 
 def send_relay_owner_alert(recording_sid):
-    """Send once after durable receipt, using the existing tracked SMS sender."""
+    """Claim one SMS attempt atomically before any provider I/O.
+
+    Duplicate background tasks may execute in separate workers. The durable
+    queued -> sending transition prevents two workers from sending the same
+    recording. Do not automatically retry an interrupted or ambiguous attempt:
+    the provider might already have accepted the message.
+    """
+    with SessionLocal() as db:
+        claimed = db.query(DayTelloVoiceRelayRecording).filter_by(
+            recording_sid=recording_sid, notification_status="queued",
+        ).update({"notification_status": "sending"}, synchronize_session=False)
+        db.commit()
+        if claimed != 1:
+            return
     status = "failed"
     try:
         with SessionLocal() as db:
             receipt = db.get(DayTelloVoiceRelayRecording, recording_sid)
-            if not receipt or receipt.notification_status != "queued":
+            if not receipt or receipt.notification_status != "sending":
                 return
             shop = db.get(Shop, receipt.shop_id)
             settings = db.get(DayTelloVoicemailShopSettings, receipt.shop_id)
@@ -203,7 +216,7 @@ def send_relay_owner_alert(recording_sid):
     finally:
         with SessionLocal() as db:
             receipt = db.get(DayTelloVoiceRelayRecording, recording_sid)
-            if receipt and receipt.notification_status == "queued":
+            if receipt and receipt.notification_status == "sending":
                 receipt.notification_status = status
                 db.commit()
 
