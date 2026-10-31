@@ -125,6 +125,19 @@ class ClaimTests(unittest.TestCase):
             self.assertEqual(db.query(DayTelloVoiceRelayAssignment).count(), 1)
             self.assertEqual(db.query(DayTelloVoicemailShopSettings).count(), 1)
 
+    def test_existing_claim_never_reauthorizes_purchase_on_retry(self):
+        # A stale client may repeat its original purchase-approved request.
+        # Recovery must verify provider ownership, never charge for the DID again.
+        provider = FakeProvider()
+        with self.factory() as db:
+            self.reserve(db, provider=provider)
+            with patch("app.voice_relay_provisioning._require_purchase_lock"):
+                self.reserve(db, approved=True, provider=provider)
+            self.assertEqual(db.query(DayTelloVoiceRelayAssignment).count(), 1)
+        self.assertEqual(provider.calls, [
+            ("shop-a", NUMBER, False), ("shop-a", NUMBER, False),
+        ])
+
     def test_other_shop_cannot_claim_same_number(self):
         provider = FakeProvider()
         with self.factory() as db:
