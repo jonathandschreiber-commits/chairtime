@@ -33,6 +33,8 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 CALL = re.compile(r"^CA[a-fA-F0-9]{32}$")
 MAX_AUDIO_BYTES = 15 * 1024 * 1024
+# Recovery must not compete with normal post-callback background dispatch.
+RECOVERY_MIN_AGE = timedelta(minutes=5)
 
 
 class DayTelloVoiceRelayCall(Base):
@@ -228,8 +230,10 @@ def recover_queued_relay_alerts(limit=25):
     A process can stop after a recording receipt commits but before its
     FastAPI background task runs. An operator-controlled worker may invoke
     this bounded helper later. It does not schedule itself or activate SMS.
-    The queued -> sending conditional UPDATE in send_relay_owner_alert
-    prevents duplicate sends if the original task is also still running.
+    Only receipts queued for at least five minutes qualify; this gives
+    normal background dispatch time to run before a recovery scan. The
+    queued -> sending conditional UPDATE in send_relay_owner_alert still
+    prevents duplicate sends if the original task is also running.
     Return the number of receipts examined, not confirmed SMS deliveries.
     """
     if (os.getenv("DAYTELLO_VOICE_RELAY_TEST_ONLY") != "true" or
@@ -238,9 +242,13 @@ def recover_queued_relay_alerts(limit=25):
         return 0
     if type(limit) is not int or not 1 <= limit <= 100:
         raise ValueError("Recovery batch size must be between 1 and 100")
+    # DateTime columns are timezone-naive UTC in the existing database.
+    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - RECOVERY_MIN_AGE
     with SessionLocal() as db:
         pending = db.query(DayTelloVoiceRelayRecording).filter_by(
             notification_status="queued",
+        ).filter(
+            DayTelloVoiceRelayRecording.created_at <= cutoff,
         ).order_by(
             DayTelloVoiceRelayRecording.created_at,
             DayTelloVoiceRelayRecording.recording_sid,
