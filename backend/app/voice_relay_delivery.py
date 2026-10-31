@@ -185,6 +185,12 @@ def send_relay_owner_alert(recording_sid):
     recording. Do not automatically retry an interrupted or ambiguous attempt:
     the provider might already have accepted the message.
     """
+    # A queued background task may outlive a test-mode shutdown. Never claim
+    # a receipt or send an owner SMS after the relay is explicitly disabled.
+    if (os.getenv("DAYTELLO_VOICE_RELAY_TEST_ONLY") != "true" or
+            os.getenv("DAYTELLO_VOICEMAIL_TEST_ONLY") != "true" or
+            os.getenv("DAYTELLO_VOICEMAIL_OWNER_SMS_ENABLED") != "true"):
+        return
     with SessionLocal() as db:
         claimed = db.query(DayTelloVoiceRelayRecording).filter_by(
             recording_sid=recording_sid, notification_status="queued",
@@ -207,6 +213,12 @@ def send_relay_owner_alert(recording_sid):
             if not recipient:
                 return
             link = make_relay_recording_link(receipt, recipient)
+            # Recheck immediately before provider I/O: a flag may be disabled
+            # while the worker was validating the saved shop/recipient state.
+            if (os.getenv("DAYTELLO_VOICE_RELAY_TEST_ONLY") != "true" or
+                    os.getenv("DAYTELLO_VOICEMAIL_TEST_ONLY") != "true" or
+                    os.getenv("DAYTELLO_VOICEMAIL_OWNER_SMS_ENABLED") != "true"):
+                return
             result = send_highlevel_sms(
                 recipient, f"DayTello TEST: New voicemail for {shop.name}. Listen: {link}",
                 shop_id=shop.id, shop_slug=shop.slug,
