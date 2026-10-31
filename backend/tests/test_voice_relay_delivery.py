@@ -527,6 +527,50 @@ class SignedRecordingDeliveryTests(unittest.TestCase):
                         recover_queued_relay_alerts(shop_id="third-shop-id", limit=limit)
             session.assert_not_called()
 
+    def test_recovery_stops_when_operator_revokes_authorization_mid_batch(self):
+        # Recovery permission is separate from the ordinary SMS relay flag.
+        # Disabling the recovery worker must stop the remaining batch even
+        # when the snapshot already contains more eligible recordings.
+        examined = []
+        def revoke_after_first(recording_sid):
+            examined.append(recording_sid)
+            os.environ["DAYTELLO_VOICE_RELAY_RECOVERY_WORKER_ENABLED"] = "false"
+
+        with patch.dict(os.environ, {
+            "DAYTELLO_VOICE_RELAY_RECOVERY_WORKER_ENABLED": "true",
+        }), patch(
+            "app.voice_relay_delivery._eligible_queued_relay_sids",
+            return_value=[RECORDING, "RE" + "c" * 32],
+        ) as scan, patch(
+            "app.voice_relay_delivery.send_relay_owner_alert",
+            side_effect=revoke_after_first,
+        ) as send:
+            self.assertEqual(
+                recover_queued_relay_alerts(shop_id="third-shop-id", limit=2), 1
+            )
+        scan.assert_called_once_with(shop_id="third-shop-id", limit=2)
+        send.assert_called_once_with(RECORDING)
+        self.assertEqual(examined, [RECORDING])
+
+    def test_recovery_stops_if_disabled_after_backlog_scan(self):
+        # An operator may revoke permission during a slow database scan.
+        def revoke_during_scan(*, shop_id, limit):
+            os.environ["DAYTELLO_VOICE_RELAY_RECOVERY_WORKER_ENABLED"] = "false"
+            return [RECORDING]
+
+        with patch.dict(os.environ, {
+            "DAYTELLO_VOICE_RELAY_RECOVERY_WORKER_ENABLED": "true",
+        }), patch(
+            "app.voice_relay_delivery._eligible_queued_relay_sids",
+            side_effect=revoke_during_scan,
+        ), patch(
+            "app.voice_relay_delivery.send_relay_owner_alert",
+        ) as send:
+            self.assertEqual(
+                recover_queued_relay_alerts(shop_id="third-shop-id", limit=1), 0
+            )
+        send.assert_not_called()
+
     def test_in_progress_owner_sms_is_not_sent_again(self):
         receipt = SimpleNamespace(
             recording_sid=RECORDING, account_sid=ACCOUNT,
