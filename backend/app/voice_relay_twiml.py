@@ -22,7 +22,7 @@ def _response(child):
     return ET.tostring(root, encoding="unicode")
 
 
-def forward_to_employee(phone: str, dial_complete_url: str, timeout: int = 5) -> str:
+def forward_to_employee(phone: str, dial_complete_url: str, timeout: int = 5,\n                        owner_screen_url: str | None = None) -> str:
     """Dial employee, then hand control back via signed provider callback.
 
     Twilio's Dial has an approximately 5-second additional buffer, therefore
@@ -40,8 +40,34 @@ def forward_to_employee(phone: str, dial_complete_url: str, timeout: int = 5) ->
         "method": "POST",
         "answerOnBridge": "true",
     })
-    ET.SubElement(dial, "Number").text = phone
+    number_attributes = ({"url": _https_url(owner_screen_url), "method": "POST"}\n                         if owner_screen_url else {})\n    ET.SubElement(dial, "Number", number_attributes).text = phone
     return _response(dial)
+
+
+def screen_owner_call(confirm_url: str) -> str:
+    """Require a human to press 1 before bridging a transferred call.
+
+    A carrier voicemail may answer an owner's phone before the short Dial
+    timeout. Without confirmation it would count as an answered call and
+    swallow DayTello's voicemail fallback.
+    """
+    root = ET.Element("Response")
+    gather = ET.SubElement(root, "Gather", {
+        "input": "dtmf", "numDigits": "1", "timeout": "5",
+        "action": _https_url(confirm_url), "method": "POST",
+    })
+    ET.SubElement(gather, "Say").text = (
+        "DayTello call transfer. Press 1 to speak with the caller."
+    )
+    ET.SubElement(root, "Hangup")
+    return ET.tostring(root, encoding="unicode")
+
+
+def owner_screen_result(digits: str | None) -> str:
+    """Only an explicit keypress bridges; silence/voicemail hangs up."""
+    if digits == "1":
+        return "<Response><Say>Connecting you now.</Say></Response>"
+    return completed_recording()
 
 
 def voicemail_after_unanswered(recording_complete_url: str,
