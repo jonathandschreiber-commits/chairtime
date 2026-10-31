@@ -5022,8 +5022,29 @@ def activate_owned_phone_number(
         agent_id=agent_id,
         location_id=location_id,
     )
- 
+
+    # In isolated test onboarding, pre-bind a relay that the provider already
+    # owns for this exact shop. No DID purchase, call routing, or SMS activation
+    # is performed here. A relay outage must not turn a successfully activated
+    # HighLevel number into a failed purchase response (and trigger a retry).
+    voicemail_relay_prebound = False
+    if (os.getenv("DAYTELLO_VOICE_RELAY_TEST_ONLY") == "true"
+            and os.getenv("DAYTELLO_VOICEMAIL_TEST_ONLY") == "true"):
+        try:
+            from app.routes.voicemail_contact_number import (
+                attach_preowned_relay_after_ai_number,
+            )
+            voicemail_relay_prebound = attach_preowned_relay_after_ai_number(
+                shop, db,
+            )
+        except Exception:
+            db.rollback()
+            logger.exception(
+                "Pre-owned voicemail relay binding failed after AI number activation"
+            )
+
     return {
+        "voicemail_relay_prebound": voicemail_relay_prebound,
         "success": True,
         "purchased": bool(
             purchased_this_request
