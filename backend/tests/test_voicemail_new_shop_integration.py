@@ -268,6 +268,71 @@ class NewShopIntegrationTests(unittest.TestCase):
                     "+12405550133",
                 )
 
+    def test_saved_owner_number_finishes_automatically_on_ai_number_sync(self):
+        # The owner saved a destination while relay setup was pending. Once
+        # the AI number is synchronized, no second Save click is required.
+        routed = {"phoneNumber": AI_NUMBER, "friendlyName": "New Shop AI"}
+        with (
+            patch.object(ai_setup, "get_location_phone_numbers",
+                         return_value=(None, [routed])),
+            patch.object(ai_setup, "route_phone_number_to_shop_agent",
+                         return_value=routed),
+            patch.object(ai_setup, "get_shop_routed_phone_record",
+                         return_value=(None, [routed], routed)),
+            patch.object(ai_setup, "get_agent_detail", side_effect=self._get_agent),
+            patch.object(ai_setup, "highlevel_raw_request", side_effect=self._save_action),
+            patch.object(ai_setup, "purchase_one_highlevel_phone_number",
+                         side_effect=AssertionError("Unexpected AI number purchase")),
+            patch.object(voicemail_contact_number, "VoiceRelayNumberProvider",
+                         return_value=self._provider()),
+            patch.object(voice_relay_delivery, "SessionLocal", self.factory),
+            patch.object(voice_relay_delivery, "send_highlevel_sms",
+                         side_effect=self._capture_sms),
+        ):
+            self._activate_customer_selected_ai_number()
+            with self.factory() as db:
+                pending = db.get(DayTelloVoicemailShopSettings, "new-id")
+                pending.owner_phone = OWNER
+                pending.notifications_enabled = False
+                db.commit()
+            synced = self.client.post("/api/ai-setup/phone-number/sync")
+            self.assertEqual(synced.status_code, 200, synced.text)
+            self.assertEqual(
+                self.agent_action["actionParameters"]["transferToValue"], RELAY
+            )
+            with self.factory() as db:
+                relay = db.get(DayTelloVoiceRelayAssignment, "new-id")
+                settings = db.get(DayTelloVoicemailShopSettings, "new-id")
+                self.assertTrue(relay.enabled)
+                self.assertEqual(settings.owner_phone, OWNER)
+                self.assertTrue(settings.notifications_enabled)
+                self.assertEqual(
+                    db.get(DayTelloVoicemailShopSettings, "stan-id").owner_phone,
+                    "+12405550133",
+                )
+            inbound = self._signed_callback(
+                "/api/daytello/voice-relay/inbound", {"To": RELAY},
+            )
+            self.assertEqual(inbound.status_code, 200, inbound.text)
+            self.assertIn(OWNER, inbound.text)
+            self.assertIn('timeout="5"', inbound.text)
+            missed = self._signed_callback(
+                "/api/daytello/voice-relay/dial-finished",
+                {"DialCallStatus": "no-answer"},
+            )
+            self.assertEqual(missed.status_code, 200, missed.text)
+            self.assertIn("<Record", missed.text)
+            completed = self._signed_callback(
+                "/api/daytello/voice-relay/record-ready",
+                {"RecordingStatus": "completed", "RecordingSid": RECORDING},
+            )
+            self.assertEqual(completed.status_code, 200, completed.text)
+            self.assertEqual(completed.json()["action"], "queued")
+            self.assertEqual(len(self.sent), 1)
+            self.assertEqual(self.sent[0][0], OWNER)
+            self.assertEqual(self.sent[0][2]["shop_id"], "new-id")
+            self.assertIn("Listen: https://relay.example.test/", self.sent[0][1])
+
     def test_selected_ai_number_to_missed_call_sms_and_playable_link(self):
         with (
             patch.object(ai_setup, "get_location_phone_numbers",
