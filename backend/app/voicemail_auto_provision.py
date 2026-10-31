@@ -13,6 +13,7 @@ from fastapi import HTTPException
 from sqlalchemy.exc import IntegrityError
 
 from app.models import Shop
+from app.voice_relay_models import DayTelloVoiceRelayAssignment
 from app.routes.ai_setup import get_location_phone_numbers, get_phone_inbound_service
 from app.routes.voicemail_webhook import configured_routing_map, valid_phone
 from app.voicemail_models import DayTelloVoicemailShopSettings
@@ -85,6 +86,38 @@ def ensure_test_voicemail_number(shop: Shop, db):
     if existing:
         if existing.location_id != location_id or not valid_phone(existing.receiving_number):
             raise HTTPException(409, "Existing voicemail route needs review")
+        # A saved DID is not automatically safe forever. A cross-tenant
+        # business line, relay (even disabled), or cross-location claim must
+        # stop setup rather than being accepted as an idempotent success.
+        number = existing.receiving_number
+        if (
+            number in (shop.highlevel_phone_number, shop.phone)
+            or db.query(Shop).filter(
+                Shop.id != shop.id,
+                (Shop.highlevel_phone_number == number) | (Shop.phone == number),
+            ).first() is not None
+            or db.query(DayTelloVoiceRelayAssignment).filter(
+                DayTelloVoiceRelayAssignment.relay_number == number,
+            ).first() is not None
+            or db.query(DayTelloVoicemailShopSettings).filter(
+                DayTelloVoicemailShopSettings.shop_id != shop.id,
+                DayTelloVoicemailShopSettings.receiving_number == number,
+            ).first() is not None
+        ):
+            raise HTTPException(409, "Existing voicemail number conflicts with another route")
+        legacy_raw = os.getenv("DAYTELLO_VOICEMAIL_NUMBER_SHOP_MAP", "").strip()
+        if legacy_raw and configured_routing_map().get(number) not in (None, shop.slug):
+            raise HTTPException(409, "Existing voicemail number conflicts with legacy mapping")
+        # A previously saved database claim is not proof that the DID is
+        # still assigned to this HighLevel location or remains a non-AI line.
+        # Revalidate before treating a repeat setup request as successful.
+        _, inventory = verified_phone_inventory(location_id)
+        matches = [
+            item for item in inventory
+            if isinstance(item, dict) and item.get("phoneNumber") == number
+        ]
+        if len(matches) != 1 or get_phone_inbound_service(matches[0]).get("type") == "voice_ai":
+            raise HTTPException(409, "Existing voicemail number needs provider verification")
         return existing
 
     candidates = reserved_numbers_for_shop(shop.slug)
@@ -109,10 +142,17 @@ def ensure_test_voicemail_number(shop: Shop, db):
     for number in candidates:
         if number in other_shop_numbers:
             continue
+        # Programmable voice relay assignments are independent of HighLevel
+        # voicemail settings. Never claim the same DID in both systems, even
+        # when the relay is currently disabled and could be enabled later.
+        if db.query(DayTelloVoiceRelayAssignment).filter(
+            DayTelloVoiceRelayAssignment.relay_number == number,
+        ).first() is not None:
+            continue
         if number in (shop.highlevel_phone_number, shop.phone):
             continue
         if db.query(DayTelloVoicemailShopSettings).filter(
-            DayTelloVoicemailShopSettings.location_id == location_id,
+            # A physical DID is exclusive across all HighLevel locations.
             DayTelloVoicemailShopSettings.receiving_number == number,
         ).first():
             continue
@@ -170,9 +210,15 @@ def bind_explicitly_labeled_test_voicemail(location_id: str, number: str, db):
     ):
         return None
     if db.query(DayTelloVoicemailShopSettings).filter(
-        DayTelloVoicemailShopSettings.location_id == location_id,
+        # A DID claimed in another location is still unavailable.
         DayTelloVoicemailShopSettings.receiving_number == number,
     ).first():
+        return None
+    # A previously claimed programmable relay DID must not be silently
+    # reassigned by the signed-event recovery path either.
+    if db.query(DayTelloVoiceRelayAssignment).filter(
+        DayTelloVoiceRelayAssignment.relay_number == number,
+    ).first() is not None:
         return None
 
     _, inventory = verified_phone_inventory(location_id)

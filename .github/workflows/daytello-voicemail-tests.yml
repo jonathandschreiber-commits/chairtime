@@ -5,10 +5,13 @@ on:
     branches:
       - feature/daytello-voicemail-receiver-20261026
       - feature/daytello-voicemail-owner-sms-20261027
+      - feature/daytello-general-voicemail-onboarding-20261029
       - feature/daytello-bobs-voicemail-sms-activation-20261029
   pull_request:
     branches:
       - daytello-testing
+      # PR #5 targets this feature branch while zero-touch onboarding is built.
+      - feature/daytello-voicemail-owner-sms-20261027
   workflow_dispatch:
 
 permissions:
@@ -33,7 +36,19 @@ jobs:
       - name: Run offline voicemail unit tests
         run: |
           python -m unittest discover -s tests -p 'test_voicemail*.py' -v
+          python -m unittest discover -s tests -p 'test_voice_relay*.py' -v
           python -m unittest discover -s tests -p 'test_daytello_oauth*.py' -v
           python -m unittest discover -s tests -p 'test_daytello_token_refresh.py' -v
           python -m unittest discover -s tests -p 'test_test_owner_claim.py' -v
           python -m unittest discover -s tests -p 'test_test_existing_agent_link.py' -v
+
+  frontend-owner-phone-tests:
+    name: Verify owner phone onboarding UI helpers (offline)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Test phone normalization and verification destination validation
+        run: node --test frontend/tests/owner-phone.test.mjs

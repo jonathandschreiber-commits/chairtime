@@ -35,8 +35,10 @@ from app.routes.voicemail_contact_number import router as voicemail_contact_numb
 from app.routes.test_existing_agent_link import router as test_existing_agent_link_router
 from app.routes.voicemail_shop_provisioning import router as voicemail_shop_provisioning_router
 from app.routes.voicemail_webhook import router as voicemail_router
+from app.routes.voice_relay import router as voice_relay_router
 from app.routes.voicemail_owner_alert import router as voicemail_owner_alert_router
 from app.routes.daytello_voicemail_oauth import router as daytello_oauth_router
+from app import voice_relay_models  # noqa: F401 - registers isolated relay table
 from app import voicemail_models  # noqa: F401 - registers voicemail table
 from app import voicemail_oauth_models  # noqa: F401 - registers OAuth tables
 
@@ -717,6 +719,7 @@ app.include_router(payments_router, prefix="/api/payments", tags=["Service Payme
 
 # Signed, read-only voicemail intake. No owner SMS until separately enabled.
 app.include_router(voicemail_router, prefix="/api", tags=["Voicemail Intake"])
+app.include_router(voice_relay_router, prefix="/api")
 app.include_router(voicemail_shop_settings_router, prefix="/api", tags=["Voicemail Owner Settings"])
 app.include_router(voicemail_contact_number_router, prefix="/api", tags=["Owner Call and Voicemail"])
 app.include_router(test_existing_agent_link_router, prefix="/api/ai-setup", tags=["Existing Test Voice Agent"])

@@ -1,0 +1,682 @@
+"""Offline signed Twilio callback -> durable recording -> owner SMS queue tests."""
+import base64
+import hashlib
+import hmac
+import os
+import unittest
+from datetime import datetime, timedelta, timezone
+import httpx
+from types import SimpleNamespace
+from unittest.mock import patch
+from urllib.parse import urlencode
+
+from cryptography.fernet import Fernet
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from sqlalchemy.exc import IntegrityError
+
+from app.database import get_db
+from app.models import Shop
+from app.routes.voice_relay import router
+from app.voice_relay_models import DayTelloVoiceRelayAssignment
+from app.voice_relay_delivery import (
+    DayTelloVoiceRelayCall, DayTelloVoiceRelayRecording,
+    make_relay_recording_link, send_relay_owner_alert, recover_queued_relay_alerts,
+    preview_queued_relay_alerts,
+)
+from app.voicemail_models import DayTelloVoicemailShopSettings
+from app.voicemail_owner_links import decode_recording_link
+from test_voice_relay_routes import FakeDB, DID, OWNER, CALL, ACCOUNT
+
+RECORDING = "RE" + "b" * 32
+
+
+class DeliveryDB(FakeDB):
+    def __init__(self):
+        # Signed delivery tests use a separate test location from the
+        # general relay route tests. Keep the mocked shop and settings
+        # consistent with the configured provider location.
+        super().__init__(location_id="test-location", shop_location_id="test-location")
+        self.recordings = {}
+        self.pending = None
+        self.notifications_enabled = True
+        self.owner_phone = OWNER
+        self.receiving_number = DID
+        self.location_id = "test-location"
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def get(self, model, identifier):
+        if model is DayTelloVoiceRelayCall:
+            return self.calls.get(identifier)
+        if model is DayTelloVoiceRelayRecording:
+            return self.recordings.get(identifier)
+        if model is Shop:
+            return SimpleNamespace(
+                id=identifier, slug="test-shop-3", name="Test Shop 3",
+                ai_voice_enabled=True, highlevel_location_id="test-location",
+            )
+        if model is DayTelloVoicemailShopSettings:
+            return SimpleNamespace(
+                owner_phone=self.owner_phone, notifications_enabled=self.notifications_enabled,
+                receiving_number=self.receiving_number, location_id=self.location_id,
+            )
+        if model is DayTelloVoiceRelayAssignment:
+            return SimpleNamespace(
+                shop_id=identifier, relay_number=DID, enabled=True,
+            )
+        raise AssertionError(f"Unexpected model {model}")
+
+    def query(self, model):
+        if model is DayTelloVoiceRelayRecording:
+            return RecordingClaimQuery(self)
+        return super().query(model)
+
+    def add(self, record):
+        self.pending = record
+
+    def commit(self):
+        record = self.pending
+        self.pending = None
+        if record is None:
+            return
+        if isinstance(record, DayTelloVoiceRelayCall):
+            if record.call_sid in self.calls:
+                raise IntegrityError("insert", {}, Exception("duplicate call"))
+            self.calls[record.call_sid] = record
+        elif isinstance(record, DayTelloVoiceRelayRecording):
+            if record.recording_sid in self.recordings:
+                raise IntegrityError("insert", {}, Exception("duplicate recording"))
+            self.recordings[record.recording_sid] = record
+        else:
+            raise AssertionError("Unexpected persisted record")
+
+    def rollback(self):
+        self.pending = None
+
+
+class RecordingClaimQuery:
+    """Simulate the database's conditional queued -> sending UPDATE."""
+
+    def __init__(self, db):
+        self.db = db
+        self.filters = {}
+        self.created_before = None
+
+    def filter_by(self, **kwargs):
+        self.filters = kwargs
+        return self
+
+    def filter(self, predicate):
+        # Model the SQL created_at <= cutoff condition for recovery scans.
+        assert predicate.left.key == "created_at"
+        self.created_before = predicate.right.value
+        return self
+
+    def update(self, values, synchronize_session=False):
+        assert synchronize_session is False
+        receipt = self.db.recordings.get(self.filters["recording_sid"])
+        if not receipt or receipt.notification_status != self.filters["notification_status"]:
+            return 0
+        receipt.notification_status = values["notification_status"]
+        return 1
+
+    def order_by(self, *columns):
+        return self
+
+    def limit(self, count):
+        self.batch_limit = count
+        return self
+
+    def all(self):
+        # The in-memory fake preserves deterministic SID ordering; the real
+        # database orders by created_at and recording_sid.
+        rows = sorted(self.db.recordings.values(), key=lambda r: r.recording_sid)
+        return [r for r in rows if all(
+            getattr(r, key) == value for key, value in self.filters.items()
+        ) and (self.created_before is None or
+               r.created_at <= self.created_before)][:self.batch_limit]
+
+
+class SignedRecordingDeliveryTests(unittest.TestCase):
+    def setUp(self):
+        self.db = DeliveryDB()
+        app = FastAPI()
+        app.include_router(router, prefix="/api")
+        app.dependency_overrides[get_db] = lambda: self.db
+        self.client = TestClient(app)
+        self.notifications = []
+        self.env = patch.dict(os.environ, {
+            "DAYTELLO_VOICE_RELAY_TEST_ONLY": "true",
+            "DAYTELLO_VOICE_RELAY_AUTH_TOKEN": "test-only-secret",
+            "DAYTELLO_VOICE_RELAY_ACCOUNT_SID": ACCOUNT,
+            "DAYTELLO_VOICE_RELAY_PUBLIC_ORIGIN": "https://relay.example.test",
+            "DAYTELLO_VOICEMAIL_TEST_ONLY": "true",
+            "DAYTELLO_VOICEMAIL_OWNER_SMS_ENABLED": "true",
+            "DAYTELLO_VOICE_RELAY_RECOVERY_WORKER_ENABLED": "true",
+            "DAYTELLO_VOICEMAIL_TEST_RECIPIENT": OWNER,
+            "DAYTELLO_VOICEMAIL_TEST_PUBLIC_ORIGIN": "https://relay.example.test",
+            "DAYTELLO_VOICEMAIL_LINK_KEY": Fernet.generate_key().decode(),
+            "HIGHLEVEL_LOCATION_ID": "test-location",
+            "DAYTELLO_VOICE_RELAY_API_KEY_SID": "SK" + "e" * 32,
+            "DAYTELLO_VOICE_RELAY_API_KEY_SECRET": "test-api-key-secret",
+        })
+        self.env.start()
+        self.send = patch(
+            "app.routes.voice_relay.send_relay_owner_alert",
+            side_effect=self.notifications.append,
+        )
+        self.send.start()
+
+    def tearDown(self):
+        self.send.stop()
+        self.env.stop()
+
+    def post_signed(self, endpoint, fields):
+        fields = {"AccountSid": ACCOUNT, "CallSid": CALL, **fields}
+        signed_url = "https://relay.example.test" + endpoint
+        data = signed_url + "".join(k + fields[k] for k in sorted(fields))
+        signature = base64.b64encode(
+            hmac.new(b"test-only-secret", data.encode(), hashlib.sha1).digest()
+        ).decode()
+        return self.client.post(endpoint, content=urlencode(fields), headers={
+            "content-type": "application/x-www-form-urlencoded",
+            "x-twilio-signature": signature,
+        })
+
+    def inbound(self):
+        response = self.post_signed(
+            "/api/daytello/voice-relay/inbound", {"To": DID})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertIn(CALL, self.db.calls)
+
+    def recording(self, **extra):
+        return self.post_signed(
+            "/api/daytello/voice-relay/record-ready",
+            {"RecordingStatus": "completed", "RecordingSid": RECORDING, **extra},
+        )
+
+    def test_completed_recording_without_to_queues_exactly_one_sms(self):
+        self.inbound()
+        first = self.recording()
+        self.assertEqual(first.status_code, 200, first.text)
+        self.assertEqual(first.json()["action"], "queued")
+        self.assertEqual(self.notifications, [RECORDING])
+        self.assertEqual(self.db.recordings[RECORDING].shop_id, "third-shop-id")
+        second = self.recording()
+        self.assertEqual(second.status_code, 200, second.text)
+        self.assertEqual(second.json()["action"], "duplicate")
+        self.assertEqual(self.notifications, [RECORDING])
+
+    def test_recording_without_signed_inbound_is_rejected(self):
+        response = self.recording()
+        self.assertEqual(response.status_code, 404)
+        self.assertFalse(self.notifications)
+
+    def test_mismatched_destination_is_rejected(self):
+        self.inbound()
+        response = self.recording(To="+12405550198")
+        self.assertEqual(response.status_code, 409)
+        self.assertFalse(self.notifications)
+
+    def test_mismatched_provider_account_is_rejected(self):
+        self.inbound()
+        response = self.recording(AccountSid="AC" + "f" * 32)
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(self.notifications)
+
+    def test_sms_is_disabled_when_owner_has_not_opted_in(self):
+        self.inbound()
+        self.db.notifications_enabled = False
+        response = self.recording()
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["action"], "disabled")
+        self.assertFalse(self.notifications)
+
+    def test_owner_link_proxies_audio_with_server_side_provider_auth(self):
+        self.inbound()
+        self.assertEqual(self.recording().status_code, 200)
+        link = make_relay_recording_link(self.db.recordings[RECORDING], OWNER)
+        token = link.rsplit("/", 1)[1]
+        requests = []
+        def provider(request):
+            requests.append(request)
+            self.assertEqual(request.url.host, "api.twilio.com")
+            self.assertIn("/Recordings/" + RECORDING + ".mp3", request.url.path)
+            self.assertTrue(request.headers.get("authorization", "").startswith("Basic "))
+            return httpx.Response(
+                200, headers={"content-type": "audio/mpeg"}, content=b"mock-mp3"
+            )
+        real_async_client = httpx.AsyncClient
+        def client_factory(**kwargs):
+            return real_async_client(
+                transport=httpx.MockTransport(provider), **kwargs,
+            )
+        with patch("app.voice_relay_delivery.SessionLocal", return_value=self.db), \
+             patch("app.voice_relay_delivery.httpx.AsyncClient",
+                   side_effect=client_factory):
+            response = self.client.get(
+                "/api/daytello/voice-relay/listen/" + token)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.content, b"mock-mp3")
+        self.assertEqual(response.headers["cache-control"], "private, no-store")
+        self.assertEqual(len(requests), 1)
+
+    def test_owner_link_rejects_unexpected_provider_content(self):
+        self.inbound()
+        self.assertEqual(self.recording().status_code, 200)
+        token = make_relay_recording_link(
+            self.db.recordings[RECORDING], OWNER).rsplit("/", 1)[1]
+        real_async_client = httpx.AsyncClient
+        def client_factory(**kwargs):
+            return real_async_client(
+                transport=httpx.MockTransport(
+                    lambda _: httpx.Response(
+                        200, headers={"content-type": "text/html"},
+                        content=b"<html>not audio</html>",
+                    )
+                ), **kwargs,
+            )
+        with patch("app.voice_relay_delivery.SessionLocal", return_value=self.db), \
+             patch("app.voice_relay_delivery.httpx.AsyncClient",
+                   side_effect=client_factory):
+            response = self.client.get(
+                "/api/daytello/voice-relay/listen/" + token)
+        self.assertEqual(response.status_code, 502)
+        self.assertNotIn("not audio", response.text)
+
+    def test_owner_opt_out_revokes_previously_issued_relay_link(self):
+        self.inbound()
+        self.assertEqual(self.recording().status_code, 200)
+        token = make_relay_recording_link(
+            self.db.recordings[RECORDING], OWNER).rsplit("/", 1)[1]
+        self.db.notifications_enabled = False
+        with patch("app.voice_relay_delivery.SessionLocal", return_value=self.db):
+            response = self.client.get("/api/daytello/voice-relay/listen/" + token)
+        self.assertEqual(response.status_code, 404)
+
+    def test_owner_number_change_revokes_previously_issued_relay_link(self):
+        self.inbound()
+        self.assertEqual(self.recording().status_code, 200)
+        token = make_relay_recording_link(
+            self.db.recordings[RECORDING], OWNER).rsplit("/", 1)[1]
+        # A separately approved new recipient must not inherit the old link.
+        self.db.owner_phone = "+12405550177"
+        with patch.dict(os.environ, {"DAYTELLO_VOICEMAIL_TEST_RECIPIENT": "+12405550177"}), \
+             patch("app.voice_relay_delivery.SessionLocal", return_value=self.db):
+            response = self.client.get("/api/daytello/voice-relay/listen/" + token)
+        self.assertEqual(response.status_code, 404)
+
+    def test_queued_sms_rechecks_current_did_and_location(self):
+        # A recording can be queued before an owner changes routing. No SMS
+        # should be sent against stale voicemail DID or location settings.
+        for field, value in (
+            ("receiving_number", "+12405550199"),
+            ("location_id", "different-location"),
+        ):
+            with self.subTest(field=field):
+                setattr(self.db, field, value)
+                receipt = SimpleNamespace(
+                    recording_sid=RECORDING, account_sid=ACCOUNT,
+                    shop_id="third-shop-id", relay_number=DID,
+                    notification_status="queued",
+                )
+                self.db.recordings[RECORDING] = receipt
+                with patch("app.voice_relay_delivery.SessionLocal", return_value=self.db), \
+                     patch("app.voice_relay_delivery.send_highlevel_sms") as send_sms:
+                    send_relay_owner_alert(RECORDING)
+                send_sms.assert_not_called()
+                self.assertEqual(receipt.notification_status, "failed")
+                setattr(self.db, field, DID if field == "receiving_number" else "test-location")
+
+    def test_queued_sms_rejects_stale_or_unconfigured_provider_account(self):
+        # A callback queued before an account rotation must not text a
+        # recording link that cannot be played under the current account.
+        for account in ("AC" + "f" * 32, ""):
+            with self.subTest(account=account or "unconfigured"):
+                receipt = SimpleNamespace(
+                    recording_sid=RECORDING, account_sid=ACCOUNT,
+                    shop_id="third-shop-id", relay_number=DID,
+                    notification_status="queued",
+                )
+                self.db.recordings[RECORDING] = receipt
+                with patch.dict(os.environ, {
+                    "DAYTELLO_VOICE_RELAY_ACCOUNT_SID": account,
+                }), patch(
+                    "app.voice_relay_delivery.SessionLocal", return_value=self.db,
+                ), patch(
+                    "app.voice_relay_delivery.send_highlevel_sms",
+                ) as send_sms:
+                    send_relay_owner_alert(RECORDING)
+                send_sms.assert_not_called()
+                self.assertEqual(receipt.notification_status, "failed")
+
+    def test_current_route_still_sends_one_queued_owner_sms(self):
+        receipt = SimpleNamespace(
+            recording_sid=RECORDING, account_sid=ACCOUNT,
+            shop_id="third-shop-id", relay_number=DID,
+            notification_status="queued",
+        )
+        self.db.recordings[RECORDING] = receipt
+        with patch("app.voice_relay_delivery.SessionLocal", return_value=self.db), \
+             patch("app.voice_relay_delivery.send_highlevel_sms",
+                   return_value={"success": True}) as send_sms:
+            send_relay_owner_alert(RECORDING)
+        send_sms.assert_called_once()
+        self.assertEqual(receipt.notification_status, "sent")
+
+    def test_disabling_relay_after_queue_prevents_any_sms_claim(self):
+        receipt = SimpleNamespace(
+            recording_sid=RECORDING, account_sid=ACCOUNT,
+            shop_id="third-shop-id", relay_number=DID,
+            notification_status="queued",
+        )
+        self.db.recordings[RECORDING] = receipt
+        with patch.dict(os.environ, {"DAYTELLO_VOICE_RELAY_TEST_ONLY": "false"}), \
+             patch("app.voice_relay_delivery.SessionLocal") as open_db, \
+             patch("app.voice_relay_delivery.send_highlevel_sms") as send_sms:
+            send_relay_owner_alert(RECORDING)
+        open_db.assert_not_called()
+        send_sms.assert_not_called()
+        self.assertEqual(receipt.notification_status, "queued")
+
+    def test_disabling_relay_mid_dispatch_prevents_provider_sms(self):
+        receipt = SimpleNamespace(
+            recording_sid=RECORDING, account_sid=ACCOUNT,
+            shop_id="third-shop-id", relay_number=DID,
+            notification_status="queued",
+        )
+        self.db.recordings[RECORDING] = receipt
+
+        def disable_during_recipient_check(*args, **kwargs):
+            os.environ["DAYTELLO_VOICE_RELAY_TEST_ONLY"] = "false"
+            return OWNER
+
+        with patch.dict(os.environ, {"DAYTELLO_VOICE_RELAY_TEST_ONLY": "true"}), \
+             patch("app.voice_relay_delivery.SessionLocal", return_value=self.db), \
+             patch("app.voice_relay_delivery.owner_phone_for_test_shop",
+                   side_effect=disable_during_recipient_check), \
+             patch("app.voice_relay_delivery.send_highlevel_sms") as send_sms:
+            send_relay_owner_alert(RECORDING)
+        send_sms.assert_not_called()
+        # The receipt was already claimed; never retry an ambiguous attempt.
+        self.assertEqual(receipt.notification_status, "failed")
+
+    def test_recovery_flag_revocation_before_claim_does_not_open_database(self):
+        receipt = SimpleNamespace(
+            recording_sid=RECORDING, account_sid=ACCOUNT,
+            shop_id="third-shop-id", relay_number=DID,
+            notification_status="queued",
+        )
+        self.db.recordings[RECORDING] = receipt
+        with patch.dict(os.environ, {
+            "DAYTELLO_VOICE_RELAY_RECOVERY_WORKER_ENABLED": "false",
+        }), patch("app.voice_relay_delivery.SessionLocal") as open_db, \
+             patch("app.voice_relay_delivery.send_highlevel_sms") as send_sms:
+            send_relay_owner_alert(RECORDING, recovery=True)
+        open_db.assert_not_called()
+        send_sms.assert_not_called()
+        self.assertEqual(receipt.notification_status, "queued")
+
+    def test_recovery_revoked_mid_dispatch_never_contacts_sms_provider(self):
+        receipt = SimpleNamespace(
+            recording_sid=RECORDING, account_sid=ACCOUNT,
+            shop_id="third-shop-id", relay_number=DID,
+            notification_status="queued",
+        )
+        self.db.recordings[RECORDING] = receipt
+
+        def revoke_during_recipient_check(*args, **kwargs):
+            os.environ["DAYTELLO_VOICE_RELAY_RECOVERY_WORKER_ENABLED"] = "false"
+            return OWNER
+
+        with patch.dict(os.environ, {
+            "DAYTELLO_VOICE_RELAY_RECOVERY_WORKER_ENABLED": "true",
+        }), patch("app.voice_relay_delivery.SessionLocal", return_value=self.db), \
+             patch("app.voice_relay_delivery.owner_phone_for_test_shop",
+                   side_effect=revoke_during_recipient_check), \
+             patch("app.voice_relay_delivery.send_highlevel_sms") as send_sms:
+            send_relay_owner_alert(RECORDING, recovery=True)
+        send_sms.assert_not_called()
+        # Already claimed; never automatically retry a potentially ambiguous send.
+        self.assertEqual(receipt.notification_status, "failed")
+
+    def test_concurrent_owner_sms_attempt_is_claimed_once(self):
+        receipt = SimpleNamespace(
+            recording_sid=RECORDING, account_sid=ACCOUNT,
+            shop_id="third-shop-id", relay_number=DID,
+            notification_status="queued",
+        )
+        self.db.recordings[RECORDING] = receipt
+
+        def send_with_reentrant_worker(*args, **kwargs):
+            # Simulate a second worker processing the same queued recording
+            # while the first worker is still waiting for the SMS provider.
+            send_relay_owner_alert(RECORDING)
+            return {"success": True}
+
+        with patch("app.voice_relay_delivery.SessionLocal", return_value=self.db), \
+             patch("app.voice_relay_delivery.send_highlevel_sms",
+                   side_effect=send_with_reentrant_worker) as send_sms:
+            send_relay_owner_alert(RECORDING)
+        send_sms.assert_called_once()
+        self.assertEqual(receipt.notification_status, "sent")
+
+    def test_ambiguous_failed_owner_sms_is_not_retried(self):
+        receipt = SimpleNamespace(
+            recording_sid=RECORDING, account_sid=ACCOUNT,
+            shop_id="third-shop-id", relay_number=DID,
+            notification_status="queued",
+        )
+        self.db.recordings[RECORDING] = receipt
+        with patch("app.voice_relay_delivery.SessionLocal", return_value=self.db), \
+             patch("app.voice_relay_delivery.send_highlevel_sms",
+                   return_value={"success": False}) as send_sms:
+            send_relay_owner_alert(RECORDING)
+            send_relay_owner_alert(RECORDING)
+        send_sms.assert_called_once()
+        self.assertEqual(receipt.notification_status, "failed")
+
+
+    def test_recovery_preview_is_read_only_tenant_scoped_and_age_gated(self):
+        old = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=10)
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        def receipt(sid, shop_id, created_at):
+            return SimpleNamespace(
+                recording_sid=sid, account_sid=ACCOUNT,
+                shop_id=shop_id, relay_number=DID,
+                notification_status="queued", created_at=created_at,
+            )
+        target = receipt(RECORDING, "third-shop-id", old)
+        other = receipt("RE" + "c" * 32, "another-shop-id", old)
+        recent = receipt("RE" + "d" * 32, "third-shop-id", now)
+        self.db.recordings = {r.recording_sid: r for r in (target, other, recent)}
+        with patch("app.voice_relay_delivery.SessionLocal", return_value=self.db), \
+             patch("app.voice_relay_delivery.send_relay_owner_alert") as send:
+            self.assertEqual(preview_queued_relay_alerts(shop_id="third-shop-id", limit=10), 1)
+            self.assertEqual(preview_queued_relay_alerts(shop_id="another-shop-id", limit=10), 1)
+        send.assert_not_called()
+        self.assertTrue(all(r.notification_status == "queued" for r in (target, other, recent)))
+
+    def test_recovery_preview_fails_closed_outside_test_mode(self):
+        with patch.dict(os.environ, {"DAYTELLO_VOICE_RELAY_TEST_ONLY": "false"}), \
+             patch("app.voice_relay_delivery.SessionLocal") as open_db:
+            with self.assertRaises(PermissionError):
+                preview_queued_relay_alerts(shop_id="third-shop-id")
+        open_db.assert_not_called()
+
+    def test_recovery_reclaims_queued_receipts_without_duplicate_sms(self):
+        # Simulate a crash after the receipt commit but before background
+        # task dispatch. Recovery must use the same atomic send claim.
+        queued = SimpleNamespace(
+            recording_sid=RECORDING, account_sid=ACCOUNT,
+            shop_id="third-shop-id", relay_number=DID,
+            notification_status="queued",
+            created_at=datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=10),
+        )
+        already_sent = SimpleNamespace(
+            recording_sid="RE" + "c" * 32, account_sid=ACCOUNT,
+            shop_id="third-shop-id", relay_number=DID,
+            notification_status="sent",
+            created_at=datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=10),
+        )
+        self.db.recordings = {
+            queued.recording_sid: queued,
+            already_sent.recording_sid: already_sent,
+        }
+        with patch("app.voice_relay_delivery.SessionLocal", return_value=self.db), \
+             patch("app.voice_relay_delivery.send_highlevel_sms",
+                   return_value={"success": True}) as send_sms:
+            self.assertEqual(recover_queued_relay_alerts(shop_id="third-shop-id", limit=1), 1)
+            self.assertEqual(recover_queued_relay_alerts(shop_id="third-shop-id", limit=1), 0)
+        send_sms.assert_called_once()
+        self.assertEqual(queued.notification_status, "sent")
+        self.assertEqual(already_sent.notification_status, "sent")
+
+    def test_recovery_does_not_send_other_shops_queued_voicemails(self):
+        old = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=10)
+        target = SimpleNamespace(
+            recording_sid=RECORDING, account_sid=ACCOUNT,
+            shop_id="third-shop-id", relay_number=DID,
+            notification_status="queued", created_at=old,
+        )
+        other = SimpleNamespace(
+            recording_sid="RE" + "c" * 32, account_sid=ACCOUNT,
+            shop_id="another-shop-id", relay_number=DID,
+            notification_status="queued", created_at=old,
+        )
+        self.db.recordings = {target.recording_sid: target, other.recording_sid: other}
+        with patch("app.voice_relay_delivery.SessionLocal", return_value=self.db), \
+             patch("app.voice_relay_delivery.send_highlevel_sms",
+                   return_value={"success": True}) as send_sms:
+            self.assertEqual(recover_queued_relay_alerts(shop_id="third-shop-id", limit=10), 1)
+        send_sms.assert_called_once()
+        self.assertEqual(target.notification_status, "sent")
+        self.assertEqual(other.notification_status, "queued")
+
+    def test_recovery_leaves_recent_queued_callback_for_normal_dispatch(self):
+        # A scheduler must not race the ordinary background task for a
+        # just-committed recording; only old queued receipts are recoverable.
+        recent = SimpleNamespace(
+            recording_sid=RECORDING, account_sid=ACCOUNT,
+            shop_id="third-shop-id", relay_number=DID,
+            notification_status="queued",
+            created_at=datetime.now(timezone.utc).replace(tzinfo=None),
+        )
+        self.db.recordings[RECORDING] = recent
+        with patch("app.voice_relay_delivery.SessionLocal", return_value=self.db), \
+             patch("app.voice_relay_delivery.send_highlevel_sms") as send_sms:
+            self.assertEqual(recover_queued_relay_alerts(shop_id="third-shop-id", limit=1), 0)
+        send_sms.assert_not_called()
+        self.assertEqual(recent.notification_status, "queued")
+
+    def test_recovery_requires_test_flags_and_valid_batch_size(self):
+        with patch("app.voice_relay_delivery.SessionLocal") as session:
+            with patch.dict(os.environ, {"DAYTELLO_VOICE_RELAY_TEST_ONLY": "false"}):
+                self.assertEqual(recover_queued_relay_alerts(shop_id="third-shop-id"), 0)
+            with patch.dict(os.environ, {"DAYTELLO_VOICEMAIL_OWNER_SMS_ENABLED": "false"}):
+                self.assertEqual(recover_queued_relay_alerts(shop_id="third-shop-id"), 0)
+            with patch.dict(os.environ, {"DAYTELLO_VOICE_RELAY_RECOVERY_WORKER_ENABLED": "false"}):
+                self.assertEqual(recover_queued_relay_alerts(shop_id="third-shop-id"), 0)
+            for limit in (0, 101, True, "1"):
+                with self.subTest(limit=limit):
+                    with self.assertRaises(ValueError):
+                        recover_queued_relay_alerts(shop_id="third-shop-id", limit=limit)
+            session.assert_not_called()
+
+    def test_recovery_stops_when_operator_revokes_authorization_mid_batch(self):
+        # Recovery permission is separate from the ordinary SMS relay flag.
+        # Disabling the recovery worker must stop the remaining batch even
+        # when the snapshot already contains more eligible recordings.
+        examined = []
+        def revoke_after_first(recording_sid, *, recovery=False):
+            self.assertTrue(recovery)
+            examined.append(recording_sid)
+            os.environ["DAYTELLO_VOICE_RELAY_RECOVERY_WORKER_ENABLED"] = "false"
+
+        with patch.dict(os.environ, {
+            "DAYTELLO_VOICE_RELAY_RECOVERY_WORKER_ENABLED": "true",
+        }), patch(
+            "app.voice_relay_delivery._eligible_queued_relay_sids",
+            return_value=[RECORDING, "RE" + "c" * 32],
+        ) as scan, patch(
+            "app.voice_relay_delivery.send_relay_owner_alert",
+            side_effect=revoke_after_first,
+        ) as send:
+            self.assertEqual(
+                recover_queued_relay_alerts(shop_id="third-shop-id", limit=2), 1
+            )
+        scan.assert_called_once_with(shop_id="third-shop-id", limit=2)
+        send.assert_called_once_with(RECORDING, recovery=True)
+        self.assertEqual(examined, [RECORDING])
+
+    def test_recovery_stops_if_disabled_after_backlog_scan(self):
+        # An operator may revoke permission during a slow database scan.
+        def revoke_during_scan(*, shop_id, limit):
+            os.environ["DAYTELLO_VOICE_RELAY_RECOVERY_WORKER_ENABLED"] = "false"
+            return [RECORDING]
+
+        with patch.dict(os.environ, {
+            "DAYTELLO_VOICE_RELAY_RECOVERY_WORKER_ENABLED": "true",
+        }), patch(
+            "app.voice_relay_delivery._eligible_queued_relay_sids",
+            side_effect=revoke_during_scan,
+        ), patch(
+            "app.voice_relay_delivery.send_relay_owner_alert",
+        ) as send:
+            self.assertEqual(
+                recover_queued_relay_alerts(shop_id="third-shop-id", limit=1), 0
+            )
+        send.assert_not_called()
+
+    def test_in_progress_owner_sms_is_not_sent_again(self):
+        receipt = SimpleNamespace(
+            recording_sid=RECORDING, account_sid=ACCOUNT,
+            shop_id="third-shop-id", relay_number=DID,
+            notification_status="sending",
+        )
+        self.db.recordings[RECORDING] = receipt
+        with patch("app.voice_relay_delivery.SessionLocal", return_value=self.db), \
+             patch("app.voice_relay_delivery.send_highlevel_sms") as send_sms:
+            send_relay_owner_alert(RECORDING)
+        send_sms.assert_not_called()
+        self.assertEqual(receipt.notification_status, "sending")
+
+    def test_old_recording_link_revoked_on_did_or_location_change(self):
+        self.inbound()
+        self.assertEqual(self.recording().status_code, 200)
+        token = make_relay_recording_link(
+            self.db.recordings[RECORDING], OWNER).rsplit("/", 1)[1]
+        for field, value in (
+            ("receiving_number", "+12405550199"),
+            ("location_id", "different-location"),
+        ):
+            with self.subTest(field=field):
+                setattr(self.db, field, value)
+                with patch("app.voice_relay_delivery.SessionLocal", return_value=self.db):
+                    response = self.client.get(
+                        "/api/daytello/voice-relay/listen/" + token)
+                self.assertEqual(response.status_code, 404)
+                setattr(self.db, field, DID if field == "receiving_number" else "test-location")
+
+    def test_purpose_bound_recording_link(self):
+        receipt = SimpleNamespace(
+            account_sid=ACCOUNT, recording_sid=RECORDING,
+            shop_id="third-shop-id",
+        )
+        link = make_relay_recording_link(receipt, OWNER)
+        self.assertTrue(link.startswith(
+            "https://relay.example.test/api/daytello/voice-relay/listen/"))
+        token = link.rsplit("/", 1)[1]
+        payload = decode_recording_link(token)
+        self.assertEqual(payload["purpose"], "voice-relay")
+        self.assertEqual(payload["message"], RECORDING)
+        self.assertEqual(payload["shop"], "third-shop-id")
+
+
+if __name__ == "__main__":
+    unittest.main()

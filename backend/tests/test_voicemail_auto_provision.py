@@ -10,6 +10,7 @@ from sqlalchemy.pool import StaticPool
 from app.database import Base
 from app.models import Shop
 from app.voicemail_models import DayTelloVoicemailShopSettings
+from app.voice_relay_models import DayTelloVoiceRelayAssignment
 from app import voicemail_auto_provision as auto
 
 
@@ -114,6 +115,33 @@ class ReservedNumberTests(unittest.TestCase):
             b = auto.ensure_test_voicemail_number(db.get(Shop, "shop-b"), db)
             self.assertEqual(b.receiving_number, "+12025550121")
 
+    def test_allocation_skips_disabled_programmable_relay_number(self):
+        # Relay numbers remain reserved even while disabled. A voicemail
+        # allocation must not cause cross-system DID ownership ambiguity.
+        with self.factory() as db:
+            db.add(DayTelloVoiceRelayAssignment(
+                shop_id="shop-b", relay_number="+12025550121", enabled=False,
+            ))
+            db.commit()
+            bound = auto.ensure_test_voicemail_number(db.get(Shop, "shop-a"), db)
+            self.assertEqual(bound.receiving_number, "+12025550122")
+            self.assertFalse(bound.notifications_enabled)
+
+    def test_labeled_recovery_rejects_programmable_relay_number(self):
+        with self.factory() as db:
+            db.add(DayTelloVoiceRelayAssignment(
+                shop_id="shop-a", relay_number="+12025550122", enabled=False,
+            ))
+            db.commit()
+        with patch.object(auto, "get_location_phone_numbers", return_value=(
+            {}, [{"phoneNumber": "+12025550122",
+                  "friendlyName": "Shop B - Voicemail TEST"}]
+        )):
+            with self.factory() as db:
+                self.assertIsNone(auto.bind_explicitly_labeled_test_voicemail(
+                    "loc-a", "+12025550122", db))
+                self.assertEqual(db.query(DayTelloVoicemailShopSettings).count(), 0)
+
     def test_allocation_rejects_ai_number(self):
         with self.factory() as db:
             a = db.get(Shop, "shop-a")
@@ -121,6 +149,113 @@ class ReservedNumberTests(unittest.TestCase):
             db.commit()
             result = auto.ensure_test_voicemail_number(a, db)
             self.assertEqual(result.receiving_number, "+12025550122")
+
+    def test_existing_binding_requires_current_provider_inventory(self):
+        # An old database row must not authorize a DID removed from HighLevel.
+        with self.factory() as db:
+            db.add(DayTelloVoicemailShopSettings(
+                shop_id="shop-a", location_id="loc-a",
+                receiving_number="+12025550121", notifications_enabled=False,
+            ))
+            db.commit()
+            with patch.object(auto, "get_location_phone_numbers",
+                              return_value=({}, [])):
+                with self.assertRaises(HTTPException) as error:
+                    auto.ensure_test_voicemail_number(db.get(Shop, "shop-a"), db)
+            self.assertEqual(error.exception.status_code, 409)
+
+    def test_existing_binding_rejects_ambiguous_provider_inventory(self):
+        with self.factory() as db:
+            db.add(DayTelloVoicemailShopSettings(
+                shop_id="shop-a", location_id="loc-a",
+                receiving_number="+12025550121", notifications_enabled=False,
+            ))
+            db.commit()
+            duplicate = {"phoneNumber": "+12025550121"}
+            with patch.object(auto, "get_location_phone_numbers",
+                              return_value=({}, [duplicate, duplicate])):
+                with self.assertRaises(HTTPException) as error:
+                    auto.ensure_test_voicemail_number(db.get(Shop, "shop-a"), db)
+            self.assertEqual(error.exception.status_code, 409)
+
+    def test_existing_binding_rejects_number_reassigned_to_voice_ai(self):
+        with self.factory() as db:
+            db.add(DayTelloVoicemailShopSettings(
+                shop_id="shop-a", location_id="loc-a",
+                receiving_number="+12025550121", notifications_enabled=False,
+            ))
+            db.commit()
+            with patch.object(auto, "get_phone_inbound_service",
+                              return_value={"type": "voice_ai"}):
+                with self.assertRaises(HTTPException) as error:
+                    auto.ensure_test_voicemail_number(db.get(Shop, "shop-a"), db)
+            self.assertEqual(error.exception.status_code, 409)
+
+    def test_existing_binding_rejects_disabled_relay_collision(self):
+        with self.factory() as db:
+            db.add(DayTelloVoicemailShopSettings(
+                shop_id="shop-a", location_id="loc-a",
+                receiving_number="+12025550121", notifications_enabled=False,
+            ))
+            db.add(DayTelloVoiceRelayAssignment(
+                shop_id="shop-b", relay_number="+12025550121", enabled=False,
+            ))
+            db.commit()
+            with self.assertRaises(HTTPException) as error:
+                auto.ensure_test_voicemail_number(db.get(Shop, "shop-a"), db)
+            self.assertEqual(error.exception.status_code, 409)
+
+    def test_existing_binding_rejects_other_shops_ai_number(self):
+        with self.factory() as db:
+            db.add(DayTelloVoicemailShopSettings(
+                shop_id="shop-a", location_id="loc-a",
+                receiving_number="+12025550121", notifications_enabled=False,
+            ))
+            db.get(Shop, "shop-b").highlevel_phone_number = "+12025550121"
+            db.commit()
+            with self.assertRaises(HTTPException) as error:
+                auto.ensure_test_voicemail_number(db.get(Shop, "shop-a"), db)
+            self.assertEqual(error.exception.status_code, 409)
+
+    def test_existing_binding_rejects_conflicting_legacy_map(self):
+        os.environ["DAYTELLO_VOICEMAIL_NUMBER_SHOP_MAP"] = (
+            '{" +12025550121":"shop-b"}'.replace(" +", "+")
+        )
+        with self.factory() as db:
+            db.add(DayTelloVoicemailShopSettings(
+                shop_id="shop-a", location_id="loc-a",
+                receiving_number="+12025550121", notifications_enabled=False,
+            ))
+            db.commit()
+            with self.assertRaises(HTTPException) as error:
+                auto.ensure_test_voicemail_number(db.get(Shop, "shop-a"), db)
+            self.assertEqual(error.exception.status_code, 409)
+
+    def test_allocation_skips_did_claimed_in_another_location(self):
+        with self.factory() as db:
+            db.add(DayTelloVoicemailShopSettings(
+                shop_id="shop-b", location_id="another-location",
+                receiving_number="+12025550121", notifications_enabled=False,
+            ))
+            db.commit()
+            bound = auto.ensure_test_voicemail_number(db.get(Shop, "shop-a"), db)
+            self.assertEqual(bound.receiving_number, "+12025550122")
+
+    def test_labeled_recovery_rejects_cross_location_claim(self):
+        with self.factory() as db:
+            db.add(DayTelloVoicemailShopSettings(
+                shop_id="shop-a", location_id="another-location",
+                receiving_number="+12025550122", notifications_enabled=False,
+            ))
+            db.commit()
+        with patch.object(auto, "get_location_phone_numbers", return_value=(
+            {}, [{"phoneNumber": "+12025550122",
+                  "friendlyName": "Shop B - Voicemail TEST"}]
+        )):
+            with self.factory() as db:
+                self.assertIsNone(auto.bind_explicitly_labeled_test_voicemail(
+                    "loc-a", "+12025550122", db))
+                self.assertEqual(db.query(DayTelloVoicemailShopSettings).count(), 1)
 
     def test_disabled_test_mode_blocks_allocation(self):
         os.environ["DAYTELLO_VOICEMAIL_TEST_ONLY"] = "false"
