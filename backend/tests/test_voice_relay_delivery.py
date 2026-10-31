@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import os
 import unittest
+from datetime import datetime, timedelta, timezone
 import httpx
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -103,9 +104,16 @@ class RecordingClaimQuery:
     def __init__(self, db):
         self.db = db
         self.filters = {}
+        self.created_before = None
 
     def filter_by(self, **kwargs):
         self.filters = kwargs
+        return self
+
+    def filter(self, predicate):
+        # Model the SQL created_at <= cutoff condition for recovery scans.
+        assert predicate.left.key == "created_at"
+        self.created_before = predicate.right.value
         return self
 
     def update(self, values, synchronize_session=False):
@@ -129,7 +137,8 @@ class RecordingClaimQuery:
         rows = sorted(self.db.recordings.values(), key=lambda r: r.recording_sid)
         return [r for r in rows if all(
             getattr(r, key) == value for key, value in self.filters.items()
-        )][:self.batch_limit]
+        ) and (self.created_before is None or
+               r.created_at <= self.created_before)][:self.batch_limit]
 
 
 class SignedRecordingDeliveryTests(unittest.TestCase):
@@ -379,11 +388,13 @@ class SignedRecordingDeliveryTests(unittest.TestCase):
             recording_sid=RECORDING, account_sid=ACCOUNT,
             shop_id="third-shop-id", relay_number=DID,
             notification_status="queued",
+            created_at=datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=10),
         )
         already_sent = SimpleNamespace(
             recording_sid="RE" + "c" * 32, account_sid=ACCOUNT,
             shop_id="third-shop-id", relay_number=DID,
             notification_status="sent",
+            created_at=datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=10),
         )
         self.db.recordings = {
             queued.recording_sid: queued,
@@ -397,6 +408,22 @@ class SignedRecordingDeliveryTests(unittest.TestCase):
         send_sms.assert_called_once()
         self.assertEqual(queued.notification_status, "sent")
         self.assertEqual(already_sent.notification_status, "sent")
+
+    def test_recovery_leaves_recent_queued_callback_for_normal_dispatch(self):
+        # A scheduler must not race the ordinary background task for a
+        # just-committed recording; only old queued receipts are recoverable.
+        recent = SimpleNamespace(
+            recording_sid=RECORDING, account_sid=ACCOUNT,
+            shop_id="third-shop-id", relay_number=DID,
+            notification_status="queued",
+            created_at=datetime.now(timezone.utc).replace(tzinfo=None),
+        )
+        self.db.recordings[RECORDING] = recent
+        with patch("app.voice_relay_delivery.SessionLocal", return_value=self.db), \
+             patch("app.voice_relay_delivery.send_highlevel_sms") as send_sms:
+            self.assertEqual(recover_queued_relay_alerts(limit=1), 0)
+        send_sms.assert_not_called()
+        self.assertEqual(recent.notification_status, "queued")
 
     def test_recovery_requires_test_flags_and_valid_batch_size(self):
         with patch("app.voice_relay_delivery.SessionLocal") as session:
