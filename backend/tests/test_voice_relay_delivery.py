@@ -20,7 +20,7 @@ from app.routes.voice_relay import router
 from app.voice_relay_models import DayTelloVoiceRelayAssignment
 from app.voice_relay_delivery import (
     DayTelloVoiceRelayCall, DayTelloVoiceRelayRecording,
-    make_relay_recording_link, send_relay_owner_alert,
+    make_relay_recording_link, send_relay_owner_alert, recover_queued_relay_alerts,
 )
 from app.voicemail_models import DayTelloVoicemailShopSettings
 from app.voicemail_owner_links import decode_recording_link
@@ -115,6 +115,21 @@ class RecordingClaimQuery:
             return 0
         receipt.notification_status = values["notification_status"]
         return 1
+
+    def order_by(self, *columns):
+        return self
+
+    def limit(self, count):
+        self.batch_limit = count
+        return self
+
+    def all(self):
+        # The in-memory fake preserves deterministic SID ordering; the real
+        # database orders by created_at and recording_sid.
+        rows = sorted(self.db.recordings.values(), key=lambda r: r.recording_sid)
+        return [r for r in rows if all(
+            getattr(r, key) == value for key, value in self.filters.items()
+        )][:self.batch_limit]
 
 
 class SignedRecordingDeliveryTests(unittest.TestCase):
@@ -356,6 +371,44 @@ class SignedRecordingDeliveryTests(unittest.TestCase):
             send_relay_owner_alert(RECORDING)
         send_sms.assert_called_once()
         self.assertEqual(receipt.notification_status, "failed")
+
+    def test_recovery_reclaims_queued_receipts_without_duplicate_sms(self):
+        # Simulate a crash after the receipt commit but before background
+        # task dispatch. Recovery must use the same atomic send claim.
+        queued = SimpleNamespace(
+            recording_sid=RECORDING, account_sid=ACCOUNT,
+            shop_id="third-shop-id", relay_number=DID,
+            notification_status="queued",
+        )
+        already_sent = SimpleNamespace(
+            recording_sid="RE" + "c" * 32, account_sid=ACCOUNT,
+            shop_id="third-shop-id", relay_number=DID,
+            notification_status="sent",
+        )
+        self.db.recordings = {
+            queued.recording_sid: queued,
+            already_sent.recording_sid: already_sent,
+        }
+        with patch("app.voice_relay_delivery.SessionLocal", return_value=self.db), \
+             patch("app.voice_relay_delivery.send_highlevel_sms",
+                   return_value={"success": True}) as send_sms:
+            self.assertEqual(recover_queued_relay_alerts(limit=1), 1)
+            self.assertEqual(recover_queued_relay_alerts(limit=1), 0)
+        send_sms.assert_called_once()
+        self.assertEqual(queued.notification_status, "sent")
+        self.assertEqual(already_sent.notification_status, "sent")
+
+    def test_recovery_requires_test_flags_and_valid_batch_size(self):
+        with patch("app.voice_relay_delivery.SessionLocal") as session:
+            with patch.dict(os.environ, {"DAYTELLO_VOICE_RELAY_TEST_ONLY": "false"}):
+                self.assertEqual(recover_queued_relay_alerts(), 0)
+            with patch.dict(os.environ, {"DAYTELLO_VOICEMAIL_OWNER_SMS_ENABLED": "false"}):
+                self.assertEqual(recover_queued_relay_alerts(), 0)
+            for limit in (0, 101, True, "1"):
+                with self.subTest(limit=limit):
+                    with self.assertRaises(ValueError):
+                        recover_queued_relay_alerts(limit)
+            session.assert_not_called()
 
     def test_in_progress_owner_sms_is_not_sent_again(self):
         receipt = SimpleNamespace(
