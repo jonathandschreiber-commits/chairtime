@@ -6,6 +6,7 @@ can invoke this entrypoint, but merely deploying code never activates SMS.
 """
 import argparse
 import os
+import re
 
 
 _REQUIRED_FLAGS = (
@@ -16,7 +17,7 @@ _REQUIRED_FLAGS = (
 )
 
 
-def run_once(*, limit=25, execute=False):
+def run_once(*, shop_id=None, limit=25, execute=False):
     """Process at most one bounded batch; return examined, not delivered count.
 
     The delivery helper atomically claims each queued receipt before any SMS
@@ -26,6 +27,8 @@ def run_once(*, limit=25, execute=False):
         raise ValueError("Recovery batch size must be between 1 and 100")
     if execute is not True:
         raise PermissionError("Explicit recovery execution approval required")
+    if not isinstance(shop_id, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}", shop_id):
+        raise ValueError("An exact shop ID is required for recovery")
     missing = [name for name in _REQUIRED_FLAGS if os.getenv(name) != "true"]
     if missing:
         raise PermissionError(
@@ -35,7 +38,7 @@ def run_once(*, limit=25, execute=False):
     # Import only after all guards pass; importing the delivery module can
     # initialize database dependencies in the application.
     from app.voice_relay_delivery import recover_queued_relay_alerts
-    return recover_queued_relay_alerts(limit=limit)
+    return recover_queued_relay_alerts(shop_id=shop_id, limit=limit)
 
 
 def main(argv=None):
@@ -47,15 +50,19 @@ def main(argv=None):
         help="Required opt-in; may send owner SMS for queued test recordings.",
     )
     parser.add_argument(
+        "--shop-id", default=None,
+        help="Required exact tenant ID; only this shop's queued receipts are examined.",
+    )
+    parser.add_argument(
         "--limit", type=int, default=25,
         help="Maximum queued receipts to examine (1-100; default 25).",
     )
     args = parser.parse_args(argv)
     try:
-        count = run_once(limit=args.limit, execute=args.execute)
+        count = run_once(shop_id=args.shop_id, limit=args.limit, execute=args.execute)
     except (PermissionError, ValueError) as exc:
         parser.exit(2, f"Recovery not started: {exc}\n")
-    print(f"Examined {count} queued test voicemail receipt(s); SMS delivery not confirmed.")
+    print(f"Examined {count} queued test voicemail receipt(s) for the selected shop; SMS delivery not confirmed.")
     return 0
 
 
