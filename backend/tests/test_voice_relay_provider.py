@@ -289,7 +289,9 @@ class ProviderTests(unittest.TestCase):
         self.assertEqual(result["number"], NUMBER)
         self.assertTrue(result["route_verified"])
         self.assertEqual(len([r for r in fake.requests if r.method == "POST"]), 1)
-        self.assertEqual(len([r for r in fake.requests if r.method == "GET"]), 6)
+        # Includes an exact-DID read to rule out an existing provider
+        # reserve before any chargeable purchase.
+        self.assertEqual(len([r for r in fake.requests if r.method == "GET"]), 7)
 
     def test_exact_local_number_required_before_purchase(self):
         fake = FakeTwilio(available=[])
