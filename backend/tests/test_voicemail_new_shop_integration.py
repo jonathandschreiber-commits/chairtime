@@ -446,6 +446,7 @@ class NewShopIntegrationTests(unittest.TestCase):
                          return_value=(None, [{"phoneNumber": AI_NUMBER}])),
             patch.object(ai_setup, "route_phone_number_to_shop_agent",
                          return_value={"phoneNumber": AI_NUMBER}),
+            patch.object(ai_setup, "get_agent_detail", side_effect=self._get_agent),
             patch.object(voicemail_contact_number, "VoiceRelayNumberProvider",
                          return_value=self._pooled_provider()),
         ):
