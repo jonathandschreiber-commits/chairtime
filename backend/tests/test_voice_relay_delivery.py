@@ -422,7 +422,7 @@ class SignedRecordingDeliveryTests(unittest.TestCase):
             notification_status="queued", created_at=old,
         )
         self.db.recordings = {target.recording_sid: target, other.recording_sid: other}
-        with patch("app.voice_relay_delivery.SessionLocal", return_value=self.db), \\
+        with patch("app.voice_relay_delivery.SessionLocal", return_value=self.db), \
              patch("app.voice_relay_delivery.send_highlevel_sms",
                    return_value={"success": True}) as send_sms:
             self.assertEqual(recover_queued_relay_alerts(shop_id="third-shop-id", limit=10), 1)
