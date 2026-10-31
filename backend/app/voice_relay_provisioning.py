@@ -13,7 +13,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.models import Shop
 from app.voice_relay_models import DayTelloVoiceRelayAssignment
-from app.voice_relay_provider import VoiceRelayNumberProvider, US_NUMBER
+from app.voice_relay_provider import VoiceRelayNumberProvider, US_NUMBER, preowned_relay_pool
 from app.voicemail_models import DayTelloVoicemailShopSettings
 from app.routes.voicemail_webhook import configured_routing_map, valid_phone
 
@@ -173,3 +173,33 @@ def reserve_relay_for_area_code(shop: Shop, db, area_code: str, *,
     return reserve_or_purchase_relay_for_shop(
         shop, db, number, approved=True, provider=provider,
     )
+
+def allocate_preowned_relay_for_shop(shop: Shop, db, *, provider=None):
+    """Assign an unused, already-owned reserve DID during AI onboarding.
+
+    No Twilio POST, number purchase, HighLevel action, call activation or SMS.
+    Only DIDs explicitly inventoried as DayTello Relay Reserve qualify.
+    Unique DB constraints prevent a reserve DID from belonging to two shops.
+    """
+    if os.getenv("DAYTELLO_VOICE_RELAY_TEST_ONLY") != "true":
+        return None
+    if (db.get(DayTelloVoiceRelayAssignment, shop.id) is not None
+            or db.get(DayTelloVoicemailShopSettings, shop.id) is not None):
+        return None
+    numbers = preowned_relay_pool()
+    if not numbers:
+        return None
+    provider = provider or VoiceRelayNumberProvider()
+    for number in numbers:
+        try:
+            _check_number_conflicts(db, shop.id, number)
+        except HTTPException as exc:
+            if exc.status_code == 409:
+                continue
+            raise
+        owned = provider.find_existing(str(shop.id), expected_number=number)
+        if not owned:
+            continue
+        return reserve_or_purchase_relay_for_shop(
+            shop, db, number, approved=False, provider=provider)
+    return None
