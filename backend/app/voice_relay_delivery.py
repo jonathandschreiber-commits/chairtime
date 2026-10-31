@@ -221,6 +221,36 @@ def send_relay_owner_alert(recording_sid):
                 db.commit()
 
 
+
+def recover_queued_relay_alerts(limit=25):
+    """Explicit test-only recovery for alerts stranded before task dispatch.
+
+    A process can stop after a recording receipt commits but before its
+    FastAPI background task runs. An operator-controlled worker may invoke
+    this bounded helper later. It does not schedule itself or activate SMS.
+    The queued -> sending conditional UPDATE in send_relay_owner_alert
+    prevents duplicate sends if the original task is also still running.
+    Return the number of receipts examined, not confirmed SMS deliveries.
+    """
+    if (os.getenv("DAYTELLO_VOICE_RELAY_TEST_ONLY") != "true" or
+            os.getenv("DAYTELLO_VOICEMAIL_TEST_ONLY") != "true" or
+            os.getenv("DAYTELLO_VOICEMAIL_OWNER_SMS_ENABLED") != "true"):
+        return 0
+    if type(limit) is not int or not 1 <= limit <= 100:
+        raise ValueError("Recovery batch size must be between 1 and 100")
+    with SessionLocal() as db:
+        pending = db.query(DayTelloVoiceRelayRecording).filter_by(
+            notification_status="queued",
+        ).order_by(
+            DayTelloVoiceRelayRecording.created_at,
+            DayTelloVoiceRelayRecording.recording_sid,
+        ).limit(limit).all()
+        recording_sids = [item.recording_sid for item in pending]
+    for recording_sid in recording_sids:
+        send_relay_owner_alert(recording_sid)
+    return len(recording_sids)
+
+
 @router.get("/daytello/voice-relay/listen/{token}")
 async def listen_to_relay_recording(token: str):
     """Authenticate the owner bearer link and proxy bounded provider audio."""
