@@ -239,7 +239,8 @@ def recover_queued_relay_alerts(*, shop_id, limit=25):
     """
     if (os.getenv("DAYTELLO_VOICE_RELAY_TEST_ONLY") != "true" or
             os.getenv("DAYTELLO_VOICEMAIL_TEST_ONLY") != "true" or
-            os.getenv("DAYTELLO_VOICEMAIL_OWNER_SMS_ENABLED") != "true"):
+            os.getenv("DAYTELLO_VOICEMAIL_OWNER_SMS_ENABLED") != "true" or
+            os.getenv("DAYTELLO_VOICE_RELAY_RECOVERY_WORKER_ENABLED") != "true"):
         return 0
     if not isinstance(shop_id, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}", shop_id):
         raise ValueError("Recovery requires an exact valid shop ID")
