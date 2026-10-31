@@ -193,6 +193,29 @@ class ProviderTests(unittest.TestCase):
                 self.assertEqual(error.exception.status_code, 409)
                 self.assertFalse(any(r.method == "POST" for r in fake.requests))
 
+    def test_number_readback_must_match_labeled_provider_sid(self):
+        # A label search and exact-number read may disagree if the DID was
+        # reassigned between calls. Never adopt the second resource solely
+        # because its name, number and callback happen to look correct.
+        class ConflictingReadback(FakeTwilio):
+            def handle(self, request):
+                response = super().handle(request)
+                if (request.method == "GET"
+                        and request.url.params.get("PhoneNumber") == NUMBER):
+                    return httpx.Response(200, json={
+                        "incoming_phone_numbers": [
+                            record(sid="PN" + "d" * 32),
+                        ],
+                        "next_page_uri": None,
+                    })
+                return response
+
+        fake = ConflictingReadback([record()])
+        with self.assertRaises(HTTPException) as error:
+            self.provider(fake).find_existing(SHOP)
+        self.assertEqual(error.exception.status_code, 409)
+        self.assertFalse(any(r.method == "POST" for r in fake.requests))
+
     def test_different_account_cannot_be_claimed(self):
         fake = FakeTwilio([record(account_sid="AC" + "f" * 32)])
         with self.assertRaises(HTTPException):
