@@ -13,7 +13,7 @@ class RelayTwiMLTests(unittest.TestCase):
             "+12405550123", "https://example.test/voice/dial-complete",
         ))
         dial = root.find("Dial")
-        self.assertEqual(dial.attrib["timeout"], "15")
+        self.assertEqual(dial.attrib["timeout"], "5")
         self.assertEqual(dial.attrib["method"], "POST")
         self.assertEqual(dial.findtext("Number"), "+12405550123")
 
