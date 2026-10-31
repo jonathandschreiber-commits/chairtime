@@ -2878,11 +2878,13 @@ def get_shop_routed_phone_record(
     )
  
  
-def prebind_existing_voicemail_relay_after_ai_number(shop: Shop, db: Session) -> bool:
-    """Recover an already-owned relay after a verified HighLevel AI number.
+def prebind_existing_voicemail_relay_after_ai_number(
+    shop: Shop, db: Session, *, current_user: User = None,
+) -> bool:
+    """Recover a paid-for relay and finish an already-approved owner route.
 
-    Shared by number purchase/activation and the legacy phone-number sync
-    endpoints. Never purchases a relay or changes an active phone route.
+    Only an authenticated onboarding request may finish a saved, pending owner
+    destination. This never purchases a relay or touches existing active routes.
     """
     if (os.getenv("DAYTELLO_VOICE_RELAY_TEST_ONLY") != "true"
             or os.getenv("DAYTELLO_VOICEMAIL_TEST_ONLY") != "true"):
@@ -2890,14 +2892,36 @@ def prebind_existing_voicemail_relay_after_ai_number(shop: Shop, db: Session) ->
     try:
         from app.routes.voicemail_contact_number import (
             attach_preowned_relay_after_ai_number,
+            set_owner_call_voicemail_number, OwnerCallVoicemailNumber,
         )
-        return bool(attach_preowned_relay_after_ai_number(shop, db))
+        from app.voice_relay_models import DayTelloVoiceRelayAssignment
+        from app.voicemail_models import DayTelloVoicemailShopSettings
+
+        prebound = bool(attach_preowned_relay_after_ai_number(shop, db))
+        settings = db.get(DayTelloVoicemailShopSettings, shop.id)
+        relay = db.get(DayTelloVoiceRelayAssignment, shop.id)
+        # A phone saved before agent/AI-number provisioning used to remain
+        # indefinitely pending until the owner pressed Save a second time.
+        # Complete that exact previously approved destination automatically,
+        # but only after the customer-selected AI number is actually routed.
+        if (current_user is not None and relay and not relay.enabled
+                and settings and settings.owner_phone
+                and not settings.notifications_enabled
+                and shop.highlevel_phone_number
+                and shop.highlevel_agent_id):
+            set_owner_call_voicemail_number(
+                shop.slug,
+                OwnerCallVoicemailNumber(phone_number=settings.owner_phone),
+                db=db, current_user=current_user,
+            )
+        return prebound
     except Exception:
-        # A successful HighLevel number activation/sync must not be reported
-        # as failed due to an unrelated, read-only relay inventory outage.
+        # A successful AI-number activation must remain successful even when
+        # a provider or SMS test gate prevents finishing the pending relay.
+        # The owner can retry Save without purchasing another number.
         db.rollback()
         logger.exception(
-            "Pre-owned voicemail relay binding failed after AI number verification"
+            "Pre-owned voicemail relay onboarding could not be completed"
         )
         return False
 
@@ -2906,6 +2930,7 @@ def sync_shop_phone_number_from_highlevel(
     shop: Shop,
     db: Session,
     require_match: bool = True,
+    current_user: User = None,
 ) -> Optional[dict]:
     _, _, matched_phone = (
         get_shop_routed_phone_record(
@@ -2970,7 +2995,9 @@ def sync_shop_phone_number_from_highlevel(
     # Existing shops can enter onboarding with an AI number already routed
     # through HighLevel. Recover their approved relay on explicit sync too;
     # previously only the new-number purchase endpoint did this.
-    prebind_existing_voicemail_relay_after_ai_number(shop, db)
+    prebind_existing_voicemail_relay_after_ai_number(
+        shop, db, current_user=current_user,
+    )
     return matched_phone
  
  
@@ -3948,6 +3975,7 @@ def sync_shop_highlevel_phone_number(
             shop=shop,
             db=db,
             require_match=True,
+            current_user=current_user,
         )
     )
  
@@ -4016,6 +4044,7 @@ def assign_shop_highlevel_phone_number(
             shop=shop,
             db=db,
             require_match=True,
+            current_user=current_user,
         )
     )
  
@@ -4978,6 +5007,7 @@ def route_phone_number_to_shop_agent(
 def activate_owned_phone_number(
     shop: Shop,
     db: Session,
+    current_user: User = None,
     location_id: str,
     agent_id: str,
     phone_number: str,
@@ -5052,7 +5082,7 @@ def activate_owned_phone_number(
     )
 
     voicemail_relay_prebound = prebind_existing_voicemail_relay_after_ai_number(
-        shop, db,
+        shop, db, current_user=current_user,
     )
 
     return {
@@ -5182,6 +5212,7 @@ def purchase_shop_ai_phone_number(
     if existing_phone:
         return activate_owned_phone_number(
             shop=shop,
+            current_user=current_user,
             db=db,
             location_id=location_id,
             agent_id=agent_id,
@@ -5282,6 +5313,7 @@ def purchase_shop_ai_phone_number(
  
         return activate_owned_phone_number(
             shop=shop,
+            current_user=current_user,
             db=db,
             location_id=location_id,
             agent_id=agent_id,
@@ -5307,6 +5339,7 @@ def purchase_shop_ai_phone_number(
         if purchased_phone:
             return activate_owned_phone_number(
                 shop=shop,
+                current_user=current_user,
                 db=db,
                 location_id=location_id,
                 agent_id=agent_id,
