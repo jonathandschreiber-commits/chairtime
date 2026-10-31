@@ -26,6 +26,7 @@ from app.voice_relay_models import DayTelloVoiceRelayAssignment
 from app.voicemail_auto_provision import ensure_test_voicemail_number
 from app.voice_relay_provisioning import (
     reserve_relay_for_area_code, reserve_or_purchase_relay_for_shop,
+    allocate_preowned_relay_for_shop,
 )
 from app.voice_relay_provider import VoiceRelayNumberProvider
 from app.voicemail_owner_links import (
@@ -250,12 +251,12 @@ def attach_preowned_relay_after_ai_number(shop: Shop, db: Session) -> bool:
         return False
     provider = VoiceRelayNumberProvider()
     owned = provider.find_existing(str(shop.id))
-    if not owned:
-        return False
-    reserve_or_purchase_relay_for_shop(
-        shop, db, owned["number"], approved=False, provider=provider,
-    )
-    return True
+    if owned:
+        reserve_or_purchase_relay_for_shop(
+            shop, db, owned["number"], approved=False, provider=provider,
+        )
+        return True
+    return bool(allocate_preowned_relay_for_shop(shop, db, provider=provider))
 
 
 def ensure_existing_shop_voicemail_route(shop: Shop, db: Session):
@@ -288,11 +289,12 @@ def ensure_existing_shop_voicemail_route(shop: Shop, db: Session):
 
     provider = VoiceRelayNumberProvider()
     owned = provider.find_existing(str(shop.id))
-    if not owned:
+    if owned:
+        reserve_or_purchase_relay_for_shop(
+            shop, db, owned["number"], approved=False, provider=provider,
+        )
+    elif not allocate_preowned_relay_for_shop(shop, db, provider=provider):
         raise HTTPException(409, "No approved voicemail relay number exists for this shop")
-    reserve_or_purchase_relay_for_shop(
-        shop, db, owned["number"], approved=False, provider=provider,
-    )
     settings = db.get(DayTelloVoicemailShopSettings, shop.id)
     if settings is None:
         raise HTTPException(502, "Verified relay was not bound to voicemail settings")
