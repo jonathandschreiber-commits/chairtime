@@ -7,6 +7,7 @@ are made during import, inventory checks, or when either approval is absent.
 API contract: https://www.twilio.com/docs/phone-numbers/api/incomingphonenumber-resource
 """
 import hashlib
+import json
 import os
 import re
 from decimal import Decimal, InvalidOperation
@@ -19,6 +20,24 @@ KEY_SID = re.compile(r"^SK[a-fA-F0-9]{32}$")
 NUMBER_SID = re.compile(r"^PN[a-fA-F0-9]{32}$")
 US_NUMBER = re.compile(r"^\+1[2-9][0-9]{2}[2-9][0-9]{6}$")
 BASE = "https://api.twilio.com/2010-04-01/Accounts"
+RESERVE_LABEL = "DayTello Relay Reserve"
+
+
+def preowned_relay_pool() -> list[str]:
+    """Explicit inventory of already-paid, unused relay DIDs; never buys one."""
+    raw = os.getenv("DAYTELLO_VOICE_RELAY_PREOWNED_NUMBER_POOL", "").strip()
+    if not raw:
+        return []
+    try:
+        numbers = json.loads(raw)
+    except (TypeError, ValueError):
+        raise HTTPException(503, "Pre-owned relay number pool is invalid")
+    if (not isinstance(numbers, list) or len(numbers) > 100
+            or any(not isinstance(n, str) or not US_NUMBER.fullmatch(n)
+                   for n in numbers)
+            or len(set(numbers)) != len(numbers)):
+        raise HTTPException(503, "Pre-owned relay number pool is invalid")
+    return numbers
 
 
 def relay_shop_label(shop_id: str) -> str:
@@ -93,13 +112,13 @@ class VoiceRelayNumberProvider:
             raise HTTPException(409, "Multiple relay numbers match this shop")
         return matches
 
-    def verify_route(self, record, shop_id, expected_number=None):
+    def verify_route(self, record, shop_id, expected_number=None, *, reserved=False):
         """Fail closed on a changed route, account, DID, or phone ownership."""
         expected_url = relay_inbound_url(
             os.getenv("DAYTELLO_VOICE_RELAY_PUBLIC_ORIGIN", "").rstrip("/"))
         number = record.get("phone_number")
         if (record.get("account_sid") != self.account_sid
-                or record.get("friendly_name") != relay_shop_label(shop_id)
+                or record.get("friendly_name") != (RESERVE_LABEL if reserved else relay_shop_label(shop_id))
                 or not isinstance(number, str) or not US_NUMBER.fullmatch(number)
                 or (expected_number is not None and number != expected_number)
                 or not NUMBER_SID.fullmatch(str(record.get("sid") or ""))
@@ -117,7 +136,19 @@ class VoiceRelayNumberProvider:
     def find_existing(self, shop_id, *, expected_number=None):
         matches = self._matches(shop_id)
         if not matches:
-            return None
+            # An explicit platform reserve pool can be allocated without
+            # purchasing or changing a provider number. Exact account,
+            # reserved label, voice webhook and DID are all read back.
+            if expected_number not in preowned_relay_pool():
+                return None
+            exact = [r for r in self._list(number=expected_number)
+                     if r.get("phone_number") == expected_number]
+            if not exact:
+                return None
+            if len(exact) != 1:
+                raise HTTPException(409, "Reserved relay number ownership is ambiguous")
+            return self.verify_route(
+                exact[0], shop_id, expected_number, reserved=True)
         # Re-read the exact DID: a stale friendly-name search cannot prove
         # its current inbound webhook or that the number still belongs here.
         number = matches[0].get("phone_number")
@@ -247,7 +278,7 @@ class VoiceRelayNumberProvider:
         relay_shop_label(shop_id)
         if not isinstance(phone_number, str) or not US_NUMBER.fullmatch(phone_number):
             raise HTTPException(422, "A valid exact US relay number is required")
-        existing = self.find_existing(shop_id)
+        existing = self.find_existing(shop_id, expected_number=phone_number)
         if existing:
             if existing["number"] != phone_number:
                 raise HTTPException(409, "This shop already owns a different relay number")
