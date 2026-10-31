@@ -593,7 +593,8 @@ class SignedRecordingDeliveryTests(unittest.TestCase):
         # Disabling the recovery worker must stop the remaining batch even
         # when the snapshot already contains more eligible recordings.
         examined = []
-        def revoke_after_first(recording_sid):
+        def revoke_after_first(recording_sid, *, recovery=False):
+            self.assertTrue(recovery)
             examined.append(recording_sid)
             os.environ["DAYTELLO_VOICE_RELAY_RECOVERY_WORKER_ENABLED"] = "false"
 
