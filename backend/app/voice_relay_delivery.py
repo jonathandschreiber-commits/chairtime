@@ -236,24 +236,8 @@ def send_relay_owner_alert(recording_sid):
 
 
 
-def recover_queued_relay_alerts(*, shop_id, limit=25):
-    """Explicit test-only recovery for alerts stranded before task dispatch.
-
-    A process can stop after a recording receipt commits but before its
-    FastAPI background task runs. An operator-controlled worker may invoke
-    this bounded helper later. It does not schedule itself or activate SMS.
-    Only receipts queued for at least five minutes qualify; this gives
-    normal background dispatch time to run before a recovery scan. The
-    queued -> sending conditional UPDATE in send_relay_owner_alert still
-    prevents duplicate sends if the original task is also running.
-    Recovery is explicitly scoped to one shop so a test worker cannot drain
-    other tenants' queued notifications. Return examined, not delivered count.
-    """
-    if (os.getenv("DAYTELLO_VOICE_RELAY_TEST_ONLY") != "true" or
-            os.getenv("DAYTELLO_VOICEMAIL_TEST_ONLY") != "true" or
-            os.getenv("DAYTELLO_VOICEMAIL_OWNER_SMS_ENABLED") != "true" or
-            os.getenv("DAYTELLO_VOICE_RELAY_RECOVERY_WORKER_ENABLED") != "true"):
-        return 0
+def _eligible_queued_relay_sids(*, shop_id, limit):
+    """Read a bounded, tenant-scoped snapshot of safely aged queued receipts."""
     if not isinstance(shop_id, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}", shop_id):
         raise ValueError("Recovery requires an exact valid shop ID")
     if type(limit) is not int or not 1 <= limit <= 100:
@@ -269,11 +253,38 @@ def recover_queued_relay_alerts(*, shop_id, limit=25):
             DayTelloVoiceRelayRecording.created_at,
             DayTelloVoiceRelayRecording.recording_sid,
         ).limit(limit).all()
-        recording_sids = [item.recording_sid for item in pending]
+        return [item.recording_sid for item in pending]
+
+
+def preview_queued_relay_alerts(*, shop_id, limit=25):
+    """Read-only count for an isolated test operator; never contacts SMS provider.
+
+    The result is capped at limit and represents a snapshot, not a guarantee
+    that a subsequent recovery will claim or deliver the same receipts.
+    """
+    if (os.getenv("DAYTELLO_VOICE_RELAY_TEST_ONLY") != "true" or
+            os.getenv("DAYTELLO_VOICEMAIL_TEST_ONLY") != "true"):
+        raise PermissionError("Recovery preview requires isolated test mode")
+    return len(_eligible_queued_relay_sids(shop_id=shop_id, limit=limit))
+
+
+def recover_queued_relay_alerts(*, shop_id, limit=25):
+    """Explicit test-only recovery for alerts stranded before task dispatch.
+
+    An operator-controlled worker may invoke this bounded helper later. It
+    does not schedule itself or activate SMS. Only receipts queued for at
+    least five minutes qualify. Atomic claiming prevents duplicate sends,
+    and failed or ambiguous attempts are never retried automatically.
+    """
+    if (os.getenv("DAYTELLO_VOICE_RELAY_TEST_ONLY") != "true" or
+            os.getenv("DAYTELLO_VOICEMAIL_TEST_ONLY") != "true" or
+            os.getenv("DAYTELLO_VOICEMAIL_OWNER_SMS_ENABLED") != "true" or
+            os.getenv("DAYTELLO_VOICE_RELAY_RECOVERY_WORKER_ENABLED") != "true"):
+        return 0
+    recording_sids = _eligible_queued_relay_sids(shop_id=shop_id, limit=limit)
     for recording_sid in recording_sids:
         send_relay_owner_alert(recording_sid)
     return len(recording_sids)
-
 
 @router.get("/daytello/voice-relay/listen/{token}")
 async def listen_to_relay_recording(token: str):
