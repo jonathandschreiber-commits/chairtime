@@ -103,7 +103,7 @@ def completed_recording() -> str:
 
 
 def after_employee_dial(dial_call_status: str, recording_complete_url: str,
-                        recording_ready_url: str) -> str:
+                        recording_ready_url: str, dial_bridged: str | None = None) -> str:
     """Only unanswered or failed employee calls go to voicemail.
 
     Twilio DialCallStatus "completed" means the employee leg connected.
@@ -115,9 +115,13 @@ def after_employee_dial(dial_call_status: str, recording_complete_url: str,
     # "canceled" means the dial attempt was explicitly terminated before
     # answer (for example via the provider API), not a ringing timeout.
     # Never turn an intentionally canceled transfer into a voicemail prompt.
-    if normalized in {"completed", "canceled"}:
+    if normalized == "canceled":
         return completed_recording()
-    if normalized in {"no-answer", "busy", "failed"}:
+    # Carrier voicemail may answer without ever bridging to the caller.
+    if normalized == "completed" and str(dial_bridged).lower() != "false":
+        return completed_recording()
+    if normalized in {"no-answer", "busy", "failed"} or (
+            normalized == "completed" and str(dial_bridged).lower() == "false"):
         return voicemail_after_unanswered(
             recording_complete_url, recording_ready_url
         )
