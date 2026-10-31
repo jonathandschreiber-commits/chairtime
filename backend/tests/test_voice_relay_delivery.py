@@ -403,11 +403,32 @@ class SignedRecordingDeliveryTests(unittest.TestCase):
         with patch("app.voice_relay_delivery.SessionLocal", return_value=self.db), \
              patch("app.voice_relay_delivery.send_highlevel_sms",
                    return_value={"success": True}) as send_sms:
-            self.assertEqual(recover_queued_relay_alerts(limit=1), 1)
-            self.assertEqual(recover_queued_relay_alerts(limit=1), 0)
+            self.assertEqual(recover_queued_relay_alerts(shop_id="third-shop-id", limit=1), 1)
+            self.assertEqual(recover_queued_relay_alerts(shop_id="third-shop-id", limit=1), 0)
         send_sms.assert_called_once()
         self.assertEqual(queued.notification_status, "sent")
         self.assertEqual(already_sent.notification_status, "sent")
+
+    def test_recovery_does_not_send_other_shops_queued_voicemails(self):
+        old = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=10)
+        target = SimpleNamespace(
+            recording_sid=RECORDING, account_sid=ACCOUNT,
+            shop_id="third-shop-id", relay_number=DID,
+            notification_status="queued", created_at=old,
+        )
+        other = SimpleNamespace(
+            recording_sid="RE" + "c" * 32, account_sid=ACCOUNT,
+            shop_id="another-shop-id", relay_number=DID,
+            notification_status="queued", created_at=old,
+        )
+        self.db.recordings = {target.recording_sid: target, other.recording_sid: other}
+        with patch("app.voice_relay_delivery.SessionLocal", return_value=self.db), \\
+             patch("app.voice_relay_delivery.send_highlevel_sms",
+                   return_value={"success": True}) as send_sms:
+            self.assertEqual(recover_queued_relay_alerts(shop_id="third-shop-id", limit=10), 1)
+        send_sms.assert_called_once()
+        self.assertEqual(target.notification_status, "sent")
+        self.assertEqual(other.notification_status, "queued")
 
     def test_recovery_leaves_recent_queued_callback_for_normal_dispatch(self):
         # A scheduler must not race the ordinary background task for a
@@ -421,20 +442,20 @@ class SignedRecordingDeliveryTests(unittest.TestCase):
         self.db.recordings[RECORDING] = recent
         with patch("app.voice_relay_delivery.SessionLocal", return_value=self.db), \
              patch("app.voice_relay_delivery.send_highlevel_sms") as send_sms:
-            self.assertEqual(recover_queued_relay_alerts(limit=1), 0)
+            self.assertEqual(recover_queued_relay_alerts(shop_id="third-shop-id", limit=1), 0)
         send_sms.assert_not_called()
         self.assertEqual(recent.notification_status, "queued")
 
     def test_recovery_requires_test_flags_and_valid_batch_size(self):
         with patch("app.voice_relay_delivery.SessionLocal") as session:
             with patch.dict(os.environ, {"DAYTELLO_VOICE_RELAY_TEST_ONLY": "false"}):
-                self.assertEqual(recover_queued_relay_alerts(), 0)
+                self.assertEqual(recover_queued_relay_alerts(shop_id="third-shop-id"), 0)
             with patch.dict(os.environ, {"DAYTELLO_VOICEMAIL_OWNER_SMS_ENABLED": "false"}):
-                self.assertEqual(recover_queued_relay_alerts(), 0)
+                self.assertEqual(recover_queued_relay_alerts(shop_id="third-shop-id"), 0)
             for limit in (0, 101, True, "1"):
                 with self.subTest(limit=limit):
                     with self.assertRaises(ValueError):
-                        recover_queued_relay_alerts(limit)
+                        recover_queued_relay_alerts(shop_id="third-shop-id", limit=limit)
             session.assert_not_called()
 
     def test_in_progress_owner_sms_is_not_sent_again(self):
