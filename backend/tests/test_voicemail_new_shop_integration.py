@@ -266,6 +266,82 @@ class NewShopIntegrationTests(unittest.TestCase):
         self.sent.append((recipient, message, kwargs))
         return {"success": True}
 
+    def test_newly_selected_highlevel_number_purchase_then_relay_transfer_and_sms(self):
+        # Exercise the other HighLevel number path: the exact selected AI
+        # number is not yet owned. All purchase/provider calls are mocked.
+        # No real DID, call, SMS or charge is created by this test.
+        purchased = httpx.Response(201, json={"phoneNumber": AI_NUMBER})
+        with (
+            patch.object(ai_setup, "get_location_phone_numbers",
+                         return_value=(None, [])),
+            patch.object(ai_setup, "get_phone_purchase_credentials",
+                         return_value=("offline-stripe", "offline-payment")),
+            patch.object(ai_setup, "purchase_one_highlevel_phone_number",
+                         return_value=(purchased, AI_NUMBER, "Rockville", "MD")) as purchase,
+            patch.object(ai_setup, "wait_for_purchased_phone_number",
+                         return_value={"phoneNumber": AI_NUMBER}),
+            patch.object(ai_setup, "route_phone_number_to_shop_agent",
+                         return_value={"phoneNumber": AI_NUMBER}),
+            patch.object(ai_setup, "get_agent_detail", side_effect=self._get_agent),
+            patch.object(ai_setup, "highlevel_raw_request", side_effect=self._save_action),
+            patch.object(voicemail_contact_number, "VoiceRelayNumberProvider",
+                         return_value=self._provider()),
+            patch.object(voice_relay_delivery, "SessionLocal", self.factory),
+            patch.object(voice_relay_delivery, "send_highlevel_sms",
+                         side_effect=self._capture_sms),
+        ):
+            selected = self.client.post(
+                "/api/ai-setup/phone-number/purchase",
+                json={"phone_number": AI_NUMBER, "fingerprint_id": "offline-fp",
+                      "locality": "Rockville", "region": "MD"},
+            )
+            self.assertEqual(selected.status_code, 200, selected.text)
+            self.assertTrue(selected.json()["purchased_this_request"])
+            self.assertTrue(selected.json()["voicemail_relay_prebound"])
+            purchase.assert_called_once()
+            with self.factory() as db:
+                relay = db.get(DayTelloVoiceRelayAssignment, "new-id")
+                self.assertEqual(relay.relay_number, RELAY)
+                self.assertFalse(relay.enabled)
+                self.assertIsNone(
+                    db.get(DayTelloVoicemailShopSettings, "new-id").owner_phone
+                )
+            saved = self.client.put(
+                "/api/shops/new-shop/call-voicemail-number",
+                json={"phone_number": OWNER},
+            )
+            self.assertEqual(saved.status_code, 200, saved.text)
+            self.assertTrue(saved.json()["test_relay_enabled_for_calls"])
+            self.assertEqual(
+                self.agent_action["actionParameters"]["transferToValue"], RELAY,
+            )
+            inbound = self._signed_callback(
+                "/api/daytello/voice-relay/inbound", {"To": RELAY},
+            )
+            self.assertEqual(inbound.status_code, 200, inbound.text)
+            self.assertIn(OWNER, inbound.text)
+            missed = self._signed_callback(
+                "/api/daytello/voice-relay/dial-finished",
+                {"DialCallStatus": "no-answer"},
+            )
+            self.assertEqual(missed.status_code, 200, missed.text)
+            self.assertIn("<Record", missed.text)
+            ready = self._signed_callback(
+                "/api/daytello/voice-relay/record-ready",
+                {"RecordingStatus": "completed", "RecordingSid": RECORDING},
+            )
+            self.assertEqual(ready.status_code, 200, ready.text)
+            self.assertEqual(ready.json()["action"], "queued")
+            self.assertEqual(len(self.sent), 1)
+            self.assertEqual(self.sent[0][0], OWNER)
+            self.assertEqual(self.sent[0][2]["shop_id"], "new-id")
+            self.assertIn("Listen: https://relay.example.test/", self.sent[0][1])
+            with self.factory() as db:
+                self.assertEqual(
+                    db.get(DayTelloVoicemailShopSettings, "stan-id").owner_phone,
+                    "+12405550133",
+                )
+
     def test_no_preowned_relay_never_purchases_or_changes_transfer(self):
         with (
             patch.object(ai_setup, "get_location_phone_numbers",
