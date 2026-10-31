@@ -222,6 +222,7 @@ class NewShopIntegrationTests(unittest.TestCase):
             )
             self.assertEqual(inbound.status_code, 200, inbound.text)
             self.assertIn(OWNER, inbound.text)
+            self.assertIn('timeout="5"', inbound.text)
             missed = self._signed_callback(
                 "/api/daytello/voice-relay/dial-finished",
                 {"DialCallStatus": "no-answer"},
@@ -328,6 +329,7 @@ class NewShopIntegrationTests(unittest.TestCase):
             self.assertEqual(inbound.status_code, 200, inbound.text)
             self.assertIn("<Dial", inbound.text)
             self.assertIn(OWNER, inbound.text)
+            self.assertIn('timeout="5"', inbound.text)
             self.assertIn("dial-finished", inbound.text)
             missed = self._signed_callback(
                 "/api/daytello/voice-relay/dial-finished",
@@ -431,6 +433,7 @@ class NewShopIntegrationTests(unittest.TestCase):
             )
             self.assertEqual(inbound.status_code, 200, inbound.text)
             self.assertIn(OWNER, inbound.text)
+            self.assertIn('timeout="5"', inbound.text)
             missed = self._signed_callback(
                 "/api/daytello/voice-relay/dial-finished",
                 {"DialCallStatus": "no-answer"},
@@ -499,6 +502,7 @@ class NewShopIntegrationTests(unittest.TestCase):
                 "/api/daytello/voice-relay/inbound", {"To": RELAY})
             self.assertEqual(inbound.status_code, 200, inbound.text)
             self.assertIn(OWNER, inbound.text)
+            self.assertIn('timeout="5"', inbound.text)
             missed = self._signed_callback(
                 "/api/daytello/voice-relay/dial-finished",
                 {"DialCallStatus": "no-answer"})
