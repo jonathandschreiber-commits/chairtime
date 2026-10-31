@@ -127,6 +127,12 @@ class VoiceRelayNumberProvider:
                  if r.get("phone_number") == number]
         if len(exact) != 1:
             raise HTTPException(409, "Voice relay number ownership is ambiguous")
+        # The friendly-name lookup and exact-number readback must refer to
+        # the same provider resource. A reassigned DID between requests must
+        # not be adopted even if its webhook and friendly name appear valid.
+        if (exact[0].get("sid") != matches[0].get("sid")
+                or exact[0].get("account_sid") != matches[0].get("account_sid")):
+            raise HTTPException(409, "Voice relay number ownership changed during verification")
         return self.verify_route(exact[0], shop_id, expected_number)
 
     def find_available_voice_number(self, area_code):
