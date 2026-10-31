@@ -282,9 +282,19 @@ def recover_queued_relay_alerts(*, shop_id, limit=25):
             os.getenv("DAYTELLO_VOICE_RELAY_RECOVERY_WORKER_ENABLED") != "true"):
         return 0
     recording_sids = _eligible_queued_relay_sids(shop_id=shop_id, limit=limit)
+    examined = 0
     for recording_sid in recording_sids:
+        # An operator may revoke recovery authorization while a batch runs.
+        # Stop before examining another receipt, even if ordinary SMS delivery
+        # remains enabled. The delivery helper separately rechecks SMS flags.
+        if (os.getenv("DAYTELLO_VOICE_RELAY_TEST_ONLY") != "true" or
+                os.getenv("DAYTELLO_VOICEMAIL_TEST_ONLY") != "true" or
+                os.getenv("DAYTELLO_VOICEMAIL_OWNER_SMS_ENABLED") != "true" or
+                os.getenv("DAYTELLO_VOICE_RELAY_RECOVERY_WORKER_ENABLED") != "true"):
+            break
         send_relay_owner_alert(recording_sid)
-    return len(recording_sids)
+        examined += 1
+    return examined
 
 @router.get("/daytello/voice-relay/listen/{token}")
 async def listen_to_relay_recording(token: str):
