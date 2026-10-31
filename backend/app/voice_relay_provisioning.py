@@ -112,8 +112,12 @@ def reserve_or_purchase_relay_for_shop(shop: Shop, db, number: str, *,
 
     provider = provider or VoiceRelayNumberProvider()
     # Even a saved DID must be rechecked against live provider inventory.
+    # A saved shop claim is not fresh authorization to purchase again.
+    # If the provider has lost the DID, fail closed rather than incurring a
+    # second charge or silently adopting a replacement on a retry.
+    purchase_approved = approved is True and other_shop_relay is None
     verified = provider.purchase_approved_number(
-        str(shop.id), number, approved=approved)
+        str(shop.id), number, approved=purchase_approved)
     if not verified.get("route_verified") or verified.get("number") != number:
         raise HTTPException(409, "Provider DID route was not verified")
     # Recheck local conflicts after the remote operation, before DB commit.
