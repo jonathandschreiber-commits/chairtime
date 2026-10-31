@@ -166,7 +166,12 @@ def relay_receipt_route_is_current(receipt, shop, settings, binding) -> bool:
     voicemail number or HighLevel location. Never deliver against stale state.
     """
     expected_location = os.getenv("HIGHLEVEL_LOCATION_ID", "").strip()
+    # An alert may have been queued before the relay provider account was
+    # rotated. Never text a link for an old account: playback would reject it
+    # and the recording may no longer be accessible to this installation.
+    expected_account = os.getenv("DAYTELLO_VOICE_RELAY_ACCOUNT_SID", "").strip()
     return bool(
+        expected_account and receipt.account_sid == expected_account and
         expected_location and shop and shop.ai_voice_enabled and
         settings and binding and binding.enabled and
         binding.shop_id == receipt.shop_id and
