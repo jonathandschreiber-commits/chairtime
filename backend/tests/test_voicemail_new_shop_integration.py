@@ -606,9 +606,25 @@ class NewShopIntegrationTests(unittest.TestCase):
             self.assertEqual(inbound.status_code, 200, inbound.text)
             self.assertIn(OWNER, inbound.text)
             self.assertIn('timeout="5"', inbound.text)
+            self.assertIn("owner-screen?parent=" + CALL, inbound.text)
+            # A carrier voicemail may answer the employee leg before timeout.
+            # Without a human pressing 1, Twilio must not bridge it; the
+            # original caller still gets DayTello's recording and owner SMS.
+            child = "CA" + "e" * 32
+            screen = self._signed_callback(
+                "/api/daytello/voice-relay/owner-screen?parent=" + CALL,
+                {"CallSid": child, "ParentCallSid": CALL, "To": OWNER})
+            self.assertEqual(screen.status_code, 200, screen.text)
+            self.assertIn("<Gather", screen.text)
+            rejected = self._signed_callback(
+                "/api/daytello/voice-relay/owner-accept?parent=" + CALL,
+                {"CallSid": child, "ParentCallSid": CALL,
+                 "To": OWNER, "Digits": "2"})
+            self.assertEqual(rejected.status_code, 200, rejected.text)
+            self.assertIn("<Hangup", rejected.text)
             missed = self._signed_callback(
                 "/api/daytello/voice-relay/dial-finished",
-                {"DialCallStatus": "no-answer"})
+                {"DialCallStatus": "completed", "DialBridged": "false"})
             self.assertEqual(missed.status_code, 200, missed.text)
             self.assertIn("<Record", missed.text)
             ready = self._signed_callback(
