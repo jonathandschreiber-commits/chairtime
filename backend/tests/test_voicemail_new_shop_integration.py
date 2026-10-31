@@ -853,7 +853,7 @@ class NewShopIntegrationTests(unittest.TestCase):
                  second_owner_phone, second_relay, second_call, second_recording),
             )
             for owner, slug, shop_id, ai_number, phone, relay, call, recording in shops:
-                self.client.app.dependency_overrides[get_current_user] = lambda o=owner: o
+                self.owner = owner
                 activated = self.client.post(
                     "/api/ai-setup/phone-number/purchase",
                     json={"phone_number": ai_number},
@@ -868,8 +868,7 @@ class NewShopIntegrationTests(unittest.TestCase):
                 self.assertEqual(saved.status_code, 200, saved.text)
                 self.assertTrue(saved.json()["test_relay_enabled_for_calls"])
                 self.assertEqual(
-                    actions[owner.shop_id.replace("new-id", "agent-new")
-                            .replace("second-id", "agent-second")]
+                    actions["agent-new" if shop_id == "new-id" else "agent-second"]
                     ["actionParameters"]["transferToValue"], relay,
                 )
                 inbound = self._signed_callback(
