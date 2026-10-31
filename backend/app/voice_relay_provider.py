@@ -112,6 +112,24 @@ class VoiceRelayNumberProvider:
             raise HTTPException(409, "Multiple relay numbers match this shop")
         return matches
 
+    def list_reserved_relay_numbers(self):
+        """Discover already-owned, explicitly labeled relay DIDs via GET only.
+
+        New shops can use a provider-owned reserve without a per-number
+        Railway environment edit. Exact ownership and webhook configuration
+        are independently rechecked before a database assignment.
+        """
+        records = self._list(label=RESERVE_LABEL)
+        numbers = [
+            r.get("phone_number") for r in records
+            if r.get("friendly_name") == RESERVE_LABEL
+            and isinstance(r.get("phone_number"), str)
+            and US_NUMBER.fullmatch(r["phone_number"])
+        ]
+        if len(numbers) != len(set(numbers)):
+            raise HTTPException(409, "Reserved relay inventory has duplicate numbers")
+        return sorted(numbers)
+
     def verify_route(self, record, shop_id, expected_number=None, *, reserved=False):
         """Fail closed on a changed route, account, DID, or phone ownership."""
         expected_url = relay_inbound_url(
@@ -136,10 +154,12 @@ class VoiceRelayNumberProvider:
     def find_existing(self, shop_id, *, expected_number=None):
         matches = self._matches(shop_id)
         if not matches:
-            # An explicit platform reserve pool can be allocated without
-            # purchasing or changing a provider number. Exact account,
-            # reserved label, voice webhook and DID are all read back.
-            if expected_number not in preowned_relay_pool():
+            # A reserved provider-owned DID can be adopted by exact number
+            # even without a static pool setting. The provider must label it
+            # DayTello Relay Reserve and retain the verified inbound webhook.
+            # Never infer a shop claim from an arbitrary provider-owned DID.
+            preowned_relay_pool()  # Reject invalid legacy pool configuration.
+            if expected_number is None or not US_NUMBER.fullmatch(expected_number):
                 return None
             exact = [r for r in self._list(number=expected_number)
                      if r.get("phone_number") == expected_number]
