@@ -186,10 +186,16 @@ def allocate_preowned_relay_for_shop(shop: Shop, db, *, provider=None):
     if (db.get(DayTelloVoiceRelayAssignment, shop.id) is not None
             or db.get(DayTelloVoicemailShopSettings, shop.id) is not None):
         return None
-    numbers = preowned_relay_pool()
+    # Prefer explicit existing reservations, then discover any additional
+    # provider-labeled reserve DIDs. Discovery is read-only; no per-shop
+    # environment edit, provider POST or number purchase is required.
+    configured = preowned_relay_pool()
+    provider = provider or VoiceRelayNumberProvider()
+    numbers = list(dict.fromkeys(
+        configured + provider.list_reserved_relay_numbers()
+    ))
     if not numbers:
         return None
-    provider = provider or VoiceRelayNumberProvider()
     for number in numbers:
         try:
             _check_number_conflicts(db, shop.id, number)
@@ -197,7 +203,14 @@ def allocate_preowned_relay_for_shop(shop: Shop, db, *, provider=None):
             if exc.status_code == 409:
                 continue
             raise
-        owned = provider.find_existing(str(shop.id), expected_number=number)
+        try:
+            owned = provider.find_existing(str(shop.id), expected_number=number)
+        except HTTPException as exc:
+            # A stale or incorrectly configured reserve must not prevent
+            # another correctly routed reserve from being allocated.
+            if exc.status_code == 409:
+                continue
+            raise
         if not owned:
             continue
         return reserve_or_purchase_relay_for_shop(
