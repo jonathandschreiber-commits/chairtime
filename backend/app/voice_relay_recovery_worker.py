@@ -17,7 +17,7 @@ _REQUIRED_FLAGS = (
 )
 
 
-def run_once(*, shop_id=None, limit=25, execute=False):
+def run_once(*, shop_id=None, limit=25, execute=False, preview=False):
     """Process at most one bounded batch; return examined, not delivered count.
 
     The delivery helper atomically claims each queued receipt before any SMS
@@ -25,11 +25,14 @@ def run_once(*, shop_id=None, limit=25, execute=False):
     """
     if type(limit) is not int or not 1 <= limit <= 100:
         raise ValueError("Recovery batch size must be between 1 and 100")
-    if execute is not True:
+    if preview is True and execute is True:
+        raise ValueError("Choose preview or execution, not both")
+    if preview is not True and execute is not True:
         raise PermissionError("Explicit recovery execution approval required")
     if not isinstance(shop_id, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}", shop_id):
         raise ValueError("An exact shop ID is required for recovery")
-    missing = [name for name in _REQUIRED_FLAGS if os.getenv(name) != "true"]
+    required = _REQUIRED_FLAGS[:2] if preview is True else _REQUIRED_FLAGS
+    missing = [name for name in required if os.getenv(name) != "true"]
     if missing:
         raise PermissionError(
             "Test-only recovery is disabled: " + ", ".join(missing)
@@ -37,6 +40,9 @@ def run_once(*, shop_id=None, limit=25, execute=False):
 
     # Import only after all guards pass; importing the delivery module can
     # initialize database dependencies in the application.
+    if preview is True:
+        from app.voice_relay_delivery import preview_queued_relay_alerts
+        return preview_queued_relay_alerts(shop_id=shop_id, limit=limit)
     from app.voice_relay_delivery import recover_queued_relay_alerts
     return recover_queued_relay_alerts(shop_id=shop_id, limit=limit)
 
@@ -45,9 +51,14 @@ def main(argv=None):
     parser = argparse.ArgumentParser(
         description="Run one explicitly authorized, test-only voicemail recovery batch."
     )
-    parser.add_argument(
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
         "--execute", action="store_true",
         help="Required opt-in; may send owner SMS for queued test recordings.",
+    )
+    mode.add_argument(
+        "--preview", action="store_true",
+        help="Read-only bounded backlog count; never sends SMS.",
     )
     parser.add_argument(
         "--shop-id", default=None,
@@ -59,10 +70,14 @@ def main(argv=None):
     )
     args = parser.parse_args(argv)
     try:
-        count = run_once(shop_id=args.shop_id, limit=args.limit, execute=args.execute)
+        count = run_once(shop_id=args.shop_id, limit=args.limit,
+                         execute=args.execute, preview=args.preview)
     except (PermissionError, ValueError) as exc:
         parser.exit(2, f"Recovery not started: {exc}\n")
-    print(f"Examined {count} queued test voicemail receipt(s) for the selected shop; SMS delivery not confirmed.")
+    if args.preview:
+        print(f"Preview: up to {count} eligible queued test voicemail receipt(s) for the selected shop; no SMS sent.")
+    else:
+        print(f"Examined {count} queued test voicemail receipt(s) for the selected shop; SMS delivery not confirmed.")
     return 0
 
 
