@@ -5007,13 +5007,13 @@ def route_phone_number_to_shop_agent(
 def activate_owned_phone_number(
     shop: Shop,
     db: Session,
-    current_user: User = None,
     location_id: str,
     agent_id: str,
     phone_number: str,
     phone_record: dict,
     purchased_this_request: bool,
     purchase_result=None,
+    current_user: User = None,
 ) -> dict:
     """
     Safely finish activation for an already-owned number.
