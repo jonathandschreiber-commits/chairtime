@@ -60,3 +60,28 @@ All calls must be idempotent and scoped to the authenticated shop. Do not mutate
 - https://help.gohighlevel.com/support/solutions/articles/48001229976-phone-number-settings-explained
 
 **This document does not assert the missing provider API exists.**
+
+
+### Test-only stranded-notification recovery (operator-invoked; not deployed)
+
+A one-shot worker entrypoint is implemented in `app/voice_relay_recovery_worker.py`.
+It is **not scheduled, started by FastAPI, or enabled by default**. It is
+deliberately separate from request handling and cannot alter phone routing,
+purchase numbers, or change HighLevel/Railway settings.
+
+An authorized operator in an **isolated test environment** may invoke
+`python -m app.voice_relay_recovery_worker --execute --limit 25` only after
+explicit approval to send test owner SMS and after setting all four flags:
+`DAYTELLO_VOICE_RELAY_TEST_ONLY=true`,
+`DAYTELLO_VOICEMAIL_TEST_ONLY=true`,
+`DAYTELLO_VOICEMAIL_OWNER_SMS_ENABLED=true`, and
+`DAYTELLO_VOICE_RELAY_RECOVERY_WORKER_ENABLED=true`.
+Missing `--execute`, a missing flag, or an invalid batch size fails closed.
+No invocation has been performed against a provider.
+
+The worker examines at most 100 queued receipts per invocation, reuses the
+atomic queued-to-sending claim, and **never retries sending/failed receipts**,
+because provider acceptance may be ambiguous. The reported count is examined
+receipts, not confirmed SMS deliveries. It does not loop or schedule itself;
+connecting an isolated scheduler, observability, and proving provider-backed
+delivery remain release blockers.
