@@ -156,6 +156,7 @@ class SignedRecordingDeliveryTests(unittest.TestCase):
             "DAYTELLO_VOICE_RELAY_PUBLIC_ORIGIN": "https://relay.example.test",
             "DAYTELLO_VOICEMAIL_TEST_ONLY": "true",
             "DAYTELLO_VOICEMAIL_OWNER_SMS_ENABLED": "true",
+            "DAYTELLO_VOICE_RELAY_RECOVERY_WORKER_ENABLED": "true",
             "DAYTELLO_VOICEMAIL_TEST_RECIPIENT": OWNER,
             "DAYTELLO_VOICEMAIL_TEST_PUBLIC_ORIGIN": "https://relay.example.test",
             "DAYTELLO_VOICEMAIL_LINK_KEY": Fernet.generate_key().decode(),
@@ -451,6 +452,8 @@ class SignedRecordingDeliveryTests(unittest.TestCase):
             with patch.dict(os.environ, {"DAYTELLO_VOICE_RELAY_TEST_ONLY": "false"}):
                 self.assertEqual(recover_queued_relay_alerts(shop_id="third-shop-id"), 0)
             with patch.dict(os.environ, {"DAYTELLO_VOICEMAIL_OWNER_SMS_ENABLED": "false"}):
+                self.assertEqual(recover_queued_relay_alerts(shop_id="third-shop-id"), 0)
+            with patch.dict(os.environ, {"DAYTELLO_VOICE_RELAY_RECOVERY_WORKER_ENABLED": "false"}):
                 self.assertEqual(recover_queued_relay_alerts(shop_id="third-shop-id"), 0)
             for limit in (0, 101, True, "1"):
                 with self.subTest(limit=limit):
