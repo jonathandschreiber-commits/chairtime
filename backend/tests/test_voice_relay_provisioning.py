@@ -172,6 +172,55 @@ class ClaimTests(unittest.TestCase):
             self.assertTrue(db.get(DayTelloVoicemailShopSettings, "shop-a").notifications_enabled)
         self.assertFalse(provider.calls)
 
+    def test_legacy_highlevel_route_is_not_adopted_as_relay(self):
+        # The legacy map may be authoritative even without a database row.
+        for slug in ("shop-a", "shop-b"):
+            with self.subTest(legacy_shop=slug):
+                provider = FakeProvider()
+                with patch.dict(os.environ, {
+                    "DAYTELLO_VOICEMAIL_NUMBER_SHOP_MAP":
+                        '{"' + NUMBER + '":"' + slug + '"}',
+                    "DAYTELLO_VOICEMAIL_TEST_NUMBER_POOL": "",
+                }):
+                    with self.factory() as db:
+                        with self.assertRaises(HTTPException) as error:
+                            self.reserve(db, provider=provider)
+                        self.assertEqual(error.exception.status_code, 409)
+                        self.assertIsNone(db.get(DayTelloVoiceRelayAssignment, "shop-a"))
+                self.assertFalse(provider.calls)
+
+    def test_reserved_highlevel_test_pool_is_not_relay_inventory(self):
+        provider = FakeProvider()
+        with patch.dict(os.environ, {
+            "DAYTELLO_VOICEMAIL_NUMBER_SHOP_MAP": "",
+            "DAYTELLO_VOICEMAIL_TEST_NUMBER_POOL": '["' + NUMBER + '"]',
+        }):
+            with self.factory() as db:
+                with self.assertRaises(HTTPException) as error:
+                    self.reserve(db, provider=provider)
+                self.assertEqual(error.exception.status_code, 409)
+                self.assertIsNone(db.get(DayTelloVoiceRelayAssignment, "shop-a"))
+        self.assertFalse(provider.calls)
+
+    def test_malformed_legacy_reservations_fail_before_provider_calls(self):
+        for key, invalid in (
+            ("DAYTELLO_VOICEMAIL_NUMBER_SHOP_MAP", "{invalid"),
+            ("DAYTELLO_VOICEMAIL_TEST_NUMBER_POOL", "{invalid"),
+            ("DAYTELLO_VOICEMAIL_TEST_NUMBER_POOL", '["' + NUMBER + '","' + NUMBER + '"]'),
+        ):
+            with self.subTest(setting=key, value=invalid):
+                provider = FakeProvider()
+                with patch.dict(os.environ, {
+                    "DAYTELLO_VOICEMAIL_NUMBER_SHOP_MAP": "",
+                    "DAYTELLO_VOICEMAIL_TEST_NUMBER_POOL": "",
+                    key: invalid,
+                }):
+                    with self.factory() as db:
+                        with self.assertRaises(HTTPException) as error:
+                            self.reserve(db, provider=provider)
+                        self.assertEqual(error.exception.status_code, 503)
+                self.assertFalse(provider.calls)
+
     def test_existing_relay_rejects_mismatched_voicemail_location(self):
         # A stale cross-location settings row is not proof of a safe relay.
         provider = FakeProvider()
