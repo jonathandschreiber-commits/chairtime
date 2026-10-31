@@ -233,6 +233,31 @@ def get_owner_call_voicemail_number(
 
 
 
+
+def attach_preowned_relay_after_ai_number(shop: Shop, db: Session) -> bool:
+    """Bind a previously approved relay as part of AI-number onboarding.
+
+    This performs provider inventory reads and an exclusive local DB claim
+    only. It never purchases a DID, enables calls, sends SMS, or changes
+    HighLevel transfer actions. Legacy Stan/Bob voicemail routes are untouched.
+    The owner still must approve the forwarding/SMS destination separately.
+    """
+    if (os.getenv("DAYTELLO_VOICE_RELAY_TEST_ONLY") != "true"
+            or os.getenv("DAYTELLO_VOICEMAIL_TEST_ONLY") != "true"):
+        return False
+    if (db.get(DayTelloVoicemailShopSettings, shop.id) is not None
+            or db.get(DayTelloVoiceRelayAssignment, shop.id) is not None):
+        return False
+    provider = VoiceRelayNumberProvider()
+    owned = provider.find_existing(str(shop.id))
+    if not owned:
+        return False
+    reserve_or_purchase_relay_for_shop(
+        shop, db, owned["number"], approved=False, provider=provider,
+    )
+    return True
+
+
 def ensure_existing_shop_voicemail_route(shop: Shop, db: Session):
     """Connect a pre-owned relay to a new shop without buying or rerouting a DID.
 
