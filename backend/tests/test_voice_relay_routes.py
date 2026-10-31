@@ -255,6 +255,8 @@ class RelayRouteTests(unittest.TestCase):
                                {"CallSid": CALL, "To": DID})
         self.assertEqual(inbound.status_code, 200)
         self.assertIn("owner-screen?parent=" + CALL, inbound.text)
+        # FakeDB is recreated per request; model durable inbound call storage.
+        self.seed_call()
         child = "CA" + "c" * 32
         screen = self.request(
             "/api/daytello/voice-relay/owner-screen?parent=" + CALL,
