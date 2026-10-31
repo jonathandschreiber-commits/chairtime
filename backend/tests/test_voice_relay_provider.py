@@ -182,6 +182,17 @@ class ProviderTests(unittest.TestCase):
         with self.assertRaises(HTTPException):
             self.provider(fake).find_existing(SHOP)
 
+    def test_malformed_provider_capabilities_fail_closed(self):
+        # Provider JSON is untrusted. Non-object capabilities must return a
+        # controlled conflict rather than crash with an AttributeError.
+        for malformed in (None, "voice", [], True, {"voice": "true"}):
+            with self.subTest(capabilities=malformed):
+                fake = FakeTwilio([record(capabilities=malformed)])
+                with self.assertRaises(HTTPException) as error:
+                    self.provider(fake).find_existing(SHOP)
+                self.assertEqual(error.exception.status_code, 409)
+                self.assertFalse(any(r.method == "POST" for r in fake.requests))
+
     def test_different_account_cannot_be_claimed(self):
         fake = FakeTwilio([record(account_sid="AC" + "f" * 32)])
         with self.assertRaises(HTTPException):
