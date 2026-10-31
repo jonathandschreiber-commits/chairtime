@@ -250,6 +250,65 @@ class RelayRouteTests(unittest.TestCase):
         self.assertIn(OWNER, response.text)
         self.assertIn("dial-finished", response.text)
 
+    def test_owner_press_one_connects_but_carrier_voicemail_falls_back(self):
+        inbound = self.request("/api/daytello/voice-relay/inbound",
+                               {"CallSid": CALL, "To": DID})
+        self.assertEqual(inbound.status_code, 200)
+        self.assertIn("owner-screen?parent=" + CALL, inbound.text)
+        child = "CA" + "c" * 32
+        screen = self.request(
+            "/api/daytello/voice-relay/owner-screen?parent=" + CALL,
+            {"CallSid": child, "ParentCallSid": CALL, "To": OWNER},
+        )
+        self.assertEqual(screen.status_code, 200)
+        self.assertIn("<Gather", screen.text)
+        self.assertIn("owner-accept?parent=" + CALL, screen.text)
+        accepted = self.request(
+            "/api/daytello/voice-relay/owner-accept?parent=" + CALL,
+            {"CallSid": child, "ParentCallSid": CALL, "To": OWNER, "Digits": "1"},
+        )
+        self.assertEqual(accepted.status_code, 200)
+        self.assertIn("Connecting you now", accepted.text)
+        self.assertNotIn("<Hangup", accepted.text)
+        declined = self.request(
+            "/api/daytello/voice-relay/owner-accept?parent=" + CALL,
+            {"CallSid": child, "ParentCallSid": CALL, "To": OWNER, "Digits": "2"},
+        )
+        self.assertEqual(declined.status_code, 200)
+        self.assertIn("<Hangup", declined.text)
+        not_bridged = self.request(
+            "/api/daytello/voice-relay/dial-finished",
+            {"CallSid": CALL, "To": DID, "DialCallStatus": "completed",
+             "DialBridged": "false"},
+        )
+        self.assertEqual(not_bridged.status_code, 200)
+        self.assertIn("<Record", not_bridged.text)
+        bridged = self.request(
+            "/api/daytello/voice-relay/dial-finished",
+            {"CallSid": CALL, "To": DID, "DialCallStatus": "completed",
+             "DialBridged": "true"},
+        )
+        self.assertEqual(bridged.status_code, 200)
+        self.assertNotIn("<Record", bridged.text)
+
+    def test_owner_acceptance_rejects_wrong_parent_and_destination(self):
+        self.seed_call()
+        child = "CA" + "c" * 32
+        for path, fields, status_code in (
+            ("/api/daytello/voice-relay/owner-screen?parent=" + "CA" + "b" * 32,
+             {"CallSid": child, "To": OWNER}, 404),
+            ("/api/daytello/voice-relay/owner-accept?parent=" + CALL,
+             {"CallSid": child, "ParentCallSid": "CA" + "b" * 32,
+              "To": OWNER, "Digits": "1"}, 409),
+            ("/api/daytello/voice-relay/owner-accept?parent=" + CALL,
+             {"CallSid": child, "ParentCallSid": CALL,
+              "To": "+12405550199", "Digits": "1"}, 409),
+        ):
+            with self.subTest(path=path, fields=fields):
+                response = self.request(path, fields)
+                self.assertEqual(response.status_code, status_code)
+                self.assertNotIn("Connecting you now", response.text)
+
     def test_rejects_tampering(self):
         result = self.request("/api/daytello/voice-relay/inbound",
                               {"CallSid": CALL, "To": DID}, valid=False)
