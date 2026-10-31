@@ -518,10 +518,16 @@ class UnifiedPhoneTests(unittest.TestCase):
     def test_no_provisioning_fails_closed(self):
         self.user.shop_slug = "shop-b"
         self.user.shop_id = "s2"
-        self.assertEqual(self.client.put(
-            "/api/shops/shop-b/call-voicemail-number",
-            json={"phone_number": "+12025550199"},
-        ).status_code, 409)
+        # A new shop may recover only an already-owned relay; a missing DID
+        # must not cause a chargeable number purchase or transfer change.
+        with patch.object(route, "VoiceRelayNumberProvider") as provider:
+            provider.return_value.find_existing.return_value = None
+            response = self.client.put(
+                "/api/shops/shop-b/call-voicemail-number",
+                json={"phone_number": "+12025550199"},
+            )
+        self.assertEqual(response.status_code, 409, response.text)
+        provider.return_value.purchase_approved_number.assert_not_called()
 
 
 if __name__ == "__main__":
