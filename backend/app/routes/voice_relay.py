@@ -172,7 +172,11 @@ async def relay_dial_finished(request: Request, db: Session = Depends(get_db)):
     # A signed provider request with a plausible To alone is not a tenant
     # binding: never start voicemail for an unrelated or unknown call.
     call = recorded_call_for_callback(db, fields)
-    _assignment(db, call.relay_number)
+    binding, _ = _assignment(db, call.relay_number)
+    # A DID can be reassigned after the original inbound call. The signed
+    # callback must still belong to the tenant that owned that call.
+    if binding.shop_id != call.shop_id:
+        raise HTTPException(409, "Voice call tenant assignment changed")
     status = fields.get("DialCallStatus", "")
     try:
         xml = after_employee_dial(
@@ -192,7 +196,9 @@ async def relay_record_finished(request: Request, db: Session = Depends(get_db))
     # A signed provider request with a plausible To alone is not a tenant
     # binding: never start voicemail for an unrelated or unknown call.
     call = recorded_call_for_callback(db, fields)
-    _assignment(db, call.relay_number)
+    binding, _ = _assignment(db, call.relay_number)
+    if binding.shop_id != call.shop_id:
+        raise HTTPException(409, "Voice call tenant assignment changed")
     return _xml(completed_recording())
 
 
