@@ -107,7 +107,8 @@ class VoiceRelayNumberProvider:
                 or record.get("voice_method") != "POST"
                 or record.get("voice_application_sid")
                 or record.get("trunk_sid")
-                or (record.get("capabilities") or {}).get("voice") is not True
+                or not isinstance(record.get("capabilities"), dict)
+                or record["capabilities"].get("voice") is not True
                 or record.get("status") != "in-use"):
             raise HTTPException(409, "Voice relay number route is not verified")
         return {"number": number, "provider_sid": record["sid"],
