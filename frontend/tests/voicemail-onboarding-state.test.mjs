@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { isVoicemailConfigurationSaved } from "../lib/voicemail-onboarding-state.mjs";
+import { isVoicemailConfigurationSaved, voicemailSetupRefreshKey } from "../lib/voicemail-onboarding-state.mjs";
 
 test("a saved, activated relay advances configuration review without claiming live readiness", () => {
   const state = {
@@ -22,4 +22,13 @@ test("SMS alone, pending owner approval, or invalid phone cannot advance", () =>
   }), false);
   assert.equal(isVoicemailConfigurationSaved({ configuration_complete: true }), false);
   assert.equal(isVoicemailConfigurationSaved(null), false);
+});
+
+test("resuming a saved owner transfer reloads the unified setup for the same shop", () => {
+  const pending = voicemailSetupRefreshKey("new-shop", "+12405550124", false);
+  const activated = voicemailSetupRefreshKey("new-shop", "+12405550124", true);
+  assert.notEqual(pending, activated);
+  assert.equal(activated, voicemailSetupRefreshKey("new-shop", "+12405550124", true));
+  assert.notEqual(activated, voicemailSetupRefreshKey("other-shop", "+12405550124", true));
+  assert.notEqual(activated, voicemailSetupRefreshKey("new-shop", "+12405550126", true));
 });
