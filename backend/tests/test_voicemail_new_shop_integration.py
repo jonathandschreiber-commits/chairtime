@@ -171,6 +171,94 @@ class NewShopIntegrationTests(unittest.TestCase):
             "x-twilio-signature": signature,
         })
 
+    def test_selected_highlevel_ai_number_on_second_inventory_page_is_reused(self):
+        """Never purchase a second DID because the customer's number is on page 2."""
+        routed = {
+            "phoneNumber": AI_NUMBER, "friendlyName": "New Shop AI",
+            "capabilities": {"voice": True},
+            "inboundCallService": {"type": "voice_ai", "value": "agent-new"},
+        }
+        first_page = [
+            {"phoneNumber": f"+1240555{i:04d}",
+             "capabilities": {"voice": True},
+             "inboundCallService": {}}
+            for i in range(100)
+        ]
+        pages = []
+
+        def inventory(method, path, params=None, **kwargs):
+            self.assertEqual(method, "GET")
+            self.assertEqual(path, "/phone-system/numbers/location/loc-test")
+            self.assertEqual(params["pageSize"], 100)
+            self.assertTrue(params["skipNumberPool"])
+            pages.append(params["page"])
+            records = first_page if params["page"] == 1 else [routed]
+            return SimpleNamespace(json=lambda: {"data": {"numbers": records}},
+                                   status_code=200)
+
+        with (
+            patch.object(ai_setup, "highlevel_request", side_effect=inventory),
+            patch.object(ai_setup, "route_phone_number_to_shop_agent",
+                         return_value=routed),
+            patch.object(ai_setup, "get_agent_detail", side_effect=self._get_agent),
+            patch.object(ai_setup, "purchase_one_highlevel_phone_number",
+                         side_effect=AssertionError("Never buy an already-owned AI number")),
+            patch.object(voicemail_contact_number, "VoiceRelayNumberProvider",
+                         return_value=self._provider()),
+        ):
+            selected = self.client.post(
+                "/api/ai-setup/phone-number/purchase",
+                json={"phone_number": AI_NUMBER},
+            )
+        self.assertEqual(selected.status_code, 200, selected.text)
+        self.assertTrue(selected.json()["already_owned"])
+        self.assertEqual(selected.json()["phone_number"], AI_NUMBER)
+        self.assertEqual(pages, [1, 2])
+        with self.factory() as db:
+            self.assertEqual(db.get(Shop, "new-id").highlevel_phone_number,
+                             AI_NUMBER)
+            self.assertEqual(
+                db.get(DayTelloVoiceRelayAssignment, "new-id").relay_number,
+                RELAY,
+            )
+            self.assertEqual(
+                db.get(DayTelloVoicemailShopSettings, "stan-id").owner_phone,
+                "+12405550133",
+            )
+
+    def test_incomplete_highlevel_inventory_cannot_trigger_another_purchase(self):
+        """A failed later inventory page must stop before any chargeable request."""
+        first_page = [
+            {"phoneNumber": f"+1240555{i:04d}", "capabilities": {"voice": True}}
+            for i in range(100)
+        ]
+        pages = []
+
+        def inventory(method, path, params=None, **kwargs):
+            pages.append(params["page"])
+            if params["page"] == 2:
+                raise HTTPException(502, "Later HighLevel inventory page failed")
+            return SimpleNamespace(
+                json=lambda: {"data": {"numbers": first_page}},
+                status_code=200,
+            )
+
+        with (
+            patch.object(ai_setup, "highlevel_request", side_effect=inventory),
+            patch.object(ai_setup, "purchase_one_highlevel_phone_number",
+                         side_effect=AssertionError("Partial inventory cannot authorize a purchase")),
+        ):
+            selected = self.client.post(
+                "/api/ai-setup/phone-number/purchase",
+                json={"phone_number": AI_NUMBER, "fingerprint_id": "offline",
+                      "locality": "Rockville", "region": "MD"},
+            )
+        self.assertEqual(selected.status_code, 502, selected.text)
+        self.assertEqual(pages, [1, 2])
+        with self.factory() as db:
+            self.assertIsNone(db.get(Shop, "new-id").highlevel_phone_number)
+            self.assertIsNone(db.get(DayTelloVoiceRelayAssignment, "new-id"))
+
     def test_owner_save_before_ai_number_uses_relay_not_legacy_pool(self):
         """One owner Save uses the provider-verified relay even with a legacy pool.
 
