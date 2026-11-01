@@ -2713,27 +2713,66 @@ def extract_location_phone_numbers(
 def get_location_phone_numbers(
     location_id: str,
 ) -> tuple[dict, list]:
-    response = highlevel_request(
-        method="GET",
-        path=(
-            f"/phone-system/numbers/location/"
-            f"{location_id}"
-        ),
-        params={
-            "page": 1,
-            "pageSize": 100,
-            "skipNumberPool": True,
-        },
+    """Read every HighLevel inventory page before deciding DID ownership.
+
+    A shared location can hold more than 100 numbers. Looking only at page
+    one can miss an already-purchased customer-selected AI number and cause
+    a duplicate purchase attempt or an incorrect "not routed" result.
+    """
+    page_size = 100
+    all_numbers = []
+    first_page = None
+    for page in range(1, 21):
+        response = highlevel_request(
+            method="GET",
+            path=f"/phone-system/numbers/location/{location_id}",
+            params={
+                "page": page,
+                "pageSize": page_size,
+                "skipNumberPool": True,
+            },
+        )
+        data = response_json(response)
+        container = data.get("data")
+        if not isinstance(container, dict):
+            raise HTTPException(
+                status_code=502,
+                detail="HighLevel phone inventory response is incomplete.",
+            )
+        raw_numbers = container.get("numbers")
+        if raw_numbers is None:
+            raw_numbers = []
+        if not isinstance(raw_numbers, list):
+            raise HTTPException(
+                status_code=502,
+                detail="HighLevel phone inventory response is incomplete.",
+            )
+        page_numbers = extract_location_phone_numbers(data)
+        if len(page_numbers) != len(raw_numbers):
+            raise HTTPException(
+                status_code=502,
+                detail="HighLevel phone inventory contains invalid records.",
+            )
+        if first_page is None:
+            first_page = data
+        all_numbers.extend(page_numbers)
+        if len(page_numbers) < page_size:
+            # Preserve the existing response shape for the owner UI while
+            # ensuring the returned inventory includes every page.
+            combined = dict(first_page)
+            combined["data"] = {
+                **first_page["data"],
+                "numbers": all_numbers,
+            }
+            return combined, all_numbers
+
+    # Never treat a partial inventory as proof that a selected DID is absent.
+    raise HTTPException(
+        status_code=502,
+        detail="HighLevel phone inventory pagination is incomplete.",
     )
- 
-    data = response_json(response)
- 
-    return (
-        data,
-        extract_location_phone_numbers(data),
-    )
- 
- 
+
+
 def get_phone_inbound_service(
     phone_record: dict,
 ) -> dict:
