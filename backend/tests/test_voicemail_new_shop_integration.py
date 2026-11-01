@@ -951,5 +951,127 @@ class NewShopIntegrationTests(unittest.TestCase):
                 )
             self.assertGreaterEqual(len(provider_requests), 6)
 
+
+    def test_recording_completion_sends_via_real_highlevel_sms_adapter(self):
+        """Exercise the actual contact + SMS HTTP adapter, not a fake send function.
+
+        Only local HTTP fakes are used. No provider request, purchase, call,
+        message or routing change leaves this offline test.
+        """
+        import json
+        from app.routes import reminders
+
+        provider = self._provider()
+        requests_seen = []
+
+        class ProviderResponse:
+            def __init__(self, payload):
+                self.payload = payload
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def read(self):
+                return json.dumps(self.payload).encode("utf-8")
+
+        def fake_urlopen(req, timeout=None):
+            self.assertEqual(req.get_method(), "POST")
+            self.assertEqual(timeout, 10)
+            body = json.loads(req.data.decode("utf-8"))
+            requests_seen.append((req.full_url, body))
+            if req.full_url.endswith("/contacts/"):
+                self.assertEqual(body["phone"], OWNER)
+                self.assertEqual(body["locationId"], "loc-test")
+                return ProviderResponse({"contact": {"id": "contact-new"}})
+            if req.full_url.endswith("/conversations/messages"):
+                self.assertEqual(body["contactId"], "contact-new")
+                self.assertEqual(body["fromNumber"], "+12405550139")
+                self.assertEqual(body["type"], "SMS")
+                self.assertIn("DayTello TEST: New voicemail for New Shop.", body["message"])
+                self.assertIn("Listen: https://relay.example.test/api/daytello/voice-relay/listen/",
+                              body["message"])
+                return ProviderResponse({"messageId": "sms-new"})
+            self.fail("Unexpected external SMS URL: " + req.full_url)
+
+        with (
+            patch.dict(os.environ, {
+                "HIGHLEVEL_API_TOKEN": "offline-only-highlevel-token",
+                "DAYTELLO_VOICE_RELAY_PURCHASE_ENABLED": "false",
+            }),
+            patch.object(ai_setup, "get_location_phone_numbers",
+                         return_value=(None, [{"phoneNumber": AI_NUMBER}])),
+            patch.object(ai_setup, "route_phone_number_to_shop_agent",
+                         return_value={"phoneNumber": AI_NUMBER}),
+            patch.object(ai_setup, "get_agent_detail", side_effect=self._get_agent),
+            patch.object(ai_setup, "highlevel_raw_request", side_effect=self._save_action),
+            patch.object(ai_setup, "purchase_one_highlevel_phone_number",
+                         side_effect=AssertionError("Unexpected AI number purchase")),
+            patch.object(voicemail_contact_number, "VoiceRelayNumberProvider",
+                         return_value=provider),
+            patch.object(voice_relay_delivery, "SessionLocal", self.factory),
+            patch.object(reminders.request, "urlopen", side_effect=fake_urlopen),
+            patch.object(reminders, "begin_sms", return_value="offline-tracking-id"),
+            patch.object(reminders, "finish_sms", return_value=True),
+        ):
+            self._activate_customer_selected_ai_number()
+            saved = self.client.put(
+                "/api/shops/new-shop/call-voicemail-number",
+                json={"phone_number": OWNER},
+            )
+            self.assertEqual(saved.status_code, 200, saved.text)
+            self.assertEqual(
+                self.agent_action["actionParameters"]["transferToValue"], RELAY,
+            )
+            inbound = self._signed_callback(
+                "/api/daytello/voice-relay/inbound", {"To": RELAY},
+            )
+            self.assertEqual(inbound.status_code, 200, inbound.text)
+            self.assertIn(OWNER, inbound.text)
+            missed = self._signed_callback(
+                "/api/daytello/voice-relay/dial-finished",
+                {"DialCallStatus": "no-answer"},
+            )
+            self.assertEqual(missed.status_code, 200, missed.text)
+            self.assertIn("<Record", missed.text)
+            ready = self._signed_callback(
+                "/api/daytello/voice-relay/record-ready",
+                {"RecordingStatus": "completed", "RecordingSid": RECORDING},
+            )
+            self.assertEqual(ready.status_code, 200, ready.text)
+            self.assertEqual(ready.json()["action"], "queued")
+            self.assertEqual(len(requests_seen), 2)
+            self.assertTrue(requests_seen[0][0].endswith("/contacts/"))
+            self.assertTrue(requests_seen[1][0].endswith("/conversations/messages"))
+            with self.factory() as db:
+                receipt = db.get(voice_relay_delivery.DayTelloVoiceRelayRecording, RECORDING)
+                self.assertEqual(receipt.shop_id, "new-id")
+                self.assertEqual(receipt.notification_status, "sent")
+                stan = db.get(DayTelloVoicemailShopSettings, "stan-id")
+                self.assertEqual(stan.owner_phone, "+12405550133")
+            link = requests_seen[1][1]["message"].split("Listen: ", 1)[1]
+            audio = b"\\xff\\xfb\\x90\\x64actual-sms-adapter"
+            original_client = httpx.AsyncClient
+
+            def audio_response(request):
+                self.assertEqual(request.method, "GET")
+                self.assertIn(RECORDING + ".mp3", str(request.url))
+                self.assertTrue(request.headers.get("authorization", "").startswith("Basic "))
+                return httpx.Response(
+                    200, headers={"content-type": "audio/mpeg"}, content=audio,
+                )
+
+            with patch.object(
+                voice_relay_delivery.httpx, "AsyncClient",
+                side_effect=lambda **kw: original_client(
+                    transport=httpx.MockTransport(audio_response), **kw,
+                ),
+            ):
+                playback = self.client.get(urlsplit(link).path)
+            self.assertEqual(playback.status_code, 200, playback.text)
+            self.assertEqual(playback.content, audio)
+
 if __name__ == "__main__":
     unittest.main()
