@@ -288,6 +288,139 @@ class NewShopIntegrationTests(unittest.TestCase):
                 "+12405550133",
             )
 
+    def test_page_two_twilio_reserve_runs_full_new_shop_voicemail_flow(self):
+        """Actual Twilio inventory adapter -> shop onboarding -> SMS -> playback.
+
+        The first hundred reserves are already claimed by other shops.
+        The 101st must be found and exclusively bound without provider POST.
+        """
+        occupied = [f"+1240555{i:04d}" for i in range(100)]
+        with self.factory() as db:
+            db.add_all([
+                Shop(id=f"occupied-{i}", slug=f"occupied-{i}",
+                     name=f"Occupied {i}", phone=number)
+                for i, number in enumerate(occupied)
+            ])
+            db.commit()
+
+        def twilio_record(number):
+            return {
+                "sid": "PN" + "e" * 32, "account_sid": ACCOUNT,
+                "phone_number": number, "friendly_name": "DayTello Relay Reserve",
+                "voice_url": "https://relay.example.test/api/daytello/voice-relay/inbound",
+                "voice_method": "POST", "voice_application_sid": None,
+                "trunk_sid": None, "capabilities": {"voice": True},
+                "status": "in-use",
+            }
+
+        inventory = [twilio_record(n) for n in occupied + [RELAY]]
+        requests = []
+        def twilio(request):
+            requests.append(request)
+            self.assertEqual(request.method, "GET", "Never buy or reconfigure a DID")
+            self.assertEqual(request.url.host, "api.twilio.com")
+            params = request.url.params
+            if params.get("FriendlyName") == "DayTello Relay Reserve":
+                if params.get("Page", "0") == "0":
+                    return httpx.Response(200, json={
+                        "incoming_phone_numbers": inventory[:100],
+                        "next_page_uri": (
+                            f"/2010-04-01/Accounts/{ACCOUNT}/IncomingPhoneNumbers.json"
+                            "?PageSize=100&Page=1&FriendlyName=DayTello%20Relay%20Reserve"
+                        ),
+                    })
+                self.assertEqual(params.get("Page"), "1")
+                return httpx.Response(200, json={
+                    "incoming_phone_numbers": inventory[100:],
+                    "next_page_uri": None,
+                })
+            if params.get("PhoneNumber"):
+                rows = [r for r in inventory
+                        if r["phone_number"] == params["PhoneNumber"]]
+            else:
+                rows = []
+            return httpx.Response(200, json={
+                "incoming_phone_numbers": rows, "next_page_uri": None,
+            })
+
+        twilio_client = httpx.Client(transport=httpx.MockTransport(twilio))
+        self.addCleanup(twilio_client.close)
+        provider = voice_relay_provider.VoiceRelayNumberProvider(client=twilio_client)
+        with (
+            patch.object(voicemail_contact_number, "VoiceRelayNumberProvider",
+                         return_value=provider),
+            patch.object(ai_setup, "get_location_phone_numbers",
+                         return_value=(None, [{"phoneNumber": AI_NUMBER}])),
+            patch.object(ai_setup, "route_phone_number_to_shop_agent",
+                         return_value={"phoneNumber": AI_NUMBER}),
+            patch.object(ai_setup, "get_agent_detail", side_effect=self._get_agent),
+            patch.object(ai_setup, "highlevel_raw_request", side_effect=self._save_action),
+            patch.object(ai_setup, "purchase_one_highlevel_phone_number",
+                         side_effect=AssertionError("Never buy another AI number")),
+            patch.object(voice_relay_delivery, "SessionLocal", self.factory),
+            patch.object(voice_relay_delivery, "send_highlevel_sms",
+                         side_effect=self._capture_sms),
+        ):
+            pending = self.client.put(
+                "/api/shops/new-shop/call-voicemail-number",
+                json={"phone_number": OWNER},
+            )
+            self.assertEqual(pending.status_code, 200, pending.text)
+            self.assertTrue(pending.json()["pending_ai_number"])
+            with self.factory() as db:
+                relay = db.get(DayTelloVoiceRelayAssignment, "new-id")
+                self.assertEqual(relay.relay_number, RELAY)
+                self.assertFalse(relay.enabled)
+            self._activate_customer_selected_ai_number()
+            self.assertEqual(
+                self.agent_action["actionParameters"]["transferToValue"], RELAY
+            )
+            inbound = self._signed_callback(
+                "/api/daytello/voice-relay/inbound", {"To": RELAY},
+            )
+            self.assertEqual(inbound.status_code, 200, inbound.text)
+            self.assertIn(OWNER, inbound.text)
+            missed = self._signed_callback(
+                "/api/daytello/voice-relay/dial-finished",
+                {"DialCallStatus": "no-answer", "DialBridged": "false"},
+            )
+            self.assertEqual(missed.status_code, 200, missed.text)
+            self.assertIn("<Record", missed.text)
+            ready = self._signed_callback(
+                "/api/daytello/voice-relay/record-ready",
+                {"RecordingStatus": "completed", "RecordingSid": RECORDING},
+            )
+            self.assertEqual(ready.status_code, 200, ready.text)
+            self.assertEqual(ready.json()["action"], "queued")
+            self.assertEqual(len(self.sent), 1)
+            self.assertEqual(self.sent[0][0], OWNER)
+            self.assertEqual(self.sent[0][2]["shop_id"], "new-id")
+            link = self.sent[0][1].split("Listen: ", 1)[1]
+            audio = b"page-two-reserve-recording"
+            original_client = httpx.AsyncClient
+            with patch.object(
+                voice_relay_delivery.httpx, "AsyncClient",
+                side_effect=lambda **kw: original_client(
+                    transport=httpx.MockTransport(
+                        lambda request: httpx.Response(
+                            200, headers={"content-type": "audio/mpeg"},
+                            content=audio,
+                        )
+                    ), **kw,
+                ),
+            ):
+                playback = self.client.get(urlsplit(link).path)
+            self.assertEqual(playback.status_code, 200, playback.text)
+            self.assertEqual(playback.content, audio)
+        self.assertTrue(requests)
+        self.assertTrue(all(r.method == "GET" for r in requests))
+        with self.factory() as db:
+            self.assertEqual(db.get(Shop, "new-id").highlevel_phone_number, AI_NUMBER)
+            self.assertEqual(
+                db.get(DayTelloVoicemailShopSettings, "stan-id").owner_phone,
+                "+12405550133",
+            )
+
     def test_incomplete_highlevel_inventory_cannot_trigger_another_purchase(self):
         """A failed later inventory page must stop before any chargeable request."""
         first_page = [
