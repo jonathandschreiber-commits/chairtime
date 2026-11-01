@@ -90,6 +90,26 @@ def reject_internal_owner_destination(db: Session, number: str, shop_id: str) ->
         raise HTTPException(409, "Owner phone cannot be a business routing number")
 
 
+def _recording_link_origin_for_shop(shop: Shop, settings, db=None) -> str:
+    """Validate the playback host actually used by this shop's recording path.
+
+    Legacy HighLevel voicemail still uses the original test link host. A new
+    programmable relay serves playback on its own callback host, so it must
+    not require a second, unrelated legacy Railway URL to activate SMS.
+    """
+    relay = db.get(DayTelloVoiceRelayAssignment, shop.id) if db is not None else None
+    if relay is not None and settings and relay.relay_number == settings.receiving_number:
+        from urllib.parse import urlsplit
+        from app.routes.voice_relay import _origin
+        from app.voicemail_owner_links import PRODUCTION_HOST
+
+        origin = _origin()
+        if urlsplit(origin).hostname == PRODUCTION_HOST:
+            raise HTTPException(503, "Relay playback must use the isolated test host")
+        return origin
+    return test_link_origin()
+
+
 def _sms_configuration_complete(shop: Shop, settings: DayTelloVoicemailShopSettings | None, db=None) -> bool:
     """Report SMS as configured only when all local delivery guards pass.
 
@@ -113,7 +133,7 @@ def _sms_configuration_complete(shop: Shop, settings: DayTelloVoicemailShopSetti
     try:
         approved_owner_recipient(shop.slug, settings.owner_phone, db=db, shop_id=shop.id)
         link_cipher()
-        test_link_origin()
+        _recording_link_origin_for_shop(shop, settings, db)
     except HTTPException:
         return False
     return True
@@ -425,7 +445,7 @@ def set_owner_call_voicemail_number(
     })()
     owner_phone_for_test_shop(shop.slug, settings_proxy, db=db, shop_id=shop.id)
     link_cipher()
-    test_link_origin()
+    _recording_link_origin_for_shop(shop, settings, db)
     sender = os.getenv("HIGHLEVEL_SMS_FROM_NUMBER", "").strip()
     if not PHONE.fullmatch(sender):
         raise HTTPException(503, "SMS sender is not configured")

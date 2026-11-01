@@ -625,11 +625,19 @@ class NewShopIntegrationTests(unittest.TestCase):
             self.assertEqual(result.status_code, 409)
 
     def test_selected_ai_number_to_missed_call_sms_and_playable_link(self):
+        self._run_selected_ai_number_flow("https://legacy.example.test")
+
+    def test_new_shop_relay_works_without_legacy_recording_host(self):
+        """New-shop relay setup, SMS and playback require only the relay host."""
+        self._run_selected_ai_number_flow("")
+
+    def _run_selected_ai_number_flow(self, legacy_origin):
         with (
             # Stan/Bob may still use the original HighLevel voicemail host.
-            # New-shop relay links must use the Twilio callback/playback host.
+            # New-shop relay links must use the Twilio callback/playback host,
+            # even when no legacy recording host is configured.
             patch.dict(os.environ, {
-                "DAYTELLO_VOICEMAIL_TEST_PUBLIC_ORIGIN": "https://legacy.example.test",
+                "DAYTELLO_VOICEMAIL_TEST_PUBLIC_ORIGIN": legacy_origin,
             }),
             patch.object(ai_setup, "get_location_phone_numbers",
                          return_value=(None, [{"phoneNumber": AI_NUMBER}])),
