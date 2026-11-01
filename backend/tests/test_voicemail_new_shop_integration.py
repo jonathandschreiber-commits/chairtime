@@ -171,6 +171,60 @@ class NewShopIntegrationTests(unittest.TestCase):
             "x-twilio-signature": signature,
         })
 
+    def test_selected_ai_number_owned_by_stan_is_never_reassigned_or_purchased(self):
+        """An unrouted HighLevel record may still belong to an existing shop.
+
+        Reject the request before any provider inventory read, publish or
+        purchase, leaving Stan's current number and settings unchanged.
+        """
+        with self.factory() as db:
+            stan = db.get(Shop, "stan-id")
+            stan.highlevel_phone_number = AI_NUMBER
+            db.commit()
+        with (
+            patch.object(ai_setup, "get_location_phone_numbers",
+                         side_effect=AssertionError("No provider lookup permitted")),
+            patch.object(ai_setup, "route_phone_number_to_shop_agent",
+                         side_effect=AssertionError("Do not reroute Stan's DID")),
+            patch.object(ai_setup, "purchase_one_highlevel_phone_number",
+                         side_effect=AssertionError("Do not purchase another DID")),
+        ):
+            result = self.client.post(
+                "/api/ai-setup/phone-number/purchase",
+                json={"phone_number": AI_NUMBER},
+            )
+        self.assertEqual(result.status_code, 409, result.text)
+        with self.factory() as db:
+            self.assertEqual(db.get(Shop, "stan-id").highlevel_phone_number, AI_NUMBER)
+            self.assertIsNone(db.get(Shop, "new-id").highlevel_phone_number)
+            self.assertEqual(
+                db.get(DayTelloVoicemailShopSettings, "stan-id").owner_phone,
+                "+12405550133",
+            )
+
+    def test_published_business_line_is_not_adopted_by_new_ai_shop(self):
+        """Even a non-Voice-AI business number cannot be silently republished."""
+        with self.factory() as db:
+            stan = db.get(Shop, "stan-id")
+            stan.phone = AI_NUMBER
+            db.commit()
+        with (
+            patch.object(ai_setup, "get_location_phone_numbers",
+                         side_effect=AssertionError("No provider lookup permitted")),
+            patch.object(ai_setup, "route_phone_number_to_shop_agent",
+                         side_effect=AssertionError("Do not republish business DID")),
+            patch.object(ai_setup, "purchase_one_highlevel_phone_number",
+                         side_effect=AssertionError("Do not buy another DID")),
+        ):
+            result = self.client.post(
+                "/api/ai-setup/phone-number/purchase",
+                json={"phone_number": AI_NUMBER},
+            )
+        self.assertEqual(result.status_code, 409, result.text)
+        with self.factory() as db:
+            self.assertEqual(db.get(Shop, "stan-id").phone, AI_NUMBER)
+            self.assertIsNone(db.get(Shop, "new-id").highlevel_phone_number)
+
     def test_selected_highlevel_ai_number_on_second_inventory_page_is_reused(self):
         """Never purchase a second DID because the customer's number is on page 2."""
         routed = {
