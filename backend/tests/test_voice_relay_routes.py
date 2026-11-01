@@ -282,15 +282,33 @@ class RelayRouteTests(unittest.TestCase):
         self.assertEqual(accepted.status_code, 200)
         self.assertIn("Connecting you now", accepted.text)
         self.assertNotIn("<Hangup", accepted.text)
-        # The saved keypress prevents a voicemail prompt after a human
-        # accepts, even if the provider reports DialBridged=false.
-        bridged = self.request(
+        # The keypress alone is not proof the caller was connected.
+        # Twilio documents DialBridged=false for a call that did not bridge:
+        # that caller still needs the DayTello voicemail fallback.
+        unbridged = self.request(
             "/api/daytello/voice-relay/dial-finished",
             {"CallSid": CALL, "To": DID, "DialCallStatus": "completed",
              "DialBridged": "false"},
         )
+        self.assertEqual(unbridged.status_code, 200)
+        self.assertIn("<Record", unbridged.text)
+        # A confirmed bridge never triggers a voicemail prompt after
+        # the owner accepted the call.
+        bridged = self.request(
+            "/api/daytello/voice-relay/dial-finished",
+            {"CallSid": CALL, "To": DID, "DialCallStatus": "completed",
+             "DialBridged": "true"},
+        )
         self.assertEqual(bridged.status_code, 200)
         self.assertNotIn("<Record", bridged.text)
+        # Some older callbacks omit DialBridged; retain the persisted
+        # signed owner acceptance for compatibility with those callbacks.
+        legacy = self.request(
+            "/api/daytello/voice-relay/dial-finished",
+            {"CallSid": CALL, "To": DID, "DialCallStatus": "completed"},
+        )
+        self.assertEqual(legacy.status_code, 200)
+        self.assertNotIn("<Record", legacy.text)
         declined = self.request(
             "/api/daytello/voice-relay/owner-accept?parent=" + CALL,
             {"CallSid": child, "ParentCallSid": CALL, "To": OWNER, "Digits": "2"},
