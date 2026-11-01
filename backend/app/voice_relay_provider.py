@@ -128,6 +128,18 @@ class VoiceRelayNumberProvider:
                     or not any(key in {"Page", "PageToken"} for key, _ in pairs)):
                 raise HTTPException(409, "Voice number inventory is incomplete")
             params = dict(pairs)
+            # Twilio cursors may omit the original filters. Preserve them
+            # across every page, and reject a cursor that changes scope.
+            if label is not None:
+                if ("FriendlyName" in params
+                        and params["FriendlyName"] != label):
+                    raise HTTPException(409, "Voice number inventory is incomplete")
+                params["FriendlyName"] = label
+            if number is not None:
+                if ("PhoneNumber" in params
+                        and params["PhoneNumber"] != number):
+                    raise HTTPException(409, "Voice number inventory is incomplete")
+                params["PhoneNumber"] = number
         raise HTTPException(409, "Voice number inventory is incomplete")
 
     def _matches(self, shop_id):
