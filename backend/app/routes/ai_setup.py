@@ -3108,6 +3108,23 @@ def get_production_provision_status(
             db.rollback()
             raise
  
+    # A previously selected HighLevel AI number may already be routed when
+    # the owner resumes onboarding. Reconcile its pre-owned voicemail relay
+    # here as well as in the purchase/sync paths, so a new shop does not need
+    # a second phone-number action. This performs provider GETs and a local
+    # disabled DID claim only; no number purchase, transfer or live call.
+    response["voicemail_relay_prebound"] = False
+    if routed_phone_number:
+        try:
+            from app.routes.voicemail_contact_number import (
+                attach_preowned_relay_after_ai_number,
+            )
+            response["voicemail_relay_prebound"] = bool(
+                attach_preowned_relay_after_ai_number(shop, db)
+            )
+        except Exception:
+            db.rollback()
+            logger.exception("Existing AI-number relay reconciliation failed")
     return response
  
  

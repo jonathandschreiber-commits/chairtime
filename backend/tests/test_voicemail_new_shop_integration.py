@@ -171,6 +171,100 @@ class NewShopIntegrationTests(unittest.TestCase):
             "x-twilio-signature": signature,
         })
 
+    def test_status_recovers_preowned_relay_for_already_routed_ai_number(self):
+        # The owner selected an AI number earlier and returns to onboarding.
+        # The status endpoint is the normal entry point; no purchase or
+        # separate Sync/Assign click should be required to bind the relay.
+        routed = {"phoneNumber": AI_NUMBER, "friendlyName": "New Shop AI"}
+        with (
+            patch.object(ai_setup, "get_shop_routed_phone_record",
+                         return_value=(None, [routed], routed)),
+            patch.object(ai_setup, "get_location_phone_numbers",
+                         return_value=(None, [routed])),
+            patch.object(ai_setup, "get_agent_detail", side_effect=self._get_agent),
+            patch.object(ai_setup, "highlevel_raw_request", side_effect=self._save_action),
+            patch.object(voicemail_contact_number, "VoiceRelayNumberProvider",
+                         return_value=self._provider()),
+            patch.object(voice_relay_delivery, "SessionLocal", self.factory),
+            patch.object(voice_relay_delivery, "send_highlevel_sms",
+                         side_effect=self._capture_sms),
+            patch.object(ai_setup, "purchase_one_highlevel_phone_number",
+                         side_effect=AssertionError("Unexpected AI number purchase")),
+        ):
+            status = self.client.get("/api/ai-setup/provision/status")
+            self.assertEqual(status.status_code, 200, status.text)
+            self.assertTrue(status.json()["phone_routed"])
+            self.assertEqual(status.json()["phone_number"], AI_NUMBER)
+            self.assertTrue(status.json()["voicemail_relay_prebound"])
+            with self.factory() as db:
+                self.assertEqual(db.get(Shop, "new-id").highlevel_phone_number, AI_NUMBER)
+                relay = db.get(DayTelloVoiceRelayAssignment, "new-id")
+                self.assertEqual(relay.relay_number, RELAY)
+                self.assertFalse(relay.enabled)
+                self.assertFalse(
+                    db.get(DayTelloVoicemailShopSettings, "new-id").notifications_enabled
+                )
+            # Polling status cannot allocate a second relay or buy a number.
+            repeat = self.client.get("/api/ai-setup/provision/status")
+            self.assertEqual(repeat.status_code, 200, repeat.text)
+            self.assertFalse(repeat.json()["voicemail_relay_prebound"])
+            with self.factory() as db:
+                self.assertEqual(db.query(DayTelloVoiceRelayAssignment).count(), 1)
+            saved = self.client.put(
+                "/api/shops/new-shop/call-voicemail-number",
+                json={"phone_number": OWNER},
+            )
+            self.assertEqual(saved.status_code, 200, saved.text)
+            self.assertTrue(saved.json()["test_relay_enabled_for_calls"])
+            self.assertEqual(
+                self.agent_action["actionParameters"]["transferToValue"], RELAY
+            )
+            inbound = self._signed_callback(
+                "/api/daytello/voice-relay/inbound", {"To": RELAY},
+            )
+            self.assertEqual(inbound.status_code, 200, inbound.text)
+            self.assertIn(OWNER, inbound.text)
+            missed = self._signed_callback(
+                "/api/daytello/voice-relay/dial-finished",
+                {"DialCallStatus": "no-answer", "DialBridged": "false"},
+            )
+            self.assertEqual(missed.status_code, 200, missed.text)
+            self.assertIn("<Record", missed.text)
+            ready = self._signed_callback(
+                "/api/daytello/voice-relay/record-ready",
+                {"RecordingStatus": "completed", "RecordingSid": RECORDING},
+            )
+            self.assertEqual(ready.status_code, 200, ready.text)
+            self.assertEqual(ready.json()["action"], "queued")
+            self.assertEqual(len(self.sent), 1)
+            self.assertEqual(self.sent[0][0], OWNER)
+            self.assertEqual(self.sent[0][2]["shop_id"], "new-id")
+            link = self.sent[0][1].split("Listen: ", 1)[1]
+            audio = b"\\xff\\xfb\\x90\\x64status-recovered-audio"
+            original_client = httpx.AsyncClient
+
+            def audio_response(request):
+                self.assertEqual(request.method, "GET")
+                self.assertIn(RECORDING + ".mp3", str(request.url))
+                return httpx.Response(
+                    200, headers={"content-type": "audio/mpeg"}, content=audio,
+                )
+
+            with patch.object(
+                voice_relay_delivery.httpx, "AsyncClient",
+                side_effect=lambda **kw: original_client(
+                    transport=httpx.MockTransport(audio_response), **kw,
+                ),
+            ):
+                playback = self.client.get(urlsplit(link).path)
+            self.assertEqual(playback.status_code, 200, playback.text)
+            self.assertEqual(playback.content, audio)
+            with self.factory() as db:
+                self.assertEqual(
+                    db.get(DayTelloVoicemailShopSettings, "stan-id").owner_phone,
+                    "+12405550133",
+                )
+
     def test_existing_highlevel_ai_number_sync_to_relay_missed_call_and_sms(self):
         # A shop can already have a customer-selected HighLevel number
         # before the DayTello sync endpoint runs. That path must pre-bind the
