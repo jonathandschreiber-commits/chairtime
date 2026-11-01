@@ -1,10 +1,7 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import { serverApiBase } from "@/lib/server-api-base";
 
-// Use this deployment's Railway backend; never fall back to another environment.
-const API_BASE = (process.env.CHAIRTIME_API_URL || "")
-  .trim()
-  .replace(/\/+$/, "");
 
 export async function GET() {
   try {
@@ -18,12 +15,7 @@ export async function GET() {
       );
     }
 
-    if (!API_BASE) {
-      return NextResponse.json(
-        { detail: "The DayTello backend is not configured." },
-        { status: 503 }
-      );
-    }
+    const API_BASE = serverApiBase();
 
     const response = await fetch(
       `${API_BASE}/api/ai-setup/provision/status`,
