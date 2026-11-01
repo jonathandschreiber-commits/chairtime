@@ -74,6 +74,11 @@ def run_startup_migrations():
         dialect_name = engine.dialect.name
 
         if dialect_name == "postgresql":
+            # Preserve existing relay calls while recording human acceptance.
+            conn.execute(text("""
+                ALTER TABLE daytello_voice_relay_calls
+                ADD COLUMN IF NOT EXISTS owner_accepted BOOLEAN NOT NULL DEFAULT FALSE
+            """))
             conn.execute(
                 text(
                     """
@@ -349,6 +354,10 @@ def run_startup_migrations():
             )
 
         elif dialect_name == "sqlite":
+            add_sqlite_column_if_missing(
+                conn, "daytello_voice_relay_calls", "owner_accepted",
+                "BOOLEAN NOT NULL DEFAULT 0",
+            )
             add_sqlite_column_if_missing(
                 conn,
                 "blocked_times",
