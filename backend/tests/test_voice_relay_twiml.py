@@ -18,6 +18,19 @@ class RelayTwiMLTests(unittest.TestCase):
         self.assertEqual(dial.attrib["method"], "POST")
         self.assertEqual(dial.findtext("Number"), "+12405550123")
 
+    def test_owner_leg_uses_provider_owned_relay_as_caller_id(self):
+        root = ET.fromstring(forward_to_employee(
+            "+12405550123", "https://example.test/dial-finished",
+            caller_id="+12405550124",
+        ))
+        self.assertEqual(root.find("Dial").attrib["callerId"], "+12405550124")
+        self.assertEqual(root.findtext("Dial/Number"), "+12405550123")
+        with self.assertRaises(ValueError):
+            forward_to_employee(
+                "+12405550123", "https://example.test/dial-finished",
+                caller_id="unverified-caller",
+            )
+
     def test_owner_must_confirm_before_bridge(self):
         root = ET.fromstring(forward_to_employee(
             "+12405550123", "https://example.test/dial-finished",

@@ -23,7 +23,8 @@ def _response(child):
 
 
 def forward_to_employee(phone: str, dial_complete_url: str, timeout: int = 5,
-                        owner_screen_url: str | None = None) -> str:
+                        owner_screen_url: str | None = None,
+                        *, caller_id: str | None = None) -> str:
     """Dial employee, then hand control back via signed provider callback.
 
     Twilio's Dial has an approximately 5-second additional buffer, therefore
@@ -37,12 +38,22 @@ def forward_to_employee(phone: str, dial_complete_url: str, timeout: int = 5,
         raise ValueError("Invalid employee phone number")
     if timeout < 5 or timeout > 30:
         raise ValueError("Unsupported employee ringing timeout")
-    dial = ET.Element("Dial", {
+    # A forwarded HighLevel call may arrive with a caller ID that is not
+    # verified on the programmable-voice account. Present the shop's owned
+    # relay DID on the outbound owner leg so the provider can place the call.
+    # Never accept this value from an inbound webhook; the route supplies the
+    # DID from its exclusive shop assignment.
+    if caller_id is not None and not E164_US.fullmatch(caller_id):
+        raise ValueError("Invalid relay outbound caller ID")
+    dial_attributes = {
         "timeout": str(timeout),
         "action": _https_url(dial_complete_url),
         "method": "POST",
         "answerOnBridge": "true",
-    })
+    }
+    if caller_id is not None:
+        dial_attributes["callerId"] = caller_id
+    dial = ET.Element("Dial", dial_attributes)
     number_attributes = ({"url": _https_url(owner_screen_url), "method": "POST"}
                          if owner_screen_url else {})
     ET.SubElement(dial, "Number", number_attributes).text = phone

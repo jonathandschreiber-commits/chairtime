@@ -165,6 +165,7 @@ async def relay_inbound(request: Request, db: Session = Depends(get_db)):
         settings.owner_phone, origin + "/api/daytello/voice-relay/dial-finished",
         owner_screen_url=(origin + "/api/daytello/voice-relay/owner-screen"
                           + "?parent=" + fields["CallSid"]),
+        caller_id=binding.relay_number,
     ))
 
 

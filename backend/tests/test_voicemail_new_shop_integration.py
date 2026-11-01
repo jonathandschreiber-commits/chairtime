@@ -224,6 +224,7 @@ class NewShopIntegrationTests(unittest.TestCase):
             )
             self.assertEqual(inbound.status_code, 200, inbound.text)
             self.assertIn(OWNER, inbound.text)
+            self.assertIn('callerId="' + RELAY + '"', inbound.text)
             missed = self._signed_callback(
                 "/api/daytello/voice-relay/dial-finished",
                 {"DialCallStatus": "no-answer", "DialBridged": "false"},
@@ -1220,6 +1221,7 @@ class NewShopIntegrationTests(unittest.TestCase):
             )
             self.assertEqual(inbound.status_code, 200, inbound.text)
             self.assertIn(OWNER, inbound.text)
+            self.assertIn('callerId="' + RELAY + '"', inbound.text)
             missed = self._signed_callback(
                 "/api/daytello/voice-relay/dial-finished",
                 {"DialCallStatus": "no-answer"},
