@@ -358,7 +358,12 @@ def set_owner_call_voicemail_number(
     # destination would immediately change live forwarding.
     relay = db.get(DayTelloVoiceRelayAssignment, shop.id)
     if (relay and not relay.enabled and not settings.notifications_enabled
-            and os.getenv("DAYTELLO_VOICE_RELAY_ALLOW_TEST_CALLS") != "true"):
+            and (os.getenv("DAYTELLO_VOICE_RELAY_ALLOW_TEST_CALLS") != "true"
+                 or not str(shop.highlevel_phone_number or "").strip())):
+        # Even with test-call permission, do not turn on a relay before the
+        # customer-selected HighLevel AI number has been activated. The
+        # number-selection endpoint will resume this saved owner destination.
+        pending_ai_number = not str(shop.highlevel_phone_number or "").strip()
         settings.owner_phone = number
         settings.notifications_enabled = False
         try:
@@ -369,10 +374,18 @@ def set_owner_call_voicemail_number(
             raise HTTPException(502, "Could not save the approved phone number")
         return {
             **public_status(shop, settings, db),
-            "pending_test_authorization": True,
+            "pending_test_authorization": (
+                os.getenv("DAYTELLO_VOICE_RELAY_ALLOW_TEST_CALLS") != "true"
+            ),
+            "pending_ai_number": pending_ai_number,
             "live_call_test_required": True,
-            "message": ("Owner phone saved. Call forwarding and voicemail SMS "
-                        "remain off until isolated test calls are authorized."),
+            "message": (
+                "Owner phone saved. Activate the AI Receptionist number to "
+                "finish forwarding and voicemail SMS."
+                if pending_ai_number
+                else "Owner phone saved. Call forwarding and voicemail SMS "
+                     "remain off until isolated test calls are authorized."
+            ),
         }
 
     if os.getenv("DAYTELLO_VOICEMAIL_OWNER_SMS_ENABLED") != "true":
