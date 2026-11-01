@@ -4,6 +4,11 @@ on:
   push:
     branches:
       - feature/daytello-voicemail-receiver-20261026
+      - feature/daytello-voicemail-owner-sms-20261027
+      - feature/daytello-bobs-voicemail-sms-activation-20261029
+  pull_request:
+    branches:
+      - daytello-testing
   workflow_dispatch:
 
 permissions:
@@ -30,3 +35,5 @@ jobs:
           python -m unittest discover -s tests -p 'test_voicemail*.py' -v
           python -m unittest discover -s tests -p 'test_daytello_oauth*.py' -v
           python -m unittest discover -s tests -p 'test_daytello_token_refresh.py' -v
+          python -m unittest discover -s tests -p 'test_test_owner_claim.py' -v
+          python -m unittest discover -s tests -p 'test_test_existing_agent_link.py' -v

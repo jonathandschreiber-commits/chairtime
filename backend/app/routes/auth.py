@@ -1,5 +1,7 @@
 import os
 import re
+import hashlib
+import secrets
 from datetime import datetime, timedelta, timezone
 
 import jwt
@@ -16,6 +18,9 @@ from fastapi.security import (
 )
 from jwt.exceptions import InvalidTokenError
 from passlib.context import CryptContext
+from pydantic import BaseModel, ConfigDict, Field
+
+from app.voicemail_models import DayTelloVoicemailShopSettings
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -476,3 +481,114 @@ def read_current_user(
     return user_response(
         current_user
     )
+
+
+# The isolated voicemail test database contains an existing Bob's Shop
+# record, including historical voicemail data, but no user created through
+# signup. This is a *one-time recovery path*, not normal store onboarding.
+# Never enable it for production or for arbitrary shop slugs.
+class TestOwnerClaim(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    owner_name: str = Field(min_length=1, max_length=120)
+    email: str = Field(min_length=5, max_length=254)
+    password: str = Field(min_length=12, max_length=72)
+    invite_code: str = Field(min_length=1, max_length=256)
+
+
+@router.post("/test-claim-existing-shop")
+def test_claim_existing_shop(
+    payload: TestOwnerClaim,
+    db: Session = Depends(get_db),
+):
+    """One-use invite that attaches an owner to *existing* Bob's Shop.
+
+    It never creates a Shop, changes voicemail routing, or grants platform
+    admin privileges. No output ever contains the invitation secret.
+    """
+    if os.getenv("DAYTELLO_VOICEMAIL_TEST_ONLY") != "true":
+        raise HTTPException(404, "Not found")
+
+    invite = os.getenv("DAYTELLO_TEST_OWNER_INVITE_CODE", "")
+    if len(invite) < 32:
+        # Fail closed until a unique high-entropy invitation is supplied
+        # through the isolated Railway environment.
+        raise HTTPException(404, "Not found")
+
+    # Compare fixed-size digests so arbitrary input characters are safe.
+    expected = hashlib.sha256(invite.encode("utf-8")).digest()
+    provided = hashlib.sha256(payload.invite_code.encode("utf-8")).digest()
+    if not secrets.compare_digest(expected, provided):
+        raise HTTPException(403, "Invalid invitation")
+
+    # Check prerequisites before making any database changes.
+    try:
+        get_jwt_secret()
+    except RuntimeError:
+        raise HTTPException(503, "Test login is not configured")
+
+    owner_name = payload.owner_name.strip()
+    email = payload.email.strip().lower()
+    if not owner_name or not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", email):
+        raise HTTPException(422, "Enter a valid name and email")
+    if len(payload.password.encode("utf-8")) > 72:
+        raise HTTPException(422, "Password must be at most 72 bytes")
+
+    # Lock the existing shop row on PostgreSQL. Concurrent claims must
+    # not create multiple owners for the same pre-existing test record.
+    shop = (
+        db.query(Shop)
+        .filter(Shop.slug == "bobs-shop")
+        .with_for_update()
+        .one_or_none()
+    )
+    if shop is None or not shop.ai_voice_enabled:
+        raise HTTPException(409, "The existing Bob's Shop is not ready")
+
+    location_id = os.getenv("HIGHLEVEL_LOCATION_ID", "")
+    prefs = db.get(DayTelloVoicemailShopSettings, shop.id)
+    if (
+        not location_id
+        or shop.highlevel_location_id != location_id
+        or prefs is None
+        or prefs.location_id != location_id
+        or not prefs.receiving_number
+    ):
+        raise HTTPException(409, "Existing voicemail configuration not verified")
+
+    if db.query(User).filter(
+        User.shop_id == shop.id, User.role == "owner"
+    ).first():
+        raise HTTPException(409, "Bob's Shop already has an owner")
+
+    if db.query(User).filter(User.email == email).first():
+        raise HTTPException(409, "This email is already in use")
+
+    user = User(
+        shop_id=shop.id,
+        shop_slug=shop.slug,
+        name=owner_name,
+        email=email,
+        password_hash=hash_password(payload.password),
+        role="owner",
+        barber_id=None,
+        can_accept_payments=False,
+        is_active=True,
+    )
+    try:
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(409, "Unable to enroll owner; account already exists")
+    except Exception:
+        db.rollback()
+        raise HTTPException(500, "Unable to enroll test owner")
+
+    return {
+        "success": True,
+        "access_token": create_access_token(user),
+        "token_type": "bearer",
+        "expires_in": ACCESS_TOKEN_MINUTES * 60,
+        "user": user_response(user),
+    }

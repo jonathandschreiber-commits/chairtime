@@ -19,7 +19,15 @@ export function serverApiBase() {
   if (url.username || url.password || url.search || url.hash || url.pathname !== "/") {
     throw new Error("CHAIRTIME_API_URL must be an origin without credentials or a path.");
   }
-  const expected = EXPECTED_RAILWAY_ORIGIN[process.env.VERCEL_ENV];
+  // Dedicated, isolated Preview branch for the voicemail integration.
+  // Never allow this override in Production or on another Preview branch.
+  const isVoicemailTestPreview =
+    process.env.VERCEL_ENV === "preview" &&
+    process.env.VERCEL_GIT_COMMIT_REF ===
+      "feature/daytello-voicemail-owner-sms-20261027";
+  const expected = isVoicemailTestPreview
+    ? "https://bountiful-manifestation-daytello-voicemail-test.up.railway.app"
+    : EXPECTED_RAILWAY_ORIGIN[process.env.VERCEL_ENV];
   if (expected && url.origin !== expected) {
     throw new Error(`Wrong Railway backend configured for Vercel ${process.env.VERCEL_ENV}.`);
   }

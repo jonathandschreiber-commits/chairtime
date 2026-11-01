@@ -21,7 +21,7 @@ from sqlalchemy.pool import StaticPool
 from app.database import Base, get_db
 from app.models import Shop
 from app.routes import voicemail_webhook
-from app.voicemail_models import DayTelloVoicemailEvent
+from app.voicemail_models import DayTelloVoicemailEvent, DayTelloVoicemailShopSettings
 
 
 class VoicemailEndpointTests(unittest.TestCase):
@@ -81,7 +81,7 @@ class VoicemailEndpointTests(unittest.TestCase):
             "messageId": "test-event-123",
             "to": "+12029725238",
             "from": "+14102088338",
-            "messageTypeString": "TYPE_VOICEMAIL",
+            "messageTypeString": "TYPE_CALL",
             "attachments": ["https://example.test/not-a-real-recording"],
         }
 
@@ -120,6 +120,76 @@ class VoicemailEndpointTests(unittest.TestCase):
             self.assertEqual(event.shop_id, "shop-stan-test")
             self.assertEqual(event.receiving_number, "+12029725238")
             self.assertEqual(event.notification_status, "disabled")
+
+    def test_provisioned_shop_routes_without_legacy_number_map(self):
+        with self.session_factory() as db:
+            db.add(DayTelloVoicemailShopSettings(
+                shop_id="shop-stan-test", location_id="test-hl-location",
+                receiving_number="+12029725238",
+                notifications_enabled=False,
+            ))
+            db.commit()
+        os.environ["DAYTELLO_VOICEMAIL_NUMBER_SHOP_MAP"] = ""
+        response = self.post()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["action"], "recorded_no_notification")
+        self.assertEqual(self.count_events(), 1)
+
+    def test_provisioned_owner_opt_out_sends_no_notification(self):
+        with self.session_factory() as db:
+            db.add(DayTelloVoicemailShopSettings(
+                shop_id="shop-stan-test", location_id="test-hl-location",
+                receiving_number="+12029725238",
+                owner_phone="+12025550199", notifications_enabled=False,
+            ))
+            db.commit()
+        # Owner opt-out is exercised within the required isolated test mode.
+        os.environ["DAYTELLO_VOICEMAIL_TEST_ONLY"] = "true"
+        os.environ["DAYTELLO_VOICEMAIL_OWNER_SMS_ENABLED"] = "true"
+        with patch.object(voicemail_webhook, "send_owner_voicemail_alert") as send:
+            response = self.post()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["action"], "recorded_no_notification")
+        send.assert_not_called()
+
+    def test_other_location_provisioning_cannot_capture_call(self):
+        with self.session_factory() as db:
+            db.add(DayTelloVoicemailShopSettings(
+                shop_id="shop-stan-test", location_id="another-location",
+                receiving_number="+12029725238",
+                notifications_enabled=False,
+            ))
+            db.commit()
+        os.environ["DAYTELLO_VOICEMAIL_NUMBER_SHOP_MAP"] = ""
+        response = self.post()
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(self.count_events(), 0)
+
+    def test_conflicting_legacy_and_database_routes_rejected(self):
+        with self.session_factory() as db:
+            db.add(Shop(
+                id="shop-other-test", slug="other-shop", name="Other Shop",
+                ai_voice_enabled=True, highlevel_location_id="test-hl-location",
+            ))
+            db.add(DayTelloVoicemailShopSettings(
+                shop_id="shop-other-test", location_id="test-hl-location",
+                receiving_number="+12029725238", notifications_enabled=False,
+            ))
+            db.commit()
+        response = self.post()
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(self.count_events(), 0)
+
+    def test_migrated_shop_rejects_stale_legacy_number(self):
+        with self.session_factory() as db:
+            db.add(DayTelloVoicemailShopSettings(
+                shop_id="shop-stan-test", location_id="test-hl-location",
+                receiving_number="+12029725239", notifications_enabled=False,
+            ))
+            db.commit()
+        response = self.post()
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(self.count_events(), 0)
 
     def test_duplicate_event_records_only_once(self):
         self.assertEqual(self.post().status_code, 200)
@@ -160,6 +230,13 @@ class VoicemailEndpointTests(unittest.TestCase):
         response = self.post(payload)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["action"], "ignored_other_location")
+        self.assertEqual(self.count_events(), 0)
+
+    def test_call_without_voicemail_status_ignored(self):
+        payload = dict(self.payload, status="completed", callStatus="no-answer")
+        response = self.post(payload)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["action"], "ignored_non_voicemail")
         self.assertEqual(self.count_events(), 0)
 
     def test_sms_ignored(self):

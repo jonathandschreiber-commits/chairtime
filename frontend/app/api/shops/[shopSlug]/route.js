@@ -1,9 +1,9 @@
+import { serverApiBase } from "@/lib/server-api-base";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
 
-const API_BASE =
-  "https://chairtime-production-94da.up.railway.app";
+const API_BASE = serverApiBase();
 
 
 async function getToken() {

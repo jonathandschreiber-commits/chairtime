@@ -96,11 +96,19 @@ class EventClassificationTests(unittest.TestCase):
             "direction": "inbound",
             "messageType": "CALL",
             "status": "voicemail",
-            "messageTypeString": "TYPE_VOICEMAIL",
+            "messageTypeString": "TYPE_CALL",
         }
 
     def test_accepts_documented_voicemail(self):
         self.assertTrue(voicemail.is_voicemail_event(self.voicemail_event))
+
+    def test_accepts_legacy_voicemail_string(self):
+        event = dict(self.voicemail_event, messageTypeString="TYPE_VOICEMAIL")
+        self.assertTrue(voicemail.is_voicemail_event(event))
+
+    def test_ignores_no_answer_without_voicemail_status(self):
+        event = dict(self.voicemail_event, status="no-answer", callStatus="no-answer")
+        self.assertFalse(voicemail.is_voicemail_event(event))
 
     def test_ignores_completed_calls(self):
         event = dict(self.voicemail_event, status="completed")
