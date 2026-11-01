@@ -10,7 +10,7 @@ import {
 import { useParams, useRouter } from "next/navigation";
 import styles from "./onboarding.module.css";
 import OwnerPhoneVerification from "../admin/ai-receptionist/OwnerPhoneVerification";
-import { isVoicemailConfigurationSaved } from "../../../lib/voicemail-onboarding-state.mjs";
+import { isVoicemailConfigurationSaved, voicemailSetupRefreshKey } from "../../../lib/voicemail-onboarding-state.mjs";
  
 const API_BASE =
   "https://chairtime-production-94da.up.railway.app";
@@ -4930,7 +4930,10 @@ function AiReceptionistStep({
       {activePhoneNumber && provisioned ? (
         process.env.NEXT_PUBLIC_DAYTELLO_UNIFIED_VOICEMAIL_SETUP === "true" ? (
           <AiCallVoicemailSetup
-            key={`${shopSlug}-${activePhoneNumber}`}
+            key={voicemailSetupRefreshKey(
+              shopSlug, activePhoneNumber,
+              provisionStatus?.voicemail_setup_activated
+            )}
             shopSlug={shopSlug}
             onReadyChange={onStaffTransferReadyChange}
           />
