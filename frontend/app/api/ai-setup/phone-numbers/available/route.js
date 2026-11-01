@@ -2,7 +2,6 @@ import { serverApiBase } from "@/lib/server-api-base";
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 
-const API_BASE = serverApiBase();
 
 export async function GET(request) {
   const cookieStore = await cookies();
@@ -19,6 +18,8 @@ export async function GET(request) {
       }
     );
   }
+
+  const API_BASE = serverApiBase();
 
   const { searchParams } = new URL(request.url);
 
