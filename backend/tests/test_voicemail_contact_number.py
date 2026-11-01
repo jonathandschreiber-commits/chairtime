@@ -48,6 +48,7 @@ class UnifiedPhoneTests(unittest.TestCase):
             "DAYTELLO_VOICEMAIL_TEST_RECIPIENT": "+12025550199",
             "DAYTELLO_VOICEMAIL_LINK_KEY": Fernet.generate_key().decode(),
             "DAYTELLO_VOICEMAIL_TEST_PUBLIC_ORIGIN": "https://daytello-voicemail-test.example.org",
+            "DAYTELLO_VOICE_RELAY_PUBLIC_ORIGIN": "https://relay.example.test",
             "HIGHLEVEL_SMS_FROM_NUMBER": "+12025550124",
             "HIGHLEVEL_LOCATION_ID": "loc-test",
         })

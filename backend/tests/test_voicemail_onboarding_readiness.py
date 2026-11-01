@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from app.routes.voicemail_contact_number import voicemail_onboarding_readiness
+from app.voicemail_models import DayTelloVoicemailShopSettings
 
 
 def shop():
@@ -31,8 +32,10 @@ class FakeDB:
         self.settings = settings
     def query(self, *_args):
         return FakeQuery()
-    def get(self, *_args):
-        return self.settings
+    def get(self, model, *_args):
+        # Return a voicemail settings row only for the requested ORM model.
+        # A separate relay-assignment lookup must not masquerade as settings.
+        return self.settings if model is DayTelloVoicemailShopSettings else None
 
 
 class ReadinessTests(unittest.TestCase):
