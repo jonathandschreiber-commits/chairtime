@@ -382,7 +382,7 @@ class UnifiedPhoneTests(unittest.TestCase):
         with self.factory() as db:
             self.assertIsNone(db.get(DayTelloVoicemailShopSettings, "s1").owner_phone)
 
-    def test_test_relay_activation_requires_platform_call_permission(self):
+    def test_test_relay_saves_approval_without_platform_call_permission(self):
         with self.factory() as db:
             db.add(DayTelloVoiceRelayAssignment(
                 shop_id="s1", relay_number="+12025550123", enabled=False))
@@ -390,10 +390,16 @@ class UnifiedPhoneTests(unittest.TestCase):
         with patch.object(route, "daytello_save_staff_transfer") as transfer:
             result = self.client.put(
                 self.url, json={"phone_number": "+12025550199"})
-        self.assertEqual(result.status_code, 409)
+        self.assertEqual(result.status_code, 200, result.text)
+        self.assertTrue(result.json()["pending_test_authorization"])
+        self.assertFalse(result.json()["notifications_enabled"])
+        self.assertFalse(result.json()["setup_complete"])
         transfer.assert_not_called()
         with self.factory() as db:
             self.assertFalse(db.get(DayTelloVoiceRelayAssignment, "s1").enabled)
+            settings = db.get(DayTelloVoicemailShopSettings, "s1")
+            self.assertEqual(settings.owner_phone, "+12025550199")
+            self.assertFalse(settings.notifications_enabled)
 
     def test_test_relay_activation_requires_verified_provider_route(self):
         with self.factory() as db:
