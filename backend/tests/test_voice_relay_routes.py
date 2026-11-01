@@ -194,6 +194,7 @@ class RelayRouteTests(unittest.TestCase):
         db.calls[CALL] = SimpleNamespace(
             call_sid=CALL, account_sid=ACCOUNT,
             shop_id="third-shop-id", relay_number=DID,
+            owner_accepted=False,
         )
         self.client.app.dependency_overrides[get_db] = lambda: db
 
@@ -265,6 +266,15 @@ class RelayRouteTests(unittest.TestCase):
         self.assertEqual(screen.status_code, 200)
         self.assertIn("<Gather", screen.text)
         self.assertIn("owner-accept?parent=" + CALL, screen.text)
+        # Twilio may report completed when a carrier's voicemail answers.
+        # The undocumented DialBridged field must not determine fallback.
+        not_bridged = self.request(
+            "/api/daytello/voice-relay/dial-finished",
+            {"CallSid": CALL, "To": DID, "DialCallStatus": "completed",
+             "DialBridged": "true"},
+        )
+        self.assertEqual(not_bridged.status_code, 200)
+        self.assertIn("<Record", not_bridged.text)
         accepted = self.request(
             "/api/daytello/voice-relay/owner-accept?parent=" + CALL,
             {"CallSid": child, "ParentCallSid": CALL, "To": OWNER, "Digits": "1"},
@@ -272,26 +282,21 @@ class RelayRouteTests(unittest.TestCase):
         self.assertEqual(accepted.status_code, 200)
         self.assertIn("Connecting you now", accepted.text)
         self.assertNotIn("<Hangup", accepted.text)
+        # The saved keypress prevents a voicemail prompt after a human
+        # accepts, even if the provider reports DialBridged=false.
+        bridged = self.request(
+            "/api/daytello/voice-relay/dial-finished",
+            {"CallSid": CALL, "To": DID, "DialCallStatus": "completed",
+             "DialBridged": "false"},
+        )
+        self.assertEqual(bridged.status_code, 200)
+        self.assertNotIn("<Record", bridged.text)
         declined = self.request(
             "/api/daytello/voice-relay/owner-accept?parent=" + CALL,
             {"CallSid": child, "ParentCallSid": CALL, "To": OWNER, "Digits": "2"},
         )
         self.assertEqual(declined.status_code, 200)
         self.assertIn("<Hangup", declined.text)
-        not_bridged = self.request(
-            "/api/daytello/voice-relay/dial-finished",
-            {"CallSid": CALL, "To": DID, "DialCallStatus": "completed",
-             "DialBridged": "false"},
-        )
-        self.assertEqual(not_bridged.status_code, 200)
-        self.assertIn("<Record", not_bridged.text)
-        bridged = self.request(
-            "/api/daytello/voice-relay/dial-finished",
-            {"CallSid": CALL, "To": DID, "DialCallStatus": "completed",
-             "DialBridged": "true"},
-        )
-        self.assertEqual(bridged.status_code, 200)
-        self.assertNotIn("<Record", bridged.text)
 
     def test_owner_acceptance_rejects_wrong_parent_and_destination(self):
         self.seed_call()
@@ -446,6 +451,8 @@ class RelayRouteTests(unittest.TestCase):
 
     def test_answered_call_does_not_record(self):
         self.seed_call()
+        db = self.client.app.dependency_overrides[get_db]()
+        db.calls[CALL].owner_accepted = True
         result = self.request("/api/daytello/voice-relay/dial-finished",
                               {"CallSid": CALL, "To": DID, "DialCallStatus": "completed"})
         self.assertEqual(result.status_code, 200)
