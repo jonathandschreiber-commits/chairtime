@@ -240,7 +240,16 @@ class SignedRecordingDeliveryTests(unittest.TestCase):
     def test_owner_link_proxies_audio_with_server_side_provider_auth(self):
         self.inbound()
         self.assertEqual(self.recording().status_code, 200)
-        link = make_relay_recording_link(self.db.recordings[RECORDING], OWNER)
+        # The legacy HighLevel voicemail endpoint may run on another host.
+        # A relay recording must link back to the service that handles its
+        # Twilio callbacks and owns the relay playback route.
+        with patch.dict(os.environ, {
+            "DAYTELLO_VOICEMAIL_TEST_PUBLIC_ORIGIN": "https://legacy.example.test",
+        }):
+            link = make_relay_recording_link(self.db.recordings[RECORDING], OWNER)
+        self.assertTrue(link.startswith(
+            "https://relay.example.test/api/daytello/voice-relay/listen/"
+        ), link)
         token = link.rsplit("/", 1)[1]
         requests = []
         def provider(request):
@@ -362,11 +371,18 @@ class SignedRecordingDeliveryTests(unittest.TestCase):
             notification_status="queued",
         )
         self.db.recordings[RECORDING] = receipt
-        with patch("app.voice_relay_delivery.SessionLocal", return_value=self.db), \
+        with patch.dict(os.environ, {
+            "DAYTELLO_VOICEMAIL_TEST_PUBLIC_ORIGIN": "https://legacy.example.test",
+        }), patch("app.voice_relay_delivery.SessionLocal", return_value=self.db), \
              patch("app.voice_relay_delivery.send_highlevel_sms",
                    return_value={"success": True}) as send_sms:
             send_relay_owner_alert(RECORDING)
         send_sms.assert_called_once()
+        self.assertIn(
+            "Listen: https://relay.example.test/api/daytello/voice-relay/listen/",
+            send_sms.call_args.args[1],
+        )
+        self.assertNotIn("legacy.example.test", send_sms.call_args.args[1])
         self.assertEqual(receipt.notification_status, "sent")
 
     def test_disabling_relay_after_queue_prevents_any_sms_claim(self):
