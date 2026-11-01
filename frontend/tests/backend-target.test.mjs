@@ -58,3 +58,17 @@ test("AI agent provision, status and number purchase all use the same backend pr
     assert.doesNotMatch(code, /process\.env\.CHAIRTIME_API_URL/, path + " bypasses backend pin");
   }
 });
+
+test("new-shop onboarding offers existing SMS code verification before owner Save", () => {
+  const source = readFileSync(
+    fileURLToPath(new URL("../app/[shop]/onboarding/page.js", import.meta.url)),
+    "utf8",
+  );
+  assert.match(source, /import OwnerPhoneVerification from/);
+  const unified = source.slice(source.indexOf("function AiCallVoicemailSetup("));
+  assert.match(unified, /<OwnerPhoneVerification shopSlug=\{shopSlug\} ownerNumber=\{number\}/);
+  assert.ok(
+    unified.indexOf("<OwnerPhoneVerification") < unified.indexOf("function AiStaffTransferSetup("),
+    "Verification must be part of the unified onboarding form, not a separate admin page",
+  );
+});
