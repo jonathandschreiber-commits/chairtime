@@ -1054,6 +1054,15 @@ class NewShopIntegrationTests(unittest.TestCase):
             )
             self.assertEqual(accepted.status_code, 200, accepted.text)
             self.assertIn("Connecting you now", accepted.text)
+            # A signed owner keypress alone does not prove Twilio connected
+            # the caller. A missing provider bridge signal must still lead
+            # to voicemail and ultimately the shop-scoped SMS/audio chain.
+            unconfirmed = self._signed_callback(
+                "/api/daytello/voice-relay/dial-finished",
+                {"DialCallStatus": "completed"},
+            )
+            self.assertEqual(unconfirmed.status_code, 200, unconfirmed.text)
+            self.assertIn("<Record", unconfirmed.text)
             missed = self._signed_callback(
                 "/api/daytello/voice-relay/dial-finished",
                 {"DialCallStatus": "completed", "DialBridged": "false"},
