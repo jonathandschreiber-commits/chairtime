@@ -1,7 +1,6 @@
 import { serverApiBase } from "@/lib/server-api-base";
 import { cookies } from "next/headers";
 
-const BACKEND_URL = serverApiBase();
 
 export async function POST(request) {
   try {
@@ -18,6 +17,8 @@ export async function POST(request) {
         }
       );
     }
+
+    const BACKEND_URL = serverApiBase();
 
     const body = await request.json();
 
