@@ -2880,6 +2880,7 @@ def get_shop_routed_phone_record(
  
 def prebind_existing_voicemail_relay_after_ai_number(
     shop: Shop, db: Session, *, current_user: User = None,
+    strict: bool = False,
 ) -> bool:
     """Recover a paid-for relay and finish an already-approved owner route.
 
@@ -2923,6 +2924,8 @@ def prebind_existing_voicemail_relay_after_ai_number(
         logger.exception(
             "Pre-owned voicemail relay onboarding could not be completed"
         )
+        if strict:
+            raise
         return False
 
 
@@ -3114,20 +3117,81 @@ def get_production_provision_status(
     # a second phone-number action. This performs provider GETs and a local
     # disabled DID claim only; no number purchase, transfer or live call.
     response["voicemail_relay_prebound"] = False
+    response["voicemail_pending_owner_setup"] = False
     if routed_phone_number:
         try:
             from app.routes.voicemail_contact_number import (
                 attach_preowned_relay_after_ai_number,
             )
+            from app.voice_relay_models import DayTelloVoiceRelayAssignment
+            from app.voicemail_models import DayTelloVoicemailShopSettings
             response["voicemail_relay_prebound"] = bool(
                 attach_preowned_relay_after_ai_number(shop, db)
+            )
+            relay = db.get(DayTelloVoiceRelayAssignment, shop.id)
+            settings = db.get(DayTelloVoicemailShopSettings, shop.id)
+            # A saved, owner-approved destination is still pending when
+            # onboarding was interrupted before the AI number was routed.
+            # GET only reports it; the authenticated POST below resumes it.
+            response["voicemail_pending_owner_setup"] = bool(
+                os.getenv("DAYTELLO_VOICE_RELAY_TEST_ONLY") == "true"
+                and os.getenv("DAYTELLO_VOICEMAIL_TEST_ONLY") == "true"
+                and relay and not relay.enabled and settings
+                and settings.owner_phone and not settings.notifications_enabled
             )
         except Exception:
             db.rollback()
             logger.exception("Existing AI-number relay reconciliation failed")
     return response
- 
- 
+
+
+@router.post("/voicemail-onboarding/resume")
+def resume_approved_voicemail_onboarding(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Finish a previously approved owner route after the AI DID is active.
+
+    This explicit POST is called by isolated onboarding, not by status GET.
+    It never purchases a number or changes an existing active Stan/Bob route.
+    The provider-backed AI DID is checked before attempting the saved transfer.
+    """
+    require_owner(current_user)
+    shop = get_current_shop(current_user=current_user, db=db)
+    if (os.getenv("DAYTELLO_VOICE_RELAY_TEST_ONLY") != "true"
+            or os.getenv("DAYTELLO_VOICEMAIL_TEST_ONLY") != "true"):
+        raise HTTPException(404, "Voicemail onboarding resume is disabled")
+    if not shop.ai_voice_enabled or not shop.highlevel_agent_id:
+        raise HTTPException(409, "AI Receptionist must be provisioned first")
+    from app.voice_relay_models import DayTelloVoiceRelayAssignment
+    from app.voicemail_models import DayTelloVoicemailShopSettings
+    relay = db.get(DayTelloVoiceRelayAssignment, shop.id)
+    settings = db.get(DayTelloVoicemailShopSettings, shop.id)
+    if (not relay or relay.enabled or not settings
+            or settings.notifications_enabled or not settings.owner_phone):
+        raise HTTPException(409, "No approved pending owner transfer to resume")
+    # HighLevel's actual inbound routing, not a cached phone field, decides
+    # whether the customer-selected AI number is ready for this next step.
+    _, _, routed = get_shop_routed_phone_record(shop=shop)
+    routed_number = str((routed or {}).get("phoneNumber") or "").strip()
+    if not routed_number or routed_number != str(shop.highlevel_phone_number or "").strip():
+        raise HTTPException(409, "AI Receptionist number routing is not verified")
+    prebind_existing_voicemail_relay_after_ai_number(
+        shop, db, current_user=current_user, strict=True,
+    )
+    db.refresh(relay)
+    db.refresh(settings)
+    if not relay.enabled or not settings.notifications_enabled:
+        raise HTTPException(409, "Approved voicemail setup is still pending")
+    return {
+        "success": True,
+        "shop_slug": shop.slug,
+        "voicemail_setup_activated": True,
+        "ready_for_customer_calls": False,
+        "live_call_test_required": True,
+    }
+
+
 @router.post("/provision")
 def provision_production_ai_receptionist(
     current_user: User = Depends(get_current_user),
