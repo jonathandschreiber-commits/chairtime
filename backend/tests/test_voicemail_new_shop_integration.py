@@ -1784,6 +1784,119 @@ class NewShopIntegrationTests(unittest.TestCase):
             self.assertEqual(playback.content, audio)
 
 
+    def test_existing_highlevel_owner_contact_receives_recording_sms(self):
+        """A duplicate owner contact must not strand a completed voicemail.
+
+        Exercise customer-selected AI number, relay transfer, signed recording
+        callback, HighLevel's real SMS adapter, and the existing-contact
+        recovery request. All provider responses are mocked offline.
+        """
+        import io
+        import json
+        from urllib import error
+        from app.routes import reminders
+
+        requests_seen = []
+
+        class ProviderResponse:
+            def __init__(self, data):
+                self.data = data
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def read(self):
+                return json.dumps(self.data).encode("utf-8")
+
+        def fake_urlopen(req, timeout=None):
+            self.assertEqual(timeout, 10)
+            requests_seen.append((req.get_method(), req.full_url))
+            if req.full_url.endswith("/contacts/"):
+                self.assertEqual(req.get_method(), "POST")
+                return_error = json.dumps({
+                    "message": "Contact already exists",
+                }).encode("utf-8")
+                raise error.HTTPError(
+                    req.full_url, 409, "Duplicate contact", {},
+                    io.BytesIO(return_error),
+                )
+            if "/contacts/search/duplicate?" in req.full_url:
+                self.assertEqual(req.get_method(), "GET")
+                from urllib.parse import parse_qs, urlsplit
+                query = parse_qs(urlsplit(req.full_url).query)
+                self.assertEqual(query["locationId"], ["loc-test"])
+                self.assertEqual(query["number"], [OWNER])
+                return ProviderResponse({"contact": {
+                    "id": "existing-owner-contact", "phone": OWNER,
+                    "locationId": "loc-test",
+                }})
+            if req.full_url.endswith("/conversations/messages"):
+                self.assertEqual(req.get_method(), "POST")
+                body = json.loads(req.data.decode("utf-8"))
+                self.assertEqual(body["contactId"], "existing-owner-contact")
+                self.assertEqual(body["fromNumber"], "+12405550139")
+                self.assertIn("Listen: https://relay.example.test/", body["message"])
+                return ProviderResponse({"messageId": "existing-owner-sms"})
+            self.fail("Unexpected HighLevel request: " + req.full_url)
+
+        with (
+            patch.dict(os.environ, {"HIGHLEVEL_API_TOKEN": "offline-token"}),
+            patch.object(ai_setup, "get_location_phone_numbers",
+                         return_value=(None, [{"phoneNumber": AI_NUMBER}])),
+            patch.object(ai_setup, "route_phone_number_to_shop_agent",
+                         return_value={"phoneNumber": AI_NUMBER}),
+            patch.object(ai_setup, "get_agent_detail", side_effect=self._get_agent),
+            patch.object(ai_setup, "highlevel_raw_request", side_effect=self._save_action),
+            patch.object(ai_setup, "purchase_one_highlevel_phone_number",
+                         side_effect=AssertionError("No AI purchase permitted")),
+            patch.object(voicemail_contact_number, "VoiceRelayNumberProvider",
+                         return_value=self._provider()),
+            patch.object(voice_relay_delivery, "SessionLocal", self.factory),
+            patch.object(reminders.request, "urlopen", side_effect=fake_urlopen),
+            patch.object(reminders, "begin_sms", return_value="offline-tracking"),
+            patch.object(reminders, "finish_sms", return_value=True),
+        ):
+            self._activate_customer_selected_ai_number()
+            saved = self.client.put(
+                "/api/shops/new-shop/call-voicemail-number",
+                json={"phone_number": OWNER},
+            )
+            self.assertEqual(saved.status_code, 200, saved.text)
+            self.assertEqual(
+                self.agent_action["actionParameters"]["transferToValue"], RELAY,
+            )
+            inbound = self._signed_callback(
+                "/api/daytello/voice-relay/inbound", {"To": RELAY},
+            )
+            self.assertEqual(inbound.status_code, 200, inbound.text)
+            missed = self._signed_callback(
+                "/api/daytello/voice-relay/dial-finished",
+                {"DialCallStatus": "no-answer", "DialBridged": "false"},
+            )
+            self.assertEqual(missed.status_code, 200, missed.text)
+            self.assertIn("<Record", missed.text)
+            ready = self._signed_callback(
+                "/api/daytello/voice-relay/record-ready",
+                {"RecordingStatus": "completed", "RecordingSid": RECORDING},
+            )
+            self.assertEqual(ready.status_code, 200, ready.text)
+            self.assertEqual(ready.json()["action"], "queued")
+            self.assertEqual([method for method, _ in requests_seen],
+                             ["POST", "GET", "POST"])
+            with self.factory() as db:
+                receipt = db.get(
+                    voice_relay_delivery.DayTelloVoiceRelayRecording, RECORDING,
+                )
+                self.assertEqual(receipt.shop_id, "new-id")
+                self.assertEqual(receipt.notification_status, "sent")
+                self.assertEqual(
+                    db.get(DayTelloVoicemailShopSettings, "stan-id").owner_phone,
+                    "+12405550133",
+                )
+
     def test_owner_phone_saved_before_call_authorization_resumes_without_second_save(self):
         """A real shop can approve its number before provider call tests are enabled.
 
