@@ -201,7 +201,13 @@ async def relay_owner_screen(request: Request, db: Session = Depends(get_db)):
 async def relay_owner_accept(request: Request, db: Session = Depends(get_db)):
     """A human's 1 bridges; voicemail greetings and silence do not."""
     fields, _ = await _verified(request)
-    _screened_owner_leg(db, fields, request.query_params.get("parent"))
+    call = _screened_owner_leg(db, fields, request.query_params.get("parent"))
+    if fields.get("Digits") == "1" and not call.owner_accepted:
+        # Persist the human acceptance before telling Twilio to bridge.
+        # Carrier voicemail can answer a Dial leg without this keypress.
+        call.owner_accepted = True
+        db.add(call)
+        db.commit()
     return _xml(owner_screen_result(fields.get("Digits")))
 
 
@@ -223,7 +229,10 @@ async def relay_dial_finished(request: Request, db: Session = Depends(get_db)):
             status,
             origin + "/api/daytello/voice-relay/record-finished",
             origin + "/api/daytello/voice-relay/record-ready",
-            dial_bridged=fields.get("DialBridged"),
+            # Twilio does not promise a DialBridged callback parameter.
+            # Use the durable signed owner keypress, not a caller-supplied
+            # field or the ambiguous DialCallStatus=completed alone.
+            dial_bridged="true" if bool(call.owner_accepted) else "false",
         )
     except ValueError:
         raise HTTPException(422, "Invalid dial completion")
