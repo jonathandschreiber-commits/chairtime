@@ -587,9 +587,26 @@ class NewShopIntegrationTests(unittest.TestCase):
             self.assertIn(OWNER, inbound.text)
             self.assertIn('timeout="5"', inbound.text)
             self.assertIn("dial-finished", inbound.text)
+            # Even after the owner presses 1, the provider can report
+            # that the caller and owner never actually bridged. Exercise
+            # that real-world failed-transfer status through the entire
+            # recording -> shop SMS -> playable audio chain.
+            child = "CA" + "f" * 32
+            screened = self._signed_callback(
+                "/api/daytello/voice-relay/owner-screen?parent=" + CALL,
+                {"CallSid": child, "ParentCallSid": CALL, "To": OWNER},
+            )
+            self.assertEqual(screened.status_code, 200, screened.text)
+            accepted = self._signed_callback(
+                "/api/daytello/voice-relay/owner-accept?parent=" + CALL,
+                {"CallSid": child, "ParentCallSid": CALL,
+                 "To": OWNER, "Digits": "1"},
+            )
+            self.assertEqual(accepted.status_code, 200, accepted.text)
+            self.assertIn("Connecting you now", accepted.text)
             missed = self._signed_callback(
                 "/api/daytello/voice-relay/dial-finished",
-                {"DialCallStatus": "no-answer"},
+                {"DialCallStatus": "completed", "DialBridged": "false"},
             )
             self.assertEqual(missed.status_code, 200, missed.text)
             self.assertIn("<Record", missed.text)
