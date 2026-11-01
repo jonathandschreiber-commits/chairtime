@@ -267,7 +267,7 @@ class RelayRouteTests(unittest.TestCase):
         self.assertIn("<Gather", screen.text)
         self.assertIn("owner-accept?parent=" + CALL, screen.text)
         # Twilio may report completed when a carrier's voicemail answers.
-        # The undocumented DialBridged field must not determine fallback.
+        # Without a human keypress, even DialBridged=true cannot suppress fallback.
         not_bridged = self.request(
             "/api/daytello/voice-relay/dial-finished",
             {"CallSid": CALL, "To": DID, "DialCallStatus": "completed",
@@ -301,14 +301,14 @@ class RelayRouteTests(unittest.TestCase):
         )
         self.assertEqual(bridged.status_code, 200)
         self.assertNotIn("<Record", bridged.text)
-        # Some older callbacks omit DialBridged; retain the persisted
-        # signed owner acceptance for compatibility with those callbacks.
-        legacy = self.request(
+        # A missing DialBridged is not proof of a bridge, even after a
+        # human keypress. The caller must still get a voicemail prompt.
+        missing_bridge = self.request(
             "/api/daytello/voice-relay/dial-finished",
             {"CallSid": CALL, "To": DID, "DialCallStatus": "completed"},
         )
-        self.assertEqual(legacy.status_code, 200)
-        self.assertNotIn("<Record", legacy.text)
+        self.assertEqual(missing_bridge.status_code, 200)
+        self.assertIn("<Record", missing_bridge.text)
         declined = self.request(
             "/api/daytello/voice-relay/owner-accept?parent=" + CALL,
             {"CallSid": child, "ParentCallSid": CALL, "To": OWNER, "Digits": "2"},
@@ -472,9 +472,27 @@ class RelayRouteTests(unittest.TestCase):
         db = self.client.app.dependency_overrides[get_db]()
         db.calls[CALL].owner_accepted = True
         result = self.request("/api/daytello/voice-relay/dial-finished",
-                              {"CallSid": CALL, "To": DID, "DialCallStatus": "completed"})
+                              {"CallSid": CALL, "To": DID, "DialCallStatus": "completed",
+                               "DialBridged": "true"})
         self.assertEqual(result.status_code, 200)
         self.assertNotIn("<Record", result.text)
+
+    def test_missing_or_ambiguous_bridge_confirmation_still_records_voicemail(self):
+        # A signed owner keypress cannot prove the two telephone legs bridged.
+        # Twilio documents DialBridged=true as the positive bridge signal.
+        self.seed_call()
+        db = self.client.app.dependency_overrides[get_db]()
+        db.calls[CALL].owner_accepted = True
+        for extra in ({}, {"DialBridged": ""}, {"DialBridged": "unknown"}):
+            with self.subTest(extra=extra):
+                response = self.request(
+                    "/api/daytello/voice-relay/dial-finished",
+                    {"CallSid": CALL, "To": DID, "DialCallStatus": "completed",
+                     **extra},
+                )
+                self.assertEqual(response.status_code, 200)
+                self.assertIn("<Record", response.text)
+                self.assertIn("record-ready", response.text)
 
     def test_missed_call_prompts_voicemail(self):
         self.seed_call()
