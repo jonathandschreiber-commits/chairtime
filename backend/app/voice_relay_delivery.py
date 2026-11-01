@@ -26,7 +26,7 @@ from app.voice_relay_models import DayTelloVoiceRelayAssignment
 from app.voice_relay_recordings import verified_recording_reference, verified_recording_url
 from app.voicemail_models import DayTelloVoicemailShopSettings
 from app.voicemail_owner_links import (
-    decode_recording_link, link_cipher, owner_phone_for_test_shop, test_link_origin,
+    decode_recording_link, link_cipher, owner_phone_for_test_shop,
 )
 
 router = APIRouter()
@@ -123,7 +123,11 @@ def make_relay_recording_link(recording, recipient):
     token = link_cipher().encrypt(
         json.dumps(payload, separators=(",", ":")).encode("utf-8")
     ).decode("ascii")
-    return test_link_origin() + "/api/daytello/voice-relay/listen/" + token
+    # The Twilio callback host runs this playback route. The legacy
+    # HighLevel voicemail link host may be a different Railway service.
+    # Reuse the verified relay origin so owner SMS links reach this backend.
+    from app.routes.voice_relay import _origin
+    return _origin() + "/api/daytello/voice-relay/listen/" + token
 
 
 def accept_completed_recording(db, fields, binding, settings):
