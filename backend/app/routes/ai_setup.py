@@ -3136,6 +3136,9 @@ def get_production_provision_status(
             response["voicemail_pending_owner_setup"] = bool(
                 os.getenv("DAYTELLO_VOICE_RELAY_TEST_ONLY") == "true"
                 and os.getenv("DAYTELLO_VOICEMAIL_TEST_ONLY") == "true"
+                # A pending owner phone must not trigger a HighLevel transfer
+                # until the isolated provider call test has been authorized.
+                and os.getenv("DAYTELLO_VOICE_RELAY_ALLOW_TEST_CALLS") == "true"
                 and relay and not relay.enabled and settings
                 and settings.owner_phone and not settings.notifications_enabled
             )
