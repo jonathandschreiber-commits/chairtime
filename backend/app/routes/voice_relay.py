@@ -229,15 +229,14 @@ async def relay_dial_finished(request: Request, db: Session = Depends(get_db)):
             status,
             origin + "/api/daytello/voice-relay/record-finished",
             origin + "/api/daytello/voice-relay/record-ready",
-            # A human keypress is required, but does not guarantee the
-            # provider actually bridged the call. Twilio's documented
-            # DialBridged=false means the caller was never connected, even
-            # if the owner pressed 1. In that case offer voicemail instead.
-            # Older callbacks may omit DialBridged; retain the persisted
-            # signed owner keypress as the fallback signal.
+            # A human keypress is necessary but not sufficient to prove a
+            # connection. Twilio's DialBridged=true is the provider's
+            # explicit confirmation that the caller actually reached the
+            # owner. A missing or ambiguous value must still offer voicemail
+            # rather than silently dropping an unanswered caller.
             dial_bridged=("true" if (
                 bool(call.owner_accepted)
-                and str(fields.get("DialBridged") or "").strip().lower() != "false"
+                and str(fields.get("DialBridged") or "").strip().lower() == "true"
             ) else "false"),
         )
     except ValueError:
