@@ -15,7 +15,7 @@ from datetime import datetime, timedelta, timezone
 import httpx
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
-from sqlalchemy import Column, DateTime, String
+from sqlalchemy import Boolean, Column, DateTime, String, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.sql import func
 
@@ -44,6 +44,10 @@ class DayTelloVoiceRelayCall(Base):
     account_sid = Column(String(34), nullable=False)
     shop_id = Column(String(128), nullable=False, index=True)
     relay_number = Column(String(20), nullable=False)
+    # A carrier voicemail may answer the Dial leg; only a signed owner
+    # keypress establishes that a human accepted the transfer.
+    owner_accepted = Column(Boolean, nullable=False, default=False,
+                            server_default=text("false"))
     created_at = Column(DateTime, nullable=False, server_default=func.now())
 
 
