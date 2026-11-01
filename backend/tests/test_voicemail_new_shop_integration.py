@@ -246,8 +246,8 @@ class NewShopIntegrationTests(unittest.TestCase):
             self.assertEqual(params["pageSize"], 100)
             self.assertTrue(params["skipNumberPool"])
             pages.append(params["page"])
-            records = first_page if params["page"] == 1 else [routed]
-            return SimpleNamespace(json=lambda: {"data": {"numbers": records}},
+            records = first_page if params["page"] == 0 else [routed]
+            return SimpleNamespace(json=lambda: {"data": {"numbers": records, "total": 101}},
                                    status_code=200)
 
         with (
@@ -267,7 +267,7 @@ class NewShopIntegrationTests(unittest.TestCase):
             self.assertEqual(selected.status_code, 200, selected.text)
             self.assertTrue(selected.json()["already_owned"])
             self.assertEqual(selected.json()["phone_number"], AI_NUMBER)
-            self.assertEqual(pages, [1, 2])
+            self.assertEqual(pages, [0, 1])
 
             # Continue the same page-two customer-selected DID through the
             # real owner-setting, TwiML callback, recording and SMS routes.
@@ -329,7 +329,7 @@ class NewShopIntegrationTests(unittest.TestCase):
                     playback = self.client.get(urlsplit(link).path)
                 self.assertEqual(playback.status_code, 200, playback.text)
                 self.assertEqual(playback.content, audio)
-        self.assertEqual(pages, [1, 2, 1, 2])
+        self.assertEqual(pages, [0, 1, 0, 1])
         with self.factory() as db:
             self.assertEqual(db.get(Shop, "new-id").highlevel_phone_number,
                              AI_NUMBER)
@@ -475,6 +475,48 @@ class NewShopIntegrationTests(unittest.TestCase):
                 "+12405550133",
             )
 
+    def test_selected_ai_number_on_first_highlevel_page_is_reused(self):
+        """HighLevel page zero contains owned DIDs; never skip to page one."""
+        routed = {
+            "phoneNumber": AI_NUMBER, "friendlyName": "New Shop AI",
+            "capabilities": {"voice": True},
+            "inboundCallService": {"type": "voice_ai", "value": "agent-new"},
+        }
+        pages = []
+
+        def inventory(method, path, params=None, **kwargs):
+            self.assertEqual(method, "GET")
+            self.assertEqual(path, "/phone-system/numbers/location/loc-test")
+            self.assertEqual(params["pageSize"], 100)
+            pages.append(params["page"])
+            return SimpleNamespace(
+                json=lambda: {"data": {"numbers": [routed], "total": 1}},
+                status_code=200,
+            )
+
+        with (
+            patch.object(ai_setup, "highlevel_request", side_effect=inventory),
+            patch.object(ai_setup, "route_phone_number_to_shop_agent",
+                         return_value=routed),
+            patch.object(ai_setup, "get_agent_detail", side_effect=self._get_agent),
+            patch.object(ai_setup, "purchase_one_highlevel_phone_number",
+                         side_effect=AssertionError("Never repurchase a page-zero DID")),
+            patch.object(voicemail_contact_number, "VoiceRelayNumberProvider",
+                         return_value=self._provider()),
+        ):
+            selected = self.client.post(
+                "/api/ai-setup/phone-number/purchase",
+                json={"phone_number": AI_NUMBER},
+            )
+        self.assertEqual(selected.status_code, 200, selected.text)
+        self.assertTrue(selected.json()["already_owned"])
+        self.assertEqual(pages, [0])
+        with self.factory() as db:
+            self.assertEqual(db.get(Shop, "new-id").highlevel_phone_number,
+                             AI_NUMBER)
+            self.assertEqual(db.get(DayTelloVoicemailShopSettings, "stan-id").owner_phone,
+                             "+12405550133")
+
     def test_incomplete_highlevel_inventory_cannot_trigger_another_purchase(self):
         """A failed later inventory page must stop before any chargeable request."""
         first_page = [
@@ -485,7 +527,7 @@ class NewShopIntegrationTests(unittest.TestCase):
 
         def inventory(method, path, params=None, **kwargs):
             pages.append(params["page"])
-            if params["page"] == 2:
+            if params["page"] == 1:
                 raise HTTPException(502, "Later HighLevel inventory page failed")
             return SimpleNamespace(
                 json=lambda: {"data": {"numbers": first_page}},
@@ -503,7 +545,7 @@ class NewShopIntegrationTests(unittest.TestCase):
                       "locality": "Rockville", "region": "MD"},
             )
         self.assertEqual(selected.status_code, 502, selected.text)
-        self.assertEqual(pages, [1, 2])
+        self.assertEqual(pages, [0, 1])
         with self.factory() as db:
             self.assertIsNone(db.get(Shop, "new-id").highlevel_phone_number)
             self.assertIsNone(db.get(DayTelloVoiceRelayAssignment, "new-id"))

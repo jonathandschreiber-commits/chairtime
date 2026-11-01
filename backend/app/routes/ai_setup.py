@@ -2723,7 +2723,9 @@ def get_location_phone_numbers(
     page_size = 100
     all_numbers = []
     first_page = None
-    for page in range(1, 21):
+    # HighLevel's active-number API uses zero-based pages. Starting at 1
+    # silently skips the first 100 owned DIDs and can trigger a second purchase.
+    for page in range(20):
         response = highlevel_request(
             method="GET",
             path=f"/phone-system/numbers/location/{location_id}",
@@ -2757,7 +2759,24 @@ def get_location_phone_numbers(
         if first_page is None:
             first_page = data
         all_numbers.extend(page_numbers)
-        if len(page_numbers) < page_size:
+        # The documented response includes total. Use it when present so a
+        # short page cannot be mistaken for a complete owned-number inventory.
+        total = container.get("total")
+        if total is not None:
+            if type(total) is not int or total < len(all_numbers):
+                raise HTTPException(
+                    status_code=502,
+                    detail="HighLevel phone inventory pagination is inconsistent.",
+                )
+            has_more = len(all_numbers) < total
+        else:
+            has_more = len(page_numbers) == page_size
+        if has_more and not page_numbers:
+            raise HTTPException(
+                status_code=502,
+                detail="HighLevel phone inventory pagination is incomplete.",
+            )
+        if not has_more:
             # Preserve the existing response shape for the owner UI while
             # ensuring the returned inventory includes every page.
             combined = dict(first_page)
