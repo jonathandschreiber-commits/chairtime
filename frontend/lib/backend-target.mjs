@@ -39,3 +39,11 @@ export function expectedRailwayOrigin(env = process.env) {
     preview: LEGACY_PREVIEW_RAILWAY_ORIGIN,
   }[env.VERCEL_ENV];
 }
+
+export function requireMatchingBackendOrigin(origin, env = process.env) {
+  const expected = expectedRailwayOrigin(env);
+  if (expected && origin !== expected) {
+    throw new Error("Wrong Railway backend configured for this Vercel deployment.");
+  }
+  return origin;
+}
