@@ -9,6 +9,7 @@ import {
 } from "react";
 import { useParams, useRouter } from "next/navigation";
 import styles from "./onboarding.module.css";
+import OwnerPhoneVerification from "../admin/ai-receptionist/OwnerPhoneVerification";
  
 const API_BASE =
   "https://chairtime-production-94da.up.railway.app";
@@ -5100,6 +5101,11 @@ function AiCallVoicemailSetup({ shopSlug, onReadyChange }) {
           {saving ? "Saving..." : "Save Phone Number"}
         </button>
       </form>
+      <OwnerPhoneVerification shopSlug={shopSlug} ownerNumber={number} />
+      <p style={{ marginTop: "12px", color: "#475569", fontSize: "13px" }}>
+        If phone verification is enabled for this preview, request and confirm
+        the code above before saving the number. Verification is not a live call test.
+      </p>
       {ready && <p role="status" style={{ color: "#047857", marginTop: "12px" }}>
         Phone number saved for transfers and voicemail notifications.
       </p>}
