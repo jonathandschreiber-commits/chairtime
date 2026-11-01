@@ -815,7 +815,7 @@ class NewShopIntegrationTests(unittest.TestCase):
             self.assertIn("<Hangup", rejected.text)
             missed = self._signed_callback(
                 "/api/daytello/voice-relay/dial-finished",
-                {"DialCallStatus": "completed", "DialBridged": "false"})
+                {"DialCallStatus": "completed"})
             self.assertEqual(missed.status_code, 200, missed.text)
             self.assertIn("<Record", missed.text)
             ready = self._signed_callback(
@@ -1351,7 +1351,7 @@ class NewShopIntegrationTests(unittest.TestCase):
                 self.assertIn("Hangup", declined.text)
                 missed = self._signed_callback(
                     "/api/daytello/voice-relay/dial-finished",
-                    {"DialCallStatus": "completed", "DialBridged": "false"},
+                    {"DialCallStatus": "completed"},
                 )
                 self.assertEqual(missed.status_code, 200, missed.text)
                 self.assertIn("<Record", missed.text)
