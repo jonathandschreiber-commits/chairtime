@@ -1,7 +1,6 @@
 import { serverApiBase } from "@/lib/server-api-base";
 import { cookies } from "next/headers";
 
-const BACKEND_URL = serverApiBase();
 
 export const dynamic = "force-dynamic";
 
@@ -48,6 +47,8 @@ export async function GET(request) {
     if (!token) {
       return json({ detail: "Please sign in as this shop's owner." }, 401);
     }
+    const BACKEND_URL = serverApiBase();
+
     async function read(path) {
       const response = await fetch(`${BACKEND_URL}/api/ai-setup${path}`, {
         method: "GET",
