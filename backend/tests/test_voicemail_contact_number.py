@@ -405,6 +405,9 @@ class UnifiedPhoneTests(unittest.TestCase):
         with self.factory() as db:
             db.add(DayTelloVoiceRelayAssignment(
                 shop_id="s1", relay_number="+12025550123", enabled=False))
+            # The provider-forwarding path is valid only after the owner has
+            # selected and activated a HighLevel AI number for this shop.
+            db.get(Shop, "s1").highlevel_phone_number = "+12025550126"
             db.commit()
         with (
             patch.dict(os.environ, {"DAYTELLO_VOICE_RELAY_ALLOW_TEST_CALLS": "true"}),
@@ -423,6 +426,9 @@ class UnifiedPhoneTests(unittest.TestCase):
         with self.factory() as db:
             db.add(DayTelloVoiceRelayAssignment(
                 shop_id="s1", relay_number="+12025550123", enabled=False))
+            # The provider-forwarding path is valid only after the owner has
+            # selected and activated a HighLevel AI number for this shop.
+            db.get(Shop, "s1").highlevel_phone_number = "+12025550126"
             db.commit()
         with (
             patch.dict(os.environ, {"DAYTELLO_VOICE_RELAY_ALLOW_TEST_CALLS": "true"}),
@@ -451,6 +457,9 @@ class UnifiedPhoneTests(unittest.TestCase):
         with self.factory() as db:
             db.add(DayTelloVoiceRelayAssignment(
                 shop_id="s1", relay_number="+12025550123", enabled=False))
+            # The provider-forwarding path is valid only after the owner has
+            # selected and activated a HighLevel AI number for this shop.
+            db.get(Shop, "s1").highlevel_phone_number = "+12025550126"
             db.commit()
         with (
             patch.dict(os.environ, {"DAYTELLO_VOICE_RELAY_ALLOW_TEST_CALLS": "true"}),
