@@ -350,6 +350,31 @@ def set_owner_call_voicemail_number(
             ),
         }
 
+    # A new shop may approve its owner destination before an operator has
+    # authorized real test calls. Save that approval as pending without
+    # touching HighLevel transfers or enabling the Twilio relay. The normal
+    # onboarding resume POST will finish it after test-call authorization.
+    # Never take this path for an already-active relay: changing its saved
+    # destination would immediately change live forwarding.
+    relay = db.get(DayTelloVoiceRelayAssignment, shop.id)
+    if (relay and not relay.enabled and not settings.notifications_enabled
+            and os.getenv("DAYTELLO_VOICE_RELAY_ALLOW_TEST_CALLS") != "true"):
+        settings.owner_phone = number
+        settings.notifications_enabled = False
+        try:
+            db.commit()
+            db.refresh(settings)
+        except Exception:
+            db.rollback()
+            raise HTTPException(502, "Could not save the approved phone number")
+        return {
+            **public_status(shop, settings, db),
+            "pending_test_authorization": True,
+            "live_call_test_required": True,
+            "message": ("Owner phone saved. Call forwarding and voicemail SMS "
+                        "remain off until isolated test calls are authorized."),
+        }
+
     if os.getenv("DAYTELLO_VOICEMAIL_OWNER_SMS_ENABLED") != "true":
         raise HTTPException(409, "Voicemail notification setup is not yet ready")
 
