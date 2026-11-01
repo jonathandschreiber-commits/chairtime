@@ -291,27 +291,41 @@ def ensure_existing_shop_voicemail_route(shop: Shop, db: Session):
             raise HTTPException(502, "Existing relay was not bound to voicemail settings")
         return settings
 
-    # Preserve Stan/Bob and other previously assigned HighLevel voicemail
-    # destinations. Only an unassigned new shop tries relay recovery.
-    try:
+    # Keep previously assigned HighLevel routes (including Stan/Bob) and
+    # explicit legacy shop mappings on their original provider path.
+    existing = db.get(DayTelloVoicemailShopSettings, shop.id)
+    if existing is not None:
         return ensure_test_voicemail_number(shop, db)
-    except HTTPException as exc:
-        if (exc.status_code != 409 or
-                exc.detail != "DayTello has not assigned a voicemail number for this business"):
-            raise
+    from app.routes.voicemail_webhook import configured_routing_map
+    legacy = (configured_routing_map()
+              if os.getenv("DAYTELLO_VOICEMAIL_NUMBER_SHOP_MAP", "").strip()
+              else {})
+    if shop.slug in legacy.values():
+        return ensure_test_voicemail_number(shop, db)
 
-    provider = VoiceRelayNumberProvider()
-    owned = provider.find_existing(str(shop.id))
-    if owned:
-        reserve_or_purchase_relay_for_shop(
-            shop, db, owned["number"], approved=False, provider=provider,
-        )
-    elif not allocate_preowned_relay_for_shop(shop, db, provider=provider):
-        raise HTTPException(409, "No approved voicemail relay number exists for this shop")
-    settings = db.get(DayTelloVoicemailShopSettings, shop.id)
-    if settings is None:
-        raise HTTPException(502, "Verified relay was not bound to voicemail settings")
-    return settings
+    # New AI shops need a programmable relay, not an unused legacy
+    # HighLevel voicemail pool number: the latter has no verified owner-ring
+    # and unanswered-call fallback. The owner can save their destination
+    # before choosing the HighLevel AI number, without a second Save.
+    if (os.getenv("DAYTELLO_VOICE_RELAY_TEST_ONLY") == "true"
+            and os.getenv("DAYTELLO_VOICEMAIL_TEST_ONLY") == "true"
+            and shop.highlevel_agent_id):
+        provider = VoiceRelayNumberProvider()
+        owned = provider.find_existing(str(shop.id))
+        if owned:
+            reserve_or_purchase_relay_for_shop(
+                shop, db, owned["number"], approved=False, provider=provider,
+            )
+        elif not allocate_preowned_relay_for_shop(shop, db, provider=provider):
+            raise HTTPException(409, "No approved voicemail relay number exists for this shop")
+        settings = db.get(DayTelloVoicemailShopSettings, shop.id)
+        if settings is None:
+            raise HTTPException(502, "Verified relay was not bound to voicemail settings")
+        return settings
+
+    # Legacy-only test environments retain their original reserved-number
+    # behavior; no existing number, agent, or routing configuration is changed.
+    return ensure_test_voicemail_number(shop, db)
 
 
 @router.put("/shops/{shop_slug}/call-voicemail-number")
