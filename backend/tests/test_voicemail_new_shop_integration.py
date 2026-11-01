@@ -210,10 +210,72 @@ class NewShopIntegrationTests(unittest.TestCase):
                 "/api/ai-setup/phone-number/purchase",
                 json={"phone_number": AI_NUMBER},
             )
-        self.assertEqual(selected.status_code, 200, selected.text)
-        self.assertTrue(selected.json()["already_owned"])
-        self.assertEqual(selected.json()["phone_number"], AI_NUMBER)
-        self.assertEqual(pages, [1, 2])
+            self.assertEqual(selected.status_code, 200, selected.text)
+            self.assertTrue(selected.json()["already_owned"])
+            self.assertEqual(selected.json()["phone_number"], AI_NUMBER)
+            self.assertEqual(pages, [1, 2])
+
+            # Continue the same page-two customer-selected DID through the
+            # real owner-setting, TwiML callback, recording and SMS routes.
+            with (
+                patch.object(ai_setup, "highlevel_raw_request",
+                             side_effect=self._save_action),
+                patch.object(voice_relay_delivery, "SessionLocal", self.factory),
+                patch.object(voice_relay_delivery, "send_highlevel_sms",
+                             side_effect=self._capture_sms),
+            ):
+                saved = self.client.put(
+                    "/api/shops/new-shop/call-voicemail-number",
+                    json={"phone_number": OWNER},
+                )
+                self.assertEqual(saved.status_code, 200, saved.text)
+                self.assertTrue(saved.json()["configuration_complete"])
+                self.assertEqual(
+                    self.agent_action["actionParameters"]["transferToValue"],
+                    RELAY,
+                )
+                inbound = self._signed_callback(
+                    "/api/daytello/voice-relay/inbound", {"To": RELAY},
+                )
+                self.assertEqual(inbound.status_code, 200, inbound.text)
+                self.assertIn(OWNER, inbound.text)
+                missed = self._signed_callback(
+                    "/api/daytello/voice-relay/dial-finished",
+                    {"DialCallStatus": "no-answer", "DialBridged": "false"},
+                )
+                self.assertEqual(missed.status_code, 200, missed.text)
+                self.assertIn("<Record", missed.text)
+                ready = self._signed_callback(
+                    "/api/daytello/voice-relay/record-ready",
+                    {"RecordingStatus": "completed", "RecordingSid": RECORDING},
+                )
+                self.assertEqual(ready.status_code, 200, ready.text)
+                self.assertEqual(ready.json()["action"], "queued")
+                self.assertEqual(len(self.sent), 1)
+                self.assertEqual(self.sent[0][0], OWNER)
+                self.assertEqual(self.sent[0][2]["shop_id"], "new-id")
+                link = self.sent[0][1].split("Listen: ", 1)[1]
+                audio = b"paginated-ai-number-voicemail-audio"
+                original_client = httpx.AsyncClient
+
+                def audio_response(request):
+                    self.assertEqual(request.method, "GET")
+                    self.assertIn(RECORDING + ".mp3", str(request.url))
+                    return httpx.Response(
+                        200, headers={"content-type": "audio/mpeg"},
+                        content=audio,
+                    )
+
+                with patch.object(
+                    voice_relay_delivery.httpx, "AsyncClient",
+                    side_effect=lambda **kw: original_client(
+                        transport=httpx.MockTransport(audio_response), **kw,
+                    ),
+                ):
+                    playback = self.client.get(urlsplit(link).path)
+                self.assertEqual(playback.status_code, 200, playback.text)
+                self.assertEqual(playback.content, audio)
+        self.assertEqual(pages, [1, 2, 1, 2])
         with self.factory() as db:
             self.assertEqual(db.get(Shop, "new-id").highlevel_phone_number,
                              AI_NUMBER)
