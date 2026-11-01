@@ -192,6 +192,65 @@ class ProviderTests(unittest.TestCase):
         self.assertTrue(fake.requests)
         self.assertTrue(all(r.method == "GET" for r in fake.requests))
 
+    def test_paged_reserved_inventory_reaches_second_page_without_purchase(self):
+        """The 101st already-owned reserve remains usable for new-shop setup."""
+        reserves = [
+            record(number=f"+1240555{i:04d}", friendly_name="DayTello Relay Reserve")
+            for i in range(100)
+        ]
+        reserves.append(record(friendly_name="DayTello Relay Reserve"))
+        fake = FakeTwilio(reserves)
+        def handle(request):
+            if (request.method == "GET"
+                    and request.url.params.get("FriendlyName") == "DayTello Relay Reserve"):
+                page = request.url.params.get("Page", "0")
+                if page == "0":
+                    return httpx.Response(200, json={
+                        "incoming_phone_numbers": reserves[:100],
+                        "next_page_uri": (
+                            f"/2010-04-01/Accounts/{ACCOUNT}/IncomingPhoneNumbers.json"
+                            "?PageSize=100&Page=1&FriendlyName=DayTello%20Relay%20Reserve"
+                        ),
+                    })
+                self.assertEqual(page, "1")
+                return httpx.Response(200, json={
+                    "incoming_phone_numbers": reserves[100:],
+                    "next_page_uri": None,
+                })
+            return fake.handle(request)
+        client = httpx.Client(transport=httpx.MockTransport(handle))
+        self.addCleanup(client.close)
+        provider = VoiceRelayNumberProvider(client=client)
+        numbers = provider.list_reserved_relay_numbers()
+        self.assertEqual(len(numbers), 101)
+        self.assertIn(NUMBER, numbers)
+        verified = provider.purchase_approved_number(SHOP, NUMBER, approved=False)
+        self.assertEqual(verified["number"], NUMBER)
+        self.assertTrue(verified["route_verified"])
+        self.assertTrue(all(r.method == "GET" for r in fake.requests))
+
+    def test_broken_inventory_cursor_blocks_relay_purchase(self):
+        """A missing later page cannot be mistaken for an unowned DID."""
+        fake = FakeTwilio()
+        def handle(request):
+            if (request.method == "GET"
+                    and request.url.params.get("FriendlyName") == relay_shop_label(SHOP)):
+                return httpx.Response(200, json={
+                    "incoming_phone_numbers": [],
+                    "next_page_uri": (
+                        f"/2010-04-01/Accounts/{ACCOUNT}/IncomingPhoneNumbers.json"
+                        "?PageSize=100&Page=1"
+                    ),
+                })
+            return fake.handle(request)
+        client = httpx.Client(transport=httpx.MockTransport(handle))
+        self.addCleanup(client.close)
+        provider = VoiceRelayNumberProvider(client=client)
+        with self.assertRaises(HTTPException) as error:
+            provider.purchase_approved_number(SHOP, NUMBER, approved=True)
+        self.assertEqual(error.exception.status_code, 409)
+        self.assertTrue(all(r.method == "GET" for r in fake.requests))
+
     def test_preowned_reserve_rejects_wrong_label_or_route(self):
         with patch.dict(os.environ, {
             "DAYTELLO_VOICE_RELAY_PREOWNED_NUMBER_POOL": '["'+NUMBER+'"]',
