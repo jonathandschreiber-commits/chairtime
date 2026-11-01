@@ -526,6 +526,11 @@ class NewShopIntegrationTests(unittest.TestCase):
 
     def test_selected_ai_number_to_missed_call_sms_and_playable_link(self):
         with (
+            # Stan/Bob may still use the original HighLevel voicemail host.
+            # New-shop relay links must use the Twilio callback/playback host.
+            patch.dict(os.environ, {
+                "DAYTELLO_VOICEMAIL_TEST_PUBLIC_ORIGIN": "https://legacy.example.test",
+            }),
             patch.object(ai_setup, "get_location_phone_numbers",
                          return_value=(None, [{"phoneNumber": AI_NUMBER}])),
             patch.object(ai_setup, "route_phone_number_to_shop_agent",
