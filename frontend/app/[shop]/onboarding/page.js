@@ -294,6 +294,35 @@ export default function OnboardingPage() {
           throw new Error("Please sign in to this shop’s account before continuing AI setup.");
         }
         setAiProvisionStatus(data);
+        // A previously approved owner number may have been saved before
+        // HighLevel finished routing the customer-selected AI number.
+        // Resume it once via an authenticated POST. Merely polling status
+        // must never change the provider's transfer configuration.
+        if (
+          process.env.NEXT_PUBLIC_DAYTELLO_UNIFIED_VOICEMAIL_SETUP === "true" &&
+          data.phone_routed && data.voicemail_pending_owner_setup
+        ) {
+          const resumed = await fetch("/api/ai-setup/voicemail-onboarding/resume", {
+            method: "POST",
+            headers: { Accept: "application/json" },
+            cache: "no-store",
+          });
+          const resumeResult = await resumed.json().catch(() => ({}));
+          if (!resumed.ok) {
+            throw new Error(
+              resumeResult.detail || "Could not finish your saved voicemail setup."
+            );
+          }
+          if (resumeResult.shop_slug !== shopSlug ||
+              resumeResult.voicemail_setup_activated !== true) {
+            throw new Error("Voicemail setup was not confirmed for this shop.");
+          }
+          setAiProvisionStatus({
+            ...data,
+            voicemail_pending_owner_setup: false,
+            voicemail_setup_activated: true,
+          });
+        }
       } catch (error) {
         console.error(error);
  
