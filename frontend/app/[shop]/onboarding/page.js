@@ -10,6 +10,7 @@ import {
 import { useParams, useRouter } from "next/navigation";
 import styles from "./onboarding.module.css";
 import OwnerPhoneVerification from "../admin/ai-receptionist/OwnerPhoneVerification";
+import { isVoicemailConfigurationSaved } from "../../../lib/voicemail-onboarding-state.mjs";
  
 const API_BASE =
   "https://chairtime-production-94da.up.railway.app";
@@ -5059,7 +5060,7 @@ function AiCallVoicemailSetup({ shopSlug, onReadyChange }) {
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.detail || "Cannot check phone setup.");
       if (!active) return;
-      const saved = Boolean(result.setup_complete && result.phone_number);
+      const saved = isVoicemailConfigurationSaved(result);
       setNumber(result.phone_number || "");
       setReady(saved);
       onReadyChange(saved);
@@ -5091,11 +5092,11 @@ function AiCallVoicemailSetup({ shopSlug, onReadyChange }) {
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.detail || "Could not save the phone number.");
       setNumber(result.phone_number);
-      const complete = Boolean(result.setup_complete);
+      const complete = isVoicemailConfigurationSaved(result);
       setReady(complete);
       onReadyChange(complete);
       if (!complete) {
-        setError("Voicemail SMS is configured, but forwarding to your phone and unanswered-call fallback are not yet verified. DayTello setup is not complete.");
+        setError(result.message || "Phone saved. Call forwarding and voicemail SMS are still pending.");
       }
     } catch (err) {
       setError(err.message || "Phone setup failed.");
@@ -5136,11 +5137,13 @@ function AiCallVoicemailSetup({ shopSlug, onReadyChange }) {
         the code above before saving the number. Verification is not a live call test.
       </p>
       {ready && <p role="status" style={{ color: "#047857", marginTop: "12px" }}>
-        Phone number saved for transfers and voicemail notifications.
+        DayTello forwarding and voicemail configuration saved. A live call test
+        is still required before using this number with customers.
       </p>}
       {error && <p role="alert" style={{ color: "#991b1b", marginTop: "12px" }}>{error}</p>}
       {!ready && !error && !loading && <p style={{ color: "#64748b", marginTop: "12px" }}>
-        Setup is complete only after call forwarding and voicemail fallback are verified.
+        Save your phone to configure forwarding and voicemail. A live call
+        test is required before using this number with customers.
       </p>}
     </div>
   );

@@ -431,7 +431,10 @@ class UnifiedPhoneTests(unittest.TestCase):
             db.get(Shop, "s1").highlevel_phone_number = "+12025550126"
             db.commit()
         with (
-            patch.dict(os.environ, {"DAYTELLO_VOICE_RELAY_ALLOW_TEST_CALLS": "true"}),
+            patch.dict(os.environ, {
+                "DAYTELLO_VOICE_RELAY_ALLOW_TEST_CALLS": "true",
+                "DAYTELLO_VOICE_RELAY_TEST_ONLY": "true",
+            }),
             patch.object(route, "VoiceRelayNumberProvider") as provider,
             patch.object(route, "daytello_save_staff_transfer",
                          return_value={
@@ -445,7 +448,26 @@ class UnifiedPhoneTests(unittest.TestCase):
                 self.url, json={"phone_number": "+12025550199"})
         self.assertEqual(result.status_code, 200, result.text)
         self.assertTrue(result.json()["test_relay_enabled_for_calls"])
+        self.assertTrue(result.json()["configuration_complete"])
+        self.assertTrue(result.json()["live_call_test_required"])
         self.assertFalse(result.json()["ready"])
+        self.assertFalse(result.json()["setup_complete"])
+        # Reloading the owner page must preserve the configured checkpoint,
+        # but neither a reload nor local CI proves a real call succeeded.
+        with patch.dict(os.environ, {
+            "DAYTELLO_VOICE_RELAY_TEST_ONLY": "true",
+            "DAYTELLO_VOICE_RELAY_ALLOW_TEST_CALLS": "true",
+        }):
+            saved = self.client.get(self.url)
+            self.assertEqual(saved.status_code, 200)
+            self.assertTrue(saved.json()["configuration_complete"])
+            self.assertFalse(saved.json()["ready"])
+        with patch.dict(os.environ, {
+            "DAYTELLO_VOICE_RELAY_TEST_ONLY": "true",
+            "DAYTELLO_VOICE_RELAY_ALLOW_TEST_CALLS": "false",
+        }):
+            paused = self.client.get(self.url)
+            self.assertFalse(paused.json()["configuration_complete"])
         transfer.assert_called_once()
         with self.factory() as db:
             self.assertTrue(db.get(DayTelloVoiceRelayAssignment, "s1").enabled)

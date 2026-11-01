@@ -120,7 +120,20 @@ def _sms_configuration_complete(shop: Shop, settings: DayTelloVoicemailShopSetti
 
 
 def public_status(shop: Shop, settings: DayTelloVoicemailShopSettings | None, db=None):
+    # This is a local onboarding checkpoint, not evidence of a completed
+    # provider-backed call. Only an enabled, shop-bound relay with an
+    # approved SMS recipient may let the owner proceed to review.
+    relay = db.get(DayTelloVoiceRelayAssignment, shop.id) if db is not None else None
+    configuration_complete = bool(
+        relay and relay.enabled and settings
+        and relay.relay_number == settings.receiving_number
+        and os.getenv("DAYTELLO_VOICE_RELAY_TEST_ONLY") == "true"
+        and os.getenv("DAYTELLO_VOICE_RELAY_ALLOW_TEST_CALLS") == "true"
+        and _sms_configuration_complete(shop, settings, db)
+    )
     return {
+        "configuration_complete": configuration_complete,
+        "live_call_test_required": True,
         "shop_slug": shop.slug,
         # A saved settings row only proves a partial setup. Forwarding and
         # unanswered-call fallback are not provider-verified, so never expose
