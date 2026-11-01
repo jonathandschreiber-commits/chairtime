@@ -5306,7 +5306,6 @@ def purchase_shop_ai_phone_number(
             phone_record=existing_phone,
             purchased_this_request=False,
             purchase_result=None,
-            current_user=current_user,
         )
  
     (
@@ -5406,7 +5405,6 @@ def purchase_shop_ai_phone_number(
             phone_record=purchased_phone,
             purchased_this_request=True,
             purchase_result=purchase_data,
-            current_user=current_user,
         )
  
     # A server-side HighLevel error can be ambiguous.
@@ -5433,7 +5431,6 @@ def purchase_shop_ai_phone_number(
                 phone_record=purchased_phone,
                 purchased_this_request=True,
                 purchase_result=None,
-                current_user=current_user,
             )
  
         raise HTTPException(
