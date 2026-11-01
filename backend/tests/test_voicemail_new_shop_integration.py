@@ -1331,6 +1331,22 @@ class NewShopIntegrationTests(unittest.TestCase):
                 )
                 self.assertEqual(inbound.status_code, 200, inbound.text)
                 self.assertIn(OWNER, inbound.text)
+                # The owner's carrier voicemail may answer, but it cannot
+                # press 1. Twilio must not bridge that leg to the caller.
+                child = "CA" + "d" * 32
+                screened = self._signed_callback(
+                    "/api/daytello/voice-relay/owner-screen?parent=" + CALL,
+                    {"CallSid": child, "ParentCallSid": CALL, "To": OWNER},
+                )
+                self.assertEqual(screened.status_code, 200, screened.text)
+                self.assertIn("Press 1", screened.text)
+                declined = self._signed_callback(
+                    "/api/daytello/voice-relay/owner-accept?parent=" + CALL,
+                    {"CallSid": child, "ParentCallSid": CALL,
+                     "To": OWNER, "Digits": "9"},
+                )
+                self.assertEqual(declined.status_code, 200, declined.text)
+                self.assertIn("Hangup", declined.text)
                 missed = self._signed_callback(
                     "/api/daytello/voice-relay/dial-finished",
                     {"DialCallStatus": "completed", "DialBridged": "false"},
