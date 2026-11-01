@@ -51,4 +51,4 @@ jobs:
         with:
           node-version: '22'
       - name: Test phone normalization and verification destination validation
-        run: node --test frontend/tests/owner-phone.test.mjs
+        run: node --test frontend/tests/*.test.mjs
