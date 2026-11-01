@@ -1564,5 +1564,145 @@ class NewShopIntegrationTests(unittest.TestCase):
             already_owned=False,
         )
 
+
+    def test_real_provider_inventory_contract_to_relay_recording_and_sms(self):
+        """Use the real Twilio inventory adapter, not a stubbed find_existing.
+
+        HighLevel, SMS, and audio network calls remain offline mocks. The
+        provider adapter must discover a labeled reserve, read back its exact
+        webhook, claim it without a chargeable POST, and complete the new-shop
+        owner transfer -> voicemail -> SMS -> playable recording sequence.
+        """
+        from app.voice_relay_provider import (
+            VoiceRelayNumberProvider, RESERVE_LABEL, relay_shop_label,
+        )
+        from app.routes import reminders
+
+        provider_requests = []
+        record = {
+            "sid": "PN" + "e" * 32,
+            "account_sid": ACCOUNT,
+            "phone_number": RELAY,
+            "friendly_name": RESERVE_LABEL,
+            "voice_url": "https://relay.example.test/api/daytello/voice-relay/inbound",
+            "voice_method": "POST",
+            "voice_application_sid": None,
+            "trunk_sid": None,
+            "capabilities": {"voice": True, "sms": False},
+            "status": "in-use",
+        }
+
+        def provider_inventory(request):
+            provider_requests.append(request)
+            self.assertEqual(request.method, "GET",
+                             "Reserve adoption must never purchase or update a DID")
+            self.assertIn("/IncomingPhoneNumbers.json", str(request.url))
+            label = request.url.params.get("FriendlyName")
+            number = request.url.params.get("PhoneNumber")
+            if label == RESERVE_LABEL or number == RELAY:
+                matches = [record]
+            elif label == relay_shop_label("new-id"):
+                matches = []
+            else:
+                self.fail("Unexpected provider inventory request: " + str(request.url))
+            return httpx.Response(200, json={
+                "incoming_phone_numbers": matches,
+                "next_page_uri": None,
+            })
+
+        routed = {"phoneNumber": AI_NUMBER, "friendlyName": "New Shop AI"}
+        transport = httpx.MockTransport(provider_inventory)
+        provider = VoiceRelayNumberProvider(client=httpx.Client(transport=transport))
+        with (
+            patch.object(ai_setup, "get_location_phone_numbers",
+                         return_value=(None, [routed])),
+            patch.object(ai_setup, "route_phone_number_to_shop_agent",
+                         return_value=routed),
+            patch.object(ai_setup, "get_agent_detail", side_effect=self._get_agent),
+            patch.object(ai_setup, "highlevel_raw_request", side_effect=self._save_action),
+            patch.object(ai_setup, "purchase_one_highlevel_phone_number",
+                         side_effect=AssertionError("AI number was already owned")),
+            patch.object(voicemail_contact_number, "VoiceRelayNumberProvider",
+                         return_value=provider),
+            patch.object(voice_relay_delivery, "SessionLocal", self.factory),
+            patch.object(voice_relay_delivery, "send_highlevel_sms",
+                         side_effect=self._capture_sms),
+        ):
+            self._activate_customer_selected_ai_number()
+            with self.factory() as db:
+                relay = db.get(DayTelloVoiceRelayAssignment, "new-id")
+                self.assertIsNotNone(relay)
+                self.assertEqual(relay.relay_number, RELAY)
+                self.assertFalse(relay.enabled)
+
+            saved = self.client.put(
+                "/api/shops/new-shop/call-voicemail-number",
+                json={"phone_number": OWNER},
+            )
+            self.assertEqual(saved.status_code, 200, saved.text)
+            self.assertTrue(saved.json()["configuration_complete"])
+            self.assertEqual(
+                self.agent_action["actionParameters"]["transferToValue"], RELAY,
+            )
+
+            inbound = self._signed_callback(
+                "/api/daytello/voice-relay/inbound", {"To": RELAY},
+            )
+            self.assertEqual(inbound.status_code, 200, inbound.text)
+            self.assertIn(OWNER, inbound.text)
+            self.assertIn('callerId="' + RELAY + '"', inbound.text)
+            missed = self._signed_callback(
+                "/api/daytello/voice-relay/dial-finished",
+                {"DialCallStatus": "no-answer", "DialBridged": "false"},
+            )
+            self.assertEqual(missed.status_code, 200, missed.text)
+            self.assertIn("<Record", missed.text)
+            ready = self._signed_callback(
+                "/api/daytello/voice-relay/record-ready",
+                {"RecordingStatus": "completed", "RecordingSid": RECORDING},
+            )
+            self.assertEqual(ready.status_code, 200, ready.text)
+            self.assertEqual(ready.json()["action"], "queued")
+            self.assertEqual(len(self.sent), 1)
+            self.assertEqual(self.sent[0][0], OWNER)
+            self.assertEqual(self.sent[0][2]["shop_id"], "new-id")
+
+            link = self.sent[0][1].split("Listen: ", 1)[1]
+            audio = b"offline-provider-contract-audio"
+            original_client = httpx.AsyncClient
+
+            def recording_response(request):
+                self.assertEqual(request.method, "GET")
+                self.assertIn(RECORDING + ".mp3", str(request.url))
+                self.assertTrue(request.headers.get("authorization", "").startswith("Basic "))
+                return httpx.Response(
+                    200, headers={"content-type": "audio/mpeg"}, content=audio,
+                )
+
+            with patch.object(
+                voice_relay_delivery.httpx, "AsyncClient",
+                side_effect=lambda **kw: original_client(
+                    transport=httpx.MockTransport(recording_response), **kw,
+                ),
+            ):
+                playback = self.client.get(urlsplit(link).path)
+            self.assertEqual(playback.status_code, 200, playback.text)
+            self.assertEqual(playback.content, audio)
+            self.assertGreater(len(provider_requests), 0)
+            self.assertTrue(any(
+                request.url.params.get("FriendlyName") == RESERVE_LABEL
+                for request in provider_requests
+            ))
+            self.assertTrue(any(
+                request.url.params.get("PhoneNumber") == RELAY
+                for request in provider_requests
+            ))
+            with self.factory() as db:
+                self.assertEqual(
+                    db.get(DayTelloVoicemailShopSettings, "stan-id").owner_phone,
+                    "+12405550133",
+                )
+
+
 if __name__ == "__main__":
     unittest.main()
