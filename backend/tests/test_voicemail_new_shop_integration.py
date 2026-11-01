@@ -1434,14 +1434,29 @@ class NewShopIntegrationTests(unittest.TestCase):
                         shop, db,
                     )
                 )
-            with patch.dict(os.environ, {"DAYTELLO_VOICE_RELAY_ALLOW_TEST_CALLS": "false"}):
+            # One path already has isolated test-call authorization; the
+            # other must wait for it. Neither may activate forwarding before
+            # the customer-selected HighLevel AI number exists.
+            with patch.dict(os.environ, {
+                "DAYTELLO_VOICE_RELAY_ALLOW_TEST_CALLS":
+                    "true" if already_owned else "false",
+            }):
                 saved = self.client.put(
                     "/api/shops/new-shop/call-voicemail-number",
                     json={"phone_number": OWNER},
                 )
                 self.assertEqual(saved.status_code, 200, saved.text)
-                self.assertTrue(saved.json()["pending_test_authorization"])
+                self.assertEqual(
+                    saved.json()["pending_test_authorization"], not already_owned
+                )
+                self.assertTrue(saved.json()["pending_ai_number"])
                 self.assertIsNone(self.agent_action)
+                with self.factory() as db:
+                    relay = db.get(DayTelloVoiceRelayAssignment, "new-id")
+                    settings = db.get(DayTelloVoicemailShopSettings, "new-id")
+                    self.assertFalse(relay.enabled)
+                    self.assertFalse(settings.notifications_enabled)
+                    self.assertEqual(settings.owner_phone, OWNER)
 
             # Simulated isolated test authorization is now enabled. The
             # owner's original number selection should finish onboarding
