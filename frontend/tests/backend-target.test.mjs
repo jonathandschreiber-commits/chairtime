@@ -72,3 +72,16 @@ test("new-shop onboarding offers existing SMS code verification before owner Sav
     "Verification must be part of the unified onboarding form, not a separate admin page",
   );
 });
+
+test("AI preview backend checks are deferred until a request, not evaluated during build", () => {
+  const root = fileURLToPath(new URL("../app/api/ai-setup/", import.meta.url));
+  for (const path of [
+    "phone-number/purchase/route.js", "phone-numbers/available/route.js",
+    "staff-transfer/route.js", "working-action/route.js",
+  ]) {
+    const source = readFileSync(root + path, "utf8");
+    assert.doesNotMatch(source, /^const (BACKEND_URL|API_BASE) = serverApiBase\(\);/m,
+      path + " must not resolve the test backend at module import time");
+    assert.match(source, /serverApiBase\(/, path + " must still verify the backend at request time");
+  }
+});
