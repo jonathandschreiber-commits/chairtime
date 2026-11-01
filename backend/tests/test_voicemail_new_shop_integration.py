@@ -427,6 +427,102 @@ class NewShopIntegrationTests(unittest.TestCase):
             self.assertEqual(self.sent[0][2]["shop_id"], "new-id")
             self.assertIn("Listen: https://relay.example.test/", self.sent[0][1])
 
+    def test_returning_owner_resumes_approved_route_from_status_to_sms(self):
+        """A status GET reports pending; a preview POST completes saved consent.
+
+        The owner does not reselect the HighLevel number, click Sync, or
+        save the transfer phone a second time. No number is purchased.
+        """
+        routed = {"phoneNumber": AI_NUMBER, "friendlyName": "New Shop AI"}
+        with (
+            patch.object(ai_setup, "get_location_phone_numbers",
+                         return_value=(None, [routed])),
+            patch.object(ai_setup, "route_phone_number_to_shop_agent",
+                         return_value=routed),
+            patch.object(ai_setup, "get_shop_routed_phone_record",
+                         return_value=(None, [routed], routed)),
+            patch.object(ai_setup, "get_agent_detail", side_effect=self._get_agent),
+            patch.object(ai_setup, "highlevel_raw_request", side_effect=self._save_action),
+            patch.object(ai_setup, "purchase_one_highlevel_phone_number",
+                         side_effect=AssertionError("Unexpected AI number purchase")),
+            patch.object(voicemail_contact_number, "VoiceRelayNumberProvider",
+                         return_value=self._provider()),
+            patch.object(voice_relay_delivery, "SessionLocal", self.factory),
+            patch.object(voice_relay_delivery, "send_highlevel_sms",
+                         side_effect=self._capture_sms),
+        ):
+            self._activate_customer_selected_ai_number()
+            # A status poll alone must never modify the HighLevel transfer.
+            with self.factory() as db:
+                pending = db.get(DayTelloVoicemailShopSettings, "new-id")
+                pending.owner_phone = OWNER
+                pending.notifications_enabled = False
+                db.commit()
+            status = self.client.get("/api/ai-setup/provision/status")
+            self.assertEqual(status.status_code, 200, status.text)
+            self.assertTrue(status.json()["voicemail_pending_owner_setup"])
+            self.assertIsNone(self.agent_action)
+
+            resumed = self.client.post("/api/ai-setup/voicemail-onboarding/resume")
+            self.assertEqual(resumed.status_code, 200, resumed.text)
+            self.assertTrue(resumed.json()["voicemail_setup_activated"])
+            self.assertFalse(resumed.json()["ready_for_customer_calls"])
+            self.assertEqual(resumed.json()["shop_slug"], "new-shop")
+            self.assertEqual(
+                self.agent_action["actionParameters"]["transferToValue"], RELAY)
+            with self.factory() as db:
+                self.assertTrue(db.get(DayTelloVoiceRelayAssignment, "new-id").enabled)
+                self.assertTrue(
+                    db.get(DayTelloVoicemailShopSettings, "new-id").notifications_enabled)
+                self.assertEqual(
+                    db.get(DayTelloVoicemailShopSettings, "stan-id").owner_phone,
+                    "+12405550133")
+            repeat = self.client.post("/api/ai-setup/voicemail-onboarding/resume")
+            self.assertEqual(repeat.status_code, 409)
+            inbound = self._signed_callback(
+                "/api/daytello/voice-relay/inbound", {"To": RELAY})
+            self.assertEqual(inbound.status_code, 200, inbound.text)
+            self.assertIn(OWNER, inbound.text)
+            self.assertIn("owner-screen", inbound.text)
+            missed = self._signed_callback(
+                "/api/daytello/voice-relay/dial-finished",
+                {"DialCallStatus": "no-answer"})
+            self.assertEqual(missed.status_code, 200, missed.text)
+            self.assertIn("<Record", missed.text)
+            ready = self._signed_callback(
+                "/api/daytello/voice-relay/record-ready",
+                {"RecordingStatus": "completed", "RecordingSid": RECORDING})
+            self.assertEqual(ready.status_code, 200, ready.text)
+            self.assertEqual(ready.json()["action"], "queued")
+            self.assertEqual(len(self.sent), 1)
+            self.assertEqual(self.sent[0][0], OWNER)
+            self.assertEqual(self.sent[0][2]["shop_id"], "new-id")
+            link = self.sent[0][1].split("Listen: ", 1)[1]
+            original_client = httpx.AsyncClient
+            audio = b"offline-resumed-voicemail"
+            def audio_response(request):
+                self.assertIn(RECORDING + ".mp3", str(request.url))
+                return httpx.Response(
+                    200, headers={"content-type": "audio/mpeg"}, content=audio)
+            with patch.object(
+                voice_relay_delivery.httpx, "AsyncClient",
+                side_effect=lambda **kw: original_client(
+                    transport=httpx.MockTransport(audio_response), **kw),
+            ):
+                playback = self.client.get(urlsplit(link).path)
+            self.assertEqual(playback.status_code, 200, playback.text)
+            self.assertEqual(playback.content, audio)
+
+    def test_resume_without_owner_approval_does_not_change_provider(self):
+        with (
+            patch.object(ai_setup, "get_shop_routed_phone_record",
+                         side_effect=AssertionError("No approved route to resume")),
+            patch.object(ai_setup, "highlevel_raw_request",
+                         side_effect=AssertionError("No HighLevel mutation allowed")),
+        ):
+            result = self.client.post("/api/ai-setup/voicemail-onboarding/resume")
+            self.assertEqual(result.status_code, 409)
+
     def test_selected_ai_number_to_missed_call_sms_and_playable_link(self):
         with (
             patch.object(ai_setup, "get_location_phone_numbers",
