@@ -4,7 +4,6 @@ import { clientApiBase } from "@/lib/client-api-base";
 
 import { useEffect, useMemo, useState } from "react";
 
-const API_BASE = clientApiBase();
 
 const WEEKDAY_NAMES = {
   0: "Monday",
@@ -56,10 +55,10 @@ export default function SetupPage() {
     try {
       const [barbersRes, servicesRes, blockedRes, availabilityRes] =
         await Promise.all([
-          fetch(`${API_BASE}/api/barbers`),
-          fetch(`${API_BASE}/api/services`),
-          fetch(`${API_BASE}/api/blocked-times`),
-          fetch(`${API_BASE}/api/availability-rules`),
+          fetch(`${clientApiBase()}/api/barbers`),
+          fetch(`${clientApiBase()}/api/services`),
+          fetch(`${clientApiBase()}/api/blocked-times`),
+          fetch(`${clientApiBase()}/api/availability-rules`),
         ]);
 
       const barbersData = await barbersRes.json();
@@ -120,7 +119,7 @@ export default function SetupPage() {
       return;
     }
 
-    const response = await fetch(`${API_BASE}/api/services`, {
+    const response = await fetch(`${clientApiBase()}/api/services`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -146,7 +145,7 @@ export default function SetupPage() {
   }
 
   async function deleteService(id) {
-    const response = await fetch(`${API_BASE}/api/services/${id}`, {
+    const response = await fetch(`${clientApiBase()}/api/services/${id}`, {
       method: "DELETE",
     });
 
@@ -175,7 +174,7 @@ export default function SetupPage() {
       return;
     }
 
-    const response = await fetch(`${API_BASE}/api/availability-rules`, {
+    const response = await fetch(`${clientApiBase()}/api/availability-rules`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -199,7 +198,7 @@ export default function SetupPage() {
 
   async function deleteAvailabilityRule(id) {
     const response = await fetch(
-      `${API_BASE}/api/availability-rules/${id}`,
+      `${clientApiBase()}/api/availability-rules/${id}`,
       {
         method: "DELETE",
       }
@@ -225,7 +224,7 @@ export default function SetupPage() {
       return;
     }
 
-    const response = await fetch(`${API_BASE}/api/blocked-times`, {
+    const response = await fetch(`${clientApiBase()}/api/blocked-times`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -255,7 +254,7 @@ export default function SetupPage() {
       return;
     }
 
-    const response = await fetch(`${API_BASE}/api/blocked-times`, {
+    const response = await fetch(`${clientApiBase()}/api/blocked-times`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -278,7 +277,7 @@ export default function SetupPage() {
   }
 
   async function deleteBlockedTime(id) {
-    const response = await fetch(`${API_BASE}/api/blocked-times/${id}`, {
+    const response = await fetch(`${clientApiBase()}/api/blocked-times/${id}`, {
       method: "DELETE",
     });
 
