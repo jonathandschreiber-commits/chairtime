@@ -5052,7 +5052,7 @@ function AiCallVoicemailSetup({ shopSlug, aiPhoneNumber, onReadyChange }) {
   const [number, setNumber] = useState("");
   const [relayNumber, setRelayNumber] = useState("");
   const [relayAreaCode, setRelayAreaCode] = useState(() => {
-    const digits = String(aiPhoneNumber || "").replace(/\\D/g, "");
+    const digits = String(aiPhoneNumber || "").replace(/\D/g, "");
     return digits.length === 11 && digits[0] === "1" ? digits.slice(1, 4) : "";
   });
   const [authorizeRelayPurchase, setAuthorizeRelayPurchase] = useState(false);
@@ -5146,7 +5146,7 @@ function AiCallVoicemailSetup({ shopSlug, aiPhoneNumber, onReadyChange }) {
       setAuthorizeRelayPurchase(false);
       // Complete the owner's already-entered destination in this same flow.
       // A verified DID alone does not activate transfers or SMS.
-      const digits = number.replace(/\\D/g, "");
+      const digits = number.replace(/\D/g, "");
       if (digits.length === 10 || (digits.length === 11 && digits[0] === "1")) {
         await saveOwnerNumber();
       } else {
@@ -5202,7 +5202,7 @@ function AiCallVoicemailSetup({ shopSlug, aiPhoneNumber, onReadyChange }) {
           <label htmlFor="ai-relay-area-code">Voicemail number area code</label>
           <input id="ai-relay-area-code" inputMode="numeric" maxLength={3}
                  value={relayAreaCode}
-                 onChange={event => setRelayAreaCode(event.target.value.replace(/\\D/g, "").slice(0, 3))}
+                 onChange={event => setRelayAreaCode(event.target.value.replace(/\D/g, "").slice(0, 3))}
                  style={{ display: "block", width: "110px", padding: "10px",
                           margin: "6px 0 12px", border: "1px solid #cbd5e1",
                           borderRadius: "8px" }} />
