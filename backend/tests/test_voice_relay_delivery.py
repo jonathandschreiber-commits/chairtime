@@ -215,7 +215,7 @@ class SignedRecordingDeliveryTests(unittest.TestCase):
         self.assertEqual(second.status_code, 200, second.text)
         self.assertEqual(second.json()["action"], "duplicate")
         self.assertEqual(self.notifications, [RECORDING, RECORDING])
-        with patch("app.voice_relay_delivery.SessionLocal", return_value=self.db), \\
+        with patch("app.voice_relay_delivery.SessionLocal", return_value=self.db), \
              patch("app.voice_relay_delivery.send_highlevel_sms",
                    return_value={"success": True}) as send_sms:
             send_relay_owner_alert(RECORDING)
