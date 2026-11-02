@@ -4,7 +4,6 @@ import { NextResponse } from "next/server";
 
 const COOKIE_NAME = "chairtime_token";
 
-const API_URL = serverApiBase();
 
 async function readJson(response) {
   try {
@@ -36,7 +35,7 @@ export async function GET() {
 
   try {
     const backendResponse = await fetch(
-      `${API_URL}/api/admin/blocked-times`,
+      `${serverApiBase()}/api/admin/blocked-times`,
       {
         method: "GET",
         headers: {
@@ -140,7 +139,7 @@ export async function POST(request) {
 
   try {
     const backendResponse = await fetch(
-      `${API_URL}/api/admin/blocked-times`,
+      `${serverApiBase()}/api/admin/blocked-times`,
       {
         method: "POST",
         headers: {
