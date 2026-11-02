@@ -200,17 +200,35 @@ class SignedRecordingDeliveryTests(unittest.TestCase):
             {"RecordingStatus": "completed", "RecordingSid": RECORDING, **extra},
         )
 
-    def test_completed_recording_without_to_queues_exactly_one_sms(self):
+    def test_completed_callback_retry_recovers_queued_sms_without_double_delivery(self):
         self.inbound()
         first = self.recording()
         self.assertEqual(first.status_code, 200, first.text)
         self.assertEqual(first.json()["action"], "queued")
         self.assertEqual(self.notifications, [RECORDING])
         self.assertEqual(self.db.recordings[RECORDING].shop_id, "third-shop-id")
+
+        # Simulate a callback retry while the first in-process background
+        # task has been lost. Both dispatches may run, but only one can
+        # claim the durable receipt and submit an SMS to HighLevel.
         second = self.recording()
         self.assertEqual(second.status_code, 200, second.text)
         self.assertEqual(second.json()["action"], "duplicate")
-        self.assertEqual(self.notifications, [RECORDING])
+        self.assertEqual(self.notifications, [RECORDING, RECORDING])
+        with patch("app.voice_relay_delivery.SessionLocal", return_value=self.db), \\
+             patch("app.voice_relay_delivery.send_highlevel_sms",
+                   return_value={"success": True}) as send_sms:
+            send_relay_owner_alert(RECORDING)
+            send_relay_owner_alert(RECORDING)
+        send_sms.assert_called_once()
+        self.assertEqual(self.db.recordings[RECORDING].notification_status, "sent")
+
+        # Once sent, subsequent provider callback retries must not queue
+        # another dispatch or generate another owner notification.
+        third = self.recording()
+        self.assertEqual(third.status_code, 200, third.text)
+        self.assertEqual(third.json()["action"], "duplicate")
+        self.assertEqual(self.notifications, [RECORDING, RECORDING])
 
     def test_recording_without_signed_inbound_is_rejected(self):
         response = self.recording()

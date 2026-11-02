@@ -162,7 +162,13 @@ def accept_completed_recording(db, fields, binding, settings):
         if (existing and existing.shop_id == call.shop_id and
                 existing.call_sid == call.call_sid and
                 existing.account_sid == account_sid):
-            return "duplicate", None
+            # Twilio may retry a completed callback after the original
+            # background task was lost. Dispatch again only while the
+            # receipt remains queued. The worker's atomic queued -> sending
+            # claim guarantees that concurrent dispatches produce one SMS.
+            return "duplicate", (
+                recording_sid if existing.notification_status == "queued" else None
+            )
         raise HTTPException(409, "Recording belongs to a different call")
     return ("queued" if recipient else "disabled"), recording_sid if recipient else None
 
