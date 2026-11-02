@@ -1540,9 +1540,12 @@ class NewShopIntegrationTests(unittest.TestCase):
         def purchase_relay(shop_id, number, *, approved=False):
             self.assertEqual(shop_id, "new-id")
             self.assertEqual(number, RELAY)
-            self.assertTrue(approved)
-            owned["value"] = True
-            owned["purchases"] += 1
+            if approved:
+                self.assertFalse(owned["value"], "A second purchase is not allowed")
+                owned["value"] = True
+                owned["purchases"] += 1
+            else:
+                self.assertTrue(owned["value"], "Unapproved recovery requires existing DID")
             return verified
 
         provider = SimpleNamespace(
