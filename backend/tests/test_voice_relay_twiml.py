@@ -60,6 +60,13 @@ class RelayTwiMLTests(unittest.TestCase):
             "https://example.test/record-ready", dial_bridged="false",
         ))
         self.assertIsNotNone(unbridged.find("Record"))
+        # The provider may omit DialBridged entirely. That must behave like
+        # an unbridged carrier-voicemail answer, not a completed human call.
+        missing = ET.fromstring(after_employee_dial(
+            "completed", "https://example.test/record-finished",
+            "https://example.test/record-ready",
+        ))
+        self.assertIsNotNone(missing.find("Record"))
         human = ET.fromstring(after_employee_dial(
             "completed", "https://example.test/record-finished",
             "https://example.test/record-ready", dial_bridged="true",
@@ -105,7 +112,7 @@ class RelayTwiMLTests(unittest.TestCase):
     def test_answered_employee_call_never_goes_to_voicemail(self):
         result = ET.fromstring(after_employee_dial(
             "completed", "https://example.test/record-finished",
-            "https://example.test/record-ready",
+            "https://example.test/record-ready", dial_bridged="true",
         ))
         self.assertIsNone(result.find("Record"))
         self.assertIsNotNone(result.find("Hangup"))
