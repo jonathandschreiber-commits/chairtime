@@ -5,7 +5,6 @@ import { clientApiBase } from "@/lib/client-api-base";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
-const API_BASE = clientApiBase();
 
 const STATUS_LABELS = {
   confirmed: "Confirmed",
@@ -33,9 +32,9 @@ export default function AgendaPage() {
 
   async function loadData() {
     const [appointmentsRes, barbersRes, servicesRes] = await Promise.all([
-      fetch(API_BASE + "/api/appointments"),
-      fetch(API_BASE + "/api/barbers"),
-      fetch(API_BASE + "/api/services"),
+      fetch(clientApiBase() + "/api/appointments"),
+      fetch(clientApiBase() + "/api/barbers"),
+      fetch(clientApiBase() + "/api/services"),
     ]);
 
     setAppointments(await appointmentsRes.json());
@@ -72,7 +71,7 @@ export default function AgendaPage() {
 
   async function updateStatus(appointmentId, status) {
     const response = await fetch(
-      API_BASE +
+      clientApiBase() +
         "/api/appointments/" +
         appointmentId +
         "/status?status=" +
