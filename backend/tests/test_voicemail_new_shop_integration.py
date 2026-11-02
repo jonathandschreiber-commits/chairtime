@@ -1003,6 +1003,93 @@ class NewShopIntegrationTests(unittest.TestCase):
             result = self.client.post("/api/ai-setup/voicemail-onboarding/resume")
             self.assertEqual(result.status_code, 409)
 
+    def test_confirmed_owner_bridge_skips_voicemail_but_next_missed_call_sends_sms(self):
+        """Signed Twilio bridge confirmation distinguishes an answered transfer
+        from the next unanswered call to the same newly onboarded shop.
+        All HighLevel/Twilio/SMS providers are mocked; Stan is unchanged.
+        """
+        routed = {"phoneNumber": AI_NUMBER, "friendlyName": "New Shop AI"}
+        with (
+            patch.object(ai_setup, "get_location_phone_numbers",
+                         return_value=(None, [routed])),
+            patch.object(ai_setup, "route_phone_number_to_shop_agent",
+                         return_value=routed),
+            patch.object(ai_setup, "get_agent_detail", side_effect=self._get_agent),
+            patch.object(ai_setup, "highlevel_raw_request", side_effect=self._save_action),
+            patch.object(ai_setup, "purchase_one_highlevel_phone_number",
+                         side_effect=AssertionError("No purchase permitted")),
+            patch.object(voicemail_contact_number, "VoiceRelayNumberProvider",
+                         return_value=self._provider()),
+            patch.object(voice_relay_delivery, "SessionLocal", self.factory),
+            patch.object(voice_relay_delivery, "send_highlevel_sms",
+                         side_effect=self._capture_sms),
+        ):
+            self._activate_customer_selected_ai_number()
+            saved = self.client.put(
+                "/api/shops/new-shop/call-voicemail-number",
+                json={"phone_number": OWNER},
+            )
+            self.assertEqual(saved.status_code, 200, saved.text)
+            self.assertEqual(
+                self.agent_action["actionParameters"]["transferToValue"], RELAY
+            )
+            inbound = self._signed_callback(
+                "/api/daytello/voice-relay/inbound", {"To": RELAY}
+            )
+            self.assertEqual(inbound.status_code, 200, inbound.text)
+            self.assertIn(OWNER, inbound.text)
+            child = "CA" + "e" * 32
+            screened = self._signed_callback(
+                "/api/daytello/voice-relay/owner-screen?parent=" + CALL,
+                {"CallSid": child, "ParentCallSid": CALL, "To": OWNER},
+            )
+            self.assertEqual(screened.status_code, 200, screened.text)
+            accepted = self._signed_callback(
+                "/api/daytello/voice-relay/owner-accept?parent=" + CALL,
+                {"CallSid": child, "ParentCallSid": CALL, "To": OWNER, "Digits": "1"},
+            )
+            self.assertEqual(accepted.status_code, 200, accepted.text)
+            bridged = self._signed_callback(
+                "/api/daytello/voice-relay/dial-finished",
+                {"DialCallStatus": "completed", "DialBridged": "true"},
+            )
+            self.assertEqual(bridged.status_code, 200, bridged.text)
+            self.assertIn("<Hangup", bridged.text)
+            self.assertNotIn("<Record", bridged.text)
+            self.assertEqual(self.sent, [])
+
+            # A later missed call to the same shop must still record and
+            # text the owner, without reusing the prior caller's acceptance.
+            second_call = "CA" + "9" * 32
+            second_recording = "RE" + "8" * 32
+            inbound2 = self._signed_callback(
+                "/api/daytello/voice-relay/inbound",
+                {"CallSid": second_call, "To": RELAY},
+            )
+            self.assertEqual(inbound2.status_code, 200, inbound2.text)
+            missed = self._signed_callback(
+                "/api/daytello/voice-relay/dial-finished",
+                {"CallSid": second_call, "DialCallStatus": "completed",
+                 "DialBridged": "false"},
+            )
+            self.assertEqual(missed.status_code, 200, missed.text)
+            self.assertIn("<Record", missed.text)
+            ready = self._signed_callback(
+                "/api/daytello/voice-relay/record-ready",
+                {"CallSid": second_call, "RecordingStatus": "completed",
+                 "RecordingSid": second_recording},
+            )
+            self.assertEqual(ready.status_code, 200, ready.text)
+            self.assertEqual(ready.json()["action"], "queued")
+            self.assertEqual(len(self.sent), 1)
+            self.assertEqual(self.sent[0][0], OWNER)
+            self.assertEqual(self.sent[0][2]["shop_id"], "new-id")
+            self.assertEqual(self.sent[0][2]["source_id"], second_recording)
+            with self.factory() as db:
+                stan = db.get(DayTelloVoicemailShopSettings, "stan-id")
+                self.assertEqual(stan.owner_phone, "+12405550133")
+                self.assertEqual(stan.receiving_number, "+12405550132")
+
     def test_selected_ai_number_to_missed_call_sms_and_playable_link(self):
         self._run_selected_ai_number_flow("https://legacy.example.test")
 
