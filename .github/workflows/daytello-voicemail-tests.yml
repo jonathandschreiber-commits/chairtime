@@ -69,7 +69,9 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
       - name: Find module-scope backend origin calls that break Next build
-        run: grep -R -n -F ' = serverApiBase()' app/api || true
+        run: |
+          grep -R -n -F ' = serverApiBase()' app/api || true
+          grep -R -n -F ' = clientApiBase()' app || true
       - name: Compile Next.js production build without provider calls
         env:
           NEXT_TELEMETRY_DISABLED: '1'
