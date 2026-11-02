@@ -1636,6 +1636,28 @@ class NewShopIntegrationTests(unittest.TestCase):
             self.assertEqual(self.sent[0][0], OWNER)
             self.assertEqual(self.sent[0][2]["shop_id"], "new-id")
             self.assertIn("Listen: https://relay.example.test/", self.sent[0][1])
+            link = self.sent[0][1].split("Listen: ", 1)[1]
+            audio = b"\\xff\\xfb\\x90\\x64approved-relay-audio"
+            original_client = httpx.AsyncClient
+
+            def audio_response(request):
+                self.assertIn(RECORDING + ".mp3", str(request.url))
+                self.assertTrue(
+                    request.headers.get("authorization", "").startswith("Basic ")
+                )
+                return httpx.Response(
+                    200, headers={"content-type": "audio/mpeg"}, content=audio,
+                )
+
+            with patch.object(
+                voice_relay_delivery.httpx, "AsyncClient",
+                side_effect=lambda **kw: original_client(
+                    transport=httpx.MockTransport(audio_response), **kw,
+                ),
+            ):
+                playback = self.client.get(urlsplit(link).path)
+            self.assertEqual(playback.status_code, 200, playback.text)
+            self.assertEqual(playback.content, audio)
             with self.factory() as db:
                 self.assertEqual(
                     db.get(DayTelloVoicemailShopSettings, "stan-id").owner_phone,
