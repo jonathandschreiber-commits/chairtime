@@ -14,6 +14,7 @@ from app.models import Shop, User
 from app.routes.auth import get_current_user
 from app.routes.shops import require_owner_for_shop
 from app.voicemail_models import DayTelloVoicemailShopSettings
+from app.voicemail_owner_verification import DayTelloVoicemailOwnerVerification
 
 router = APIRouter()
 PHONE = re.compile(r"^\+[1-9][0-9]{7,14}$")
@@ -71,13 +72,37 @@ def update_voicemail_settings(
     current_user: User = Depends(get_current_user),
 ):
     shop = configured_shop(db, shop_slug, current_user)
+    # Serialize opt-out against code verification and owner activation on PG.
+    # A second endpoint must not preserve a previously verified recipient.
+    db.query(Shop).filter(Shop.id == shop.id).with_for_update().one()
     prefs = db.get(DayTelloVoicemailShopSettings, shop.id)
     if prefs is None:
         raise HTTPException(409, "Voicemail number must be provisioned first")
     if payload.notifications_enabled and payload.owner_phone is None:
         raise HTTPException(422, "A notification phone is required")
+    # This preferences endpoint may save a phone or disable alerts, but must
+    # never bypass the separate, test-only verified activation flow. An
+    # already-active recipient cannot be silently swapped either.
+    if payload.notifications_enabled and not prefs.notifications_enabled:
+        raise HTTPException(409, "Voicemail notifications require verified activation")
+    if payload.notifications_enabled and payload.owner_phone != prefs.owner_phone:
+        raise HTTPException(409, "Disable and re-verify the new notification recipient")
     prefs.owner_phone = payload.owner_phone
     prefs.notifications_enabled = payload.notifications_enabled
-    db.commit()
+    if not payload.notifications_enabled:
+        # Disabling via the legacy preferences API must revoke SMS consent
+        # just like the dedicated owner opt-out endpoint. Otherwise a later
+        # activation could reuse stale possession proof after an opt-out.
+        proof = db.get(DayTelloVoicemailOwnerVerification, shop.id)
+        if proof is not None:
+            proof.verified_at = None
+            proof.challenge_digest = None
+            proof.challenge_salt = None
+            proof.expires_at = None
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise HTTPException(502, "Could not save voicemail preferences")
     db.refresh(prefs)
     return pref_response(shop, prefs)

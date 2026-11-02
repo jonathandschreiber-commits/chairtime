@@ -32,7 +32,7 @@ def send_owner_voicemail_alert(location_id: str, message_id: str, shop_slug: str
     try:
         with SessionLocal() as session:
             settings = session.get(DayTelloVoicemailShopSettings, shop_id)
-            recipient = owner_phone_for_test_shop(shop_slug, settings)
+            recipient = owner_phone_for_test_shop(shop_slug, settings, db=session, shop_id=shop_id)
             if not recipient:
                 return
             receipt = session.get(DayTelloVoicemailEvent, (location_id, message_id))

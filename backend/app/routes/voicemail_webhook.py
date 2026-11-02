@@ -168,7 +168,7 @@ async def receive_voicemail(request: Request, background_tasks: BackgroundTasks,
     if shop.highlevel_location_id and shop.highlevel_location_id != location_id:
         return {"accepted": True, "action": "ignored_location_mismatch"}
 
-    recipient = owner_phone_for_test_shop(shop.slug, settings) if shop else None
+    recipient = owner_phone_for_test_shop(shop.slug, settings, db=db, shop_id=shop.id) if shop else None
     event = DayTelloVoicemailEvent(
         location_id=location_id,
         message_id=message_id,

@@ -4,8 +4,6 @@ import { NextResponse } from "next/server";
 
 const COOKIE_NAME = "chairtime_token";
 
-const API_URL = serverApiBase();
-
 async function readJson(response) {
   try {
     return await response.json();
@@ -64,7 +62,7 @@ export async function PATCH(request, context) {
 
   try {
     const backendResponse = await fetch(
-      `${API_URL}/api/admin/appointments/${encodeURIComponent(
+      `${serverApiBase()}/api/admin/appointments/${encodeURIComponent(
         appointmentId
       )}/reschedule?new_start_datetime=${encodeURIComponent(
         newStartDatetime

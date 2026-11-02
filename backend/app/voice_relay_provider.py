@@ -10,6 +10,7 @@ import hashlib
 import json
 import os
 import re
+from urllib.parse import parse_qsl, urlsplit
 from decimal import Decimal, InvalidOperation
 
 import httpx
@@ -90,19 +91,56 @@ class VoiceRelayNumberProvider:
         return result
 
     def _list(self, *, label=None, number=None):
+        """Read every Twilio inventory page before claiming or buying a DID.
+
+        A single page is not proof that a shop label, reserve, or exact DID
+        is absent. Follow only same-account IncomingPhoneNumbers cursors;
+        never send a provider write during inventory discovery.
+        """
         params = {"PageSize": 100}
         if label is not None:
             params["FriendlyName"] = label
         if number is not None:
             params["PhoneNumber"] = number
-        payload = self._request("GET", "IncomingPhoneNumbers.json", params=params)
-        records = payload.get("incoming_phone_numbers")
-        if not isinstance(records, list) or payload.get("next_page_uri"):
-            # Do not assume the first page contains all possible conflicts.
-            raise HTTPException(409, "Voice number inventory is incomplete")
-        if any(not isinstance(record, dict) for record in records):
-            raise HTTPException(502, "Voice provider returned invalid number data")
-        return records
+        records = []
+        seen_cursors = set()
+        expected_path = (
+            f"/2010-04-01/Accounts/{self.account_sid}/IncomingPhoneNumbers.json"
+        )
+        for _ in range(100):
+            payload = self._request("GET", "IncomingPhoneNumbers.json", params=params)
+            page = payload.get("incoming_phone_numbers")
+            if not isinstance(page, list) or any(not isinstance(r, dict) for r in page):
+                raise HTTPException(502, "Voice provider returned invalid number data")
+            records.extend(page)
+            cursor = payload.get("next_page_uri")
+            if cursor is None:
+                return records
+            if not isinstance(cursor, str) or not cursor or cursor in seen_cursors:
+                raise HTTPException(409, "Voice number inventory is incomplete")
+            seen_cursors.add(cursor)
+            parsed = urlsplit(cursor)
+            if (parsed.scheme or parsed.netloc or parsed.fragment
+                    or parsed.path != expected_path or not parsed.query):
+                raise HTTPException(409, "Voice number inventory is incomplete")
+            pairs = parse_qsl(parsed.query, keep_blank_values=True)
+            if (not pairs or len({key for key, _ in pairs}) != len(pairs)
+                    or not any(key in {"Page", "PageToken"} for key, _ in pairs)):
+                raise HTTPException(409, "Voice number inventory is incomplete")
+            params = dict(pairs)
+            # Twilio cursors may omit the original filters. Preserve them
+            # across every page, and reject a cursor that changes scope.
+            if label is not None:
+                if ("FriendlyName" in params
+                        and params["FriendlyName"] != label):
+                    raise HTTPException(409, "Voice number inventory is incomplete")
+                params["FriendlyName"] = label
+            if number is not None:
+                if ("PhoneNumber" in params
+                        and params["PhoneNumber"] != number):
+                    raise HTTPException(409, "Voice number inventory is incomplete")
+                params["PhoneNumber"] = number
+        raise HTTPException(409, "Voice number inventory is incomplete")
 
     def _matches(self, shop_id):
         label = relay_shop_label(shop_id)

@@ -9,6 +9,8 @@ import {
 } from "react";
 import { useParams, useRouter } from "next/navigation";
 import styles from "./onboarding.module.css";
+import OwnerPhoneVerification from "../admin/ai-receptionist/OwnerPhoneVerification";
+import { isVoicemailConfigurationSaved, voicemailSetupRefreshKey } from "../../../lib/voicemail-onboarding-state.mjs";
  
 const API_BASE =
   "https://chairtime-production-94da.up.railway.app";
@@ -293,6 +295,35 @@ export default function OnboardingPage() {
           throw new Error("Please sign in to this shop’s account before continuing AI setup.");
         }
         setAiProvisionStatus(data);
+        // A previously approved owner number may have been saved before
+        // HighLevel finished routing the customer-selected AI number.
+        // Resume it once via an authenticated POST. Merely polling status
+        // must never change the provider's transfer configuration.
+        if (
+          process.env.NEXT_PUBLIC_DAYTELLO_UNIFIED_VOICEMAIL_SETUP === "true" &&
+          data.phone_routed && data.voicemail_pending_owner_setup
+        ) {
+          const resumed = await fetch("/api/ai-setup/voicemail-onboarding/resume", {
+            method: "POST",
+            headers: { Accept: "application/json" },
+            cache: "no-store",
+          });
+          const resumeResult = await resumed.json().catch(() => ({}));
+          if (!resumed.ok) {
+            throw new Error(
+              resumeResult.detail || "Could not finish your saved voicemail setup."
+            );
+          }
+          if (resumeResult.shop_slug !== shopSlug ||
+              resumeResult.voicemail_setup_activated !== true) {
+            throw new Error("Voicemail setup was not confirmed for this shop.");
+          }
+          setAiProvisionStatus({
+            ...data,
+            voicemail_pending_owner_setup: false,
+            voicemail_setup_activated: true,
+          });
+        }
       } catch (error) {
         console.error(error);
  
@@ -4899,8 +4930,12 @@ function AiReceptionistStep({
       {activePhoneNumber && provisioned ? (
         process.env.NEXT_PUBLIC_DAYTELLO_UNIFIED_VOICEMAIL_SETUP === "true" ? (
           <AiCallVoicemailSetup
-            key={`${shopSlug}-${activePhoneNumber}`}
+            key={voicemailSetupRefreshKey(
+              shopSlug, activePhoneNumber,
+              provisionStatus?.voicemail_setup_activated
+            )}
             shopSlug={shopSlug}
+            aiPhoneNumber={activePhoneNumber}
             onReadyChange={onStaffTransferReadyChange}
           />
         ) : (
@@ -5013,8 +5048,15 @@ function AiReceptionistStep({
 // Self-service onboarding: one number configures both verified call transfers
 // and the shop's own voicemail notifications. This remains test-feature flagged
 // until a real second-shop end-to-end call test validates provisioning.
-function AiCallVoicemailSetup({ shopSlug, onReadyChange }) {
+function AiCallVoicemailSetup({ shopSlug, aiPhoneNumber, onReadyChange }) {
   const [number, setNumber] = useState("");
+  const [relayNumber, setRelayNumber] = useState("");
+  const [relayAreaCode, setRelayAreaCode] = useState(() => {
+    const digits = String(aiPhoneNumber || "").replace(/\D/g, "");
+    return digits.length === 11 && digits[0] === "1" ? digits.slice(1, 4) : "";
+  });
+  const [authorizeRelayPurchase, setAuthorizeRelayPurchase] = useState(false);
+  const [preparingRelay, setPreparingRelay] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -5029,8 +5071,9 @@ function AiCallVoicemailSetup({ shopSlug, onReadyChange }) {
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.detail || "Cannot check phone setup.");
       if (!active) return;
-      const saved = Boolean(result.setup_complete && result.phone_number);
+      const saved = isVoicemailConfigurationSaved(result);
       setNumber(result.phone_number || "");
+      setRelayNumber(result.voicemail_number || "");
       setReady(saved);
       onReadyChange(saved);
     }).catch(err => {
@@ -5041,8 +5084,7 @@ function AiCallVoicemailSetup({ shopSlug, onReadyChange }) {
     return () => { active = false; };
   }, [shopSlug, onReadyChange]);
 
-  async function save(event) {
-    event.preventDefault();
+  async function saveOwnerNumber() {
     setError("");
     const digits = number.replace(/\D/g, "");
     const normalized = digits.length === 10 ? "+1" + digits :
@@ -5061,11 +5103,12 @@ function AiCallVoicemailSetup({ shopSlug, onReadyChange }) {
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.detail || "Could not save the phone number.");
       setNumber(result.phone_number);
-      const complete = Boolean(result.setup_complete);
+      setRelayNumber(result.voicemail_number || "");
+      const complete = isVoicemailConfigurationSaved(result);
       setReady(complete);
       onReadyChange(complete);
       if (!complete) {
-        setError("Voicemail SMS is configured, but forwarding to your phone and unanswered-call fallback are not yet verified. DayTello setup is not complete.");
+        setError(result.message || "Phone saved. Call forwarding and voicemail SMS are still pending.");
       }
     } catch (err) {
       setError(err.message || "Phone setup failed.");
@@ -5074,6 +5117,51 @@ function AiCallVoicemailSetup({ shopSlug, onReadyChange }) {
     } finally {
       setSaving(false);
     }
+  }
+
+  async function prepareRelayNumber() {
+    if (preparingRelay || saving || !authorizeRelayPurchase ||
+        !/^[2-9][0-9]{2}$/.test(relayAreaCode)) return;
+    setPreparingRelay(true);
+    setError("");
+    try {
+      // This endpoint never runs automatically. A deliberate owner approval
+      // and the server's separate test-only purchase gate are both required.
+      const response = await fetch("/api/ai-setup/voice-relay/prepare-test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          shop_slug: shopSlug,
+          area_code: relayAreaCode,
+          authorize_number_purchase: true,
+        }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.detail || "Could not reserve a voicemail number.");
+      if (result.shop_slug !== shopSlug || !result.provider_route_verified ||
+          !result.relay_number || result.ready_for_customer_calls !== false) {
+        throw new Error("DayTello could not verify the reserved voicemail number.");
+      }
+      setRelayNumber(result.relay_number);
+      setAuthorizeRelayPurchase(false);
+      // Complete the owner's already-entered destination in this same flow.
+      // A verified DID alone does not activate transfers or SMS.
+      const digits = number.replace(/\D/g, "");
+      if (digits.length === 10 || (digits.length === 11 && digits[0] === "1")) {
+        await saveOwnerNumber();
+      } else {
+        setError("Voicemail number reserved. Enter your forwarding phone number and save it.");
+      }
+    } catch (err) {
+      setError(err.message || "Voicemail number setup failed.");
+    } finally {
+      setPreparingRelay(false);
+    }
+  }
+
+  async function save(event) {
+    event.preventDefault();
+    await saveOwnerNumber();
   }
 
   return (
@@ -5100,12 +5188,53 @@ function AiCallVoicemailSetup({ shopSlug, onReadyChange }) {
           {saving ? "Saving..." : "Save Phone Number"}
         </button>
       </form>
+      {!loading && !relayNumber && (
+        <div style={{ marginTop: "16px", padding: "16px", border: "1px solid #cbd5e1",
+                      borderRadius: "12px", background: "#f8fafc" }}>
+          <strong>Dedicated voicemail number required</strong>
+          <p style={{ margin: "8px 0", color: "#475569", fontSize: "14px" }}>
+            Your selected AI number is separate from the number that rings you and
+            records missed calls. No unused DayTello voicemail number is assigned
+            to this shop. Reserving one may incur a recurring monthly number fee,
+            plus call and recording usage charges. DayTello must also authorize
+            test purchases on the server; nothing is purchased automatically.
+          </p>
+          <label htmlFor="ai-relay-area-code">Voicemail number area code</label>
+          <input id="ai-relay-area-code" inputMode="numeric" maxLength={3}
+                 value={relayAreaCode}
+                 onChange={event => setRelayAreaCode(event.target.value.replace(/\D/g, "").slice(0, 3))}
+                 style={{ display: "block", width: "110px", padding: "10px",
+                          margin: "6px 0 12px", border: "1px solid #cbd5e1",
+                          borderRadius: "8px" }} />
+          <label style={{ display: "flex", gap: "9px", alignItems: "flex-start",
+                          marginBottom: "12px", fontSize: "14px" }}>
+            <input type="checkbox" checked={authorizeRelayPurchase}
+                   onChange={event => setAuthorizeRelayPurchase(event.target.checked)} />
+            I authorize DayTello to purchase one dedicated test voicemail number,
+            subject to its configured monthly price ceiling. Additional call
+            and recording usage fees may apply.
+          </label>
+          <button type="button" className={styles.continueButton}
+                  onClick={prepareRelayNumber}
+                  disabled={preparingRelay || saving || !authorizeRelayPurchase ||
+                            !/^[2-9][0-9]{2}$/.test(relayAreaCode)}>
+            {preparingRelay ? "Preparing voicemail number..." : "Prepare Voicemail Number"}
+          </button>
+        </div>
+      )}
+      <OwnerPhoneVerification shopSlug={shopSlug} ownerNumber={number} />
+      <p style={{ marginTop: "12px", color: "#475569", fontSize: "13px" }}>
+        If phone verification is enabled for this preview, request and confirm
+        the code above before saving the number. Verification is not a live call test.
+      </p>
       {ready && <p role="status" style={{ color: "#047857", marginTop: "12px" }}>
-        Phone number saved for transfers and voicemail notifications.
+        DayTello forwarding and voicemail configuration saved. A live call test
+        is still required before using this number with customers.
       </p>}
       {error && <p role="alert" style={{ color: "#991b1b", marginTop: "12px" }}>{error}</p>}
       {!ready && !error && !loading && <p style={{ color: "#64748b", marginTop: "12px" }}>
-        Setup is complete only after call forwarding and voicemail fallback are verified.
+        Save your phone to configure forwarding and voicemail. A live call
+        test is required before using this number with customers.
       </p>}
     </div>
   );

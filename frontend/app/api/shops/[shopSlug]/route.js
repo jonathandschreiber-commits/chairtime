@@ -3,7 +3,6 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
 
-const API_BASE = serverApiBase();
 
 
 async function getToken() {
@@ -42,7 +41,7 @@ export async function GET(
       await context.params;
 
     const response = await fetch(
-      `${API_BASE}/api/shops/${encodeURIComponent(
+      `${serverApiBase()}/api/shops/${encodeURIComponent(
         shopSlug
       )}/account`,
       {

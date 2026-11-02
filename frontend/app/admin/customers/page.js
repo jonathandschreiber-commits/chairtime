@@ -5,7 +5,6 @@ import { clientApiBase } from "@/lib/client-api-base";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
-const API_BASE = clientApiBase();
 
 const QUICK_TAGS = [
   "VIP",
@@ -37,9 +36,9 @@ function CustomersPageContent() {
 
   async function loadData() {
     const [appointmentsRes, barbersRes, servicesRes] = await Promise.all([
-      fetch(API_BASE + "/api/appointments"),
-      fetch(API_BASE + "/api/barbers"),
-      fetch(API_BASE + "/api/services"),
+      fetch(clientApiBase() + "/api/appointments"),
+      fetch(clientApiBase() + "/api/barbers"),
+      fetch(clientApiBase() + "/api/services"),
     ]);
 
     setAppointments(await appointmentsRes.json());
@@ -69,7 +68,7 @@ function CustomersPageContent() {
 
   async function updateCustomer(oldPhone) {
     const response = await fetch(
-      API_BASE +
+      clientApiBase() +
         "/api/customers/update?old_phone=" +
         encodeURIComponent(oldPhone) +
         "&new_name=" +
@@ -88,7 +87,7 @@ function CustomersPageContent() {
 
   async function updateCustomerTags(customerPhone, tags) {
     await fetch(
-      API_BASE +
+      clientApiBase() +
         "/api/customers/tags?customer_phone=" +
         encodeURIComponent(customerPhone) +
         "&customer_tags=" +
@@ -101,7 +100,7 @@ function CustomersPageContent() {
 
   async function updateCustomerNotes(customerPhone) {
     const response = await fetch(
-      API_BASE +
+      clientApiBase() +
         "/api/customers/notes?customer_phone=" +
         encodeURIComponent(customerPhone) +
         "&customer_notes=" +

@@ -13,6 +13,7 @@ from zoneinfo import ZoneInfo
 import requests
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
  
 from app.database import get_db
@@ -2713,27 +2714,85 @@ def extract_location_phone_numbers(
 def get_location_phone_numbers(
     location_id: str,
 ) -> tuple[dict, list]:
-    response = highlevel_request(
-        method="GET",
-        path=(
-            f"/phone-system/numbers/location/"
-            f"{location_id}"
-        ),
-        params={
-            "page": 1,
-            "pageSize": 100,
-            "skipNumberPool": True,
-        },
+    """Read every HighLevel inventory page before deciding DID ownership.
+
+    A shared location can hold more than 100 numbers. Looking only at page
+    one can miss an already-purchased customer-selected AI number and cause
+    a duplicate purchase attempt or an incorrect "not routed" result.
+    """
+    page_size = 100
+    all_numbers = []
+    first_page = None
+    # HighLevel's active-number API uses zero-based pages. Starting at 1
+    # silently skips the first 100 owned DIDs and can trigger a second purchase.
+    for page in range(20):
+        response = highlevel_request(
+            method="GET",
+            path=f"/phone-system/numbers/location/{location_id}",
+            params={
+                "page": page,
+                "pageSize": page_size,
+                "skipNumberPool": True,
+            },
+        )
+        data = response_json(response)
+        container = data.get("data")
+        if not isinstance(container, dict):
+            raise HTTPException(
+                status_code=502,
+                detail="HighLevel phone inventory response is incomplete.",
+            )
+        raw_numbers = container.get("numbers")
+        if raw_numbers is None:
+            raw_numbers = []
+        if not isinstance(raw_numbers, list):
+            raise HTTPException(
+                status_code=502,
+                detail="HighLevel phone inventory response is incomplete.",
+            )
+        page_numbers = extract_location_phone_numbers(data)
+        if len(page_numbers) != len(raw_numbers):
+            raise HTTPException(
+                status_code=502,
+                detail="HighLevel phone inventory contains invalid records.",
+            )
+        if first_page is None:
+            first_page = data
+        all_numbers.extend(page_numbers)
+        # The documented response includes total. Use it when present so a
+        # short page cannot be mistaken for a complete owned-number inventory.
+        total = container.get("total")
+        if total is not None:
+            if type(total) is not int or total < len(all_numbers):
+                raise HTTPException(
+                    status_code=502,
+                    detail="HighLevel phone inventory pagination is inconsistent.",
+                )
+            has_more = len(all_numbers) < total
+        else:
+            has_more = len(page_numbers) == page_size
+        if has_more and not page_numbers:
+            raise HTTPException(
+                status_code=502,
+                detail="HighLevel phone inventory pagination is incomplete.",
+            )
+        if not has_more:
+            # Preserve the existing response shape for the owner UI while
+            # ensuring the returned inventory includes every page.
+            combined = dict(first_page)
+            combined["data"] = {
+                **first_page["data"],
+                "numbers": all_numbers,
+            }
+            return combined, all_numbers
+
+    # Never treat a partial inventory as proof that a selected DID is absent.
+    raise HTTPException(
+        status_code=502,
+        detail="HighLevel phone inventory pagination is incomplete.",
     )
- 
-    data = response_json(response)
- 
-    return (
-        data,
-        extract_location_phone_numbers(data),
-    )
- 
- 
+
+
 def get_phone_inbound_service(
     phone_record: dict,
 ) -> dict:
@@ -2878,10 +2937,62 @@ def get_shop_routed_phone_record(
     )
  
  
+def prebind_existing_voicemail_relay_after_ai_number(
+    shop: Shop, db: Session, *, current_user: User = None,
+    strict: bool = False,
+) -> bool:
+    """Recover a paid-for relay and finish an already-approved owner route.
+
+    Only an authenticated onboarding request may finish a saved, pending owner
+    destination. This never purchases a relay or touches existing active routes.
+    """
+    if (os.getenv("DAYTELLO_VOICE_RELAY_TEST_ONLY") != "true"
+            or os.getenv("DAYTELLO_VOICEMAIL_TEST_ONLY") != "true"):
+        return False
+    try:
+        from app.routes.voicemail_contact_number import (
+            attach_preowned_relay_after_ai_number,
+            set_owner_call_voicemail_number, OwnerCallVoicemailNumber,
+        )
+        from app.voice_relay_models import DayTelloVoiceRelayAssignment
+        from app.voicemail_models import DayTelloVoicemailShopSettings
+
+        prebound = bool(attach_preowned_relay_after_ai_number(shop, db))
+        settings = db.get(DayTelloVoicemailShopSettings, shop.id)
+        relay = db.get(DayTelloVoiceRelayAssignment, shop.id)
+        # A phone saved before agent/AI-number provisioning used to remain
+        # indefinitely pending until the owner pressed Save a second time.
+        # Complete that exact previously approved destination automatically,
+        # but only after the customer-selected AI number is actually routed.
+        if (current_user is not None and relay and not relay.enabled
+                and settings and settings.owner_phone
+                and not settings.notifications_enabled
+                and shop.highlevel_phone_number
+                and shop.highlevel_agent_id):
+            set_owner_call_voicemail_number(
+                shop.slug,
+                OwnerCallVoicemailNumber(phone_number=settings.owner_phone),
+                db=db, current_user=current_user,
+            )
+        return prebound
+    except Exception:
+        # A successful AI-number activation must remain successful even when
+        # a provider or SMS test gate prevents finishing the pending relay.
+        # The owner can retry Save without purchasing another number.
+        db.rollback()
+        logger.exception(
+            "Pre-owned voicemail relay onboarding could not be completed"
+        )
+        if strict:
+            raise
+        return False
+
+
 def sync_shop_phone_number_from_highlevel(
     shop: Shop,
     db: Session,
     require_match: bool = True,
+    current_user: User = None,
 ) -> Optional[dict]:
     _, _, matched_phone = (
         get_shop_routed_phone_record(
@@ -2943,6 +3054,12 @@ def sync_shop_phone_number_from_highlevel(
             db.rollback()
             raise
  
+    # Existing shops can enter onboarding with an AI number already routed
+    # through HighLevel. Recover their approved relay on explicit sync too;
+    # previously only the new-number purchase endpoint did this.
+    prebind_existing_voicemail_relay_after_ai_number(
+        shop, db, current_user=current_user,
+    )
     return matched_phone
  
  
@@ -3053,9 +3170,90 @@ def get_production_provision_status(
             db.rollback()
             raise
  
+    # A previously selected HighLevel AI number may already be routed when
+    # the owner resumes onboarding. Reconcile its pre-owned voicemail relay
+    # here as well as in the purchase/sync paths, so a new shop does not need
+    # a second phone-number action. This performs provider GETs and a local
+    # disabled DID claim only; no number purchase, transfer or live call.
+    response["voicemail_relay_prebound"] = False
+    response["voicemail_pending_owner_setup"] = False
+    if routed_phone_number:
+        try:
+            from app.routes.voicemail_contact_number import (
+                attach_preowned_relay_after_ai_number,
+            )
+            from app.voice_relay_models import DayTelloVoiceRelayAssignment
+            from app.voicemail_models import DayTelloVoicemailShopSettings
+            response["voicemail_relay_prebound"] = bool(
+                attach_preowned_relay_after_ai_number(shop, db)
+            )
+            relay = db.get(DayTelloVoiceRelayAssignment, shop.id)
+            settings = db.get(DayTelloVoicemailShopSettings, shop.id)
+            # A saved, owner-approved destination is still pending when
+            # onboarding was interrupted before the AI number was routed.
+            # GET only reports it; the authenticated POST below resumes it.
+            response["voicemail_pending_owner_setup"] = bool(
+                os.getenv("DAYTELLO_VOICE_RELAY_TEST_ONLY") == "true"
+                and os.getenv("DAYTELLO_VOICEMAIL_TEST_ONLY") == "true"
+                # A pending owner phone must not trigger a HighLevel transfer
+                # until the isolated provider call test has been authorized.
+                and os.getenv("DAYTELLO_VOICE_RELAY_ALLOW_TEST_CALLS") == "true"
+                and relay and not relay.enabled and settings
+                and settings.owner_phone and not settings.notifications_enabled
+            )
+        except Exception:
+            db.rollback()
+            logger.exception("Existing AI-number relay reconciliation failed")
     return response
- 
- 
+
+
+@router.post("/voicemail-onboarding/resume")
+def resume_approved_voicemail_onboarding(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Finish a previously approved owner route after the AI DID is active.
+
+    This explicit POST is called by isolated onboarding, not by status GET.
+    It never purchases a number or changes an existing active Stan/Bob route.
+    The provider-backed AI DID is checked before attempting the saved transfer.
+    """
+    require_owner(current_user)
+    shop = get_current_shop(current_user=current_user, db=db)
+    if (os.getenv("DAYTELLO_VOICE_RELAY_TEST_ONLY") != "true"
+            or os.getenv("DAYTELLO_VOICEMAIL_TEST_ONLY") != "true"):
+        raise HTTPException(404, "Voicemail onboarding resume is disabled")
+    if not shop.ai_voice_enabled or not shop.highlevel_agent_id:
+        raise HTTPException(409, "AI Receptionist must be provisioned first")
+    from app.voice_relay_models import DayTelloVoiceRelayAssignment
+    from app.voicemail_models import DayTelloVoicemailShopSettings
+    relay = db.get(DayTelloVoiceRelayAssignment, shop.id)
+    settings = db.get(DayTelloVoicemailShopSettings, shop.id)
+    if (not relay or relay.enabled or not settings
+            or settings.notifications_enabled or not settings.owner_phone):
+        raise HTTPException(409, "No approved pending owner transfer to resume")
+    # HighLevel's actual inbound routing, not a cached phone field, decides
+    # whether the customer-selected AI number is ready for this next step.
+    _, _, routed = get_shop_routed_phone_record(shop=shop)
+    routed_number = str((routed or {}).get("phoneNumber") or "").strip()
+    if not routed_number or routed_number != str(shop.highlevel_phone_number or "").strip():
+        raise HTTPException(409, "AI Receptionist number routing is not verified")
+    prebind_existing_voicemail_relay_after_ai_number(
+        shop, db, current_user=current_user, strict=True,
+    )
+    db.refresh(relay)
+    db.refresh(settings)
+    if not relay.enabled or not settings.notifications_enabled:
+        raise HTTPException(409, "Approved voicemail setup is still pending")
+    return {
+        "success": True,
+        "shop_slug": shop.slug,
+        "voicemail_setup_activated": True,
+        "ready_for_customer_calls": False,
+        "live_call_test_required": True,
+    }
+
+
 @router.post("/provision")
 def provision_production_ai_receptionist(
     current_user: User = Depends(get_current_user),
@@ -3920,6 +4118,7 @@ def sync_shop_highlevel_phone_number(
             shop=shop,
             db=db,
             require_match=True,
+            current_user=current_user,
         )
     )
  
@@ -3988,6 +4187,7 @@ def assign_shop_highlevel_phone_number(
             shop=shop,
             db=db,
             require_match=True,
+            current_user=current_user,
         )
     )
  
@@ -4947,6 +5147,27 @@ def route_phone_number_to_shop_agent(
         ),
     )
  
+def require_unclaimed_shop_ai_number(shop: Shop, db: Session, phone_number: str) -> None:
+    """Do not reassign a different shop's line in a shared HighLevel location.
+
+    A temporarily unrouted number can appear available in provider inventory
+    even though another DayTello tenant still owns the published number.
+    Check local claims before a HighLevel publish or chargeable purchase.
+    """
+    other_shop = db.query(Shop).filter(
+        Shop.id != shop.id,
+        or_(
+            Shop.highlevel_phone_number == phone_number,
+            Shop.phone == phone_number,
+        ),
+    ).first()
+    if other_shop is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This phone number is already assigned to another business.",
+        )
+
+
 def activate_owned_phone_number(
     shop: Shop,
     db: Session,
@@ -4956,6 +5177,7 @@ def activate_owned_phone_number(
     phone_record: dict,
     purchased_this_request: bool,
     purchase_result=None,
+    current_user: User = None,
 ) -> dict:
     """
     Safely finish activation for an already-owned number.
@@ -4965,6 +5187,8 @@ def activate_owned_phone_number(
     agent, routes it to this shop's exact agent, verifies the
     route, and only then stores it in ChairTime.
     """
+    require_unclaimed_shop_ai_number(shop, db, phone_number)
+
     inbound_service = (
         get_phone_inbound_service(
             phone_record
@@ -5022,8 +5246,13 @@ def activate_owned_phone_number(
         agent_id=agent_id,
         location_id=location_id,
     )
- 
+
+    voicemail_relay_prebound = prebind_existing_voicemail_relay_after_ai_number(
+        shop, db, current_user=current_user,
+    )
+
     return {
+        "voicemail_relay_prebound": voicemail_relay_prebound,
         "success": True,
         "purchased": bool(
             purchased_this_request
@@ -5111,6 +5340,8 @@ def purchase_shop_ai_phone_number(
         )
     )
  
+    require_unclaimed_shop_ai_number(shop, db, requested_phone_number)
+
     requested_digits = "".join(
         character
         for character
@@ -5149,6 +5380,7 @@ def purchase_shop_ai_phone_number(
     if existing_phone:
         return activate_owned_phone_number(
             shop=shop,
+            current_user=current_user,
             db=db,
             location_id=location_id,
             agent_id=agent_id,
@@ -5249,6 +5481,7 @@ def purchase_shop_ai_phone_number(
  
         return activate_owned_phone_number(
             shop=shop,
+            current_user=current_user,
             db=db,
             location_id=location_id,
             agent_id=agent_id,
@@ -5274,6 +5507,7 @@ def purchase_shop_ai_phone_number(
         if purchased_phone:
             return activate_owned_phone_number(
                 shop=shop,
+                current_user=current_user,
                 db=db,
                 location_id=location_id,
                 agent_id=agent_id,

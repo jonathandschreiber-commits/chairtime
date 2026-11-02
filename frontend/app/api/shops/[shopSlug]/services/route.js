@@ -1,7 +1,6 @@
 import { serverApiBase } from "@/lib/server-api-base";
 import { cookies } from "next/headers";
 
-const API_BASE = serverApiBase();
 
 
 async function getToken() {
@@ -40,7 +39,7 @@ export async function GET(
     }
 
     const response = await fetch(
-      `${API_BASE}/api/services?shop_slug=${encodeURIComponent(
+      `${serverApiBase()}/api/services?shop_slug=${encodeURIComponent(
         shopSlug
       )}`,
       {
@@ -102,7 +101,7 @@ export async function POST(
       .catch(() => ({}));
 
     const response = await fetch(
-      `${API_BASE}/api/services`,
+      `${serverApiBase()}/api/services`,
       {
         method: "POST",
         headers: {

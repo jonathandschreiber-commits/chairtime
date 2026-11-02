@@ -4,7 +4,6 @@ import { clientApiBase } from "@/lib/client-api-base";
 
 import { useEffect, useMemo, useState } from "react";
 
-const API_BASE = clientApiBase();
 
 const HOURS = [
   "08:00", "09:00", "10:00", "11:00", "12:00", "13:00",
@@ -47,10 +46,10 @@ export default function CalendarPage() {
   async function loadData() {
     const [appointmentsRes, barbersRes, servicesRes, blockedRes] =
       await Promise.all([
-        fetch(`${API_BASE}/api/appointments`),
-        fetch(`${API_BASE}/api/barbers`),
-        fetch(`${API_BASE}/api/services`),
-        fetch(`${API_BASE}/api/blocked-times`),
+        fetch(`${clientApiBase()}/api/appointments`),
+        fetch(`${clientApiBase()}/api/barbers`),
+        fetch(`${clientApiBase()}/api/services`),
+        fetch(`${clientApiBase()}/api/blocked-times`),
       ]);
 
     const barbersData = await barbersRes.json();
@@ -108,7 +107,7 @@ export default function CalendarPage() {
     const newStart = `${moveDate}T${moveTime}:00`;
 
     const response = await fetch(
-      `${API_BASE}/api/appointments/${appointment.id}/reschedule?new_start_datetime=${encodeURIComponent(newStart)}`,
+      `${clientApiBase()}/api/appointments/${appointment.id}/reschedule?new_start_datetime=${encodeURIComponent(newStart)}`,
       { method: "PATCH" }
     );
 
@@ -124,7 +123,7 @@ export default function CalendarPage() {
 
   async function updateAppointmentStatus(appointmentId, status) {
     const response = await fetch(
-      `${API_BASE}/api/appointments/${appointmentId}/status?status=${status}`,
+      `${clientApiBase()}/api/appointments/${appointmentId}/status?status=${status}`,
       { method: "PATCH" }
     );
 

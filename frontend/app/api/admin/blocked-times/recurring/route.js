@@ -4,7 +4,6 @@ import { NextResponse } from "next/server";
 
 const COOKIE_NAME = "chairtime_token";
 
-const API_URL = serverApiBase();
 
 async function readJson(response) {
   try {
@@ -48,7 +47,7 @@ export async function POST(request) {
 
   try {
     const backendResponse = await fetch(
-      `${API_URL}/api/admin/blocked-times/recurring`,
+      `${serverApiBase()}/api/admin/blocked-times/recurring`,
       {
         method: "POST",
         headers: {

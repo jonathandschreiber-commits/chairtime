@@ -2,7 +2,6 @@ import { serverApiBase } from "@/lib/server-api-base";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
-const API_BASE = serverApiBase();
 
 export async function GET() {
   try {
@@ -23,7 +22,7 @@ export async function GET() {
     }
 
     const response = await fetch(
-      `${API_BASE}/api/billing/connect/status`,
+      `${serverApiBase()}/api/billing/connect/status`,
       {
         method: "GET",
         headers: {

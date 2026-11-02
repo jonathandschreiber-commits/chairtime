@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import OwnerPhoneVerification from "./OwnerPhoneVerification";
 
 function formatPhoneNumber(phoneNumber) {
   const digits = String(phoneNumber || "").replace(/\D/g, "");
@@ -279,7 +280,7 @@ export default function AIReceptionistPage() {
                   }
                 >
                   {provisioned
-                    ? "Active"
+                    ? "AI Agent Connected — Phone Setup Incomplete"
                     : "Setup Required"}
                 </span>
               </div>
@@ -302,13 +303,13 @@ export default function AIReceptionistPage() {
               {provisioned && (
                 <div className="mt-6 rounded-2xl border border-emerald-200 bg-emerald-50 p-5">
                   <p className="font-extrabold text-emerald-800">
-                    ✓ Your AI Receptionist is ready
+                    ✓ AI agent connected
                   </p>
 
                   <p className="text-sm text-emerald-700 mt-1">
-                    It is connected to your DayTello
-                    services, staff, availability, and
-                    booking system.
+                    Your AI agent has access to DayTello services, staff,
+                    availability, and bookings. Live telephone routing and voicemail
+                    must be verified separately.
                   </p>
                 </div>
               )}
@@ -380,6 +381,10 @@ export default function AIReceptionistPage() {
                   DayTello will attempt to assign a voicemail number automatically. SMS and forwarding are checked separately.
                 </p>}
               </form>
+              <OwnerPhoneVerification shopSlug={shopSlug} ownerNumber={ownerNumber}
+                onNotificationsDisabled={() => setCallSettings((previous) =>
+                  previous ? { ...previous, notifications_enabled: false, sms_ready: false } : previous
+                )} />
               {shopSlug === "bobs-shop" && provisioned && callSettings?.ready && (
                 <div className="mt-5 rounded-xl border border-sky-200 bg-sky-50 p-4">
                   <p className="font-bold text-slate-900">Bob's Shop voicemail notifications — TEST</p>

@@ -4,8 +4,6 @@ import { NextResponse } from "next/server";
 
 const COOKIE_NAME = "chairtime_token";
 
-const API_URL = serverApiBase();
-
 async function readJson(response) {
   try {
     return await response.json();
@@ -36,6 +34,7 @@ export async function GET() {
   };
 
   try {
+    const API_URL = serverApiBase();
     const meResponse = await fetch(
       `${API_URL}/api/auth/me`,
       {
