@@ -129,10 +129,13 @@ def after_employee_dial(dial_call_status: str, recording_complete_url: str,
     if normalized == "canceled":
         return completed_recording()
     # Carrier voicemail may answer without ever bridging to the caller.
-    if normalized == "completed" and str(dial_bridged).lower() != "false":
+    # Twilio's DialCallStatus=completed alone can mean that the owner's
+    # carrier voicemail answered. Only an explicit DialBridged=true proves
+    # the caller actually reached the owner. A missing bridge field must
+    # not silently drop the caller instead of offering DayTello voicemail.
+    if normalized == "completed" and str(dial_bridged or "").strip().lower() == "true":
         return completed_recording()
-    if normalized in {"no-answer", "busy", "failed"} or (
-            normalized == "completed" and str(dial_bridged).lower() == "false"):
+    if normalized in {"no-answer", "busy", "failed", "completed"}:
         return voicemail_after_unanswered(
             recording_complete_url, recording_ready_url
         )
