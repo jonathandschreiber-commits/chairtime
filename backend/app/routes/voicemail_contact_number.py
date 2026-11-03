@@ -203,8 +203,28 @@ def voicemail_onboarding_readiness(
         number_assigned and recipient_saved and
         _sms_configuration_complete(shop, settings, db)
     )
+    # A saved voicemail DID is not proof that the Voice AI agent actually
+    # transfers to it. Read back HighLevel's deployed CALL_TRANSFER action.
+    # Never claim it is verified after an API failure or a mismatched target.
+    ai_transfer_verified = False
+    if number_assigned:
+        try:
+            from app.routes.ai_setup import daytello_get_staff_transfer
+            transfer = daytello_get_staff_transfer(
+                current_user=current_user, db=db,
+            )
+            ai_transfer_verified = bool(
+                transfer.get("enabled")
+                and not transfer.get("other_transfer_actions_detected")
+                and transfer.get("phone_number") == settings.receiving_number
+            )
+        except Exception:
+            # A token error, location mismatch, or other provider failure
+            # must never turn a saved local row into a verification claim.
+            ai_transfer_verified = False
     return {
         "shop_slug": shop.slug,
+        "ai_to_voicemail_transfer_verified": ai_transfer_verified,
         "ai_agent_connected": connected,
         "voicemail_number_assigned": number_assigned,
         "owner_number_saved": recipient_saved,
