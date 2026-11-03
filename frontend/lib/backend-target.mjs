@@ -7,11 +7,13 @@ export const STAN_BOB_TEST_RAILWAY_ORIGIN =
 
 export const PR5_ONBOARDING_BRANCH =
   "feature/daytello-general-voicemail-onboarding-20261029";
+export const HIGHLEVEL_SHOP3_BRANCH =
+  "feature/daytello-highlevel-only-shop3-20261103";
 const OWNER_SMS_BRANCH = "feature/daytello-voicemail-owner-sms-20261027";
 
 export function expectedRailwayOrigin(env = process.env) {
   if (env.VERCEL_ENV === "preview" &&
-      env.VERCEL_GIT_COMMIT_REF === PR5_ONBOARDING_BRANCH) {
+      [PR5_ONBOARDING_BRANCH, HIGHLEVEL_SHOP3_BRANCH].includes(env.VERCEL_GIT_COMMIT_REF)) {
     // One platform-level setting for the isolated PR #5 preview; no shop
     // owner ever needs to edit Railway or HighLevel during onboarding.
     const raw = (env.DAYTELLO_PR5_ISOLATED_RAILWAY_ORIGIN || "").trim();
