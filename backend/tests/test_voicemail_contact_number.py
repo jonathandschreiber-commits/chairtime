@@ -601,5 +601,45 @@ class UnifiedPhoneTests(unittest.TestCase):
 
 
 
+    def test_highlevel_only_owner_preference_stays_pending(self):
+        with patch.dict(os.environ, {"DAYTELLO_VOICEMAIL_PROVIDER": "highlevel"}):
+            with patch.object(route, "daytello_save_staff_transfer") as transfer:
+                with patch.object(route, "VoiceRelayNumberProvider") as relay_provider:
+                    response = self.client.put(
+                        self.url, json={"phone_number": "+12025550199"}
+                    )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertTrue(response.json()["pending_provider_configuration"])
+        self.assertFalse(response.json()["notifications_enabled"])
+        self.assertFalse(response.json()["sms_ready"])
+        self.assertFalse(response.json()["ready"])
+        self.assertFalse(response.json()["forwarding_verified"])
+        transfer.assert_not_called()
+        relay_provider.assert_not_called()
+        with self.factory() as db:
+            settings = db.get(DayTelloVoicemailShopSettings, "s1")
+            self.assertEqual(settings.owner_phone, "+12025550199")
+            self.assertFalse(settings.notifications_enabled)
+
+    def test_highlevel_only_does_not_overwrite_active_route(self):
+        with self.factory() as db:
+            settings = db.get(DayTelloVoicemailShopSettings, "s1")
+            settings.owner_phone = "+12025550199"
+            settings.notifications_enabled = True
+            db.commit()
+        with patch.dict(os.environ, {"DAYTELLO_VOICEMAIL_PROVIDER": "highlevel"}):
+            with patch.object(route, "daytello_save_staff_transfer") as transfer:
+                response = self.client.put(
+                    self.url, json={"phone_number": "+12025550199"}
+                )
+        self.assertEqual(response.status_code, 409, response.text)
+        transfer.assert_not_called()
+        with self.factory() as db:
+            settings = db.get(DayTelloVoicemailShopSettings, "s1")
+            self.assertTrue(settings.notifications_enabled)
+            self.assertEqual(settings.owner_phone, "+12025550199")
+
+
+
 if __name__ == "__main__":
     unittest.main()
