@@ -276,8 +276,19 @@ def attach_preowned_relay_after_ai_number(shop: Shop, db: Session) -> bool:
     HighLevel transfer actions. Legacy Stan/Bob voicemail routes are untouched.
     The owner still must approve the forwarding/SMS destination separately.
     """
-    if (os.getenv("DAYTELLO_VOICE_RELAY_TEST_ONLY") != "true"
-            or os.getenv("DAYTELLO_VOICEMAIL_TEST_ONLY") != "true"):
+    if os.getenv("DAYTELLO_VOICEMAIL_TEST_ONLY") != "true":
+        return False
+    # HighLevel-only shops never enter the Twilio provider adapter.
+    # Reservation is restricted to previously allocated, provider-verified
+    # HighLevel DIDs; no DID is bought or upstream forwarding altered here.
+    if os.getenv("DAYTELLO_VOICEMAIL_PROVIDER") == "highlevel":
+        if db.get(DayTelloVoicemailShopSettings, shop.id) is not None:
+            return False
+        if db.get(DayTelloVoiceRelayAssignment, shop.id) is not None:
+            raise HTTPException(409, "A Twilio relay is already assigned to this shop")
+        ensure_test_voicemail_number(shop, db)
+        return True
+    if os.getenv("DAYTELLO_VOICE_RELAY_TEST_ONLY") != "true":
         return False
     if (db.get(DayTelloVoicemailShopSettings, shop.id) is not None
             or db.get(DayTelloVoiceRelayAssignment, shop.id) is not None):
@@ -321,6 +332,13 @@ def ensure_existing_shop_voicemail_route(shop: Shop, db: Session):
               if os.getenv("DAYTELLO_VOICEMAIL_NUMBER_SHOP_MAP", "").strip()
               else {})
     if shop.slug in legacy.values():
+        return ensure_test_voicemail_number(shop, db)
+
+    # HighLevel-only deployments must not silently fall through into a
+    # Twilio relay. This verifies a pre-reserved HighLevel voicemail DID and
+    # binds it exclusively to this shop. HighLevel number forwarding and
+    # unanswered-call fallback remain unverified and are never reported ready.
+    if os.getenv("DAYTELLO_VOICEMAIL_PROVIDER") == "highlevel":
         return ensure_test_voicemail_number(shop, db)
 
     # New AI shops need a programmable relay, not an unused legacy
