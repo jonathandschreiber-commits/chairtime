@@ -6,6 +6,7 @@ on:
       - feature/daytello-voicemail-receiver-20261026
       - feature/daytello-voicemail-owner-sms-20261027
       - feature/daytello-general-voicemail-onboarding-20261029
+      - feature/daytello-highlevel-only-shop3-20261103
       - feature/daytello-bobs-voicemail-sms-activation-20261029
   pull_request:
     branches:
