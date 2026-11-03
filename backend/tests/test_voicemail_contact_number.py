@@ -568,5 +568,38 @@ class UnifiedPhoneTests(unittest.TestCase):
         provider.return_value.purchase_approved_number.assert_not_called()
 
 
+    def test_readiness_checks_live_highlevel_transfer_destination(self):
+        from app.routes import ai_setup
+        endpoint = "/api/shops/shop-a/voicemail-onboarding/readiness"
+        with patch.object(ai_setup, "daytello_get_staff_transfer", return_value={
+            "enabled": True, "phone_number": "+12025550123",
+            "other_transfer_actions_detected": False,
+        }) as provider:
+            result = self.client.get(endpoint)
+        self.assertEqual(result.status_code, 200, result.text)
+        provider.assert_called_once()
+        self.assertTrue(result.json()["ai_to_voicemail_transfer_verified"])
+        self.assertFalse(result.json()["forwarding_to_owner_verified"])
+        self.assertFalse(result.json()["voicemail_fallback_verified"])
+        self.assertFalse(result.json()["ready_for_customer_calls"])
+
+    def test_readiness_rejects_unverified_highlevel_transfer(self):
+        from app.routes import ai_setup
+        endpoint = "/api/shops/shop-a/voicemail-onboarding/readiness"
+        with patch.object(ai_setup, "daytello_get_staff_transfer", return_value={
+            "enabled": True, "phone_number": "+12025550198",
+            "other_transfer_actions_detected": False,
+        }):
+            result = self.client.get(endpoint)
+        self.assertEqual(result.status_code, 200, result.text)
+        self.assertFalse(result.json()["ai_to_voicemail_transfer_verified"])
+        with patch.object(ai_setup, "daytello_get_staff_transfer",
+                          side_effect=HTTPException(401, "Provider access denied")):
+            failed = self.client.get(endpoint)
+        self.assertEqual(failed.status_code, 200, failed.text)
+        self.assertFalse(failed.json()["ai_to_voicemail_transfer_verified"])
+
+
+
 if __name__ == "__main__":
     unittest.main()
