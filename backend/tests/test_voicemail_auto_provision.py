@@ -274,5 +274,40 @@ class ReservedNumberTests(unittest.TestCase):
             self.assertEqual(error.exception.status_code, 503)
 
 
+    def test_highlevel_only_shop_uses_reserved_did_not_twilio(self):
+        from app.routes import voicemail_contact_number as route
+        with patch.dict(os.environ, {"DAYTELLO_VOICEMAIL_PROVIDER": "highlevel",
+                                    "DAYTELLO_VOICE_RELAY_TEST_ONLY": "true"}):
+            with patch.object(route, "VoiceRelayNumberProvider") as twilio:
+                with self.factory() as db:
+                    shop = db.get(Shop, "shop-a")
+                    shop.highlevel_agent_id = "agent-a"
+                    db.commit()
+                    self.assertTrue(route.attach_preowned_relay_after_ai_number(shop, db))
+                    binding = db.get(DayTelloVoicemailShopSettings, shop.id)
+                    self.assertEqual(binding.receiving_number, "+12025550121")
+                    self.assertFalse(binding.notifications_enabled)
+                    self.assertIsNone(binding.owner_phone)
+                    self.assertFalse(route.attach_preowned_relay_after_ai_number(shop, db))
+                    self.assertIsNone(db.get(DayTelloVoiceRelayAssignment, shop.id))
+                twilio.assert_not_called()
+
+    def test_highlevel_only_missing_reserved_did_fails_closed(self):
+        from app.routes import voicemail_contact_number as route
+        with patch.dict(os.environ, {"DAYTELLO_VOICEMAIL_PROVIDER": "highlevel",
+                                    "DAYTELLO_VOICEMAIL_TEST_NUMBER_POOL": "",
+                                    "DAYTELLO_VOICE_RELAY_TEST_ONLY": "true"}):
+            with patch.object(route, "VoiceRelayNumberProvider") as twilio:
+                with self.factory() as db:
+                    shop = db.get(Shop, "shop-a")
+                    shop.highlevel_agent_id = "agent-a"
+                    db.commit()
+                    with self.assertRaises(HTTPException) as error:
+                        route.ensure_existing_shop_voicemail_route(shop, db)
+                    self.assertEqual(error.exception.status_code, 409)
+                    self.assertIsNone(db.get(DayTelloVoicemailShopSettings, shop.id))
+                twilio.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()
