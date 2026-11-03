@@ -412,6 +412,36 @@ def set_owner_call_voicemail_number(
     reject_internal_owner_destination(db, number, shop.id)
     approved_owner_recipient(shop.slug, number, db=db, shop_id=shop.id)
 
+    # HighLevel-only onboarding cannot safely write Phone System forwarding,
+    # timeout, Call Connect or backup routing using a documented API.
+    # Accept the verified owner's choice once, but leave all call/SMS
+    # activation OFF until the provider route has been independently verified.
+    # This avoids crossing into the unrelated Twilio relay activation path.
+    if os.getenv("DAYTELLO_VOICEMAIL_PROVIDER") == "highlevel":
+        if db.get(DayTelloVoiceRelayAssignment, shop.id) is not None:
+            raise HTTPException(409, "Conflicting voice relay assignment")
+        if settings.notifications_enabled:
+            raise HTTPException(
+                409, "Existing active voicemail settings require a verified routing update"
+            )
+        settings.owner_phone = number
+        settings.notifications_enabled = False
+        try:
+            db.commit()
+            db.refresh(settings)
+        except Exception:
+            db.rollback()
+            raise HTTPException(502, "Could not save the approved phone number")
+        return {
+            **public_status(shop, settings, db),
+            "pending_provider_configuration": True,
+            "live_call_test_required": True,
+            "message": (
+                "Owner phone saved. HighLevel forwarding, timeout, and voicemail "
+                "backup must be verified before calls and alerts can be activated."
+            ),
+        }
+
     # An isolated shop may already have a verified voicemail DID but no
     # AI agent ID in DayTello yet. Save the approved owner's phone as
     # PENDING without enabling SMS or modifying the HighLevel agent.
