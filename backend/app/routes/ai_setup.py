@@ -299,6 +299,20 @@ def highlevel_error_text(
 def raise_highlevel_error(
     response: requests.Response,
 ) -> None:
+    # Log only the upstream HTTP status and request method/path;
+    # never log OAuth tokens, request bodies, or provider error payloads.
+    try:
+        from urllib.parse import urlparse
+        target = urlparse(getattr(response.request, "url", "") or "")
+        method = getattr(response.request, "method", "unknown")
+        safe_path = target.path if target.hostname == "services.leadconnectorhq.com" else "(provider)"
+    except (AttributeError, ValueError, TypeError):
+        method, safe_path = "unknown", "(provider)"
+    import logging
+    logging.getLogger(__name__).warning(
+        "HighLevel Voice AI call rejected: method=%s path=%s status=%s",
+        method, safe_path, response.status_code,
+    )
     raise HTTPException(
         status_code=status.HTTP_502_BAD_GATEWAY,
         detail={
