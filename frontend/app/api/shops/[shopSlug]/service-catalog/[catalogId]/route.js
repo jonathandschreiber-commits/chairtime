@@ -1,7 +1,7 @@
+import { serverApiBase } from "@/lib/server-api-base";
 import { cookies } from "next/headers";
 
-const API_BASE =
-  "https://chairtime-production-94da.up.railway.app";
+
 
 async function getToken() {
   const cookieStore = await cookies();
@@ -49,7 +49,7 @@ export async function PATCH(request, context) {
       .catch(() => ({}));
 
     const response = await fetch(
-      `${API_BASE}/api/service-catalog/${encodeURIComponent(
+      `${serverApiBase()}/api/service-catalog/${encodeURIComponent(
         catalogId
       )}`,
       {
@@ -112,7 +112,7 @@ export async function DELETE(
     }
 
     const response = await fetch(
-      `${API_BASE}/api/service-catalog/${encodeURIComponent(
+      `${serverApiBase()}/api/service-catalog/${encodeURIComponent(
         catalogId
       )}?shop_slug=${encodeURIComponent(
         shopSlug
