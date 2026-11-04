@@ -136,6 +136,31 @@ export default function SignupPage() {
         );
       }
 
+      // Only the isolated Shop #3 preview may test onboarding without
+      // Stripe. This does NOT start a subscription or collect a card.
+      // Other shops and production always use normal checkout below.
+      if (cleanShopSlug === "test-shop-3" &&
+          selectedPlan === "scheduling_ai") {
+        const sandboxResponse = await fetch(
+          "/api/daytello-test/shop3-activate-ai",
+          { method: "POST", headers: { Accept: "application/json" } }
+        );
+        const sandboxData = await sandboxResponse.json().catch(() => ({}));
+        if (sandboxResponse.ok && sandboxData.sandbox_only === true &&
+            sandboxData.ai_setup_enabled === true &&
+            sandboxData.billing_active === false) {
+          sessionStorage.setItem("chairtime_signup_shop_slug", shopSlug);
+          sessionStorage.setItem("chairtime_signup_plan", selectedPlan);
+          window.location.assign(`/${shopSlug}/onboarding`);
+          return;
+        }
+        throw new Error(
+          sandboxData.detail ||
+          "Your test shop account was created, but sandbox activation failed. " +
+          "Please sign in instead of registering again."
+        );
+      }
+
       /*
        * Stripe must accept the owner's payment
        * method and create the trial subscription
