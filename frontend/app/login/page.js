@@ -1,11 +1,12 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import styles from "./login.module.css";
 
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -72,7 +73,18 @@ export default function LoginPage() {
         );
       }
 
-      router.replace(`/${shopSlug}/admin`);
+      // Preserve the intended onboarding destination after re-authentication.
+      // Restrict it to this owner's own shop to avoid open redirects.
+      const next = searchParams.get("next") || "";
+      const ownPath = `/${shopSlug}/`;
+      const safeNext =
+        next.startsWith(ownPath) &&
+        !next.startsWith("//") &&
+        !next.includes("\\") &&
+        !next.includes("%")
+          ? next
+          : `/${shopSlug}/admin`;
+      router.replace(safeNext);
       router.refresh();
     } catch (error) {
       setError(
