@@ -1,7 +1,7 @@
+import { serverApiBase } from "@/lib/server-api-base";
 import { cookies } from "next/headers";
 
-const API_BASE =
-  "https://chairtime-production-94da.up.railway.app";
+
 
 export async function POST(request, { params }) {
   try {
@@ -20,7 +20,7 @@ export async function POST(request, { params }) {
     const body = await request.json();
 
     const response = await fetch(
-      `${API_BASE}/api/admin/blocked-times`,
+      `${serverApiBase()}/api/admin/blocked-times`,
       {
         method: "POST",
         headers: {
