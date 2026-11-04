@@ -1,111 +1,33 @@
-import { serverApiBase } from "@/lib/server-api-base";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import { serverApiBase } from "@/lib/server-api-base";
 
-
-
-
-
-async function getToken() {
-  const cookieStore = await cookies();
-
-  return cookieStore.get(
-    "chairtime_token"
-  )?.value;
-}
-
-
-function unauthorizedResponse() {
-  return NextResponse.json(
-    {
-      detail: "Not authenticated.",
-    },
-    {
-      status: 401,
-    }
-  );
-}
-
-
-export async function GET(
-  request,
-  context
-) {
-  const token = await getToken();
-
+export async function DELETE(_request, { params }) {
+  const token = (await cookies()).get("chairtime_token")?.value;
   if (!token) {
-    return unauthorizedResponse();
+    return NextResponse.json({ detail: "Not authenticated." }, { status: 401 });
   }
 
-  const { shopSlug } =
-    await context.params;
-
-  const response = await fetch(
-    `${serverApiBase()}/api/shop-availability-rules?shop_slug=${encodeURIComponent(
-      shopSlug
-    )}`,
-    {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: "application/json",
-      },
-      cache: "no-store",
-    }
-  );
-
-  const data = await response
-    .json()
-    .catch(() => ({}));
-
-  return NextResponse.json(
-    data,
-    {
-      status: response.status,
-    }
-  );
-}
-
-
-export async function POST(
-  request,
-  context
-) {
-  const token = await getToken();
-
-  if (!token) {
-    return unauthorizedResponse();
+  const { shopSlug, ruleId } = await params;
+  if (!shopSlug || !ruleId) {
+    return NextResponse.json({ detail: "Missing shop or rule." }, { status: 400 });
   }
 
-  const { shopSlug } =
-    await context.params;
-
-  const body = await request.json();
-
-  const response = await fetch(
-    `${serverApiBase()}/api/shop-availability-rules`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        ...body,
-        shop_slug: shopSlug,
-      }),
-      cache: "no-store",
-    }
-  );
-
-  const data = await response
-    .json()
-    .catch(() => ({}));
-
-  return NextResponse.json(
-    data,
-    {
-      status: response.status,
-    }
-  );
+  try {
+    const response = await fetch(
+      `${serverApiBase()}/api/shop-availability-rules/${encodeURIComponent(ruleId)}?shop_slug=${encodeURIComponent(shopSlug)}`,
+      {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+        cache: "no-store",
+      }
+    );
+    const body = await response.text();
+    if (response.status === 204 || !body) return new Response(null, { status: response.status });
+    let data;
+    try { data = JSON.parse(body); } catch { data = { detail: "Unable to delete shop hours." }; }
+    return NextResponse.json(data, { status: response.status });
+  } catch {
+    return NextResponse.json({ detail: "Could not update your shop hours." }, { status: 502 });
+  }
 }
