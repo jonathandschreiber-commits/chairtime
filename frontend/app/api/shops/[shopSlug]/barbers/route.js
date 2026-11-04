@@ -1,7 +1,7 @@
+import { serverApiBase } from "@/lib/server-api-base";
 import { cookies } from "next/headers";
 
-const API_BASE =
-  "https://chairtime-production-94da.up.railway.app";
+
 
 
 async function getToken() {
@@ -40,7 +40,7 @@ export async function GET(
     }
 
     const response = await fetch(
-      `${API_BASE}/api/barbers?shop_slug=${encodeURIComponent(
+      `${serverApiBase()}/api/barbers?shop_slug=${encodeURIComponent(
         shopSlug
       )}`,
       {
@@ -101,7 +101,7 @@ export async function POST(
       .catch(() => ({}));
 
     const response = await fetch(
-      `${API_BASE}/api/barbers`,
+      `${serverApiBase()}/api/barbers`,
       {
         method: "POST",
         headers: {
