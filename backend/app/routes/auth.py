@@ -483,6 +483,53 @@ def read_current_user(
     )
 
 
+@router.post("/test-shop3-activate-ai")
+def test_shop3_activate_ai(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Non-billable isolated Shop #3 test; never activates Stripe or a phone.
+
+    Only the exact Shop #3 owner in the dedicated sandbox can use this.
+    Subscription status is explicitly 'sandbox_test', never 'trialing' or
+    'active', so it cannot be mistaken for a paid Stripe subscription.
+    """
+    if not (
+        os.getenv("DAYTELLO_SHOP3_SANDBOX_TRIAL_ENABLED") == "true"
+        and os.getenv("DAYTELLO_VOICEMAIL_TEST_ONLY") == "true"
+        and os.getenv("DAYTELLO_VOICEMAIL_PROVIDER") == "highlevel"
+        and os.getenv("DAYTELLO_VOICE_RELAY_PURCHASE_ENABLED") == "false"
+    ):
+        raise HTTPException(404, "Not found")
+    if current_user.role != "owner" or current_user.shop_slug != "test-shop-3":
+        raise HTTPException(403, "Shop #3 test owner required")
+    shop = (
+        db.query(Shop).filter(
+            Shop.id == current_user.shop_id, Shop.slug == "test-shop-3"
+        ).with_for_update().one_or_none()
+    )
+    if shop is None:
+        raise HTTPException(403, "Shop #3 test owner required")
+    if shop.stripe_customer_id or shop.stripe_subscription_id:
+        raise HTTPException(409, "Existing Stripe subscription cannot be bypassed")
+    if shop.highlevel_agent_id or shop.highlevel_phone_number:
+        raise HTTPException(409, "Existing provider connection cannot be bypassed")
+    if shop.subscription_status not in (None, "sandbox_test"):
+        raise HTTPException(409, "Existing subscription cannot be bypassed")
+    shop.ai_voice_enabled = True
+    shop.subscription_status = "sandbox_test"
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise HTTPException(502, "Could not activate sandbox setup")
+    return {
+        "success": True, "shop_slug": shop.slug, "sandbox_only": True,
+        "billing_active": False, "ai_setup_enabled": True,
+        "ready_for_customer_calls": False,
+    }
+
+
 # The isolated voicemail test database contains an existing Bob's Shop
 # record, including historical voicemail data, but no user created through
 # signup. This is a *one-time recovery path*, not normal store onboarding.
