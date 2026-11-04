@@ -375,11 +375,20 @@ export default function OnboardingPage() {
           typeof data.detail === "string"
             ? data.detail
             : data.detail?.message;
- 
+        // Show only the upstream HTTP status, not HighLevel's response
+        // body, which can include identifiers or sensitive data.
+        const upstreamStatus = Number(data.detail?.highlevel_status);
+        const statusHint = Number.isInteger(upstreamStatus) &&
+          upstreamStatus >= 400 && upstreamStatus <= 599
+          ? ` (HighLevel HTTP ${upstreamStatus})`
+          : "";
+        const permissionHint = [401, 403].includes(upstreamStatus)
+          ? " Check the configured HighLevel token permissions and location."
+          : "";
         throw new Error(
-          data.error ||
-            detail ||
-            "Could not set up your AI Receptionist."
+          (data.error || detail ||
+            "Could not set up your AI Receptionist.") +
+          statusHint + permissionHint
         );
       }
  
