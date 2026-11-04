@@ -1,7 +1,7 @@
+import { serverApiBase } from "@/lib/server-api-base";
 import { cookies } from "next/headers";
 
-const API_BASE =
-  "https://chairtime-production-94da.up.railway.app";
+
 
 export async function DELETE(
   request,
@@ -23,7 +23,7 @@ export async function DELETE(
     }
 
     const response = await fetch(
-      `${API_BASE}/api/admin/blocked-times/${encodeURIComponent(
+      `${serverApiBase()}/api/admin/blocked-times/${encodeURIComponent(
         blockedTimeId
       )}?shop_slug=${encodeURIComponent(
         shopSlug
