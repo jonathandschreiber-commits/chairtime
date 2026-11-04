@@ -154,11 +154,15 @@ export default function SignupPage() {
           window.location.assign(`/${shopSlug}/onboarding`);
           return;
         }
-        throw new Error(
-          sandboxData.detail ||
-          "Your test shop account was created, but sandbox activation failed. " +
-          "Please sign in instead of registering again."
-        );
+        // The sandbox endpoint does not exist in production. In that
+        // case continue through normal Stripe checkout, not a dead end.
+        if (sandboxResponse.status !== 404) {
+          throw new Error(
+            sandboxData.detail ||
+            "Your test shop account was created, but sandbox activation failed. " +
+            "Please sign in instead of registering again."
+          );
+        }
       }
 
       /*
