@@ -1,9 +1,9 @@
+import { serverApiBase } from "@/lib/server-api-base";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
 
-const API_BASE =
-  "https://chairtime-production-94da.up.railway.app";
+
 
 
 async function getToken() {
@@ -43,7 +43,7 @@ export async function POST(
   const body = await request.json();
 
   const response = await fetch(
-    `${API_BASE}/api/shop-blocked-times`,
+    `${serverApiBase()}/api/shop-blocked-times`,
     {
       method: "POST",
       headers: {
