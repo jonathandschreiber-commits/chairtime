@@ -306,6 +306,34 @@ def prepare_test_voice_relay(
             "next_step": "Save the approved owner transfer number"}
 
 
+@router.post("/shops/{shop_slug}/voice-relay/claim-test-reserve")
+def claim_test_shop3_preowned_relay(
+    shop_slug: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Owner-scoped claim of the one pre-purchased test DID; no provider writes.
+
+    Verifies exact Twilio ownership and inbound URL, then creates only a
+    disabled, exclusive local assignment. Never purchases a DID, sends SMS,
+    enables calls, or changes HighLevel transfer actions.
+    """
+    shop = owner_shop(db, shop_slug, current_user)
+    if (shop.slug != "test-shop-3"
+            or os.getenv("DAYTELLO_VOICE_RELAY_TEST_ONLY") != "true"
+            or os.getenv("DAYTELLO_SHOP3_SANDBOX_TRIAL_ENABLED") != "true"):
+        raise HTTPException(404, "Unavailable")
+    number = "+15077135447"
+    result = reserve_or_purchase_relay_for_shop(
+        shop, db, number, approved=False,
+    )
+    return {
+        **result,
+        "ready_for_customer_calls": False,
+        "message": "Pre-owned relay registered, but calls and SMS remain disabled pending verification.",
+    }
+
+
 @router.get("/shops/{shop_slug}/call-voicemail-number")
 def get_owner_call_voicemail_number(
     shop_slug: str,
