@@ -8,6 +8,7 @@ on:
   push:
     branches:
       - main
+      - feature/daytello-twilio-readonly-check-20261106
     paths:
       - "backend/**"
       - ".github/workflows/backend-python-tests.yml"
