@@ -471,6 +471,34 @@ def set_owner_call_voicemail_number(
     reject_internal_owner_destination(db, number, shop.id)
     approved_owner_recipient(shop.slug, number, db=db, shop_id=shop.id)
 
+    # The isolated Test Shop #3 can have a provider-verified, already owned
+    # Twilio relay while this sandbox remains in HighLevel-only mode.
+    # Saving its verified recipient must not turn on the relay, change
+    # HighLevel call transfers, or send messages. No other shop is affected.
+    if shop.slug == "test-shop-3" and os.getenv("DAYTELLO_VOICE_RELAY_TEST_ONLY") == "true":
+        test_relay = db.get(DayTelloVoiceRelayAssignment, shop.id)
+        if (test_relay is not None):
+            if (test_relay.enabled or settings.notifications_enabled
+                    or test_relay.relay_number != settings.receiving_number):
+                raise HTTPException(409, "Existing relay requires a verified routing update")
+            settings.owner_phone = number
+            settings.notifications_enabled = False
+            try:
+                db.commit()
+                db.refresh(settings)
+            except Exception:
+                db.rollback()
+                raise HTTPException(502, "Could not save the approved phone number")
+            return {
+                **public_status(shop, settings, db),
+                "pending_test_authorization": True,
+                "live_call_test_required": True,
+                "message": (
+                    "Verified owner phone saved. Twilio relay calls and SMS "
+                    "remain disabled until separately tested and authorized."
+                ),
+            }
+
     # HighLevel-only onboarding cannot safely write Phone System forwarding,
     # timeout, Call Connect or backup routing using a documented API.
     # Accept the verified owner's choice once, but leave all call/SMS
