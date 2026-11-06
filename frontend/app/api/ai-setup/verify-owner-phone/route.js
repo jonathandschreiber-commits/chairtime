@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 // consent, OTP expiry, throttling and one-time use.
 function previewAllowed() {
   return process.env.VERCEL_ENV === "preview" &&
-    process.env.VERCEL_GIT_COMMIT_REF === "feature/daytello-general-voicemail-onboarding-20261029";
+    process.env.VERCEL_GIT_COMMIT_REF === "feature/daytello-highlevel-only-shop3-20261103";
 }
 
 export async function GET() {
@@ -40,6 +40,9 @@ export async function POST(request) {
   }
 
   const { shop_slug: slug, phone_number: phone, action } = payload ?? {};
+  if (slug !== "test-shop-3") {
+    return NextResponse.json({ detail: "Unavailable outside Test Shop #3." }, { status: 404 });
+  }
   if (typeof slug !== "string" || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) {
     return NextResponse.json({ detail: "Invalid shop." }, { status: 400 });
   }
