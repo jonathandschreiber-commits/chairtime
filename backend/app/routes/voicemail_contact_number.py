@@ -237,6 +237,37 @@ def voicemail_onboarding_readiness(
     }
 
 
+@router.get("/shops/{shop_slug}/voice-relay/provider-connectivity")
+def voice_relay_provider_connectivity(
+    shop_slug: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Owner-only, test-only read of Twilio number inventory.
+
+    No call, number purchase, routing update, or credential values are returned.
+    A successful empty inventory is normal for a trial account.
+    """
+    shop = owner_shop(db, shop_slug, current_user)
+    if (os.getenv("DAYTELLO_VOICE_RELAY_TEST_ONLY") != "true"
+            or os.getenv("DAYTELLO_SHOP3_SANDBOX_TRIAL_ENABLED") != "true"
+            or shop.slug != "test-shop-3"):
+        raise HTTPException(404, "Unavailable")
+    try:
+        provider = VoiceRelayNumberProvider()
+        numbers = provider._list()
+    except HTTPException:
+        raise HTTPException(502, "Twilio read-only connectivity check failed") from None
+    except Exception:
+        raise HTTPException(502, "Twilio read-only connectivity check failed") from None
+    return {
+        "connected": True,
+        "assigned_number_count": len(numbers),
+        "live_relay_verified": False,
+        "ready_for_customer_calls": False,
+    }
+
+
 class PrepareTestVoiceRelay(BaseModel):
     model_config = ConfigDict(extra="forbid")
     area_code: str
