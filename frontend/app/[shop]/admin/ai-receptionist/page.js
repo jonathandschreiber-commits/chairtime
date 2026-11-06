@@ -382,10 +382,10 @@ export default function AIReceptionistPage() {
                   DayTello will attempt to assign a voicemail number automatically. SMS and forwarding are checked separately.
                 </p>}
               </form>
-              <OwnerPhoneVerification shopSlug={shopSlug} ownerNumber={ownerNumber}
+              {shopSlug === "test-shop-3" && <OwnerPhoneVerification shopSlug={shopSlug} ownerNumber={ownerNumber}
                 onNotificationsDisabled={() => setCallSettings((previous) =>
                   previous ? { ...previous, notifications_enabled: false, sms_ready: false } : previous
-                )} />
+                )} />}
               {shopSlug === "bobs-shop" && provisioned && callSettings?.ready && (
                 <div className="mt-5 rounded-xl border border-sky-200 bg-sky-50 p-4">
                   <p className="font-bold text-slate-900">Bob's Shop voicemail notifications — TEST</p>
