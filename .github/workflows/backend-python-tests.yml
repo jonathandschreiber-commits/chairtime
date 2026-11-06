@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      DATABASE_URL: sqlite:///${{ runner.temp }}/daytello-test.db
+      DATABASE_URL: sqlite:////tmp/daytello-ci-test.db
       DAYTELLO_VOICE_RELAY_TEST_ONLY: "false"
       DAYTELLO_VOICE_RELAY_PURCHASE_ENABLED: "false"
     defaults:
