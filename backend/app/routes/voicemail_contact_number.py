@@ -334,6 +334,76 @@ def claim_test_shop3_preowned_relay(
     }
 
 
+class IsolatedShop3RelayCallTest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    confirm_test_calls: bool
+
+
+@router.post("/shops/{shop_slug}/voice-relay/call-only-test")
+def set_shop3_relay_call_test(
+    shop_slug: str,
+    payload: IsolatedShop3RelayCallTest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Enable or stop calls on Test Shop #3's owned relay WITHOUT changing SMS.
+
+    This deliberately does not touch HighLevel's AI agent/transfer, trigger a
+    provider call, change the Twilio phone configuration or enable alerts.
+    Only an explicitly authorized, owner-scoped and verified relay can ring.
+    """
+    shop = owner_shop(db, shop_slug, current_user)
+    if (shop.slug != "test-shop-3"
+            or os.getenv("DAYTELLO_VOICE_RELAY_TEST_ONLY") != "true"
+            or os.getenv("DAYTELLO_SHOP3_SANDBOX_TRIAL_ENABLED") != "true"):
+        raise HTTPException(404, "Unavailable")
+    relay = db.get(DayTelloVoiceRelayAssignment, shop.id)
+    settings = db.get(DayTelloVoicemailShopSettings, shop.id)
+    if (not relay or not settings or
+            relay.relay_number != "+15077135447" or
+            settings.receiving_number != relay.relay_number):
+        raise HTTPException(409, "Test relay assignment mismatch")
+    if payload.confirm_test_calls is True:
+        if os.getenv("DAYTELLO_VOICE_RELAY_ALLOW_TEST_CALLS") != "true":
+            raise HTTPException(409, "Isolated test-call authorization is disabled")
+        location = os.getenv("HIGHLEVEL_LOCATION_ID", "").strip()
+        if (not location or not shop.ai_voice_enabled or
+                shop.highlevel_location_id != location or
+                settings.location_id != location or
+                not shop.highlevel_phone_number):
+            raise HTTPException(409, "Test Shop #3 voice setup is incomplete")
+        if not settings.owner_phone or not PHONE.fullmatch(settings.owner_phone):
+            raise HTTPException(409, "Verified owner destination is not saved")
+        reject_internal_owner_destination(db, settings.owner_phone, shop.id)
+        approved_owner_recipient(shop.slug, settings.owner_phone, db=db, shop_id=shop.id)
+        if settings.notifications_enabled:
+            raise HTTPException(409, "Call-only test requires SMS notifications disabled")
+        # Fresh readback of the existing Twilio number and webhook. Never buy,
+        # reconfigure, transfer, or provision any number in this endpoint.
+        verified = VoiceRelayNumberProvider().find_existing(
+            str(shop.id), expected_number=relay.relay_number)
+        if not verified or not verified.get("route_verified"):
+            raise HTTPException(409, "Twilio relay route could not be verified")
+        relay.enabled = True
+    else:
+        relay.enabled = False
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise HTTPException(502, "Could not update isolated relay test")
+    return {
+        "shop_slug": shop.slug,
+        "relay_number": relay.relay_number,
+        "test_calls_enabled": bool(relay.enabled),
+        "sms_notifications_enabled": bool(settings.notifications_enabled),
+        "highlevel_routing_changed": False,
+        "ready_for_customer_calls": False,
+        "message": ("Test relay accepts direct calls. SMS is off; do not redirect the AI number."
+                    if relay.enabled else "Isolated relay calls disabled."),
+    }
+
+
 @router.get("/shops/{shop_slug}/call-voicemail-number")
 def get_owner_call_voicemail_number(
     shop_slug: str,
