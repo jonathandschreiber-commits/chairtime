@@ -76,6 +76,48 @@ class Shop3PendingOwnerSave(unittest.TestCase):
             self.assertEqual(settings.receiving_number, "+15077135447")
             self.assertFalse(relay.enabled)
 
+    def test_direct_call_only_activation_does_not_enable_sms_or_touch_highlevel(self):
+        with self.factory() as db:
+            db.get(DayTelloVoicemailShopSettings, "test-s3").owner_phone = "+12405619680"
+            db.commit()
+        with patch.dict(os.environ, {"DAYTELLO_SHOP3_SANDBOX_TRIAL_ENABLED": "true",
+                                     "DAYTELLO_VOICE_RELAY_ALLOW_TEST_CALLS": "true"}), \
+             patch.object(route, "approved_owner_recipient", return_value="+12405619680"), \
+             patch.object(route, "VoiceRelayNumberProvider") as provider, \
+             patch.object(route, "daytello_save_staff_transfer") as transfer:
+            provider.return_value.find_existing.return_value = {
+                "number": "+15077135447", "route_verified": True}
+            response = self.client.post(
+                "/api/shops/test-shop-3/voice-relay/call-only-test",
+                json={"confirm_test_calls": True})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertTrue(response.json()["test_calls_enabled"])
+        self.assertFalse(response.json()["sms_notifications_enabled"])
+        self.assertFalse(response.json()["highlevel_routing_changed"])
+        transfer.assert_not_called()
+        with self.factory() as db:
+            self.assertTrue(db.get(DayTelloVoiceRelayAssignment, "test-s3").enabled)
+            self.assertFalse(db.get(DayTelloVoicemailShopSettings, "test-s3").notifications_enabled)
+        with patch.dict(os.environ, {"DAYTELLO_SHOP3_SANDBOX_TRIAL_ENABLED": "true"}):
+            stopped = self.client.post(
+                "/api/shops/test-shop-3/voice-relay/call-only-test",
+                json={"confirm_test_calls": False})
+        self.assertEqual(stopped.status_code, 200, stopped.text)
+        self.assertFalse(stopped.json()["test_calls_enabled"])
+
+    def test_direct_call_requires_independent_test_authorization(self):
+        with self.factory() as db:
+            db.get(DayTelloVoicemailShopSettings, "test-s3").owner_phone = "+12405619680"
+            db.commit()
+        with patch.dict(os.environ, {"DAYTELLO_SHOP3_SANDBOX_TRIAL_ENABLED": "true",
+                                     "DAYTELLO_VOICE_RELAY_ALLOW_TEST_CALLS": "false"}):
+            response = self.client.post(
+                "/api/shops/test-shop-3/voice-relay/call-only-test",
+                json={"confirm_test_calls": True})
+        self.assertEqual(response.status_code, 409)
+        with self.factory() as db:
+            self.assertFalse(db.get(DayTelloVoiceRelayAssignment, "test-s3").enabled)
+
     def test_active_relay_still_rejected(self):
         with self.factory() as db:
             db.get(DayTelloVoiceRelayAssignment, "test-s3").enabled = True
