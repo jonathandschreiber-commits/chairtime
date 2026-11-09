@@ -139,7 +139,7 @@ export default function SignupPage() {
       // Only the isolated Shop #3 preview may test onboarding without
       // Stripe. This does NOT start a subscription or collect a card.
       // Other shops and production always use normal checkout below.
-      if (cleanShopSlug === "test-shop-3" &&
+      if (["test-shop-3", "test-shop-4"].includes(cleanShopSlug) &&
           selectedPlan === "scheduling_ai") {
         const sandboxResponse = await fetch(
           "/api/daytello-test/shop3-activate-ai",
