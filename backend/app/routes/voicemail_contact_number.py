@@ -435,6 +435,17 @@ def get_owner_call_voicemail_number(
 
 
 
+def _use_highlevel_voicemail(shop: Shop) -> bool:
+    if shop.slug == "test-shop-4" and (
+        os.getenv("DAYTELLO_SHOP3_SANDBOX_TRIAL_ENABLED") == "true"
+        and os.getenv("DAYTELLO_VOICEMAIL_TEST_ONLY") == "true"
+        and os.getenv("DAYTELLO_VOICE_RELAY_TEST_ONLY") == "true"
+        and os.getenv("DAYTELLO_VOICE_RELAY_PURCHASE_ENABLED") == "false"
+    ):
+        return False
+    return os.getenv("DAYTELLO_VOICEMAIL_PROVIDER") == "highlevel"
+
+
 def attach_preowned_relay_after_ai_number(shop: Shop, db: Session) -> bool:
     """Bind a previously approved relay as part of AI-number onboarding.
 
@@ -448,7 +459,7 @@ def attach_preowned_relay_after_ai_number(shop: Shop, db: Session) -> bool:
     # HighLevel-only shops never enter the Twilio provider adapter.
     # Reservation is restricted to previously allocated, provider-verified
     # HighLevel DIDs; no DID is bought or upstream forwarding altered here.
-    if os.getenv("DAYTELLO_VOICEMAIL_PROVIDER") == "highlevel":
+    if _use_highlevel_voicemail(shop):
         if db.get(DayTelloVoicemailShopSettings, shop.id) is not None:
             return False
         if db.get(DayTelloVoiceRelayAssignment, shop.id) is not None:
@@ -505,7 +516,7 @@ def ensure_existing_shop_voicemail_route(shop: Shop, db: Session):
     # Twilio relay. This verifies a pre-reserved HighLevel voicemail DID and
     # binds it exclusively to this shop. HighLevel number forwarding and
     # unanswered-call fallback remain unverified and are never reported ready.
-    if os.getenv("DAYTELLO_VOICEMAIL_PROVIDER") == "highlevel":
+    if _use_highlevel_voicemail(shop):
         return ensure_test_voicemail_number(shop, db)
 
     # New AI shops need a programmable relay, not an unused legacy
@@ -592,7 +603,7 @@ def set_owner_call_voicemail_number(
     # Accept the verified owner's choice once, but leave all call/SMS
     # activation OFF until the provider route has been independently verified.
     # This avoids crossing into the unrelated Twilio relay activation path.
-    if os.getenv("DAYTELLO_VOICEMAIL_PROVIDER") == "highlevel":
+    if _use_highlevel_voicemail(shop):
         if db.get(DayTelloVoiceRelayAssignment, shop.id) is not None:
             raise HTTPException(409, "Conflicting voice relay assignment")
         if settings.notifications_enabled:
