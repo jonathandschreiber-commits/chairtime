@@ -88,7 +88,8 @@ export default function TwilioConnectivityDiagnostic() {
       }
       if (data.relay_number !== "+15077135447" ||
           data.test_calls_enabled !== enabled ||
-          data.sms_notifications_enabled !== false ||
+          typeof data.sms_notifications_enabled !== "boolean" ||
+          (!enabled && data.sms_notifications_enabled) ||
           data.highlevel_routing_changed !== false ||
           data.ready_for_customer_calls !== false) {
         throw new Error("Unexpected test response; do not place a call.");
@@ -139,9 +140,9 @@ export default function TwilioConnectivityDiagnostic() {
         <h3 className="text-lg font-bold text-slate-900">Direct-call voicemail test — Test Shop 3 only</h3>
         <p className="mt-2 text-sm text-slate-600">
           This enables only direct calls to the existing Twilio relay (507) 713-5447.
-          It does not change the HighLevel AI number (240) 387-5085, make a call,
-          send SMS, or activate customer call routing. The owner phone may ring;
-          do not answer it for the first voicemail test.
+          When test SMS is configured, a new voicemail sends a listening link to the verified owner.
+          This uses the dedicated relay without changing HighLevel routing. Let the owner phone
+          ring unanswered to test voicemail.
         </p>
         <div className="mt-3 flex flex-wrap gap-3">
           <button type="button" disabled={callTestBusy || callTestEnabled}
