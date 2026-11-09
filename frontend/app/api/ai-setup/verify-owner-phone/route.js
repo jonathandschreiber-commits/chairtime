@@ -40,7 +40,7 @@ export async function POST(request) {
   }
 
   const { shop_slug: slug, phone_number: phone, action } = payload ?? {};
-  if (slug !== "test-shop-3") {
+  if (!["test-shop-3", "test-shop-4"].includes(slug)) {
     return NextResponse.json({ detail: "Unavailable outside Test Shop #3." }, { status: 404 });
   }
   if (typeof slug !== "string" || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) {
