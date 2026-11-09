@@ -346,10 +346,10 @@ def set_shop3_relay_call_test(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Enable or stop calls on Test Shop #3's owned relay WITHOUT changing SMS.
+    """Enable or stop the isolated Test Shop #3 relay and optional test SMS.
 
     This deliberately does not touch HighLevel's AI agent/transfer, trigger a
-    provider call, change the Twilio phone configuration or enable alerts.
+    provider call or change the Twilio phone configuration.
     Only an explicitly authorized, owner-scoped and verified relay can ring.
     """
     shop = owner_shop(db, shop_slug, current_user)
@@ -376,7 +376,21 @@ def set_shop3_relay_call_test(
             raise HTTPException(409, "Verified owner destination is not saved")
         reject_internal_owner_destination(db, settings.owner_phone, shop.id)
         approved_owner_recipient(shop.slug, settings.owner_phone, db=db, shop_id=shop.id)
-        if settings.notifications_enabled:
+        sms_test = os.getenv("DAYTELLO_SHOP3_DIRECT_TEST_SMS_ENABLED") == "true"
+        if sms_test:
+            if (os.getenv("DAYTELLO_VOICEMAIL_OWNER_SMS_ENABLED") != "true"
+                    or os.getenv("DAYTELLO_VOICEMAIL_TEST_ONLY") != "true"):
+                raise HTTPException(409, "Test voicemail SMS delivery is disabled")
+            recipient_settings = type("RequestedNotification", (), {
+                "notifications_enabled": True, "owner_phone": settings.owner_phone,
+            })()
+            if not owner_phone_for_test_shop(shop.slug, recipient_settings, db=db, shop_id=shop.id):
+                raise HTTPException(409, "Owner is not eligible for test voicemail SMS")
+            link_cipher()
+            _recording_link_origin_for_shop(shop, settings, db)
+            if not PHONE.fullmatch(os.getenv("HIGHLEVEL_SMS_FROM_NUMBER", "").strip()):
+                raise HTTPException(503, "SMS sender is not configured")
+        elif settings.notifications_enabled:
             raise HTTPException(409, "Call-only test requires SMS notifications disabled")
         # Fresh readback of the existing Twilio number and webhook. Never buy,
         # reconfigure, transfer, or provision any number in this endpoint.
@@ -385,8 +399,10 @@ def set_shop3_relay_call_test(
         if not verified or not verified.get("route_verified"):
             raise HTTPException(409, "Twilio relay route could not be verified")
         relay.enabled = True
+        settings.notifications_enabled = sms_test
     else:
         relay.enabled = False
+        settings.notifications_enabled = False
     try:
         db.commit()
     except Exception:
@@ -399,8 +415,10 @@ def set_shop3_relay_call_test(
         "sms_notifications_enabled": bool(settings.notifications_enabled),
         "highlevel_routing_changed": False,
         "ready_for_customer_calls": False,
-        "message": ("Test relay accepts direct calls. SMS is off; do not redirect the AI number."
-                    if relay.enabled else "Isolated relay calls disabled."),
+        "message": ("Test relay accepts direct calls and will text the verified owner after a new voicemail."
+                    if relay.enabled and settings.notifications_enabled else
+                    "Test relay accepts direct calls. SMS is off; do not redirect the AI number."
+                    if relay.enabled else "Isolated relay calls and test SMS disabled."),
     }
 
 
