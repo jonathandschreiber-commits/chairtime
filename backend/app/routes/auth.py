@@ -488,9 +488,9 @@ def test_shop3_activate_ai(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Non-billable isolated Shop #3 test; never activates Stripe or a phone.
+    """Non-billable isolated onboarding test; never activates Stripe or a phone.
 
-    Only the exact Shop #3 owner in the dedicated sandbox can use this.
+    Only an explicitly designated test shop owner in the dedicated sandbox can use this.
     Subscription status is explicitly 'sandbox_test', never 'trialing' or
     'active', so it cannot be mistaken for a paid Stripe subscription.
     """
@@ -501,15 +501,15 @@ def test_shop3_activate_ai(
         and os.getenv("DAYTELLO_VOICE_RELAY_PURCHASE_ENABLED") == "false"
     ):
         raise HTTPException(404, "Not found")
-    if current_user.role != "owner" or current_user.shop_slug != "test-shop-3":
-        raise HTTPException(403, "Shop #3 test owner required")
+    if current_user.role != "owner" or current_user.shop_slug not in {"test-shop-3", "test-shop-4"}:
+        raise HTTPException(403, "Designated test shop owner required")
     shop = (
         db.query(Shop).filter(
-            Shop.id == current_user.shop_id, Shop.slug == "test-shop-3"
+            Shop.id == current_user.shop_id, Shop.slug == current_user.shop_slug
         ).with_for_update().one_or_none()
     )
     if shop is None:
-        raise HTTPException(403, "Shop #3 test owner required")
+        raise HTTPException(403, "Designated test shop owner required")
     if shop.stripe_customer_id or shop.stripe_subscription_id:
         raise HTTPException(409, "Existing Stripe subscription cannot be bypassed")
     if shop.highlevel_agent_id or shop.highlevel_phone_number:
