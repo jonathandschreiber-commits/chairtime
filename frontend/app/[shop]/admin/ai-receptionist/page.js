@@ -382,7 +382,7 @@ export default function AIReceptionistPage() {
                   DayTello will attempt to assign a voicemail number automatically. SMS and forwarding are checked separately.
                 </p>}
               </form>
-              {shopSlug === "test-shop-3" && <OwnerPhoneVerification shopSlug={shopSlug} ownerNumber={ownerNumber}
+              {["test-shop-3", "test-shop-4"].includes(shopSlug) && <OwnerPhoneVerification shopSlug={shopSlug} ownerNumber={ownerNumber}
                 onNotificationsDisabled={() => setCallSettings((previous) =>
                   previous ? { ...previous, notifications_enabled: false, sms_ready: false } : previous
                 )} />}
