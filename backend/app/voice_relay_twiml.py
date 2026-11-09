@@ -87,14 +87,21 @@ def owner_screen_result(digits: str | None) -> str:
 
 
 def voicemail_after_unanswered(recording_complete_url: str,
-                               recording_ready_url: str) -> str:
+                               recording_ready_url: str, *, shop_name: str = "") -> str:
     """Prompt caller and record; completed recording uses a separate callback.
 
     Caller/recording callbacks must independently verify provider signatures,
     call SID and assigned DID before they can create a shop-scoped SMS.
     """
     root = ET.Element("Response")
-    ET.SubElement(root, "Say").text = "We could not reach anyone. Please leave a message after the tone."
+    greeting = "We could not reach anyone. Please leave a message after the tone."
+    if shop_name.strip():
+        greeting = (
+            f"Thanks for calling {shop_name.strip()}. We're with clients right now. "
+            "Please leave your name, phone number, and a brief message after the tone. "
+            "We'll get back to you as soon as we can."
+        )
+    ET.SubElement(root, "Say").text = greeting
     ET.SubElement(root, "Record", {
         "action": _https_url(recording_complete_url),
         "method": "POST",
@@ -114,7 +121,8 @@ def completed_recording() -> str:
 
 
 def after_employee_dial(dial_call_status: str, recording_complete_url: str,
-                        recording_ready_url: str, dial_bridged: str | None = None) -> str:
+                        recording_ready_url: str, dial_bridged: str | None = None,
+                        *, shop_name: str = "") -> str:
     """Only unanswered or failed employee calls go to voicemail.
 
     Twilio DialCallStatus "completed" means the employee leg connected.
@@ -137,6 +145,6 @@ def after_employee_dial(dial_call_status: str, recording_complete_url: str,
         return completed_recording()
     if normalized in {"no-answer", "busy", "failed", "completed"}:
         return voicemail_after_unanswered(
-            recording_complete_url, recording_ready_url
+            recording_complete_url, recording_ready_url, shop_name=shop_name
         )
     raise ValueError("Unrecognized dial completion status")
