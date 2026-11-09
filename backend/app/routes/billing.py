@@ -692,6 +692,9 @@ def create_checkout_session(
             mode="subscription",
             customer=shop.stripe_customer_id,
             payment_method_collection="always",
+            custom_text={
+                "submit": {"message": "DayTello is a subsidiary of PSI Meeting, Inc."},
+            },
             line_items=line_items,
             subscription_data={
                 "trial_period_days": 30,
