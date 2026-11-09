@@ -9,6 +9,9 @@ export default function TwilioConnectivityDiagnostic() {
   const [error, setError] = useState("");
   const [claimBusy, setClaimBusy] = useState(false);
   const [claimStatus, setClaimStatus] = useState("");
+  const [callTestBusy, setCallTestBusy] = useState(false);
+  const [callTestEnabled, setCallTestEnabled] = useState(false);
+  const [callTestMessage, setCallTestMessage] = useState("");
 
   async function checkConnection() {
     if (busy) return;
@@ -67,6 +70,39 @@ export default function TwilioConnectivityDiagnostic() {
     }
   }
 
+  async function setIsolatedCallTest(enabled) {
+    if (callTestBusy) return;
+    setCallTestBusy(true);
+    setCallTestMessage("");
+    try {
+      const response = await fetch("/api/ai-setup/voice-relay/call-only-test", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ confirm_test_calls: enabled }),
+        cache: "no-store",
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(typeof data.detail === "string" ? data.detail : "Relay test request was blocked.");
+      }
+      if (data.relay_number !== "+15077135447" ||
+          data.test_calls_enabled !== enabled ||
+          data.sms_notifications_enabled !== false ||
+          data.highlevel_routing_changed !== false ||
+          data.ready_for_customer_calls !== false) {
+        throw new Error("Unexpected test response; do not place a call.");
+      }
+      setCallTestEnabled(enabled);
+      setCallTestMessage(data.message || (enabled ? "Call-only relay test enabled." : "Relay test stopped."));
+    } catch (err) {
+      setCallTestEnabled(false);
+      setCallTestMessage(err.message || "Unable to verify test relay state; do not place a call.");
+    } finally {
+      setCallTestBusy(false);
+    }
+  }
+
   return (
     <section className="bg-white rounded-3xl shadow-lg border border-amber-200 p-7">
       <h2 className="text-2xl font-extrabold text-slate-900">
@@ -98,6 +134,28 @@ export default function TwilioConnectivityDiagnostic() {
           {claimBusy ? "Verifying existing number…" : "Register Purchased Twilio Relay"}
         </button>
         {claimStatus && <p role="status" className="mt-3 text-sm text-slate-800">{claimStatus}</p>}
+      </div>
+      <div className="mt-5 border-t border-slate-200 pt-4">
+        <h3 className="text-lg font-bold text-slate-900">Direct-call voicemail test — Test Shop 3 only</h3>
+        <p className="mt-2 text-sm text-slate-600">
+          This enables only direct calls to the existing Twilio relay (507) 713-5447.
+          It does not change the HighLevel AI number (240) 387-5085, make a call,
+          send SMS, or activate customer call routing. The owner phone may ring;
+          do not answer it for the first voicemail test.
+        </p>
+        <div className="mt-3 flex flex-wrap gap-3">
+          <button type="button" disabled={callTestBusy || callTestEnabled}
+            onClick={() => setIsolatedCallTest(true)}
+            className="rounded-xl bg-slate-900 px-5 py-3 font-bold text-white disabled:opacity-50">
+            {callTestBusy ? "Checking…" : "Enable Direct-Call Test"}
+          </button>
+          <button type="button" disabled={callTestBusy}
+            onClick={() => setIsolatedCallTest(false)}
+            className="rounded-xl border border-slate-400 px-5 py-3 font-semibold text-slate-900 disabled:opacity-50">
+            Stop Relay Test
+          </button>
+        </div>
+        {callTestMessage && <p role="status" className="mt-3 text-sm text-slate-800">{callTestMessage}</p>}
       </div>
       {error && <p role="alert" className="mt-4 text-sm font-semibold text-red-700">{error}</p>}
     </section>
