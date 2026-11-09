@@ -223,12 +223,14 @@ async def relay_dial_finished(request: Request, db: Session = Depends(get_db)):
     # callback must still belong to the tenant that owned that call.
     if binding.shop_id != call.shop_id:
         raise HTTPException(409, "Voice call tenant assignment changed")
+    shop = db.get(Shop, call.shop_id)
     status = fields.get("DialCallStatus", "")
     try:
         xml = after_employee_dial(
             status,
             origin + "/api/daytello/voice-relay/record-finished",
             origin + "/api/daytello/voice-relay/record-ready",
+            shop_name=(shop.name or "") if shop else "",
             # A human keypress is necessary but not sufficient to prove a
             # connection. Twilio's DialBridged=true is the provider's
             # explicit confirmation that the caller actually reached the
