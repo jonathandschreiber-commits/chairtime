@@ -1,5 +1,7 @@
 import json
 import os
+
+from app.voice_relay_mode import production_relay_enabled
 import re
 from datetime import datetime, timedelta
 from urllib import error, request
@@ -80,7 +82,7 @@ def send_highlevel_sms(phone: str, message: str, *, shop_id=None, shop_slug=None
     if purpose == "voicemail-owner-notification":
         sender = os.getenv("HIGHLEVEL_SMS_FROM_NUMBER", "").strip()
         if (
-            os.getenv("DAYTELLO_VOICEMAIL_TEST_ONLY") != "true"
+            (os.getenv("DAYTELLO_VOICEMAIL_TEST_ONLY") != "true" and not production_relay_enabled())
             or os.getenv("DAYTELLO_VOICEMAIL_OWNER_SMS_ENABLED") != "true"
             or not re.fullmatch(r"\+[1-9][0-9]{7,14}", sender)
         ):

@@ -9,6 +9,8 @@ import hmac
 import json
 import logging
 import os
+
+from app.voice_relay_mode import production_relay_enabled
 import re
 from datetime import datetime, timedelta, timezone
 
@@ -217,8 +219,11 @@ def relay_receipt_route_is_current(receipt, shop, settings, binding) -> bool:
 def _relay_sms_authorized(*, recovery=False):
     """Recovery permission is independent of ordinary callback SMS delivery."""
     return bool(
-        os.getenv("DAYTELLO_VOICE_RELAY_TEST_ONLY") == "true" and
-        os.getenv("DAYTELLO_VOICEMAIL_TEST_ONLY") == "true" and
+        (production_relay_enabled() or (
+            os.getenv("DAYTELLO_VOICE_RELAY_PRODUCTION_ENABLED") != "true" and
+            os.getenv("DAYTELLO_VOICE_RELAY_TEST_ONLY") == "true" and
+            os.getenv("DAYTELLO_VOICEMAIL_TEST_ONLY") == "true"
+        )) and
         os.getenv("DAYTELLO_VOICEMAIL_OWNER_SMS_ENABLED") == "true" and
         (not recovery or
          os.getenv("DAYTELLO_VOICE_RELAY_RECOVERY_WORKER_ENABLED") == "true")
@@ -345,7 +350,7 @@ def recover_queued_relay_alerts(*, shop_id, limit=25):
 @router.get("/daytello/voice-relay/listen/{token}")
 async def listen_to_relay_recording(token: str):
     """Authenticate the owner bearer link and proxy bounded provider audio."""
-    if (os.getenv("DAYTELLO_VOICE_RELAY_TEST_ONLY") != "true" or
+    if not production_relay_enabled() and (os.getenv("DAYTELLO_VOICE_RELAY_TEST_ONLY") != "true" or
             os.getenv("DAYTELLO_VOICEMAIL_TEST_ONLY") != "true"):
         raise HTTPException(404, "Recording link unavailable")
     payload = decode_recording_link(token)

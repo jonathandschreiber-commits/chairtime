@@ -4,6 +4,8 @@ No production number is redirected to these routes. Shop identification comes
 from an exclusive database DID binding, never from a caller-supplied slug.
 """
 import os
+
+from app.voice_relay_mode import voice_relay_enabled
 import re
 from urllib.parse import urlsplit
 
@@ -32,7 +34,7 @@ SID = re.compile(r"^CA[a-fA-F0-9]{32}$")
 
 
 def _enabled():
-    if os.getenv("DAYTELLO_VOICE_RELAY_TEST_ONLY") != "true":
+    if not voice_relay_enabled():
         raise HTTPException(404, "Unavailable")
     if not os.getenv("DAYTELLO_VOICE_RELAY_AUTH_TOKEN"):
         raise HTTPException(503, "Voice relay credentials unavailable")

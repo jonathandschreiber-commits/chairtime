@@ -7,6 +7,8 @@ The adapter is intentionally independent of HighLevel's legacy DID pool.
 import json
 import os
 
+from app.voice_relay_mode import voice_relay_enabled
+
 from fastapi import HTTPException
 from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
@@ -77,7 +79,7 @@ def reserve_or_purchase_relay_for_shop(shop: Shop, db, number: str, *,
     must not be invoked for another tenant or as a background auto-purchase.
     It does not change HighLevel agent actions, call forwarding or SMS opt-in.
     """
-    if os.getenv("DAYTELLO_VOICE_RELAY_TEST_ONLY") != "true":
+    if not voice_relay_enabled():
         raise HTTPException(404, "Voice relay provisioning is disabled")
     if not isinstance(number, str) or not US_NUMBER.fullmatch(number):
         raise HTTPException(422, "Invalid relay phone number")
@@ -167,7 +169,7 @@ def reserve_relay_for_area_code(shop: Shop, db, area_code: str, *,
     if approved is not True:
         raise HTTPException(409, "Voice relay purchase is not authorized")
     # Do not select a number before verifying the platform is in test mode.
-    if os.getenv("DAYTELLO_VOICE_RELAY_TEST_ONLY") != "true":
+    if not voice_relay_enabled():
         raise HTTPException(404, "Voice relay provisioning is disabled")
     number = provider.find_available_voice_number(area_code)
     return reserve_or_purchase_relay_for_shop(
@@ -181,7 +183,7 @@ def allocate_preowned_relay_for_shop(shop: Shop, db, *, provider=None):
     Only DIDs explicitly inventoried as DayTello Relay Reserve qualify.
     Unique DB constraints prevent a reserve DID from belonging to two shops.
     """
-    if os.getenv("DAYTELLO_VOICE_RELAY_TEST_ONLY") != "true":
+    if not voice_relay_enabled():
         return None
     if (db.get(DayTelloVoiceRelayAssignment, shop.id) is not None
             or db.get(DayTelloVoicemailShopSettings, shop.id) is not None):

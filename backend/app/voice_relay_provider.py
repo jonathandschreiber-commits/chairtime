@@ -9,6 +9,8 @@ API contract: https://www.twilio.com/docs/phone-numbers/api/incomingphonenumber-
 import hashlib
 import json
 import os
+
+from app.voice_relay_mode import voice_relay_enabled
 import re
 from urllib.parse import parse_qsl, urlsplit
 from decimal import Decimal, InvalidOperation
@@ -343,7 +345,7 @@ class VoiceRelayNumberProvider:
             return existing
         if (approved is not True or
                 os.getenv("DAYTELLO_VOICE_RELAY_PURCHASE_ENABLED") != "true" or
-                os.getenv("DAYTELLO_VOICE_RELAY_TEST_ONLY") != "true"):
+                not voice_relay_enabled()):
             raise HTTPException(409, "Voice relay purchase is not authorized")
         # A DID already in the account must not be repurposed. It may be
         # serving another shop, even if its friendly name is unfamiliar.
