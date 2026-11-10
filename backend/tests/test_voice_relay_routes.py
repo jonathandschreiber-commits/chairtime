@@ -45,7 +45,7 @@ class FakeQuery:
             and getattr(getattr(c, "right", None), "value", None) == self.other_ai_number
             for c in self.conditions
         ):
-            return SimpleNamespace(id="other-shop-id")
+            return SimpleNamespace(id="other-shop-id", name="Other Shop")
         if self.other_business_number and any(
             getattr(getattr(c, "left", None), "key", None) == "phone"
             and getattr(getattr(c, "right", None), "value", None) == self.other_business_number
@@ -59,7 +59,7 @@ class FakeQuery:
                 for c in self.conditions
             )
             if not excluded:
-                return SimpleNamespace(id=self.business_shop_id)
+                return SimpleNamespace(id=self.business_shop_id, name="Relay Test Shop")
         return None
 
 
