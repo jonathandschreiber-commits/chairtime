@@ -2,7 +2,7 @@
 
 The authenticated owner routes must call these helpers; this module never
 purchases a number, changes telephone routing, or activates notifications.
-Verification is opt-in, test-only and disabled by default. A successful
+Verification is opt-in and disabled by default in both test and production. A successful
 verification authorizes exactly one shop/phone combination, not other tenants.
 """
 import hashlib
@@ -17,6 +17,7 @@ from sqlalchemy import Column, DateTime, Integer, String
 from sqlalchemy.sql import func
 
 from app.database import Base
+from app.voice_relay_mode import production_relay_enabled
 
 E164 = re.compile(r"^\+1[2-9][0-9]{2}[2-9][0-9]{6}$")
 CODE = re.compile(r"^[0-9]{6}$")
@@ -56,7 +57,12 @@ def _secret():
 
 
 def _enabled():
-    if (os.getenv("DAYTELLO_VOICEMAIL_TEST_ONLY") != "true"
+    mode_enabled = (
+        production_relay_enabled()
+        if os.getenv("DAYTELLO_VOICE_RELAY_PRODUCTION_ENABLED") == "true"
+        else os.getenv("DAYTELLO_VOICEMAIL_TEST_ONLY") == "true"
+    )
+    if (not mode_enabled
             or os.getenv("DAYTELLO_VOICEMAIL_OWNER_SMS_ENABLED") != "true"
             or os.getenv("DAYTELLO_VOICEMAIL_OWNER_VERIFICATION_ENABLED") != "true"):
         raise HTTPException(404, "Owner verification is unavailable")
