@@ -28,10 +28,24 @@ logger = logging.getLogger(__name__)
 HIGHLEVEL_API_BASE_URL = "https://services.leadconnectorhq.com"
 HIGHLEVEL_VOICE_API_VERSION = "v3"
  
-CHAIRTIME_PUBLIC_API_BASE_URL = os.getenv(
-    "CHAIRTIME_PUBLIC_API_BASE_URL",
-    "https://chairtime-production-94da.up.railway.app",
-).rstrip("/")
+def configured_public_api_base_url() -> str:
+    """Never silently use another Railway environment for AI webhook actions."""
+    candidate = (os.getenv("CHAIRTIME_PUBLIC_API_BASE_URL") or "").strip()
+    if not candidate:
+        raise HTTPException(status_code=503, detail="Public AI webhook URL is not configured.")
+    parsed = urlsplit(candidate)
+    if (parsed.scheme != "https" or not parsed.netloc or parsed.username
+            or parsed.password or parsed.path not in ("", "/")
+            or parsed.query or parsed.fragment):
+        raise HTTPException(status_code=503, detail="Public AI webhook URL must be an HTTPS origin.")
+    expected_by_environment = {
+        "production": "chairtime-production-94da.up.railway.app",
+        "live": "welcoming-trust-live.up.railway.app",
+    }
+    expected_host = expected_by_environment.get(os.getenv("RAILWAY_ENVIRONMENT_NAME"))
+    if expected_host and parsed.hostname != expected_host:
+        raise HTTPException(status_code=503, detail="Public AI webhook URL points to the wrong Railway environment.")
+    return candidate.rstrip("/")
  
 CHAIRTIME_INTERNAL_API_BASE_URL = os.getenv(
     "CHAIRTIME_INTERNAL_API_BASE_URL",
@@ -285,6 +299,20 @@ def highlevel_error_text(
 def raise_highlevel_error(
     response: requests.Response,
 ) -> None:
+    # Log only the upstream HTTP status and request method/path;
+    # never log OAuth tokens, request bodies, or provider error payloads.
+    try:
+        from urllib.parse import urlparse
+        target = urlparse(getattr(response.request, "url", "") or "")
+        method = getattr(response.request, "method", "unknown")
+        safe_path = target.path if target.hostname == "services.leadconnectorhq.com" else "(provider)"
+    except (AttributeError, ValueError, TypeError):
+        method, safe_path = "unknown", "(provider)"
+    import logging
+    logging.getLogger(__name__).warning(
+        "HighLevel Voice AI call rejected: method=%s path=%s status=%s",
+        method, safe_path, response.status_code,
+    )
     raise HTTPException(
         status_code=status.HTTP_502_BAD_GATEWAY,
         detail={
@@ -738,7 +766,7 @@ def production_agent_prompt(shop: Shop) -> str:
     )
  
 def production_shop_information_url(shop: Shop) -> str:
-    return (f"{CHAIRTIME_PUBLIC_API_BASE_URL}/api/ai-setup/"
+    return (f"{configured_public_api_base_url()}/api/ai-setup/"
             f"tenant-webhook/{shop.slug}/shop-information")
  
  
@@ -1244,7 +1272,7 @@ def production_availability_webhook_url(
     shop: Shop,
 ) -> str:
     return (
-        f"{CHAIRTIME_PUBLIC_API_BASE_URL}"
+        f"{configured_public_api_base_url()}"
         f"/api/ai-setup/tenant-webhook/"
         f"{shop.slug}/availability"
     )
@@ -1254,7 +1282,7 @@ def production_booking_webhook_url(
     shop: Shop,
 ) -> str:
     return (
-        f"{CHAIRTIME_PUBLIC_API_BASE_URL}"
+        f"{configured_public_api_base_url()}"
         f"/api/ai-setup/tenant-webhook/"
         f"{shop.slug}/book"
     )
@@ -1511,7 +1539,7 @@ def tenant_availability_webhook_url(
     shop: Shop,
 ) -> str:
     return (
-        f"{CHAIRTIME_PUBLIC_API_BASE_URL}"
+        f"{configured_public_api_base_url()}"
         f"/api/ai-setup/webhook/"
         f"{shop.slug}/availability"
     )
@@ -1522,7 +1550,7 @@ def tenant_booking_webhook_url(
  
 ) -> str:
     return (
-        f"{CHAIRTIME_PUBLIC_API_BASE_URL}"
+        f"{configured_public_api_base_url()}"
         f"/api/ai-setup/webhook/"
         f"{shop.slug}/book"
     )
@@ -2923,10 +2951,62 @@ def get_shop_routed_phone_record(
     )
  
  
+def prebind_existing_voicemail_relay_after_ai_number(
+    shop: Shop, db: Session, *, current_user: User = None,
+    strict: bool = False,
+) -> bool:
+    """Recover a paid-for relay and finish an already-approved owner route.
+
+    Only an authenticated onboarding request may finish a saved, pending owner
+    destination. This never purchases a relay or touches existing active routes.
+    """
+    if (os.getenv("DAYTELLO_VOICE_RELAY_TEST_ONLY") != "true"
+            or os.getenv("DAYTELLO_VOICEMAIL_TEST_ONLY") != "true"):
+        return False
+    try:
+        from app.routes.voicemail_contact_number import (
+            attach_preowned_relay_after_ai_number,
+            set_owner_call_voicemail_number, OwnerCallVoicemailNumber,
+        )
+        from app.voice_relay_models import DayTelloVoiceRelayAssignment
+        from app.voicemail_models import DayTelloVoicemailShopSettings
+
+        prebound = bool(attach_preowned_relay_after_ai_number(shop, db))
+        settings = db.get(DayTelloVoicemailShopSettings, shop.id)
+        relay = db.get(DayTelloVoiceRelayAssignment, shop.id)
+        # A phone saved before agent/AI-number provisioning used to remain
+        # indefinitely pending until the owner pressed Save a second time.
+        # Complete that exact previously approved destination automatically,
+        # but only after the customer-selected AI number is actually routed.
+        if (current_user is not None and relay and not relay.enabled
+                and settings and settings.owner_phone
+                and not settings.notifications_enabled
+                and shop.highlevel_phone_number
+                and shop.highlevel_agent_id):
+            set_owner_call_voicemail_number(
+                shop.slug,
+                OwnerCallVoicemailNumber(phone_number=settings.owner_phone),
+                db=db, current_user=current_user,
+            )
+        return prebound
+    except Exception:
+        # A successful AI-number activation must remain successful even when
+        # a provider or SMS test gate prevents finishing the pending relay.
+        # The owner can retry Save without purchasing another number.
+        db.rollback()
+        logger.exception(
+            "Pre-owned voicemail relay onboarding could not be completed"
+        )
+        if strict:
+            raise
+        return False
+
+
 def sync_shop_phone_number_from_highlevel(
     shop: Shop,
     db: Session,
     require_match: bool = True,
+    current_user: User = None,
 ) -> Optional[dict]:
     _, _, matched_phone = (
         get_shop_routed_phone_record(
@@ -2988,6 +3068,12 @@ def sync_shop_phone_number_from_highlevel(
             db.rollback()
             raise
  
+    # Existing shops can enter onboarding with an AI number already routed
+    # through HighLevel. Recover their approved relay on explicit sync too;
+    # previously only the new-number purchase endpoint did this.
+    prebind_existing_voicemail_relay_after_ai_number(
+        shop, db, current_user=current_user,
+    )
     return matched_phone
  
  
@@ -3098,9 +3184,90 @@ def get_production_provision_status(
             db.rollback()
             raise
  
+    # A previously selected HighLevel AI number may already be routed when
+    # the owner resumes onboarding. Reconcile its pre-owned voicemail relay
+    # here as well as in the purchase/sync paths, so a new shop does not need
+    # a second phone-number action. This performs provider GETs and a local
+    # disabled DID claim only; no number purchase, transfer or live call.
+    response["voicemail_relay_prebound"] = False
+    response["voicemail_pending_owner_setup"] = False
+    if routed_phone_number:
+        try:
+            from app.routes.voicemail_contact_number import (
+                attach_preowned_relay_after_ai_number,
+            )
+            from app.voice_relay_models import DayTelloVoiceRelayAssignment
+            from app.voicemail_models import DayTelloVoicemailShopSettings
+            response["voicemail_relay_prebound"] = bool(
+                attach_preowned_relay_after_ai_number(shop, db)
+            )
+            relay = db.get(DayTelloVoiceRelayAssignment, shop.id)
+            settings = db.get(DayTelloVoicemailShopSettings, shop.id)
+            # A saved, owner-approved destination is still pending when
+            # onboarding was interrupted before the AI number was routed.
+            # GET only reports it; the authenticated POST below resumes it.
+            response["voicemail_pending_owner_setup"] = bool(
+                os.getenv("DAYTELLO_VOICE_RELAY_TEST_ONLY") == "true"
+                and os.getenv("DAYTELLO_VOICEMAIL_TEST_ONLY") == "true"
+                # A pending owner phone must not trigger a HighLevel transfer
+                # until the isolated provider call test has been authorized.
+                and os.getenv("DAYTELLO_VOICE_RELAY_ALLOW_TEST_CALLS") == "true"
+                and relay and not relay.enabled and settings
+                and settings.owner_phone and not settings.notifications_enabled
+            )
+        except Exception:
+            db.rollback()
+            logger.exception("Existing AI-number relay reconciliation failed")
     return response
- 
- 
+
+
+@router.post("/voicemail-onboarding/resume")
+def resume_approved_voicemail_onboarding(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Finish a previously approved owner route after the AI DID is active.
+
+    This explicit POST is called by isolated onboarding, not by status GET.
+    It never purchases a number or changes an existing active Stan/Bob route.
+    The provider-backed AI DID is checked before attempting the saved transfer.
+    """
+    require_owner(current_user)
+    shop = get_current_shop(current_user=current_user, db=db)
+    if (os.getenv("DAYTELLO_VOICE_RELAY_TEST_ONLY") != "true"
+            or os.getenv("DAYTELLO_VOICEMAIL_TEST_ONLY") != "true"):
+        raise HTTPException(404, "Voicemail onboarding resume is disabled")
+    if not shop.ai_voice_enabled or not shop.highlevel_agent_id:
+        raise HTTPException(409, "AI Receptionist must be provisioned first")
+    from app.voice_relay_models import DayTelloVoiceRelayAssignment
+    from app.voicemail_models import DayTelloVoicemailShopSettings
+    relay = db.get(DayTelloVoiceRelayAssignment, shop.id)
+    settings = db.get(DayTelloVoicemailShopSettings, shop.id)
+    if (not relay or relay.enabled or not settings
+            or settings.notifications_enabled or not settings.owner_phone):
+        raise HTTPException(409, "No approved pending owner transfer to resume")
+    # HighLevel's actual inbound routing, not a cached phone field, decides
+    # whether the customer-selected AI number is ready for this next step.
+    _, _, routed = get_shop_routed_phone_record(shop=shop)
+    routed_number = str((routed or {}).get("phoneNumber") or "").strip()
+    if not routed_number or routed_number != str(shop.highlevel_phone_number or "").strip():
+        raise HTTPException(409, "AI Receptionist number routing is not verified")
+    prebind_existing_voicemail_relay_after_ai_number(
+        shop, db, current_user=current_user, strict=True,
+    )
+    db.refresh(relay)
+    db.refresh(settings)
+    if not relay.enabled or not settings.notifications_enabled:
+        raise HTTPException(409, "Approved voicemail setup is still pending")
+    return {
+        "success": True,
+        "shop_slug": shop.slug,
+        "voicemail_setup_activated": True,
+        "ready_for_customer_calls": False,
+        "live_call_test_required": True,
+    }
+
+
 @router.post("/provision")
 def provision_production_ai_receptionist(
     current_user: User = Depends(get_current_user),
@@ -3965,6 +4132,7 @@ def sync_shop_highlevel_phone_number(
             shop=shop,
             db=db,
             require_match=True,
+            current_user=current_user,
         )
     )
  
@@ -4033,6 +4201,7 @@ def assign_shop_highlevel_phone_number(
             shop=shop,
             db=db,
             require_match=True,
+            current_user=current_user,
         )
     )
  
@@ -5022,6 +5191,7 @@ def activate_owned_phone_number(
     phone_record: dict,
     purchased_this_request: bool,
     purchase_result=None,
+    current_user: User = None,
 ) -> dict:
     """
     Safely finish activation for an already-owned number.
@@ -5031,6 +5201,8 @@ def activate_owned_phone_number(
     agent, routes it to this shop's exact agent, verifies the
     route, and only then stores it in ChairTime.
     """
+    require_unclaimed_shop_ai_number(shop, db, phone_number)
+
     inbound_service = (
         get_phone_inbound_service(
             phone_record
@@ -5088,8 +5260,13 @@ def activate_owned_phone_number(
         agent_id=agent_id,
         location_id=location_id,
     )
- 
+
+    voicemail_relay_prebound = prebind_existing_voicemail_relay_after_ai_number(
+        shop, db, current_user=current_user,
+    )
+
     return {
+        "voicemail_relay_prebound": voicemail_relay_prebound,
         "success": True,
         "purchased": bool(
             purchased_this_request
@@ -5217,6 +5394,7 @@ def purchase_shop_ai_phone_number(
     if existing_phone:
         return activate_owned_phone_number(
             shop=shop,
+            current_user=current_user,
             db=db,
             location_id=location_id,
             agent_id=agent_id,
@@ -5317,6 +5495,7 @@ def purchase_shop_ai_phone_number(
  
         return activate_owned_phone_number(
             shop=shop,
+            current_user=current_user,
             db=db,
             location_id=location_id,
             agent_id=agent_id,
@@ -5342,6 +5521,7 @@ def purchase_shop_ai_phone_number(
         if purchased_phone:
             return activate_owned_phone_number(
                 shop=shop,
+                current_user=current_user,
                 db=db,
                 location_id=location_id,
                 agent_id=agent_id,
