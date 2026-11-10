@@ -1,4 +1,3 @@
-import Image from "next/image";
 import Link from "next/link";
 
 export const metadata = { title: "Terms of Service | DayTello" };
@@ -6,10 +5,7 @@ export const metadata = { title: "Terms of Service | DayTello" };
 export default function Page() {
   return (
     <main className="mx-auto w-full max-w-3xl px-6 py-12">
-      <Link href="/" className="inline-block" aria-label="DayTello home">
-        <Image src="/daytello-logo.png" alt="DayTello" width={350} height={180} className="h-auto w-64 max-w-full sm:w-96 lg:w-[420px]" unoptimized />
-      </Link>
-      <h1 className="mt-8 text-4xl font-extrabold">Terms of Service</h1>
+      <h1 className="text-4xl font-extrabold">Terms of Service</h1>
       <div className="mt-6 space-y-5 leading-relaxed">
         <p>DayTello is operated by PSI Meeting, Inc. These terms cover use of DayTello scheduling and related services.</p>
         <h2 className="text-xl font-semibold">Using DayTello</h2>
