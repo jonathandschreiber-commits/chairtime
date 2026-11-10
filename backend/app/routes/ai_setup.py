@@ -13,6 +13,7 @@ from zoneinfo import ZoneInfo
 import requests
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
  
 from app.database import get_db
@@ -4991,6 +4992,27 @@ def route_phone_number_to_shop_agent(
         ),
     )
  
+def require_unclaimed_shop_ai_number(shop: Shop, db: Session, phone_number: str) -> None:
+    """Do not reassign a different shop's line in a shared HighLevel location.
+
+    A temporarily unrouted number can appear available in provider inventory
+    even though another DayTello tenant still owns the published number.
+    Check local claims before a HighLevel publish or chargeable purchase.
+    """
+    other_shop = db.query(Shop).filter(
+        Shop.id != shop.id,
+        or_(
+            Shop.highlevel_phone_number == phone_number,
+            Shop.phone == phone_number,
+        ),
+    ).first()
+    if other_shop is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This phone number is already assigned to another business.",
+        )
+
+
 def activate_owned_phone_number(
     shop: Shop,
     db: Session,
@@ -5155,6 +5177,8 @@ def purchase_shop_ai_phone_number(
         )
     )
  
+    require_unclaimed_shop_ai_number(shop, db, requested_phone_number)
+
     requested_digits = "".join(
         character
         for character
