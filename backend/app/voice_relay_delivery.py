@@ -130,6 +130,24 @@ def make_relay_recording_link(recording, recipient):
     return _origin() + "/api/daytello/voice-relay/listen/" + token
 
 
+def relay_owner_recipient(shop, settings, db):
+    """Resolve the current recipient without using test maps in live mode."""
+    if os.getenv("DAYTELLO_VOICE_RELAY_PRODUCTION_ENABLED") != "true":
+        return owner_phone_for_test_shop(shop.slug, settings, db=db, shop_id=shop.id)
+    if (
+        os.getenv("DAYTELLO_VOICE_RELAY_TEST_ONLY") == "true"
+        or os.getenv("DAYTELLO_VOICEMAIL_TEST_ONLY") == "true"
+        or os.getenv("DAYTELLO_VOICEMAIL_OWNER_SMS_ENABLED") != "true"
+        or settings is None
+        or str(settings.shop_id) != str(shop.id)
+        or not settings.notifications_enabled
+    ):
+        return None
+    from app.voicemail_owner_verification import verified_owner_recipient
+
+    return verified_owner_recipient(db, shop.id, settings.owner_phone)
+
+
 def accept_completed_recording(db, fields, binding, settings):
     """Signed callback -> exclusive recording receipt; no SMS in request path."""
     account_sid, recording_sid = verified_recording_reference(
@@ -146,7 +164,7 @@ def accept_completed_recording(db, fields, binding, settings):
     expected_location = os.getenv("HIGHLEVEL_LOCATION_ID", "").strip()
     if not expected_location or shop.highlevel_location_id != expected_location:
         raise HTTPException(409, "SMS provider location mismatch")
-    recipient = owner_phone_for_test_shop(shop.slug, settings, db=db, shop_id=shop.id)
+    recipient = relay_owner_recipient(shop, settings, db)
     receipt = DayTelloVoiceRelayRecording(
         recording_sid=recording_sid, account_sid=account_sid,
         call_sid=call.call_sid, shop_id=call.shop_id,
@@ -237,7 +255,7 @@ def send_relay_owner_alert(recording_sid, *, recovery=False):
             binding = db.get(DayTelloVoiceRelayAssignment, receipt.shop_id)
             if not relay_receipt_route_is_current(receipt, shop, settings, binding):
                 return
-            recipient = owner_phone_for_test_shop(shop.slug, settings, db=db, shop_id=shop.id)
+            recipient = relay_owner_recipient(shop, settings, db)
             if not recipient:
                 return
             link = make_relay_recording_link(receipt, recipient)
@@ -351,7 +369,7 @@ async def listen_to_relay_recording(token: str):
             raise HTTPException(404, "Recording link unavailable")
         # Revocation must apply to previously issued links too: opting out,
         # losing consent, or changing the approved owner number denies playback.
-        recipient = owner_phone_for_test_shop(shop.slug, settings, db=db, shop_id=shop.id)
+        recipient = relay_owner_recipient(shop, settings, db)
         fingerprint = payload.get("recipient_hash")
         if (not recipient or not isinstance(fingerprint, str) or
                 not hmac.compare_digest(hashlib.sha256(recipient.encode("ascii")).hexdigest(), fingerprint)):
