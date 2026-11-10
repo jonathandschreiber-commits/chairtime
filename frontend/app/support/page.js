@@ -1,4 +1,3 @@
-import Image from "next/image";
 import Link from "next/link";
 
 export const metadata = { title: "Support | DayTello" };
@@ -6,10 +5,7 @@ export const metadata = { title: "Support | DayTello" };
 export default function Page() {
   return (
     <main className="mx-auto w-full max-w-3xl px-6 py-12">
-      <Link href="/" className="inline-block" aria-label="DayTello home">
-        <Image src="/daytello-logo.png" alt="DayTello" width={350} height={180} className="h-auto w-64 max-w-full sm:w-96 lg:w-[420px]" unoptimized />
-      </Link>
-      <h1 className="mt-8 text-4xl font-extrabold">Support</h1>
+      <h1 className="text-4xl font-extrabold">Support</h1>
       <div className="mt-6 space-y-5 leading-relaxed">
         <p>Need help with setup, scheduling, your subscription, or a charge? Text <a className="underline" href="sms:+18887008909">888-700-8909</a> or email <a className="underline" href="mailto:info@daytello.com">info@daytello.com</a>. Include your shop name and a brief description.</p>
         <p>For questions about an appointment, contact the shop directly. If your confirmation includes a manage-booking link, use it to reschedule or cancel.</p>
