@@ -1,0 +1,23 @@
+name: DayTello relay port
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/daytello-relay-port.yml'
+permissions:
+  contents: read
+jobs:
+  offline-relay-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install -r requirements.txt
+      - run: python -m unittest discover -s tests -p 'test_voice_relay*.py' -v
+      - run: python -m unittest discover -s tests -p 'test_voicemail*.py' -v
