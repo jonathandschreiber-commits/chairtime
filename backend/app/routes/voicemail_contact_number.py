@@ -149,8 +149,14 @@ def public_status(shop: Shop, settings: DayTelloVoicemailShopSettings | None, db
     configuration_complete = bool(
         relay and relay.enabled and settings
         and relay.relay_number == settings.receiving_number
-        and os.getenv("DAYTELLO_VOICE_RELAY_TEST_ONLY") == "true"
-        and os.getenv("DAYTELLO_VOICE_RELAY_ALLOW_TEST_CALLS") == "true"
+        and (
+            production_relay_enabled()
+            or (
+                os.getenv("DAYTELLO_VOICE_RELAY_PRODUCTION_ENABLED") != "true"
+                and os.getenv("DAYTELLO_VOICE_RELAY_TEST_ONLY") == "true"
+                and os.getenv("DAYTELLO_VOICE_RELAY_ALLOW_TEST_CALLS") == "true"
+            )
+        )
         and _sms_configuration_complete(shop, settings, db)
     )
     return {
