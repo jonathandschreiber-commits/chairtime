@@ -7,7 +7,7 @@ export default function Page() {
   return (
     <main className="mx-auto w-full max-w-3xl px-6 py-12">
       <Link href="/" className="inline-block" aria-label="DayTello home">
-        <Image src="/daytello-logo.png" alt="DayTello" width={350} height={180} className="h-auto w-44" unoptimized />
+        <Image src="/daytello-logo.png" alt="DayTello" width={350} height={180} className="h-auto w-56 max-w-full sm:w-80" unoptimized />
       </Link>
       <h1 className="mt-8 text-4xl font-extrabold">Support</h1>
       <div className="mt-6 space-y-5 leading-relaxed">
