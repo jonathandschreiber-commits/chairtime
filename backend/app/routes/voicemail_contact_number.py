@@ -106,7 +106,7 @@ def _recording_link_origin_for_shop(shop: Shop, settings, db=None) -> str:
         from app.voicemail_owner_links import PRODUCTION_HOST
 
         origin = _origin()
-        if urlsplit(origin).hostname == PRODUCTION_HOST:
+        if not production_relay_enabled() and urlsplit(origin).hostname == PRODUCTION_HOST:
             raise HTTPException(503, "Relay playback must use the isolated test host")
         return origin
     return test_link_origin()
@@ -559,10 +559,22 @@ def set_owner_call_voicemail_number(
 ):
     """Save once; never report success unless transfer and notification agree."""
     shop = owner_shop(db, shop_slug, current_user)
-    if os.getenv("DAYTELLO_VOICEMAIL_TEST_ONLY") != "true":
+    production = production_relay_enabled()
+    if not production and os.getenv("DAYTELLO_VOICEMAIL_TEST_ONLY") != "true":
         raise HTTPException(409, "Call and voicemail setup is not yet enabled for this shop")
     settings = db.get(DayTelloVoicemailShopSettings, shop.id)
-    if not settings:
+    if production:
+        if not shop.highlevel_agent_id or not shop.highlevel_phone_number:
+            raise HTTPException(409, "Activate the AI Receptionist number first")
+        number = payload.phone_number
+        reject_internal_owner_destination(db, number, shop.id)
+        approved_owner_recipient(shop.slug, number, db=db, shop_id=shop.id)
+        if not settings:
+            attach_preowned_relay_after_ai_number(shop, db)
+            settings = db.get(DayTelloVoicemailShopSettings, shop.id)
+        if settings is None or db.get(DayTelloVoiceRelayAssignment, shop.id) is None:
+            raise HTTPException(409, "No verified relay is available for this shop")
+    elif not settings:
         settings = ensure_existing_shop_voicemail_route(shop, db)
     location = str(shop.highlevel_location_id or "").strip()
     if (
@@ -665,7 +677,7 @@ def set_owner_call_voicemail_number(
     # destination would immediately change live forwarding.
     relay = db.get(DayTelloVoiceRelayAssignment, shop.id)
     if (relay and not relay.enabled and not settings.notifications_enabled
-            and (os.getenv("DAYTELLO_VOICE_RELAY_ALLOW_TEST_CALLS") != "true"
+            and ((not production and os.getenv("DAYTELLO_VOICE_RELAY_ALLOW_TEST_CALLS") != "true")
                  or not str(shop.highlevel_phone_number or "").strip())):
         # Even with test-call permission, do not turn on a relay before the
         # customer-selected HighLevel AI number has been activated. The
@@ -703,7 +715,8 @@ def set_owner_call_voicemail_number(
     settings_proxy = type("RequestedNotification", (), {
         "notifications_enabled": True, "owner_phone": number,
     })()
-    owner_phone_for_test_shop(shop.slug, settings_proxy, db=db, shop_id=shop.id)
+    if not production:
+        owner_phone_for_test_shop(shop.slug, settings_proxy, db=db, shop_id=shop.id)
     link_cipher()
     _recording_link_origin_for_shop(shop, settings, db)
     sender = os.getenv("HIGHLEVEL_SMS_FROM_NUMBER", "").strip()
@@ -717,7 +730,7 @@ def set_owner_call_voicemail_number(
     if relay:
         if relay.relay_number != settings.receiving_number:
             raise HTTPException(409, "Relay number and voicemail settings disagree")
-        if os.getenv("DAYTELLO_VOICE_RELAY_ALLOW_TEST_CALLS") != "true":
+        if not production and os.getenv("DAYTELLO_VOICE_RELAY_ALLOW_TEST_CALLS") != "true":
             raise HTTPException(409, "Voice relay live testing is not enabled")
         verified_relay = VoiceRelayNumberProvider().find_existing(
             str(shop.id), expected_number=relay.relay_number)
@@ -773,7 +786,8 @@ def set_owner_call_voicemail_number(
         "call_transfer_enabled": True,
         "test_relay_enabled_for_calls": bool(relay),
         "live_call_test_required": True,
-        "message": ("Voicemail SMS notifications are configured for the approved "
+        "message": ("Call forwarding and voicemail SMS are configured. Place a test call to verify delivery."
+                    if production else "Voicemail SMS notifications are configured for the approved "
                     "test recipient. External call forwarding and HighLevel "
                     "voicemail fallback still require verification."),
     }
