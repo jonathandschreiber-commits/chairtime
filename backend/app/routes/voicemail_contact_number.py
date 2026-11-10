@@ -4,6 +4,8 @@ Test-environment integration: owners provide one number; provisioning,
 HighLevel configuration, and SMS safeguards remain server-controlled.
 """
 import os
+
+from app.voice_relay_mode import production_relay_enabled
 import re
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, field_validator
@@ -454,6 +456,10 @@ def attach_preowned_relay_after_ai_number(shop: Shop, db: Session) -> bool:
     HighLevel transfer actions. Legacy Stan/Bob voicemail routes are untouched.
     The owner still must approve the forwarding/SMS destination separately.
     """
+    if production_relay_enabled():
+        if not shop.ai_voice_enabled or not shop.highlevel_phone_number:
+            return False
+        return bool(allocate_preowned_relay_for_shop(shop, db))
     if os.getenv("DAYTELLO_VOICEMAIL_TEST_ONLY") != "true":
         return False
     # HighLevel-only shops never enter the Twilio provider adapter.
