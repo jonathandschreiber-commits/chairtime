@@ -11,6 +11,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.database import get_db
+from app.models import Shop
 from app.routes.voice_relay import router
 from app.voice_relay_models import DayTelloVoiceRelayAssignment
 from app.voice_relay_delivery import DayTelloVoiceRelayCall
@@ -147,6 +148,8 @@ class FakeDB:
     def get(self, model, shop_id):
         if model is DayTelloVoiceRelayCall:
             return self.calls.get(shop_id)
+        if model is Shop:
+            return SimpleNamespace(id=shop_id, name="Relay Test Shop")
         return SimpleNamespace(
             owner_phone=self.owner_phone,
             receiving_number=self.receiving_number,
