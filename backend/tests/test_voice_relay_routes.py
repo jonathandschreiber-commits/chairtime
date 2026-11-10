@@ -138,7 +138,7 @@ class FakeDB:
         if model is DayTelloVoicemailShopSettings:
             return FakeVoicemailQuery(self.other_voicemail_number)
         return FakeQuery(SimpleNamespace(
-            id="third-shop-id", ai_voice_enabled=True,
+            id="third-shop-id", name="Relay Test Shop", ai_voice_enabled=True,
             highlevel_location_id=self.shop_location_id),
             other_ai_number=self.other_ai_number,
             other_business_number=self.other_business_number,
