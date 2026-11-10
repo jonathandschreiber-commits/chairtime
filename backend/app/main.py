@@ -574,6 +574,7 @@ from app.voice_relay_mode import production_relay_enabled
 relay_enabled = production_relay_enabled()
 if relay_enabled:
     from app.routes.voice_relay import router as voice_relay_router
+    from app.routes.voicemail_contact_number import router as owner_voicemail_router
     from app.voice_relay_delivery import router as relay_recording_router
 
 
@@ -592,6 +593,7 @@ app = FastAPI(
 
 if relay_enabled:
     app.include_router(voice_relay_router, prefix="/api")
+    app.include_router(owner_voicemail_router, prefix="/api")
     app.include_router(relay_recording_router, prefix="/api")
 
 
