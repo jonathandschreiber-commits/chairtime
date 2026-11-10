@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 
 export default function HomePage() {
@@ -5,9 +6,7 @@ export default function HomePage() {
     <main className="min-h-screen bg-white text-gray-950">
       <header className="border-b border-gray-200">
         <div className="max-w-6xl mx-auto px-6 py-5 flex items-center justify-between">
-          <div className="text-2xl font-extrabold tracking-tight">
-            DayTello
-          </div>
+          <Image src="/daytello-logo.png" alt="DayTello" width={350} height={180} className="h-auto w-44" unoptimized />
 
           <Link
             href="/login"

@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 
 export const metadata = { title: "Privacy Policy | DayTello" };
@@ -5,7 +6,9 @@ export const metadata = { title: "Privacy Policy | DayTello" };
 export default function Page() {
   return (
     <main className="mx-auto w-full max-w-3xl px-6 py-12">
-      <Link href="/" className="font-semibold underline">DayTello home</Link>
+      <Link href="/" className="inline-block" aria-label="DayTello home">
+        <Image src="/daytello-logo.png" alt="DayTello" width={350} height={180} className="h-auto w-44" unoptimized />
+      </Link>
       <h1 className="mt-8 text-4xl font-extrabold">Privacy Policy</h1>
       <div className="mt-6 space-y-5 leading-relaxed">
         <p>DayTello is operated by PSI Meeting, Inc. This policy describes information handled through the DayTello website and services.</p>
