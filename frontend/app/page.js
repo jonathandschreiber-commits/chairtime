@@ -5,12 +5,12 @@ export default function HomePage() {
   return (
     <main className="min-h-screen bg-white text-gray-950">
       <header className="border-b border-gray-200">
-        <div className="max-w-6xl mx-auto px-6 py-5 flex items-center justify-between">
-          <Image src="/daytello-logo.png" alt="DayTello" width={350} height={180} className="h-auto w-56 max-w-full sm:w-80" unoptimized />
+        <div className="max-w-6xl mx-auto px-6 py-5 flex items-center justify-between gap-4">
+          <Image src="/daytello-logo.png" alt="DayTello" width={350} height={180} className="h-auto w-64 max-w-full sm:w-96 lg:w-[420px]" unoptimized />
 
           <Link
             href="/login"
-            className="font-bold hover:underline"
+            className="shrink-0 font-bold hover:underline"
           >
             Sign In
           </Link>
