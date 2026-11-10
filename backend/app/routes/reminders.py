@@ -1,7 +1,11 @@
 import json
 import os
+
+from app.voice_relay_mode import production_relay_enabled
+import re
 from datetime import datetime, timedelta
 from urllib import error, request
+from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, Response
@@ -28,6 +32,36 @@ def highlevel_headers(api_token: str, location_id: str):
     }
 
 
+def _find_existing_voicemail_owner_contact(api_token, location_id, phone):
+    """Recover an existing SMS contact without modifying the owner's profile.
+
+    HighLevel may reject contact creation for a phone already in its shared
+    location without returning meta.contactId. This read-only duplicate lookup
+    is used only for voicemail SMS after that specific failure. A matching
+    location and phone are required before sending the recording link.
+    """
+    url = ("https://services.leadconnectorhq.com/contacts/search/duplicate?"
+           + urlencode({"locationId": location_id, "number": phone}))
+    lookup = request.Request(
+        url, headers=highlevel_headers(api_token, location_id), method="GET",
+    )
+    try:
+        with request.urlopen(lookup, timeout=10) as response:
+            result = json.loads(response.read().decode("utf-8"))
+    except (error.HTTPError, error.URLError, ValueError, UnicodeError):
+        return None
+    if not isinstance(result, dict):
+        return None
+    contact = result.get("contact")
+    if not isinstance(contact, dict):
+        return None
+    if (contact.get("phone") != phone or
+            contact.get("locationId") != location_id):
+        return None
+    contact_id = contact.get("id")
+    return contact_id if isinstance(contact_id, str) and contact_id else None
+
+
 def send_highlevel_sms(phone: str, message: str, *, shop_id=None, shop_slug=None,
                        purpose="diagnostic", source_id=None):
     api_token = os.getenv("HIGHLEVEL_API_TOKEN")
@@ -42,6 +76,21 @@ def send_highlevel_sms(phone: str, message: str, *, shop_id=None, shop_slug=None
                 "HIGHLEVEL_LOCATION_ID, or phone"
             ),
         }
+
+    # Owner voicemail notifications must never silently use a fallback sender.
+    # This is test-only; existing appointment reminders retain their behavior.
+    if purpose == "voicemail-owner-notification":
+        sender = os.getenv("HIGHLEVEL_SMS_FROM_NUMBER", "").strip()
+        if (
+            (os.getenv("DAYTELLO_VOICEMAIL_TEST_ONLY") != "true" and not production_relay_enabled())
+            or os.getenv("DAYTELLO_VOICEMAIL_OWNER_SMS_ENABLED") != "true"
+            or not re.fullmatch(r"\+[1-9][0-9]{7,14}", sender)
+        ):
+            return {
+                "success": False,
+                "step": "config",
+                "error": "Test voicemail SMS requires enabled test mode and an explicit E.164 sender",
+            }
 
     clean_phone = "".join(
         character
@@ -107,6 +156,12 @@ def send_highlevel_sms(phone: str, message: str, *, shop_id=None, shop_slug=None
             .get("meta", {})
             .get("contactId")
         )
+
+        if (not contact_id and purpose == "voicemail-owner-notification"
+                and http_error.code in (400, 409, 422)):
+            contact_id = _find_existing_voicemail_owner_contact(
+                api_token, location_id, formatted_phone,
+            )
 
         if not contact_id:
             return {

@@ -1,0 +1,43 @@
+name: DayTello relay port
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/daytello-relay-port.yml'
+permissions:
+  contents: read
+jobs:
+  offline-relay-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install -r requirements.txt
+      - run: python -m unittest discover -s tests -p 'test_voice_relay*.py' -v
+      - name: Run voicemail tests against the production port
+        run: |
+          python - <<'PY'
+          import pathlib
+          import sys
+          import unittest
+
+          test_dir = pathlib.Path("tests")
+          sys.path.insert(0, str(test_dir))
+          loader = unittest.TestLoader()
+          suite = unittest.TestSuite()
+          for path in sorted(test_dir.glob("test_voicemail*.py")):
+              # This suite requires an intentionally Sandbox-only auth endpoint.
+              if path.stem == "test_voicemail_shop3_sandbox":
+                  continue
+              suite.addTests(loader.loadTestsFromName(path.stem))
+          if not suite.countTestCases():
+              raise SystemExit("No voicemail tests collected")
+          result = unittest.TextTestRunner(verbosity=2).run(suite)
+          sys.exit(not result.wasSuccessful())
+          PY
