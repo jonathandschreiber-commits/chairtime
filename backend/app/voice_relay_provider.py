@@ -85,6 +85,16 @@ class VoiceRelayNumberProvider:
             # blindly retry a chargeable operation.
             raise HTTPException(503, "Voice provider outcome could not be verified")
         if response.status_code >= 300:
+            try:
+                error = response.json()
+            except ValueError:
+                error = None
+            code = error.get("code") if isinstance(error, dict) else None
+            logger.warning(
+                "Twilio relay %s %s returned HTTP %s (Twilio code %s)",
+                method, resource, response.status_code,
+                code if type(code) is int else "unavailable",
+            )
             raise HTTPException(502, "Voice provider number request was not accepted")
         try:
             result = response.json()
