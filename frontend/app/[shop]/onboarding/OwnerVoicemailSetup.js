@@ -8,6 +8,7 @@ export default function OwnerVoicemailSetup({ shopSlug, onReadyChange }) {
   const [available, setAvailable] = useState(false);
   const [number, setNumber] = useState("");
   const [savedNumber, setSavedNumber] = useState("");
+  const [relayNumber, setRelayNumber] = useState("");
   const [changingNumber, setChangingNumber] = useState(false);
   const [consent, setConsent] = useState(false);
   const [code, setCode] = useState("");
@@ -23,6 +24,7 @@ export default function OwnerVoicemailSetup({ shopSlug, onReadyChange }) {
         if (!active || !data) return;
         setAvailable(true);
         setSavedNumber(data.phone_number || "");
+        setRelayNumber(data.voicemail_number || "");
         if (data.configuration_complete) {
           setPhase("done");
           onReadyChange?.(true);
@@ -55,6 +57,7 @@ export default function OwnerVoicemailSetup({ shopSlug, onReadyChange }) {
       else if (phase === "confirm" && data.owner_number_verified) setPhase("save");
       else if (phase === "save" && data.configuration_complete) {
         setSavedNumber(data.phone_number || "+1" + local);
+        setRelayNumber(data.voicemail_number || "");
         setChangingNumber(false);
         setPhase("done");
         onReadyChange?.(true);
@@ -74,6 +77,10 @@ export default function OwnerVoicemailSetup({ shopSlug, onReadyChange }) {
       {phase === "done" ? (
         <div style={{ display: "grid", gap: 12, marginTop: 12 }}>
           <p role="status">Setup saved. Calls and voicemail texts go to <strong>{savedNumber}</strong>.</p>
+          <p>
+            {relayNumber && <>Forwarded calls come from <strong>{relayNumber}</strong>. Save it as <strong>DayTello</strong> so you can recognize it if your phone shows “Potential Spam.” </>}
+            Answer and press <strong>1</strong> to accept. If nobody accepts, DayTello texts you a voicemail link.
+          </p>
           <button type="button" className={styles.continueButton} style={{ justifySelf: "start" }}
             onClick={() => {
               setNumber("");
