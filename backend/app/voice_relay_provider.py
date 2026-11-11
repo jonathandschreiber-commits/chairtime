@@ -10,7 +10,7 @@ import hashlib
 import json
 import os
 
-from app.voice_relay_mode import voice_relay_enabled
+from app.voice_relay_mode import production_relay_enabled, voice_relay_enabled
 import re
 from urllib.parse import parse_qsl, urlsplit
 from decimal import Decimal, InvalidOperation
@@ -226,20 +226,19 @@ class VoiceRelayNumberProvider:
             raise HTTPException(409, "Voice relay number ownership changed during verification")
         return self.verify_route(exact[0], shop_id, expected_number)
 
-    def find_available_voice_number(self, area_code):
+    def find_available_voice_number(self, area_code=None):
         """Choose one voice-capable US DID without making a purchase.
 
         Twilio availability is a snapshot, not a reservation. The caller must
         still obtain explicit purchase approval and handle a sold-out result.
         """
-        if (not isinstance(area_code, str)
+        if area_code is not None and (not isinstance(area_code, str)
                 or not re.fullmatch(r"[2-9][0-9]{2}", area_code)):
             raise HTTPException(422, "Invalid US area code")
-        payload = self._request(
-            "GET", "AvailablePhoneNumbers/US/Local.json",
-            params={"AreaCode": area_code, "VoiceEnabled": "true",
-                    "PageSize": 20},
-        )
+        params = {"VoiceEnabled": "true", "PageSize": 20}
+        if area_code is not None:
+            params["AreaCode"] = area_code
+        payload = self._request("GET", "AvailablePhoneNumbers/US/Local.json", params=params)
         records = payload.get("available_phone_numbers")
         if not isinstance(records, list):
             raise HTTPException(502, "Voice number availability was not verified")
@@ -248,13 +247,13 @@ class VoiceRelayNumberProvider:
             if (isinstance(r, dict)
                 and isinstance(r.get("phone_number"), str)
                 and US_NUMBER.fullmatch(r["phone_number"])
-                and r["phone_number"][2:5] == area_code
+                and (area_code is None or r["phone_number"][2:5] == area_code)
                 and isinstance(r.get("capabilities"), dict)
                 and r["capabilities"].get("voice") is True
                 and r.get("address_requirements") == "none")
         })
         if not candidates:
-            raise HTTPException(409, "No eligible voice numbers in this area code")
+            raise HTTPException(409, "No eligible local voice numbers found")
         return candidates[0]
 
     def verify_exact_local_number_available(self, phone_number):
@@ -378,3 +377,32 @@ class VoiceRelayNumberProvider:
         if not verified:
             raise HTTPException(409, "Purchased relay number was not verified")
         return verified
+
+    def find_verified_reserve(self, number):
+        records = [r for r in self._list(number=number) if r.get("phone_number") == number]
+        if not records:
+            return None
+        if len(records) != 1:
+            raise HTTPException(409, "Reserved relay number ownership is ambiguous")
+        return self.verify_route(records[0], None, number, reserved=True)
+
+    def prepare_reserve_purchase(self):
+        number = self.find_available_voice_number()
+        self.verify_exact_local_number_available(number)
+        self.verify_monthly_number_cost()
+        return number
+
+    def purchase_reserve(self, number):
+        if (os.getenv("DAYTELLO_VOICE_RELAY_PURCHASE_ENABLED") != "true"
+                or not production_relay_enabled()):
+            raise HTTPException(409, "Production reserve purchasing is disabled")
+        url = relay_inbound_url(
+            os.getenv("DAYTELLO_VOICE_RELAY_PUBLIC_ORIGIN", "").rstrip("/"))
+        self._request("POST", "IncomingPhoneNumbers.json", data={
+            "PhoneNumber": number,
+            "FriendlyName": RESERVE_LABEL,
+            "VoiceUrl": url,
+            "VoiceMethod": "POST",
+        })
+        if not self.find_verified_reserve(number):
+            raise HTTPException(503, "Purchased production relay was not verified")

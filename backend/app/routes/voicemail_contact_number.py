@@ -7,7 +7,7 @@ import os
 
 from app.voice_relay_mode import production_relay_enabled
 import re
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, field_validator
 from sqlalchemy.orm import Session
 
@@ -31,6 +31,11 @@ from app.voice_relay_provisioning import (
     allocate_preowned_relay_for_shop,
 )
 from app.voice_relay_provider import VoiceRelayNumberProvider
+from app.voice_relay_replenishment import (
+    ensure_production_relay_reserve,
+    replenish_production_relay_reserve,
+    reserve_replenishment_enabled,
+)
 from app.voicemail_owner_links import (
     approved_owner_recipient,
     link_cipher,
@@ -562,6 +567,7 @@ def set_owner_call_voicemail_number(
     payload: OwnerCallVoicemailNumber,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None,
 ):
     """Save once; never report success unless transfer and notification agree."""
     shop = owner_shop(db, shop_slug, current_user)
@@ -576,10 +582,15 @@ def set_owner_call_voicemail_number(
         reject_internal_owner_destination(db, number, shop.id)
         approved_owner_recipient(shop.slug, number, db=db, shop_id=shop.id)
         if not settings:
-            attach_preowned_relay_after_ai_number(shop, db)
+            attached = attach_preowned_relay_after_ai_number(shop, db)
+            if not attached and reserve_replenishment_enabled():
+                ensure_production_relay_reserve()
+                attach_preowned_relay_after_ai_number(shop, db)
             settings = db.get(DayTelloVoicemailShopSettings, shop.id)
         if settings is None or db.get(DayTelloVoiceRelayAssignment, shop.id) is None:
             raise HTTPException(409, "No verified relay is available for this shop")
+        if background_tasks is not None and reserve_replenishment_enabled():
+            background_tasks.add_task(replenish_production_relay_reserve)
     elif not settings:
         settings = ensure_existing_shop_voicemail_route(shop, db)
     location = str(shop.highlevel_location_id or "").strip()
