@@ -96,9 +96,14 @@ export default function OwnerVoicemailSetup({ shopSlug, onReadyChange }) {
           )}
           {phase === "save" && <p role="status">Phone verified. Save to turn on forwarding and voicemail texts.</p>}
           {error && <p role="alert">{error}</p>}
+          {busy && phase === "save" && (
+            <p role="status" style={{ padding: 12, borderRadius: 8, backgroundColor: "#eff6ff", color: "#1e3a8a" }}>
+              Setting up call forwarding and voicemail texts. This can take a little while. Please keep this page open.
+            </p>
+          )}
           <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 12 }}>
             <button type="submit" className={styles.continueButton} disabled={busy}>
-              {busy ? "Please wait…" : phase === "start" ? "Send Verification Code" : phase === "confirm" ? "Verify Phone" : "Save Forwarding & Voicemail Texts"}
+              {busy ? (phase === "save" ? "Setting up…" : "Please wait…") : phase === "start" ? "Send Verification Code" : phase === "confirm" ? "Verify Phone" : "Save Forwarding & Voicemail Texts"}
             </button>
             {phase === "confirm" && (
               <button type="button" disabled={busy} onClick={() => { setCode(""); setError(""); setPhase("start"); }}>Change number or resend</button>
