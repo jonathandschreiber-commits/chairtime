@@ -65,39 +65,45 @@ export default function OwnerVoicemailSetup({ shopSlug, onReadyChange }) {
 
   return (
     <section style={{ marginTop: 16, padding: 16, border: "1px solid #c4b5fd", borderRadius: 12 }}>
-      <h3>Forward calls and get voicemail texts</h3>
+      <h3 style={{ fontWeight: 800 }}>Forward calls and get voicemail texts</h3>
       {phase === "done" ? (
         <p role="status">Setup saved. Call your AI number, ask for an employee, and leave a voicemail if the call goes unanswered. Check your texts for the recording link.</p>
       ) : (
-        <form onSubmit={submit}>
+        <form onSubmit={submit} style={{ display: "grid", gap: 16, marginTop: 12 }}>
           <p>Use a number you control. DayTello will try this number when callers ask for an employee and text a recording link if they leave a voicemail.</p>
-          <label htmlFor="daytello-owner-phone">Owner phone number</label>
-          <input id="daytello-owner-phone" className={styles.input} type="tel"
-            value={number} onChange={(event) => setNumber(event.target.value)}
-            readOnly={phase !== "start"} required />
+          <div>
+            <label className={styles.formLabel} htmlFor="daytello-owner-phone">Owner phone number</label>
+            <input id="daytello-owner-phone" className={styles.textInput} type="tel"
+              autoComplete="tel" placeholder="(555) 123-4567"
+              style={{ borderColor: "#3b82f6", backgroundColor: "#eff6ff" }}
+              value={number} onChange={(event) => setNumber(event.target.value)}
+              readOnly={phase !== "start"} required />
+          </div>
           {phase === "start" && (
-            <label style={{ display: "block", margin: "12px 0" }}>
-              <input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} required />
-              {" "}I agree to receive a verification text and voicemail alerts at this number.
+            <label style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+              <input type="checkbox" style={{ marginTop: 4 }} checked={consent} onChange={(event) => setConsent(event.target.checked)} required />
+              <span>I agree to receive a verification text and voicemail alerts at this number.</span>
             </label>
           )}
           {phase === "confirm" && (
-            <div style={{ marginTop: 12 }}>
-              <label htmlFor="daytello-owner-code">Six-digit verification code</label>
-              <input id="daytello-owner-code" className={styles.input} inputMode="numeric"
+            <div>
+              <label className={styles.formLabel} htmlFor="daytello-owner-code">Six-digit verification code</label>
+              <input id="daytello-owner-code" className={styles.textInput} inputMode="numeric"
                 autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6}
+                style={{ borderColor: "#3b82f6", backgroundColor: "#eff6ff", maxWidth: 240 }}
                 value={code} onChange={(event) => setCode(event.target.value)} required />
             </div>
           )}
           {phase === "save" && <p role="status">Phone verified. Save to turn on forwarding and voicemail texts.</p>}
           {error && <p role="alert">{error}</p>}
-          <button type="submit" className={styles.continueButton} disabled={busy} style={{ marginTop: 12 }}>
-            {busy ? "Please wait…" : phase === "start" ? "Send Verification Code" : phase === "confirm" ? "Verify Phone" : "Save Forwarding & Voicemail Texts"}
-          </button>
-          {phase === "confirm" && (
-            <button type="button" disabled={busy} onClick={() => { setCode(""); setError(""); setPhase("start"); }}
-              style={{ marginLeft: 12 }}>Change number or resend</button>
-          )}
+          <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 12 }}>
+            <button type="submit" className={styles.continueButton} disabled={busy}>
+              {busy ? "Please wait…" : phase === "start" ? "Send Verification Code" : phase === "confirm" ? "Verify Phone" : "Save Forwarding & Voicemail Texts"}
+            </button>
+            {phase === "confirm" && (
+              <button type="button" disabled={busy} onClick={() => { setCode(""); setError(""); setPhase("start"); }}>Change number or resend</button>
+            )}
+          </div>
         </form>
       )}
     </section>
