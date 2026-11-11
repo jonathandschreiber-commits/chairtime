@@ -90,6 +90,7 @@ export default function OwnerVoicemailSetup({ shopSlug, onReadyChange }) {
               <label className={styles.formLabel} htmlFor="daytello-owner-code">Six-digit verification code</label>
               <input id="daytello-owner-code" className={styles.textInput} inputMode="numeric"
                 autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6}
+                style={{ borderColor: "#3b82f6", backgroundColor: "#eff6ff", maxWidth: 240 }}
                 value={code} onChange={(event) => setCode(event.target.value)} required />
             </div>
           )}
