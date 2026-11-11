@@ -295,10 +295,18 @@ class VoiceRelayNumberProvider:
             raise HTTPException(503, "Voice relay monthly cost ceiling unavailable")
         if not cap.is_finite() or cap <= 0:
             raise HTTPException(503, "Voice relay monthly cost ceiling unavailable")
+        pricing_sid = os.getenv("DAYTELLO_VOICE_RELAY_PRICING_KEY_SID", "").strip()
+        pricing_secret = os.getenv("DAYTELLO_VOICE_RELAY_PRICING_KEY_SECRET", "").strip()
+        if pricing_sid or pricing_secret:
+            if not KEY_SID.fullmatch(pricing_sid) or not pricing_secret:
+                raise HTTPException(503, "Voice provider pricing credentials incomplete")
+            pricing_auth = (pricing_sid, pricing_secret)
+        else:
+            pricing_auth = (self.key_sid, self.key_secret)
         try:
             response = self.client.request(
                 "GET", "https://pricing.twilio.com/v1/PhoneNumbers/Countries/US",
-                auth=(self.key_sid, self.key_secret),
+                auth=pricing_auth,
                 headers={"Accept": "application/json"},
             )
         except httpx.RequestError:
