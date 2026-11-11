@@ -8,6 +8,7 @@ API contract: https://www.twilio.com/docs/phone-numbers/api/incomingphonenumber-
 """
 import hashlib
 import json
+import logging
 import os
 
 from app.voice_relay_mode import production_relay_enabled, voice_relay_enabled
@@ -24,6 +25,7 @@ NUMBER_SID = re.compile(r"^PN[a-fA-F0-9]{32}$")
 US_NUMBER = re.compile(r"^\+1[2-9][0-9]{2}[2-9][0-9]{6}$")
 BASE = "https://api.twilio.com/2010-04-01/Accounts"
 RESERVE_LABEL = "DayTello Relay Reserve"
+logger = logging.getLogger(__name__)
 
 
 def preowned_relay_pool() -> list[str]:
@@ -302,10 +304,12 @@ class VoiceRelayNumberProvider:
         except httpx.RequestError:
             raise HTTPException(503, "Voice provider pricing could not be verified")
         if response.status_code != 200:
+            logger.warning("Twilio US phone-number pricing returned HTTP %s", response.status_code)
             raise HTTPException(502, "Voice provider pricing could not be verified")
         try:
             payload = response.json()
         except ValueError:
+            logger.warning("Twilio US phone-number pricing returned invalid JSON")
             raise HTTPException(502, "Voice provider pricing could not be verified")
         if (not isinstance(payload, dict)
                 or payload.get("iso_country") != "US"
