@@ -4427,7 +4427,14 @@ function AiReceptionistStep({
         </div>
       </div>
  
-      <Message message={message} />
+      {provisioning ? (
+        <div className={styles.message} role="status">
+          <strong>Setting up your AI Receptionist…</strong>
+          <div>This can take a moment. Keep this page open while we finish.</div>
+        </div>
+      ) : (
+        <Message message={message} />
+      )}
  
       <div
         style={{
