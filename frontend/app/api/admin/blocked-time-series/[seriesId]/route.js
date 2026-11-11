@@ -1,11 +1,9 @@
+import { getBackendUrl } from "../../../../../lib/backend-url.js";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
 const COOKIE_NAME = "chairtime_token";
 
-const API_URL =
-  process.env.CHAIRTIME_API_URL ||
-  "https://chairtime-production-94da.up.railway.app";
 
 async function readJson(response) {
   try {
@@ -35,7 +33,7 @@ export async function DELETE(request, context) {
 
   try {
     const backendResponse = await fetch(
-      `${API_URL}/api/admin/blocked-time-series/${encodeURIComponent(
+      `${getBackendUrl()}/api/admin/blocked-time-series/${encodeURIComponent(
         seriesId
       )}`,
       {

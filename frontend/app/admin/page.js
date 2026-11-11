@@ -1,5 +1,5 @@
-import AdminHome from "../components/AdminHome";
+import { redirectLegacyAdmin } from "../../lib/redirect-legacy-admin.js";
 
-export default function AdminPage() {
-  return <AdminHome />;
+export default function Page() {
+  return redirectLegacyAdmin();
 }

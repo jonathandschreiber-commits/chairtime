@@ -1,11 +1,9 @@
+import { getBackendUrl } from "../../../../lib/backend-url.js";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
 const COOKIE_NAME = "chairtime_token";
 
-const API_URL =
-  process.env.CHAIRTIME_API_URL ||
-  "https://chairtime-production-94da.up.railway.app";
 
 async function readJson(response) {
   try {
@@ -38,7 +36,7 @@ export async function GET() {
 
   try {
     const meResponse = await fetch(
-      `${API_URL}/api/auth/me`,
+      `${getBackendUrl()}/api/auth/me`,
       {
         headers: authorizationHeaders,
         cache: "no-store",
@@ -69,12 +67,12 @@ export async function GET() {
       staffHoursResponse,
       shopBlocksResponse,
     ] = await Promise.all([
-      fetch(`${API_URL}/api/admin/appointments`, {
+      fetch(`${getBackendUrl()}/api/admin/appointments`, {
         headers: authorizationHeaders,
         cache: "no-store",
       }),
       fetch(
-        `${API_URL}/api/barbers?shop_slug=${encodeURIComponent(
+        `${getBackendUrl()}/api/barbers?shop_slug=${encodeURIComponent(
           shopSlug
         )}`,
         {
@@ -83,7 +81,7 @@ export async function GET() {
         }
       ),
       fetch(
-        `${API_URL}/api/services?shop_slug=${encodeURIComponent(
+        `${getBackendUrl()}/api/services?shop_slug=${encodeURIComponent(
           shopSlug
         )}`,
         {
@@ -93,7 +91,7 @@ export async function GET() {
       ),
       ...["shop-availability-rules", "availability-rules", "shop-blocked-times"].map(
         (path) => fetch(
-          `${API_URL}/api/${path}?shop_slug=${encodeURIComponent(shopSlug)}`,
+          `${getBackendUrl()}/api/${path}?shop_slug=${encodeURIComponent(shopSlug)}`,
           { headers: authorizationHeaders, cache: "no-store" }
         )
       ),

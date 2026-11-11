@@ -1,9 +1,6 @@
+import { getBackendUrl } from "../../../../lib/backend-url.js";
 import { cookies } from "next/headers";
 
-const BACKEND_URL = (
-  process.env.NEXT_PUBLIC_API_BASE_URL ||
-  "https://chairtime-production-94da.up.railway.app"
-).replace(/\/$/, "");
 
 export const dynamic = "force-dynamic";
 
@@ -51,7 +48,7 @@ export async function GET(request) {
       return json({ detail: "Please sign in as this shop's owner." }, 401);
     }
     async function read(path) {
-      const response = await fetch(`${BACKEND_URL}/api/ai-setup${path}`, {
+      const response = await fetch(`${getBackendUrl()}/api/ai-setup${path}`, {
         method: "GET",
         headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
         cache: "no-store",
@@ -94,7 +91,7 @@ export async function GET(request) {
       : parameters.apiDetails?.url;
     const suffix = name === "get_shop_information_v2" ? "shop-information"
       : name.startsWith("check_availability") ? "availability" : "book";
-    const expectedEndpoint = `${BACKEND_URL}/api/ai-setup/tenant-webhook/${encodeURIComponent(slug)}/${suffix}`;
+    const expectedEndpoint = `${getBackendUrl()}/api/ai-setup/tenant-webhook/${encodeURIComponent(slug)}/${suffix}`;
     let availabilityTest = null;
     const query = new URL(request.url).searchParams;
     if (query.get("target_date")) {

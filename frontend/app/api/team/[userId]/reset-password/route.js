@@ -1,10 +1,7 @@
+import { getBackendUrl } from "../../../../../lib/backend-url.js";
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 
-const BACKEND_URL =
-  process.env.BACKEND_URL ||
-  process.env.NEXT_PUBLIC_API_BASE_URL ||
-  "https://chairtime-production-94da.up.railway.app";
 
 export async function POST(
   request,
@@ -54,7 +51,7 @@ export async function POST(
 
     const response =
       await fetch(
-        `${BACKEND_URL}/api/team/${encodeURIComponent(
+        `${getBackendUrl()}/api/team/${encodeURIComponent(
           userId
         )}/reset-password`,
         {
