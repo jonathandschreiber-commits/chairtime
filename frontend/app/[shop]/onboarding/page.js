@@ -4898,16 +4898,7 @@ function AiReceptionistStep({
         />
       ) : null}
 
-      {activePhoneNumber && provisioned && voicemailRelayReady ? (
-        <section style={{ marginTop: 20, padding: 16, borderRadius: 12, backgroundColor: "#f5f3ff" }}>
-          <h3 style={{ fontWeight: 800 }}>When a caller asks to speak to an employee</h3>
-          <p style={{ marginTop: 8 }}>
-            DayTello uses its own relay number to connect the call. The forwarding number above is the phone that rings.
-            Answer and press 1 to accept. If nobody accepts, DayTello records a voicemail and texts you a link.
-            Use Change forwarding number above to choose a different phone.
-          </p>
-        </section>
-      ) : activePhoneNumber && provisioned ? (
+      {activePhoneNumber && provisioned && !voicemailRelayReady ? (
         <AiStaffTransferSetup
           key={`${shopSlug}-${activePhoneNumber}`}
           shopSlug={shopSlug}
