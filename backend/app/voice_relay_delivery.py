@@ -268,8 +268,9 @@ def send_relay_owner_alert(recording_sid, *, recovery=False):
             # while the worker was validating the saved shop/recipient state.
             if not _relay_sms_authorized(recovery=recovery):
                 return
+            sender_label = "DayTello Voicemail" if production_relay_enabled() else "DayTello TEST"
             result = send_highlevel_sms(
-                recipient, f"DayTello TEST: New voicemail for {shop.name}. Listen: {link}",
+                recipient, f"{sender_label}: New voicemail for {shop.name}. Listen: {link}",
                 shop_id=shop.id, shop_slug=shop.slug,
                 purpose="voicemail-owner-notification", source_id=recording_sid,
             )
