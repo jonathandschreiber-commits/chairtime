@@ -8,6 +8,7 @@ import {
 } from "react";
 import { useParams, useRouter } from "next/navigation";
 import styles from "./onboarding.module.css";
+import OwnerVoicemailSetup from "./OwnerVoicemailSetup";
  
 const API_BASE =
   "https://chairtime-production-94da.up.railway.app";
@@ -4883,6 +4884,14 @@ function AiReceptionistStep({
         />
       ) : null}
  
+      {activePhoneNumber && provisioned ? (
+        <OwnerVoicemailSetup
+          key={shopSlug}
+          shopSlug={shopSlug}
+          onReadyChange={onStaffTransferReadyChange}
+        />
+      ) : null}
+
       {activePhoneNumber && provisioned ? (
         <AiStaffTransferSetup
           key={`${shopSlug}-${activePhoneNumber}`}
