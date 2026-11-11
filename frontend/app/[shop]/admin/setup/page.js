@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 
-const API_BASE = "https://chairtime-production-94da.up.railway.app";
 
 const WEEKDAY_NAMES = {
   0: "Monday",
@@ -248,8 +247,7 @@ export default function SetupPage() {
   async function loadData() {
     if (!shopSlug) return;
 
-    const query =
-      "?shop_slug=" + encodeURIComponent(shopSlug);
+    const shopApi = `/api/shops/${encodeURIComponent(shopSlug)}`;
 
     try {
       const [
@@ -261,13 +259,13 @@ export default function SetupPage() {
         shopAvailabilityRes,
         shopBlockedRes,
       ] = await Promise.all([
-        fetch(`${API_BASE}/api/barbers${query}`),
-        fetch(`${API_BASE}/api/services${query}`),
-        fetch(`${API_BASE}/api/service-catalog${query}`),
-        fetch(`${API_BASE}/api/blocked-times${query}`),
-        fetch(`${API_BASE}/api/availability-rules${query}`),
-        fetch(`${API_BASE}/api/shop-availability-rules${query}`),
-        fetch(`${API_BASE}/api/shop-blocked-times${query}`),
+        fetch(`${shopApi}/barbers`),
+        fetch(`${shopApi}/services`),
+        fetch(`${shopApi}/service-catalog`),
+        fetch(`${shopApi}/blocked-times`),
+        fetch(`${shopApi}/availability-rules`),
+        fetch(`${shopApi}/shop-availability-rules`),
+        fetch(`${shopApi}/shop-blocked-times`),
       ]);
 
       if (

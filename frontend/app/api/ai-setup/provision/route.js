@@ -1,8 +1,8 @@
+import { getBackendUrl } from "../../../../lib/backend-url.js";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
-const API_BASE =
-  "https://chairtime-production-94da.up.railway.app";
+
 
 export async function POST() {
   try {
@@ -23,7 +23,7 @@ export async function POST() {
     }
 
     const response = await fetch(
-      `${API_BASE}/api/ai-setup/provision`,
+      `${getBackendUrl()}/api/ai-setup/provision`,
       {
         method: "POST",
         headers: {

@@ -1,11 +1,9 @@
+import { getBackendUrl } from "../../../../lib/backend-url.js";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
  
 // Same authenticated Railway proxy pattern as the existing AI setup routes.
-const BACKEND_URL = (
-  process.env.NEXT_PUBLIC_API_BASE_URL ||
-  "https://chairtime-production-94da.up.railway.app"
-).replace(/\/$/, "");
+
  
 export const dynamic = "force-dynamic";
  
@@ -53,7 +51,7 @@ async function forwardStaffTransfer(method, request) {
       });
     }
  
-    const backend = await fetch(`${BACKEND_URL}/api/ai-setup/staff-transfer`, options);
+    const backend = await fetch(`${getBackendUrl()}/api/ai-setup/staff-transfer`, options);
     const data = await backend.json().catch(() => ({
       detail: "The AI transfer service returned an invalid response.",
     }));

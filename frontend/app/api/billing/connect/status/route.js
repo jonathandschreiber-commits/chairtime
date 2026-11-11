@@ -1,9 +1,8 @@
+import { getBackendUrl } from "../../../../../lib/backend-url.js";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
-const API_BASE =
-  process.env.CHAIRTIME_API_URL ||
-  "https://chairtime-production-94da.up.railway.app";
+
 
 export async function GET() {
   try {
@@ -24,7 +23,7 @@ export async function GET() {
     }
 
     const response = await fetch(
-      `${API_BASE}/api/billing/connect/status`,
+      `${getBackendUrl()}/api/billing/connect/status`,
       {
         method: "GET",
         headers: {

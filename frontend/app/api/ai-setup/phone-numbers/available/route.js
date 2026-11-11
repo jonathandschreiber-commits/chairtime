@@ -1,8 +1,8 @@
+import { getBackendUrl } from "../../../../../lib/backend-url.js";
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 
-const API_BASE =
-  "https://chairtime-production-94da.up.railway.app";
+
 
 export async function GET(request) {
   const cookieStore = await cookies();
@@ -39,7 +39,7 @@ export async function GET(request) {
   }
 
   const response = await fetch(
-    `${API_BASE}/api/ai-setup/phone-numbers/available?area_code=${encodeURIComponent(
+    `${getBackendUrl()}/api/ai-setup/phone-numbers/available?area_code=${encodeURIComponent(
       areaCode
     )}`,
     {
