@@ -1,7 +1,6 @@
+import { getBackendUrl } from "../../../../lib/backend-url.js";
 import { cookies } from "next/headers";
 
-const BACKEND = (process.env.CHAIRTIME_API_URL || process.env.NEXT_PUBLIC_API_BASE_URL ||
-  "https://chairtime-production-94da.up.railway.app").replace(/\/$/, "");
 export const dynamic = "force-dynamic";
 
 function json(data, status = 200) {
@@ -32,7 +31,7 @@ async function proxy(request, context, method) {
       const incoming = new URL(request.url).searchParams;
       for (const key of ["token", "shop_slug"]) query.set(key, incoming.get(key) || "");
     }
-    const endpoint = `${BACKEND}/api/payments/${path.map(encodeURIComponent).join("/")}`;
+    const endpoint = `${getBackendUrl()}/api/payments/${path.map(encodeURIComponent).join("/")}`;
     const response = await fetch(endpoint + (receipt ? `?${query}` : ""), {
       method, headers, cache: "no-store", signal: AbortSignal.timeout(30000),
     });

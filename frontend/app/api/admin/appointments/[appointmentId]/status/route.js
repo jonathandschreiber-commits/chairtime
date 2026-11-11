@@ -1,11 +1,9 @@
+import { getBackendUrl } from "../../../../../../lib/backend-url.js";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
 const COOKIE_NAME = "chairtime_token";
 
-const API_URL =
-  process.env.CHAIRTIME_API_URL ||
-  "https://chairtime-production-94da.up.railway.app";
 
 async function readJson(response) {
   try {
@@ -49,7 +47,7 @@ export async function PATCH(request, context) {
 
   try {
     const backendResponse = await fetch(
-      `${API_URL}/api/admin/appointments/${encodeURIComponent(
+      `${getBackendUrl()}/api/admin/appointments/${encodeURIComponent(
         appointmentId
       )}/status?appointment_status=${encodeURIComponent(
         appointmentStatus

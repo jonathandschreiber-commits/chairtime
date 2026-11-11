@@ -1,11 +1,8 @@
+import { getBackendUrl } from "../../../lib/backend-url.js";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
 const COOKIE_NAME = "chairtime_token";
-
-const API_URL =
-  process.env.CHAIRTIME_API_URL ||
-  "https://chairtime-production-94da.up.railway.app";
 
 export default async function ShopAdminLayout({
   children,
@@ -28,7 +25,7 @@ export default async function ShopAdminLayout({
 
   try {
     const response = await fetch(
-      `${API_URL}/api/auth/me`,
+      `${getBackendUrl()}/api/auth/me`,
       {
         headers: {
           Accept: "application/json",

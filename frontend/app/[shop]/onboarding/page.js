@@ -10,9 +10,6 @@ import { useParams, useRouter } from "next/navigation";
 import styles from "./onboarding.module.css";
 import OwnerVoicemailSetup from "./OwnerVoicemailSetup";
  
-const API_BASE =
-  "https://chairtime-production-94da.up.railway.app";
- 
 const DAYS = [
   { name: "Monday", weekday: 0 },
   { name: "Tuesday", weekday: 1 },

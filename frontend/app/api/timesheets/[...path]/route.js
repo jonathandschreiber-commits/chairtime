@@ -1,6 +1,6 @@
+import { getBackendUrl } from "../../../../lib/backend-url.js";
 import { cookies } from "next/headers";
 export const dynamic = "force-dynamic";
-const BACKEND = (process.env.CHAIRTIME_API_URL || "https://chairtime-production-94da.up.railway.app").replace(/\/+$/, "");
 const json = (data, status = 200) => Response.json(data, {status, headers: {"Cache-Control": "no-store"}});
 async function proxy(request, context, method) {
   try {
@@ -26,7 +26,7 @@ async function proxy(request, context, method) {
     const headers = {Accept: "application/json", Authorization: `Bearer ${token}`};
     const options = {method, headers, cache: "no-store", signal: AbortSignal.timeout(30000)};
     if (method !== "GET") {headers["Content-Type"] = "application/json"; options.body = await request.text();}
-    const response = await fetch(`${BACKEND}/api/timesheets/${path.map(encodeURIComponent).join("/")}?${query}`, options);
+    const response = await fetch(`${getBackendUrl()}/api/timesheets/${path.map(encodeURIComponent).join("/")}?${query}`, options);
     let data;
     try {data = await response.json();} catch {return json({detail: "The timesheet service returned an invalid response."}, 502);}
     return json(data, response.status);
