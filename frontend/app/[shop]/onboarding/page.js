@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 34281)
-Total output lines: 5541
-
 "use client";
  
 import {
@@ -1998,7 +1995,2063 @@ export default function OnboardingPage() {
  
           if (response.status === 401) {
             router.replace(
-              `/login?next=${encodeURIC…12281 tokens truncated…n (
+              `/login?next=${encodeURIComponent(
+                `/${shopSlug}/onboarding`
+              )}`
+            );
+ 
+            return;
+          }
+ 
+          if (!response.ok) {
+            throw new Error(
+              `Could not remove ${catalogService.name} from ${person.name}.`
+            );
+          }
+        }
+      }
+ 
+      const existingPersonRules =
+        availabilityRules.filter(
+          (rule) =>
+            rule.barber_id ===
+            person.id
+        );
+ 
+      for (
+        const rule
+        of existingPersonRules
+      ) {
+ 
+           const response =
+          await fetch(
+            `/api/shops/${encodeURIComponent(
+              shopSlug
+            )}/availability-rules/${encodeURIComponent(
+              rule.id
+            )}`,
+            {
+              method: "DELETE",
+            }
+          );
+ 
+        if (response.status === 401) {
+          router.replace(
+            `/login?next=${encodeURIComponent(
+              `/${shopSlug}/onboarding`
+            )}`
+          );
+ 
+          return;
+        }
+ 
+        if (!response.ok) {
+          throw new Error(
+            `Could not update ${person.name}'s schedule.`
+          );
+        }
+      }
+ 
+      for (const day of staffHours) {
+        if (!day.open) continue;
+ 
+        const response =
+          await fetch(
+            `/api/shops/${encodeURIComponent(
+              shopSlug
+            )}/availability-rules`,
+            {
+              method: "POST",
+ 
+              headers: {
+                "Content-Type":
+                  "application/json",
+              },
+ 
+              body: JSON.stringify({
+                shop_slug: shopSlug,
+                barber_id: person.id,
+                weekday: day.weekday,
+ 
+                start_time:
+                  `${day.start}:00`,
+ 
+                end_time:
+                  `${day.end}:00`,
+              }),
+            }
+          );
+ 
+        if (response.status === 401) {
+          router.replace(
+            `/login?next=${encodeURIComponent(
+              `/${shopSlug}/onboarding`
+            )}`
+          );
+ 
+          return;
+        }
+ 
+        if (!response.ok) {
+          const error =
+            await response
+              .json()
+              .catch(() => ({}));
+ 
+          throw new Error(
+            typeof error.detail ===
+              "string"
+              ? error.detail
+              : `Could not save ${person.name}'s ${day.name} hours.`
+          );
+        }
+      }
+ 
+      const {
+        nextAssignedServices,
+        nextAvailabilityRules,
+      } =
+        await refreshStaffSetupData();
+ 
+      const nextIndex =
+        currentStaffIndex + 1;
+ 
+      if (nextIndex < staff.length) {
+        setCurrentStaffIndex(
+          nextIndex
+        );
+ 
+        prepareStaffEditor(
+          staff[nextIndex],
+          services,
+          nextAssignedServices,
+          nextAvailabilityRules,
+          hours
+        );
+ 
+        setMessage(
+          `${person.name} is ready. Now set up ${staff[nextIndex].name}.`
+        );
+      } else {
+        setMessage("");
+        setCurrentStep(5);
+      }
+    } catch (error) {
+      console.error(error);
+ 
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Could not save this staff setup."
+      );
+    } finally {
+      setSavingStaffSetup(false);
+    }
+  }
+ 
+  function goBackFromStaffSetup() {
+    if (currentStaffIndex === 0) {
+      goToStep(3);
+      return;
+    }
+ 
+    const previousIndex =
+      currentStaffIndex - 1;
+ 
+    setCurrentStaffIndex(
+      previousIndex
+    );
+ 
+    prepareStaffEditor(
+      staff[previousIndex],
+      services,
+      assignedServices,
+      availabilityRules,
+      hours
+    );
+ 
+    setMessage("");
+  }
+ 
+  async function savePaymentPreference(
+    continueToReview = true
+  ) {
+    if (savingPaymentPolicy) return false;
+ 
+    setSavingPaymentPolicy(true);
+    setMessage("");
+ 
+    try {
+      const response = await fetch(
+  `/api/shops/${encodeURIComponent(
+    shopSlug
+  )}/payment-policy`,
+        {
+          method: "PATCH",
+ 
+          headers: {
+            "Content-Type": "application/json",
+          },
+ 
+          body: JSON.stringify({
+            payment_policy: paymentPolicy,
+          }),
+        }
+      );
+ 
+      if (!response.ok) {
+        const error = await response
+          .json()
+          .catch(() => ({}));
+ 
+        throw new Error(
+          typeof error.detail === "string"
+            ? error.detail
+            : "Could not save your payment preference."
+        );
+      }
+ 
+      setMessage("");
+ 
+      if (continueToReview) {
+        setCurrentStep(6);
+      }
+ 
+      return true;
+    } catch (error) {
+      console.error(error);
+ 
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Could not save your payment preference."
+      );
+ 
+      return false;
+    } finally {
+      setSavingPaymentPolicy(false);
+    }
+  }
+ 
+  function openBookingPage() {
+    window.open(
+      `/${shopSlug}`,
+      "_blank",
+      "noopener,noreferrer"
+    );
+  }
+ 
+  function finishOnboarding() {
+    router.push(
+      `/${shopSlug}/admin`
+    );
+  }
+ 
+  if (!loading && aiOnly && !aiUpgradeVerified) {
+    return <main className={styles.page}><div className={styles.container}>
+      <h1 className={styles.title}>AI Receptionist Setup</h1>
+      <p role="alert" className={styles.message}>{message || "Your AI plan could not be verified."}</p>
+      <button type="button" className={styles.continueButton} onClick={() => router.push(`/${shopSlug}/admin/account`)}>Back to Account Options</button>
+    </div></main>;
+  }
+ 
+  if (loading) {
+    return (
+      <main className={styles.page}>
+        <div className={styles.loading}>
+          Loading your setup...
+        </div>
+      </main>
+    );
+  }
+ 
+  return (
+    <main className={styles.page}>
+      <div className={styles.container}>
+        <header className={styles.header}>
+          <div>
+            <p className={styles.eyebrow}>
+              LET&apos;S GET YOU READY
+            </p>
+ 
+            <h1 className={styles.title}>
+              {aiOnly ? "Set up your AI Receptionist" : "Set up your business"}
+            </h1>
+ 
+            <p className={styles.subtitle}>
+              {aiOnly ? "Your booking URL, services, staff, prices and hours stay the same. Choose a number, then forward your business calls." : "We’ll walk you through everything. It only takes a few minutes."}
+            </p>
+          </div>
+ 
+          <div className={styles.stepBadge}>
+            {aiOnly ? "AI Setup" : `Step ${currentStep} of ${totalSteps}`}
+          </div>
+        </header>
+ 
+        {!aiOnly && <Progress
+          currentStep={currentStep}
+          aiVoiceEnabled={aiVoiceEnabled}
+        />}
+ 
+        {currentStep === 1 && (
+          <HoursStep
+            hours={hours}
+            openDayCount={openDayCount}
+            updateDay={updateDay}
+            saveHours={saveHours}
+            savingHours={savingHours}
+            message={message}
+          />
+        )}
+ 
+        {currentStep === 2 && (
+          <StaffStep
+            staff={staff}
+            newStaffName={newStaffName}
+            setNewStaffName={
+              setNewStaffName
+            }
+            addingStaff={addingStaff}
+            addStaffMember={addStaffMember}
+            removeStaffMember={
+              removeStaffMember
+            }
+            continueFromStaff={
+              continueFromStaff
+            }
+            goBack={() =>
+              goToStep(1)
+            }
+            message={message}
+          />
+        )}
+ 
+        {currentStep === 3 && (
+          <ServicesStep
+            services={services}
+            newServiceName={
+              newServiceName
+            }
+            setNewServiceName={
+              setNewServiceName
+            }
+            addingService={
+              addingService
+            }
+            addService={addService}
+            removeService={removeService}
+            continueFromServices={
+              continueFromServices
+            }
+            goBack={() =>
+              goToStep(2)
+            }
+            message={message}
+          />
+        )}
+ 
+        {currentStep === 4 && (
+          <ScheduleStep
+            staff={staff}
+            services={services}
+            currentStaffIndex={
+              currentStaffIndex
+            }
+            staffServiceForm={
+              staffServiceForm
+            }
+            updateStaffService={
+              updateStaffService
+            }
+            staffHours={staffHours}
+            updateStaffHours={
+              updateStaffHours
+            }
+            savingStaffSetup={
+              savingStaffSetup
+            }
+            saveCurrentStaffSetup={
+              saveCurrentStaffSetup
+            }
+            goBack={
+              goBackFromStaffSetup
+            }
+            message={message}
+          />
+        )}
+ 
+        {currentStep === 5 && (
+          <PaymentsStep
+            paymentPolicy={paymentPolicy}
+            setPaymentPolicy={(value) => {
+              setPaymentPolicy(value);
+              setMessage("");
+            }}
+            savingPaymentPolicy={
+              savingPaymentPolicy
+            }
+            connectStatus={connectStatus}
+            loadingConnectStatus={
+              loadingConnectStatus
+            }
+            connectStatusError={
+              connectStatusError
+            }
+            refreshConnectStatus={
+              loadConnectStatus
+            }
+            savePaymentPreference={
+              savePaymentPreference
+            }
+            goBack={() => {
+              const lastIndex =
+                Math.max(
+                  staff.length - 1,
+                  0
+                );
+ 
+              setCurrentStaffIndex(
+                lastIndex
+              );
+ 
+              prepareStaffEditor(
+                staff[lastIndex],
+                services,
+                assignedServices,
+                availabilityRules,
+                hours
+              );
+ 
+              goToStep(4);
+            }}
+            message={message}
+          />
+        )}
+ 
+        {aiVoiceEnabled && currentStep === 6 && (
+          <AiReceptionistStep
+            aiOnly={aiOnly}
+            shopSlug={shopSlug}
+            finishSetup={() => router.push(`/${shopSlug}/admin/ai-receptionist`)}
+            provisionStatus={aiProvisionStatus}
+            staffTransferReady={staffTransferReady}
+            onStaffTransferReadyChange={setStaffTransferReady}
+            loadingStatus={
+              loadingAiProvisionStatus
+            }
+            statusError={
+              aiProvisionStatusError
+            }
+            provisioning={provisioningAi}
+            provisionAiReceptionist={
+              provisionAiReceptionist
+            }
+            refreshStatus={
+              loadAiProvisionStatus
+            }
+            goBack={() => aiOnly ? router.push(`/${shopSlug}/admin/account`) : goToStep(5)}
+            continueToReview={
+              activateAiNumberAndContinue
+            }
+            activatingAiNumber={
+              activatingAiNumber
+            }
+ 
+            aiAreaCode={aiAreaCode}
+ 
+            setAiAreaCode={(value) => {
+              setAiAreaCode(
+                String(value)
+                  .replace(/\D/g, "")
+                  .slice(0, 3)
+              );
+ 
+              setAiNumberError("");
+              setAvailableAiNumbers([]);
+              setAiSearchFingerprint("");
+              setSelectedAiNumber("");
+            }}
+ 
+            availableAiNumbers={
+              availableAiNumbers
+            }
+ 
+            loadingAiNumbers={
+              loadingAiNumbers
+            }
+ 
+            aiNumberError={
+              aiNumberError
+            }
+ 
+            selectedAiNumber={
+              selectedAiNumber
+            }
+ 
+            setSelectedAiNumber={
+              setSelectedAiNumber
+            }
+ 
+            recoveryAiNumber={
+              recoveryAiNumber
+            }
+ 
+            setRecoveryAiNumber={
+              setRecoveryAiNumber
+            }
+ 
+            loadAvailableAiNumbers={
+              loadAvailableAiNumbers
+            }
+ 
+            message={message}
+          />
+        )}
+ 
+        {currentStep === reviewStep && (
+          <ReviewStep
+            shopSlug={shopSlug}
+            aiPhoneNumber={aiVoiceEnabled ? (
+              aiProvisionStatus?.phone_number ||
+              aiProvisionStatus?.agent?.inbound_number ||
+              ""
+            ) : ""}
+            aiPhoneRouted={aiProvisionStatus?.phone_routed}
+            staff={staff}
+            services={services}
+            assignedServices={
+              assignedServices
+            }
+            openBookingPage={
+              openBookingPage
+            }
+            finishOnboarding={
+              finishOnboarding
+            }
+            goBack={() =>
+              goToStep(aiVoiceEnabled ? 6 : 5)
+            }
+            stepNumber={reviewStep}
+          />
+        )}
+ 
+        <p className={styles.helpText}>
+          Don&apos;t worry — everything here
+          can be changed later from your
+          Admin pages.
+        </p>
+      </div>
+    </main>
+  );
+}
+ 
+function Progress({
+  currentStep,
+  aiVoiceEnabled,
+}) {
+  const steps = [
+    "Hours",
+    "Staff",
+    "Services",
+    "Schedules",
+    "Payments",
+    ...(aiVoiceEnabled
+      ? ["AI Receptionist"]
+      : []),
+    "Review",
+  ];
+ 
+  return (
+    <section className={styles.progressCard}>
+      {steps.map((label, index) => {
+        const stepNumber = index + 1;
+ 
+        const isActive =
+          stepNumber === currentStep;
+ 
+        const isDone =
+          stepNumber < currentStep;
+ 
+        return (
+          <div
+            key={label}
+            className={
+              styles.progressGroup
+            }
+          >
+            <div
+              className={[
+                styles.progressStep,
+ 
+                isActive
+                  ? styles.progressActive
+                  : "",
+ 
+                isDone
+                  ? styles.progressDone
+                  : "",
+              ]
+                .filter(Boolean)
+                .join(" ")}
+            >
+              <span>
+                {isDone
+                  ? "✓"
+                  : stepNumber}
+              </span>
+ 
+              <strong>{label}</strong>
+            </div>
+ 
+            {index <
+              steps.length - 1 && (
+              <div
+                className={[
+                  styles.progressLine,
+ 
+                  isDone
+                    ? styles.progressLineDone
+                    : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+              />
+            )}
+          </div>
+        );
+      })}
+    </section>
+  );
+}
+ 
+function HoursStep({
+  hours,
+  openDayCount,
+  updateDay,
+  saveHours,
+  savingHours,
+  message,
+}) {
+  return (
+    <section className={styles.mainCard}>
+      <div className={styles.cardHeading}>
+        <div className={styles.icon}>
+          🕒
+        </div>
+ 
+        <div>
+          <p className={styles.stepLabel}>
+            STEP 1
+          </p>
+ 
+          <h2 className={styles.cardTitle}>
+            When is your business open?
+          </h2>
+ 
+          <p className={styles.cardText}>
+            Choose your normal weekly hours.
+            You can always change them later.
+          </p>
+        </div>
+      </div>
+ 
+      <Message message={message} />
+ 
+      <div className={styles.days}>
+        {hours.map((day) => (
+          <div
+            key={day.weekday}
+            className={`${styles.dayCard} ${
+              day.open
+                ? styles.dayOpen
+                : styles.dayClosed
+            }`}
+          >
+            <div className={styles.dayTop}>
+              <div>
+                <strong
+                  className={styles.dayName}
+                >
+                  {day.name}
+                </strong>
+ 
+                <p
+                  className={
+                    day.open
+                      ? styles.openText
+                      : styles.closedText
+                  }
+                >
+                  {day.open
+                    ? "Open"
+                    : "Closed"}
+                </p>
+              </div>
+ 
+              <label
+                className={styles.switch}
+              >
+                <input
+                  type="checkbox"
+                  checked={day.open}
+                  onChange={(event) =>
+                    updateDay(
+                      day.weekday,
+                      "open",
+                      event.target.checked
+                    )
+                  }
+                />
+ 
+                <span
+                  className={
+                    styles.slider
+                  }
+                />
+              </label>
+            </div>
+ 
+            {day.open ? (
+              <div
+                className={
+                  styles.timeGrid
+                }
+              >
+                <label>
+                  <span>Opens</span>
+ 
+                  <input
+                    type="time"
+                    value={day.start}
+                    onChange={(event) =>
+                      updateDay(
+                        day.weekday,
+                        "start",
+                        event.target.value
+                      )
+                    }
+                  />
+                </label>
+ 
+                <label>
+                  <span>Closes</span>
+ 
+                  <input
+                    type="time"
+                    value={day.end}
+                    onChange={(event) =>
+                      updateDay(
+                        day.weekday,
+                        "end",
+                        event.target.value
+                      )
+                    }
+                  />
+                </label>
+              </div>
+            ) : (
+              <div
+                className={
+                  styles.closedMessage
+                }
+              >
+                No appointments will be
+                offered on {day.name}.
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+ 
+      <div className={styles.footer}>
+        <div>
+          <strong>
+            {openDayCount} days open
+          </strong>
+ 
+          <p>
+            These become your normal shop
+            hours.
+          </p>
+        </div>
+ 
+        <button
+          type="button"
+          onClick={saveHours}
+          disabled={savingHours}
+          className={
+            styles.continueButton
+          }
+        >
+          {savingHours
+            ? "Saving..."
+            : "Save & Continue →"}
+        </button>
+      </div>
+    </section>
+  );
+}
+ 
+function StaffStep({
+  staff,
+  newStaffName,
+  setNewStaffName,
+  addingStaff,
+  addStaffMember,
+  removeStaffMember,
+  continueFromStaff,
+  goBack,
+  message,
+}) {
+  return (
+    <section
+      className={`${styles.mainCard} ${styles.staffCard}`}
+    >
+      <div className={styles.cardHeading}>
+        <div
+          className={`${styles.icon} ${styles.staffIcon}`}
+        >
+          👥
+        </div>
+ 
+        <div>
+          <p
+            className={`${styles.stepLabel} ${styles.staffStepLabel}`}
+          >
+            STEP 2
+          </p>
+ 
+          <h2 className={styles.cardTitle}>
+            Who takes appointments?
+          </h2>
+ 
+          <p className={styles.cardText}>
+            Add yourself and anyone else
+            customers can book with.
+          </p>
+        </div>
+      </div>
+ 
+      <Message message={message} />
+ 
+      <form
+        className={
+          styles.addPersonCard
+        }
+        onSubmit={addStaffMember}
+      >
+        <label
+          className={styles.formLabel}
+          htmlFor="staffName"
+        >
+          Staff member&apos;s name
+        </label>
+ 
+        <div className={styles.addRow}>
+          <input
+            id="staffName"
+            type="text"
+            value={newStaffName}
+ 
+            onChange={(event) =>
+              setNewStaffName(
+                event.target.value
+              )
+            }
+ 
+            placeholder="Example: Maria"
+            className={styles.textInput}
+            disabled={addingStaff}
+          />
+ 
+          <button
+            type="submit"
+            disabled={addingStaff}
+            className={
+              styles.staffAddButton
+            }
+          >
+            {addingStaff
+              ? "Adding..."
+              : "+ Add Staff"}
+          </button>
+ 
+        </div>
+      </form>
+ 
+      <div className={styles.peopleList}>
+        {staff.length === 0 ? (
+          <div
+            className={styles.emptyState}
+          >
+            <div
+              className={
+                styles.emptyIcon
+              }
+            >
+              👋
+            </div>
+ 
+            <strong>
+              Start with yourself
+            </strong>
+ 
+            <p>
+              Add the first person customers
+              can book with.
+            </p>
+          </div>
+        ) : (
+          staff.map((person) => (
+            <div
+              key={person.id}
+              className={
+                styles.personRow
+              }
+            >
+              <div
+                className={
+                  styles.personAvatar
+                }
+              >
+                {String(person.name)
+                  .trim()
+                  .slice(0, 1)
+                  .toUpperCase()}
+              </div>
+ 
+              <div
+                className={
+                  styles.personInfo
+                }
+              >
+                <strong>
+                  {person.name}
+                </strong>
+ 
+                <span>
+                  Ready for services and
+                  schedule
+                </span>
+              </div>
+ 
+              <div
+                className={
+                  styles.readyBadge
+                }
+              >
+                ✓ Added
+              </div>
+ 
+              <button
+                type="button"
+                onClick={() =>
+                  removeStaffMember(
+                    person
+                  )
+                }
+                className={
+                  styles.removeButton
+                }
+              >
+                Remove
+              </button>
+            </div>
+          ))
+        )}
+      </div>
+ 
+      <div className={styles.footer}>
+        <button
+          type="button"
+          onClick={goBack}
+          className={styles.backButton}
+        >
+          ← Back
+        </button>
+ 
+        <div
+          className={
+            styles.footerRight
+          }
+        >
+          <div>
+            <strong>
+              {staff.length}{" "}
+              {staff.length === 1
+                ? "person"
+                : "people"}{" "}
+              added
+            </strong>
+ 
+            <p>
+              You can add more staff later.
+            </p>
+          </div>
+ 
+          <button
+            type="button"
+            onClick={
+              continueFromStaff
+            }
+            className={
+              styles.continueButton
+            }
+          >
+            Continue to Services →
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}
+ 
+function ServicesStep({
+  services,
+  newServiceName,
+  setNewServiceName,
+  addingService,
+  addService,
+  removeService,
+  continueFromServices,
+  goBack,
+  message,
+}) {
+  return (
+    <section
+      className={`${styles.mainCard} ${styles.servicesCard}`}
+    >
+      <div className={styles.cardHeading}>
+        <div
+          className={`${styles.icon} ${styles.serviceIcon}`}
+        >
+          ✨
+        </div>
+ 
+        <div>
+          <p
+            className={`${styles.stepLabel} ${styles.serviceStepLabel}`}
+          >
+            STEP 3
+          </p>
+ 
+          <h2 className={styles.cardTitle}>
+            What services do you offer?
+          </h2>
+ 
+          <p className={styles.cardText}>
+            Add each service customers should
+            be able to book. We&apos;ll connect
+            them to staff in the next step.
+          </p>
+        </div>
+      </div>
+ 
+      <Message message={message} />
+ 
+      <form
+        className={
+          styles.addServiceCard
+        }
+        onSubmit={addService}
+      >
+        <label
+          className={styles.formLabel}
+          htmlFor="serviceName"
+        >
+          Service name
+        </label>
+ 
+        <div className={styles.addRow}>
+          <input
+            id="serviceName"
+            type="text"
+            value={newServiceName}
+ 
+            onChange={(event) =>
+              setNewServiceName(
+                event.target.value
+              )
+            }
+ 
+            placeholder="Example: Haircut"
+            className={styles.textInput}
+            disabled={addingService}
+          />
+ 
+          <button
+            type="submit"
+            disabled={addingService}
+            className={
+              styles.serviceAddButton
+            }
+          >
+            {addingService
+              ? "Adding..."
+              : "+ Add Service"}
+          </button>
+        </div>
+ 
+        <div
+          className={
+            styles.serviceExamples
+          }
+        >
+          Examples: Haircut, Color,
+          Manicure, Massage, Personal
+          Training
+        </div>
+      </form>
+ 
+      <div
+        className={styles.serviceList}
+      >
+        {services.length === 0 ? (
+          <div
+            className={styles.emptyState}
+          >
+            <div
+              className={
+                styles.emptyIcon
+              }
+            >
+              ✨
+            </div>
+ 
+            <strong>
+              Add your first service
+            </strong>
+ 
+            <p>
+              Start with the service customers
+              book most often.
+            </p>
+          </div>
+        ) : (
+          services.map((service) => (
+            <div
+              key={service.id}
+              className={
+                styles.serviceRow
+              }
+            >
+              <div
+                className={
+                  styles.serviceMark
+                }
+              >
+                ✓
+              </div>
+ 
+              <div
+                className={
+                  styles.personInfo
+                }
+              >
+                <strong>
+                  {service.name}
+                </strong>
+ 
+                <span>
+                  Duration and price come next
+                </span>
+              </div>
+ 
+              <button
+                type="button"
+                onClick={() =>
+                  removeService(
+                    service
+                  )
+                }
+                className={
+                  styles.removeButton
+                }
+              >
+                Remove
+              </button>
+            </div>
+          ))
+        )}
+      </div>
+ 
+      <div className={styles.footer}>
+        <button
+          type="button"
+          onClick={goBack}
+          className={styles.backButton}
+        >
+          ← Back
+        </button>
+ 
+        <div
+          className={
+            styles.footerRight
+          }
+        >
+          <div>
+            <strong>
+              {services.length}{" "}
+              {services.length === 1
+                ? "service"
+                : "services"}{" "}
+              added
+            </strong>
+ 
+            <p>
+              You can change these later.
+            </p>
+          </div>
+ 
+          <button
+            type="button"
+            onClick={
+              continueFromServices
+            }
+            className={
+              styles.continueButton
+            }
+          >
+            Continue to Schedules →
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}
+ 
+function ScheduleStep({
+  staff,
+  services,
+  currentStaffIndex,
+  staffServiceForm,
+  updateStaffService,
+  staffHours,
+  updateStaffHours,
+  savingStaffSetup,
+  saveCurrentStaffSetup,
+  goBack,
+  message,
+}) {
+  const person =
+    staff[currentStaffIndex];
+ 
+  if (!person) {
+    return null;
+  }
+ 
+  const selectedCount =
+    services.filter(
+      (service) =>
+        staffServiceForm[service.id]
+          ?.selected
+    ).length;
+ 
+  return (
+    <section
+      className={`${styles.mainCard} ${styles.scheduleCard}`}
+    >
+      <div className={styles.cardHeading}>
+        <div
+          className={`${styles.icon} ${styles.scheduleIcon}`}
+        >
+          📅
+        </div>
+ 
+        <div>
+          <p
+            className={`${styles.stepLabel} ${styles.scheduleStepLabel}`}
+          >
+            STEP 4
+          </p>
+ 
+          <h2 className={styles.cardTitle}>
+            Set up {person.name}
+          </h2>
+ 
+          <p className={styles.cardText}>
+            Choose what {person.name} does,
+            what each service costs, and when
+            customers can book them.
+          </p>
+        </div>
+      </div>
+ 
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: "16px",
+          marginBottom: "20px",
+          padding: "14px 16px",
+          background:
+            "linear-gradient(135deg, #eef2ff, #eff6ff)",
+          border:
+            "1px solid #c7d2fe",
+          borderRadius: "14px",
+        }}
+      >
+        <div>
+          <strong
+            style={{
+              color: "#312e81",
+              fontSize: "15px",
+            }}
+          >
+            Staff member{" "}
+            {currentStaffIndex + 1} of{" "}
+            {staff.length}
+          </strong>
+ 
+          <p
+            style={{
+              margin: "4px 0 0",
+              color: "#64748b",
+              fontSize: "12px",
+            }}
+          >
+            We&apos;ll do one person at a
+            time to keep setup simple.
+          </p>
+        </div>
+ 
+        <div
+          style={{
+            minWidth: "42px",
+            height: "42px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            color: "#ffffff",
+            fontWeight: "900",
+            background:
+              "linear-gradient(135deg, #4f46e5, #2563eb)",
+            borderRadius: "50%",
+          }}
+        >
+          {String(person.name)
+            .trim()
+            .slice(0, 1)
+            .toUpperCase()}
+        </div>
+      </div>
+ 
+      <Message message={message} />
+ 
+      <div
+        style={{
+          marginBottom: "26px",
+        }}
+      >
+        <div
+          style={{
+            marginBottom: "12px",
+          }}
+        >
+          <strong
+            style={{
+              color: "#1e293b",
+              fontSize: "18px",
+            }}
+          >
+            Services
+          </strong>
+ 
+          <p
+            style={{
+              margin: "5px 0 0",
+              color: "#64748b",
+              fontSize: "13px",
+            }}
+          >
+            Select every service{" "}
+            {person.name} performs, then enter
+            the normal duration and price.
+          </p>
+        </div>
+ 
+        <div
+          style={{
+            display: "grid",
+            gap: "11px",
+          }}
+        >
+          {services.map((service) => {
+            const form =
+              staffServiceForm[
+                service.id
+              ] || {
+                selected: false,
+                duration: "",
+                price: "",
+              };
+ 
+            return (
+              <div
+                key={service.id}
+                style={{
+                  padding: "16px",
+                  background: form.selected
+                    ? "#f5f3ff"
+                    : "#f8fafc",
+                  border: form.selected
+                    ? "1px solid #c4b5fd"
+                    : "1px solid #e2e8f0",
+                  borderRadius: "14px",
+                }}
+              >
+                <label
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "10px",
+                    cursor: "pointer",
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={
+                      form.selected
+                    }
+                    onChange={(event) =>
+                      updateStaffService(
+                        service.id,
+                        "selected",
+                        event.target.checked
+                      )
+                    }
+                    style={{
+                      width: "18px",
+                      height: "18px",
+                    }}
+                  />
+ 
+                  <strong
+                    style={{
+                      color: "#1e293b",
+                      fontSize: "15px",
+                    }}
+                  >
+                    {service.name}
+                  </strong>
+                </label>
+ 
+                {form.selected && (
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns:
+                        "1fr 1fr",
+                      gap: "12px",
+                      marginTop: "14px",
+                    }}
+                  >
+                    <label>
+                      <span
+                        style={{
+                          display: "block",
+                          marginBottom: "6px",
+                          color: "#475569",
+                          fontSize: "12px",
+                          fontWeight: "800",
+                        }}
+                      >
+                        Duration (minutes)
+                      </span>
+ 
+                      <input
+                        type="number"
+                        min="1"
+                        step="1"
+                        value={form.duration}
+                        onChange={(event) =>
+                          updateStaffService(
+                            service.id,
+                            "duration",
+                            event.target.value
+                          )
+                        }
+                        style={{
+                          width: "100%",
+                          minHeight: "44px",
+                          padding: "10px 12px",
+                          border:
+                            "1px solid #cbd5e1",
+                          borderRadius: "10px",
+                          fontSize: "15px",
+                        }}
+                      />
+                    </label>
+ 
+                    <label>
+                      <span
+                        style={{
+                          display: "block",
+                          marginBottom: "6px",
+                          color: "#475569",
+                          fontSize: "12px",
+                          fontWeight: "800",
+                        }}
+                      >
+                        Price ($0.00)
+                      </span>
+ 
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={form.price}
+                        onChange={(event) =>
+                          updateStaffService(
+                            service.id,
+                            "price",
+                            event.target.value
+                          )
+                        }
+                        placeholder=""
+                        style={{
+                          width: "100%",
+                          minHeight: "44px",
+                          padding: "10px 12px",
+                          border:
+                            "1px solid #cbd5e1",
+                          borderRadius: "10px",
+                          fontSize: "15px",
+                        }}
+                      />
+                    </label>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+ 
+        <p
+          style={{
+            margin: "10px 0 0",
+            color: "#64748b",
+            fontSize: "12px",
+          }}
+        >
+          {selectedCount}{" "}
+          {selectedCount === 1
+            ? "service"
+            : "services"}{" "}
+          selected for {person.name}.
+        </p>
+      </div>
+ 
+      <div>
+        <div
+          style={{
+            marginBottom: "12px",
+          }}
+        >
+          <strong
+            style={{
+              color: "#1e293b",
+              fontSize: "18px",
+            }}
+          >
+            Working hours
+          </strong>
+ 
+          <p
+            style={{
+              margin: "5px 0 0",
+              color: "#64748b",
+              fontSize: "13px",
+            }}
+          >
+            We started with your normal shop
+            hours. Change only what is
+            different for {person.name}.
+          </p>
+        </div>
+ 
+        <div className={styles.days}>
+          {staffHours.map((day) => (
+            <div
+              key={day.weekday}
+              className={`${styles.dayCard} ${
+                day.open
+                  ? styles.dayOpen
+                  : styles.dayClosed
+              }`}
+            >
+              <div className={styles.dayTop}>
+                <div>
+                  <strong
+                    className={styles.dayName}
+                  >
+                    {day.name}
+                  </strong>
+ 
+                  <p
+                    className={
+                      day.open
+                        ? styles.openText
+                        : styles.closedText
+                    }
+                  >
+                    {day.open
+                      ? "Working"
+                      : "Off"}
+                  </p>
+                </div>
+ 
+                <label
+                  className={styles.switch}
+                >
+                  <input
+                    type="checkbox"
+                    checked={day.open}
+                    onChange={(event) =>
+                      updateStaffHours(
+                        day.weekday,
+                        "open",
+                        event.target.checked
+                      )
+                    }
+                  />
+ 
+                  <span
+                    className={styles.slider}
+                  />
+                </label>
+              </div>
+ 
+              {day.open ? (
+                <div
+                  className={styles.timeGrid}
+                >
+                  <label>
+                    <span>Starts</span>
+ 
+                    <input
+                      type="time"
+                      value={day.start}
+                      onChange={(event) =>
+                        updateStaffHours(
+                          day.weekday,
+                          "start",
+                          event.target.value
+                        )
+                      }
+                    />
+                  </label>
+ 
+                  <label>
+                    <span>Ends</span>
+ 
+                    <input
+                      type="time"
+                      value={day.end}
+                      onChange={(event) =>
+                        updateStaffHours(
+                          day.weekday,
+                          "end",
+                          event.target.value
+                        )
+                      }
+                    />
+                  </label>
+                </div>
+              ) : (
+                <div
+                  className={
+                    styles.closedMessage
+                  }
+                >
+                  {person.name} will not be
+                  bookable on {day.name}.
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+ 
+      <div className={styles.footer}>
+        <button
+ 
+          type="button"
+          onClick={goBack}
+          disabled={savingStaffSetup}
+          className={styles.backButton}
+        >
+          ← Back
+        </button>
+ 
+        <button
+          type="button"
+          onClick={saveCurrentStaffSetup}
+          disabled={savingStaffSetup}
+          className={styles.continueButton}
+        >
+          {savingStaffSetup
+            ? "Saving..."
+            : currentStaffIndex <
+                staff.length - 1
+              ? `Save ${person.name} & Continue →`
+              : "Save & Continue to Payments →"}
+        </button>
+      </div>
+    </section>
+  );
+}
+ 
+function PaymentsStep({
+  paymentPolicy,
+  setPaymentPolicy,
+  savingPaymentPolicy,
+  connectStatus,
+  loadingConnectStatus,
+  connectStatusError,
+  refreshConnectStatus,
+  savePaymentPreference,
+  goBack,
+  message,
+}) {
+  const [startingConnect, setStartingConnect] =
+    useState(false);
+ 
+  const [
+    connectActionError,
+    setConnectActionError,
+  ] = useState("");
+ 
+  async function startStripeSetup() {
+    if (
+      startingConnect ||
+      savingPaymentPolicy
+    ) {
+      return;
+    }
+ 
+    setStartingConnect(true);
+    setConnectActionError("");
+ 
+    try {
+      const saved =
+        await savePaymentPreference(false);
+ 
+      if (!saved) {
+        return;
+      }
+ 
+      const response = await fetch(
+        "/api/billing/connect/start",
+        {
+          method: "POST",
+          headers: {
+            Accept: "application/json",
+          },
+        }
+      );
+ 
+      const data = await response
+        .json()
+        .catch(() => ({}));
+ 
+      if (response.status === 401) {
+        throw new Error(
+          "Your login has expired. Please sign in again."
+        );
+      }
+ 
+      if (!response.ok) {
+        throw new Error(
+          data.error ||
+            data.detail ||
+            "Could not start Stripe setup."
+        );
+      }
+ 
+      if (!data.onboarding_url) {
+        throw new Error(
+          "Stripe did not return a setup link."
+        );
+      }
+ 
+      window.location.href =
+        data.onboarding_url;
+    } catch (error) {
+      console.error(error);
+ 
+      setConnectActionError(
+        error instanceof Error
+          ? error.message
+          : "Could not start Stripe setup."
+      );
+    } finally {
+      setStartingConnect(false);
+    }
+  }
+ 
+  const options = [
+    {
+      value: "none",
+      icon: "📅",
+      title: "No credit cards",
+      description:
+        "Customers can book appointments without providing a credit card.",
+      note:
+        "You can turn card payments on later from your Admin settings.",
+      background:
+        "linear-gradient(135deg, #f8fafc, #f1f5f9)",
+      border: "#cbd5e1",
+      selectedBorder: "#64748b",
+    },
+    {
+      value: "accept_cards",
+      icon: "💳",
+      title: "Accept credit cards",
+      description:
+        "Accept card payments from customers for your services.",
+      note:
+        "We'll help you connect your payment account before card payments go live.",
+      background:
+        "linear-gradient(135deg, #eff6ff, #eef2ff)",
+      border: "#bfdbfe",
+      selectedBorder: "#2563eb",
+    },
+    {
+      value: "card_required",
+      icon: "🛡️",
+      title: "Require a card to reserve",
+      description:
+        "Ask customers for a card when they book to help protect against no-shows.",
+      note:
+        "The customer is not automatically charged just for making the reservation.",
+      background:
+        "linear-gradient(135deg, #f5f3ff, #faf5ff)",
+      border: "#ddd6fe",
+      selectedBorder: "#7c3aed",
+    },
+  ];
+ 
+  const hasConnectedAccount =
+    Boolean(
+      connectStatus
+        ?.connected_account_exists
+    );
+ 
+  const detailsSubmitted =
+    Boolean(
+      connectStatus?.details_submitted
+    );
+ 
+  const chargesEnabled =
+    Boolean(
+      connectStatus?.charges_enabled
+    );
+ 
+  const payoutsEnabled =
+    Boolean(
+      connectStatus?.payouts_enabled
+    );
+ 
+  const paymentAccountReady =
+    hasConnectedAccount &&
+    detailsSubmitted &&
+    chargesEnabled &&
+    payoutsEnabled;
+ 
+  const paymentAccountInReview =
+    hasConnectedAccount &&
+    detailsSubmitted &&
+    !paymentAccountReady;
+ 
+  function renderConnectStatus() {
+    if (paymentPolicy === "none") {
+      return null;
+    }
+ 
+    if (loadingConnectStatus) {
+      return (
+        <div
+          style={{
+            marginTop: "18px",
+            padding: "14px 16px",
+            color: "#475569",
+            fontSize: "13px",
+            lineHeight: "1.5",
+            background: "#f8fafc",
+            border:
+              "1px solid #e2e8f0",
+            borderRadius: "13px",
+          }}
+        >
+          Checking your payment
+          account...
+        </div>
+      );
+    }
+ 
+    if (connectStatusError) {
+      return (
+        <div
+          style={{
+            marginTop: "18px",
+            padding: "14px 16px",
+            color: "#991b1b",
+            fontSize: "13px",
+            lineHeight: "1.5",
+            background: "#fef2f2",
+            border:
+              "1px solid #fecaca",
+            borderRadius: "13px",
+          }}
+        >
+          <strong>
+            We could not check your
+            payment account.
+          </strong>{" "}
+          {connectStatusError}
+ 
+          <div
+            style={{
+              marginTop: "10px",
+            }}
+          >
+            <button
+              type="button"
+              onClick={
+                refreshConnectStatus
+              }
+              style={{
+                padding: "8px 12px",
+                color: "#991b1b",
+                fontWeight: "800",
+                background: "#ffffff",
+                border:
+                  "1px solid #fecaca",
+                borderRadius: "9px",
+                cursor: "pointer",
+              }}
+            >
+              Try Again
+            </button>
+          </div>
+        </div>
+      );
+    }
+ 
+    if (paymentAccountReady) {
+      return (
+        <div
+          style={{
+            marginTop: "18px",
+            padding: "14px 16px",
+            color: "#047857",
+            fontSize: "13px",
+            lineHeight: "1.5",
+            background:
+              "linear-gradient(135deg, #ecfdf5, #f0fdf4)",
+            border:
+              "1px solid #a7f3d0",
+            borderRadius: "13px",
+          }}
+        >
+          <strong>
+            Payment account connected ✓
+          </strong>{" "}
+          Your Stripe account is ready
+          to accept customer card
+          payments and receive payouts.
+        </div>
+      );
+    }
+ 
+    if (paymentAccountInReview) {
+      return (
+        <div
+          style={{
+            marginTop: "18px",
+            padding: "14px 16px",
+            color: "#92400e",
+            fontSize: "13px",
+            lineHeight: "1.5",
+            background:
+              "linear-gradient(135deg, #fffbeb, #fefce8)",
+            border:
+              "1px solid #fde68a",
+            borderRadius: "13px",
+          }}
+        >
+          <strong>
+            Payment account submitted —
+            verification in progress.
+          </strong>{" "}
+          Stripe has your information but the account is not ready yet.
+          Open Stripe to check whether more details are needed,
+          or check again after its review.
+ 
+          <div
+            style={{
+              marginTop: "10px",
+            }}
+          >
+            <button
+              type="button"
+              onClick={
+                refreshConnectStatus
+              }
+              style={{
+                padding: "8px 12px",
+                color: "#92400e",
+                fontWeight: "800",
+                background: "#ffffff",
+                border:
+                  "1px solid #fde68a",
+                borderRadius: "9px",
+                cursor: "pointer",
+              }}
+            >
+              Check Status
+            </button>
+            <button type="button" onClick={startStripeSetup}
+              disabled={startingConnect || savingPaymentPolicy}
+              style={{ marginLeft: "10px", padding: "8px 12px", color: "#ffffff",
+                fontWeight: "800", background: "#4f46e5", border: "none",
+                borderRadius: "9px", cursor: "pointer" }}>
+              {startingConnect ? "Opening..." : "Finish Stripe Setup"}
+            </button>
+          </div>
+        </div>
+      );
+    }
+ 
+    return (
+      <div
+        style={{
+          marginTop: "18px",
+          padding: "14px 16px",
+          color: "#1e40af",
+          fontSize: "13px",
+          lineHeight: "1.5",
+          background:
+            "linear-gradient(135deg, #eff6ff, #eef2ff)",
+          border:
+            "1px solid #bfdbfe",
+          borderRadius: "13px",
+        }}
+      >
+        <strong>
+          Payment account setup is
+          required.
+        </strong>{" "}
+        Connect your business to Stripe
+        before customers can use credit
+        cards.
+      </div>
+    );
+  }
+ 
+  return (
     <section
       className={`${styles.mainCard} ${styles.scheduleCard}`}
     >
