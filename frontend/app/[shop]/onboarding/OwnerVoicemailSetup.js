@@ -7,6 +7,8 @@ export default function OwnerVoicemailSetup({ shopSlug, onReadyChange }) {
   const url = `/api/shops/${encodeURIComponent(shopSlug)}/owner-voicemail`;
   const [available, setAvailable] = useState(false);
   const [number, setNumber] = useState("");
+  const [savedNumber, setSavedNumber] = useState("");
+  const [changingNumber, setChangingNumber] = useState(false);
   const [consent, setConsent] = useState(false);
   const [code, setCode] = useState("");
   const [phase, setPhase] = useState("start");
@@ -20,9 +22,10 @@ export default function OwnerVoicemailSetup({ shopSlug, onReadyChange }) {
       .then((data) => {
         if (!active || !data) return;
         setAvailable(true);
+        setSavedNumber(data.phone_number || "");
         if (data.configuration_complete) {
           setPhase("done");
-          onReadyChange(true);
+          onReadyChange?.(true);
         }
       })
       .catch(() => {});
@@ -51,8 +54,10 @@ export default function OwnerVoicemailSetup({ shopSlug, onReadyChange }) {
       if (phase === "start" && data.verification_sent) setPhase("confirm");
       else if (phase === "confirm" && data.owner_number_verified) setPhase("save");
       else if (phase === "save" && data.configuration_complete) {
+        setSavedNumber(data.phone_number || "+1" + local);
+        setChangingNumber(false);
         setPhase("done");
-        onReadyChange(true);
+        onReadyChange?.(true);
       } else throw new Error(data.message || "Voicemail setup could not be confirmed.");
     } catch (err) {
       setError(err.message);
@@ -67,10 +72,25 @@ export default function OwnerVoicemailSetup({ shopSlug, onReadyChange }) {
     <section style={{ marginTop: 16, padding: 16, border: "1px solid #c4b5fd", borderRadius: 12 }}>
       <h3 style={{ fontWeight: 800 }}>Forward calls and get voicemail texts</h3>
       {phase === "done" ? (
-        <p role="status">Setup saved. Call your AI number, ask for an employee, and leave a voicemail if the call goes unanswered. Check your texts for the recording link.</p>
+        <div style={{ display: "grid", gap: 12, marginTop: 12 }}>
+          <p role="status">Setup saved. Calls and voicemail texts go to <strong>{savedNumber}</strong>.</p>
+          <button type="button" className={styles.continueButton} style={{ justifySelf: "start" }}
+            onClick={() => {
+              setNumber("");
+              setConsent(false);
+              setCode("");
+              setError("");
+              setChangingNumber(true);
+              setPhase("start");
+            }}>
+            Change forwarding number
+          </button>
+        </div>
       ) : (
         <form onSubmit={submit} style={{ display: "grid", gap: 16, marginTop: 12 }}>
-          <p>Use a number you control. DayTello will try this number when callers ask for an employee and text a recording link if they leave a voicemail.</p>
+          <p>{changingNumber
+            ? "Verify the new number, then save it to replace the current forwarding destination and voicemail text recipient. Voicemail texts pause once you request a code and resume after you save."
+            : "Use a number you control. DayTello will try this number when callers ask for an employee and text a recording link if they leave a voicemail."}</p>
           <div>
             <label className={styles.formLabel} htmlFor="daytello-owner-phone">Owner phone number</label>
             <input id="daytello-owner-phone" className={styles.textInput} type="tel"
@@ -94,7 +114,7 @@ export default function OwnerVoicemailSetup({ shopSlug, onReadyChange }) {
                 value={code} onChange={(event) => setCode(event.target.value)} required />
             </div>
           )}
-          {phase === "save" && <p role="status">Phone verified. Save to turn on forwarding and voicemail texts.</p>}
+          {phase === "save" && <p role="status">Phone verified. Save to apply this number to forwarding and voicemail texts.</p>}
           {error && <p role="alert">{error}</p>}
           {busy && phase === "save" && (
             <p role="status" style={{ padding: 12, borderRadius: 8, backgroundColor: "#eff6ff", color: "#1e3a8a" }}>
