@@ -1,9 +1,9 @@
+import { getBackendUrl } from "../../../../../lib/backend-url.js";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
 
-const API_BASE =
-  "https://chairtime-production-94da.up.railway.app";
+
 
 
 async function getToken() {
@@ -43,7 +43,7 @@ export async function POST(
   const body = await request.json();
 
   const response = await fetch(
-    `${API_BASE}/api/shop-blocked-times`,
+    `${getBackendUrl()}/api/shop-blocked-times`,
     {
       method: "POST",
       headers: {
@@ -68,4 +68,20 @@ export async function POST(
       status: response.status,
     }
   );
+}
+
+export async function GET(request, { params }) {
+  const token = (await cookies()).get("chairtime_token")?.value;
+  if (!token) return Response.json({ detail: "Not authenticated." }, { status: 401 });
+
+  const { shopSlug } = await params;
+  const query = new URLSearchParams({ shop_slug: shopSlug });
+  const response = await fetch(`${getBackendUrl()}/api/shop-blocked-times?${query}`, {
+    headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+    cache: "no-store",
+  });
+  return new Response(await response.text(), {
+    status: response.status,
+    headers: { "Content-Type": "application/json" },
+  });
 }

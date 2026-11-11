@@ -1,7 +1,7 @@
+import { getBackendUrl } from "../../../../../lib/backend-url.js";
 import { cookies } from "next/headers";
 
-const API_BASE =
-  "https://chairtime-production-94da.up.railway.app";
+
 
 export async function POST(request, { params }) {
   try {
@@ -20,7 +20,7 @@ export async function POST(request, { params }) {
     const body = await request.json();
 
     const response = await fetch(
-      `${API_BASE}/api/admin/blocked-times`,
+      `${getBackendUrl()}/api/admin/blocked-times`,
       {
         method: "POST",
         headers: {
@@ -56,4 +56,20 @@ export async function POST(request, { params }) {
       { status: 500 }
     );
   }
+}
+
+export async function GET(request, { params }) {
+  const token = (await cookies()).get("chairtime_token")?.value;
+  if (!token) return Response.json({ detail: "Not authenticated." }, { status: 401 });
+
+  const { shopSlug } = await params;
+  const query = new URLSearchParams({ shop_slug: shopSlug });
+  const response = await fetch(`${getBackendUrl()}/api/blocked-times?${query}`, {
+    headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+    cache: "no-store",
+  });
+  return new Response(await response.text(), {
+    status: response.status,
+    headers: { "Content-Type": "application/json" },
+  });
 }

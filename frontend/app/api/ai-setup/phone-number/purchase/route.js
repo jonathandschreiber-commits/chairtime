@@ -1,8 +1,7 @@
+import { getBackendUrl } from "../../../../../lib/backend-url.js";
 import { cookies } from "next/headers";
 
-const BACKEND_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL ||
-  "https://chairtime-production-94da.up.railway.app";
+
 
 export async function POST(request) {
   try {
@@ -23,7 +22,7 @@ export async function POST(request) {
     const body = await request.json();
 
     const response = await fetch(
-      `${BACKEND_URL}/api/ai-setup/phone-number/purchase`,
+      `${getBackendUrl()}/api/ai-setup/phone-number/purchase`,
       {
         method: "POST",
         headers: {

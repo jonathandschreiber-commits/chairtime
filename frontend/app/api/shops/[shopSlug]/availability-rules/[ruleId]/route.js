@@ -1,7 +1,7 @@
+import { getBackendUrl } from "../../../../../../lib/backend-url.js";
 import { cookies } from "next/headers";
 
-const API_BASE =
-  "https://chairtime-production-94da.up.railway.app";
+
 
 export async function DELETE(
   request,
@@ -29,7 +29,7 @@ export async function DELETE(
     }
 
     const response = await fetch(
-      `${API_BASE}/api/availability-rules/${encodeURIComponent(
+      `${getBackendUrl()}/api/availability-rules/${encodeURIComponent(
         ruleId
       )}`,
       {

@@ -1,9 +1,9 @@
+import { getBackendUrl } from "../../../../../lib/backend-url.js";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
 
-const API_BASE =
-  "https://chairtime-production-94da.up.railway.app";
+
 
 
 async function getToken() {
@@ -41,7 +41,7 @@ export async function GET(
     await context.params;
 
   const response = await fetch(
-    `${API_BASE}/api/shops/${encodeURIComponent(
+    `${getBackendUrl()}/api/shops/${encodeURIComponent(
       shopSlug
     )}/staff-appointment-permission`,
     {
@@ -82,7 +82,7 @@ export async function PATCH(
   const body = await request.json();
 
   const response = await fetch(
-    `${API_BASE}/api/shops/${encodeURIComponent(
+    `${getBackendUrl()}/api/shops/${encodeURIComponent(
       shopSlug
     )}/staff-appointment-permission`,
     {
