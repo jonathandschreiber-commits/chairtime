@@ -9,3 +9,9 @@ class DayTelloVoiceRelayAssignment(Base):
     shop_id = Column(String(128), primary_key=True)
     relay_number = Column(String(20), nullable=False, unique=True)
     enabled = Column(Boolean, nullable=False, default=False)
+
+
+class DayTelloVoiceRelayReservePurchase(Base):
+    __tablename__ = "daytello_voice_relay_reserve_purchase"
+    id = Column(String(20), primary_key=True)
+    relay_number = Column(String(20), nullable=False)
