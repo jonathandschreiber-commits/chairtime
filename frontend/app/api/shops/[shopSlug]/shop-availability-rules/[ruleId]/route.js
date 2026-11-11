@@ -1,111 +1,26 @@
-import { getBackendUrl } from "../../../../../../lib/backend-url.js";
 import { cookies } from "next/headers";
-import { NextResponse } from "next/server";
+import { getBackendUrl } from "../../../../../../lib/backend-url.js";
 
-
-
-
-
-async function getToken() {
-  const cookieStore = await cookies();
-
-  return cookieStore.get(
-    "chairtime_token"
-  )?.value;
-}
-
-
-function unauthorizedResponse() {
-  return NextResponse.json(
-    {
-      detail: "Not authenticated.",
-    },
-    {
-      status: 401,
-    }
-  );
-}
-
-
-export async function GET(
-  request,
-  context
-) {
-  const token = await getToken();
-
+export async function DELETE(request, { params }) {
+  const token = (await cookies()).get("chairtime_token")?.value;
   if (!token) {
-    return unauthorizedResponse();
+    return Response.json({ detail: "Not authenticated." }, { status: 401 });
   }
 
-  const { shopSlug } =
-    await context.params;
-
-  const response = await fetch(
-    `${getBackendUrl()}/api/shop-availability-rules?shop_slug=${encodeURIComponent(
-      shopSlug
-    )}`,
-    {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: "application/json",
+  const { ruleId } = await params;
+  try {
+    const response = await fetch(
+      `${getBackendUrl()}/api/shop-availability-rules/${encodeURIComponent(ruleId)}`,
+      {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+        cache: "no-store",
       },
-      cache: "no-store",
-    }
-  );
-
-  const data = await response
-    .json()
-    .catch(() => ({}));
-
-  return NextResponse.json(
-    data,
-    {
-      status: response.status,
-    }
-  );
-}
-
-
-export async function POST(
-  request,
-  context
-) {
-  const token = await getToken();
-
-  if (!token) {
-    return unauthorizedResponse();
+    );
+    const data = await response.json().catch(() => ({}));
+    return Response.json(data, { status: response.status });
+  } catch (error) {
+    console.error("Shop hours delete proxy error:", error);
+    return Response.json({ detail: "Could not update your shop hours." }, { status: 502 });
   }
-
-  const { shopSlug } =
-    await context.params;
-
-  const body = await request.json();
-
-  const response = await fetch(
-    `${getBackendUrl()}/api/shop-availability-rules`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        ...body,
-        shop_slug: shopSlug,
-      }),
-      cache: "no-store",
-    }
-  );
-
-  const data = await response
-    .json()
-    .catch(() => ({}));
-
-  return NextResponse.json(
-    data,
-    {
-      status: response.status,
-    }
-  );
 }
