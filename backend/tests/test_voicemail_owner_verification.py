@@ -1,7 +1,7 @@
 """Offline tests only: no live SMS, provider access, or call routing."""
 import os
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
@@ -290,6 +290,52 @@ class OwnerVerificationTests(unittest.TestCase):
                 "/api/shops/shop-a/voicemail-owner/verification/confirm",
                 json={"phone_number": PHONE, "code": code})
             self.assertEqual(replay.status_code, 409)
+
+
+class ProductionOwnerVerificationTests(OwnerVerificationTests):
+    """Exercise the same OTP, consent and tenant checks with test mode OFF."""
+
+    def setUp(self):
+        super().setUp()
+        self.production_env = patch.dict(os.environ, {
+            "DAYTELLO_VOICE_RELAY_PRODUCTION_ENABLED": "true",
+            "DAYTELLO_VOICE_RELAY_TEST_ONLY": "false",
+            "DAYTELLO_VOICEMAIL_TEST_ONLY": "false",
+        })
+        self.production_env.start()
+
+    def tearDown(self):
+        self.production_env.stop()
+        super().tearDown()
+
+    def test_production_configuration_status_does_not_require_test_flags(self):
+        db = Mock()
+        db.get.return_value = Mock(enabled=True, relay_number="+12025550131")
+        shop = Mock(id="shop-a", slug="shop-a")
+        settings = Mock(receiving_number="+12025550131", owner_phone=PHONE,
+                        notifications_enabled=True)
+        with patch.object(contact_route, "_sms_configuration_complete", return_value=True):
+            status = contact_route.public_status(shop, settings, db)
+        self.assertTrue(status["configuration_complete"])
+        self.assertTrue(status["live_call_test_required"])
+        self.assertFalse(status["ready"])
+
+    def test_conflicting_test_mode_cannot_bypass_production_gate(self):
+        for flag in ("DAYTELLO_VOICE_RELAY_TEST_ONLY", "DAYTELLO_VOICEMAIL_TEST_ONLY"):
+            with self.subTest(flag=flag), patch.dict(os.environ, {flag: "true"}):
+                with self.factory() as db:
+                    with self.assertRaises(HTTPException) as error:
+                        self.start(db)
+                    self.assertEqual(error.exception.status_code, 404)
+        self.assertFalse(self.sent)
+
+    def test_production_sms_disabled_fails_closed(self):
+        with patch.dict(os.environ, {"DAYTELLO_VOICEMAIL_OWNER_SMS_ENABLED": "false"}):
+            with self.factory() as db:
+                with self.assertRaises(HTTPException) as error:
+                    self.start(db)
+                self.assertEqual(error.exception.status_code, 404)
+        self.assertFalse(self.sent)
 
 
 if __name__ == "__main__":
