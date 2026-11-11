@@ -1,9 +1,6 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
-const API_BASE =
-  "https://chairtime-production-94da.up.railway.app";
-
 export async function GET() {
   try {
     const cookieStore = await cookies();
@@ -22,8 +19,16 @@ export async function GET() {
       );
     }
 
+    const apiUrl = process.env.CHAIRTIME_API_URL?.replace(/\/+$/, "");
+    if (!apiUrl) {
+      return NextResponse.json(
+        { detail: "Backend URL is not configured." },
+        { status: 500 },
+      );
+    }
+
     const response = await fetch(
-      `${API_BASE}/api/ai-setup/provision/status`,
+      `${apiUrl}/api/ai-setup/provision/status`,
       {
         method: "GET",
         headers: {
