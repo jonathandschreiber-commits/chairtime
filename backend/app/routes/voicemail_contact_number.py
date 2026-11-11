@@ -565,9 +565,9 @@ def ensure_existing_shop_voicemail_route(shop: Shop, db: Session):
 def set_owner_call_voicemail_number(
     shop_slug: str,
     payload: OwnerCallVoicemailNumber,
-    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None,
 ):
     """Save once; never report success unless transfer and notification agree."""
     shop = owner_shop(db, shop_slug, current_user)
@@ -589,7 +589,7 @@ def set_owner_call_voicemail_number(
             settings = db.get(DayTelloVoicemailShopSettings, shop.id)
         if settings is None or db.get(DayTelloVoiceRelayAssignment, shop.id) is None:
             raise HTTPException(409, "No verified relay is available for this shop")
-        if reserve_replenishment_enabled():
+        if background_tasks is not None and reserve_replenishment_enabled():
             background_tasks.add_task(replenish_production_relay_reserve)
     elif not settings:
         settings = ensure_existing_shop_voicemail_route(shop, db)
