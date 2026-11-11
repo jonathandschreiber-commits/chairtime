@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import OwnerVoicemailSetup from "../../onboarding/OwnerVoicemailSetup";
 
 function formatPhoneNumber(phoneNumber) {
   const digits = String(phoneNumber || "").replace(/\D/g, "");
@@ -241,6 +242,8 @@ export default function AIReceptionistPage() {
                 </>
               )}
             </section>
+
+            {provisioned && phoneNumber && <OwnerVoicemailSetup key={shopSlug} shopSlug={shopSlug} />}
 
             <section className="bg-white rounded-3xl shadow-lg border border-fuchsia-100 p-7">
               <h2 className="text-2xl font-extrabold text-slate-900">
