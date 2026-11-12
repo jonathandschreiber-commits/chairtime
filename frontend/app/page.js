@@ -1,32 +1,33 @@
 import Link from "next/link";
 
+const primaryButton = "inline-flex items-center justify-center rounded-2xl bg-[#321275] font-bold text-white shadow-sm transition-colors hover:bg-[#250b5b] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#321275]";
+const secondaryButton = "inline-flex items-center justify-center rounded-2xl bg-[#00666b] font-bold text-white shadow-sm transition-colors hover:bg-[#004d51] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#00666b]";
+
 export default function HomePage() {
   return (
-    <main className="min-h-screen bg-white text-gray-950">
-      <header className="border-b border-gray-200">
+    <main className="min-h-screen bg-white text-[#161431]">
+      <header className="border-b border-[#e7dff4]">
         <div className="max-w-6xl mx-auto px-6 py-3 flex items-center justify-end">
-
-
           <Link
             href="/login"
-            className="shrink-0 font-bold hover:underline"
+            className={`${secondaryButton} shrink-0 px-5 py-2.5`}
           >
             Sign In
           </Link>
         </div>
       </header>
 
-      <section className="bg-gray-50">
+      <section className="bg-linear-to-br from-[#f4edff] via-[#faf7ff] to-[#e1f6f3]">
         <div className="max-w-6xl mx-auto px-6 py-20 sm:py-28">
           <div className="max-w-4xl">
-            <p className="font-bold text-lg mb-4">
+            <p className="mb-4 text-lg font-bold text-[#00666b]">
               Simple scheduling for busy businesses
             </p>
 
             <h1 className="text-5xl sm:text-7xl font-extrabold tracking-tight leading-tight">
               Run your shop.
               <br />
-              We&apos;ll handle the scheduling.
+              <span className="text-[#321275]">We&apos;ll handle the scheduling.</span>
             </h1>
 
             <p className="mt-7 text-xl sm:text-2xl leading-relaxed text-gray-700 max-w-3xl">
@@ -38,14 +39,14 @@ export default function HomePage() {
             <div className="mt-10 flex flex-col sm:flex-row gap-4">
               <Link
                 href="/signup"
-                className="inline-flex justify-center items-center bg-black text-white rounded-2xl px-8 py-5 text-xl font-bold"
+                className={`${primaryButton} px-8 py-5 text-xl`}
               >
                 Start My Free Month
               </Link>
 
               <Link
                 href="/login"
-                className="inline-flex justify-center items-center border-2 border-gray-300 rounded-2xl px-8 py-5 text-xl font-bold bg-white"
+                className={`${secondaryButton} px-8 py-5 text-xl`}
               >
                 I Already Have an Account
               </Link>
@@ -73,8 +74,8 @@ export default function HomePage() {
         </div>
 
         <div className="grid md:grid-cols-3 gap-6 mt-14">
-          <div className="border border-gray-200 rounded-3xl p-8">
-            <div className="text-3xl mb-4">☎️</div>
+          <div className="rounded-3xl border border-[#e7dff4] bg-[#faf7ff] p-8">
+            <div aria-hidden="true" className="mb-4 grid size-12 place-items-center rounded-xl bg-[#d9f2ee] text-2xl text-[#00666b]">☎️</div>
 
             <h3 className="text-2xl font-extrabold">
               Never miss a booking
@@ -86,8 +87,8 @@ export default function HomePage() {
             </p>
           </div>
 
-          <div className="border border-gray-200 rounded-3xl p-8">
-            <div className="text-3xl mb-4">📅</div>
+          <div className="rounded-3xl border border-[#e7dff4] bg-[#faf7ff] p-8">
+            <div aria-hidden="true" className="mb-4 grid size-12 place-items-center rounded-xl bg-[#d9f2ee] text-2xl text-[#00666b]">📅</div>
 
             <h3 className="text-2xl font-extrabold">
               Keep everything organized
@@ -99,8 +100,8 @@ export default function HomePage() {
             </p>
           </div>
 
-          <div className="border border-gray-200 rounded-3xl p-8">
-            <div className="text-3xl mb-4">✓</div>
+          <div className="rounded-3xl border border-[#e7dff4] bg-[#faf7ff] p-8">
+            <div aria-hidden="true" className="mb-4 grid size-12 place-items-center rounded-xl bg-[#d9f2ee] text-2xl text-[#00666b]">✓</div>
 
             <h3 className="text-2xl font-extrabold">
               Keep it simple
@@ -114,11 +115,11 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section className="bg-gray-950 text-white">
+      <section className="bg-linear-to-br from-[#24104d] to-[#302369] text-white">
         <div className="max-w-6xl mx-auto px-6 py-20">
           <div className="grid md:grid-cols-2 gap-14">
             <div>
-              <p className="font-bold text-gray-300 mb-3">
+              <p className="font-bold text-[#a8eee4] mb-3">
                 FOR YOUR BUSINESS
               </p>
 
@@ -138,7 +139,7 @@ export default function HomePage() {
             </div>
 
             <div>
-              <p className="font-bold text-gray-300 mb-3">
+              <p className="font-bold text-[#a8eee4] mb-3">
                 FOR YOUR CUSTOMERS
               </p>
 
@@ -158,7 +159,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section className="max-w-5xl mx-auto px-6 py-20 text-center">
+      <section className="bg-[#eaf8f6] px-6 py-20 text-center">
         <h2 className="text-4xl sm:text-5xl font-extrabold tracking-tight">
           Set up your shop in minutes.
         </h2>
@@ -171,7 +172,7 @@ export default function HomePage() {
 
         <Link
           href="/signup"
-          className="mt-9 inline-flex justify-center items-center bg-black text-white rounded-2xl px-10 py-5 text-xl font-bold"
+          className={`${primaryButton} mt-9 px-10 py-5 text-xl`}
         >
           Start My Free Month
         </Link>
@@ -181,11 +182,11 @@ export default function HomePage() {
         </p>
       </section>
 
-      <footer className="border-t border-gray-200">
-        <div className="max-w-6xl mx-auto px-6 py-8 flex flex-col sm:flex-row gap-3 justify-between text-gray-600">
+      <footer className="border-t border-[#e7dff4]">
+        <div className="max-w-6xl mx-auto px-6 py-8 flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between text-gray-600">
           <p>© 2026 DayTello</p>
 
-          <Link href="/login" className="font-bold text-gray-900">
+          <Link href="/login" className={`${secondaryButton} px-5 py-2.5`}>
             Shop Owner Sign In
           </Link>
         </div>
