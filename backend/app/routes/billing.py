@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from typing import Literal
 
 from app.database import get_db
+from app.welcome_email import send_checkout_welcome
 from app.models import Appointment, Shop, User
 from app.routes.auth import get_current_user
 from app.routes.customer_verification import (
@@ -663,6 +664,7 @@ def create_checkout_session(
         "shop_slug": shop.slug,
         "owner_user_id": str(current_user.id),
         "plan": selected_plan,
+        "welcome_email": "v1",
         "ai_voice_enabled": (
             "true"
             if ai_voice_selected
@@ -1309,10 +1311,21 @@ async def stripe_webhook(
                     subscription_id
                 )
 
-                sync_subscription_to_shop(
-                    subscription,
-                    db,
-                )
+                shop = sync_subscription_to_shop(subscription, db)
+                metadata = get_object_value(stripe_object, "metadata", {})
+                if (
+                    shop is not None
+                    and get_object_value(metadata, "welcome_email") == "v1"
+                    and get_object_value(metadata, "shop_id") == str(shop.id)
+                    and get_object_value(stripe_object, "livemode") is True
+                    and get_object_value(subscription, "status") == "trialing"
+                ):
+                    send_checkout_welcome(
+                        db, shop,
+                        owner_id=get_object_value(metadata, "owner_user_id"),
+                        plan=get_object_value(metadata, "plan"),
+                        frontend_url=get_frontend_url(),
+                    )
 
         elif event_type in {
             "customer.subscription.created",
