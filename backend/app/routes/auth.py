@@ -1,10 +1,13 @@
+import hmac
 import os
 import re
 from datetime import datetime, timedelta, timezone
 
 import jwt
+import redis
 from fastapi import (
     APIRouter,
+    BackgroundTasks,
     Depends,
     HTTPException,
     Security,
@@ -16,11 +19,19 @@ from fastapi.security import (
 )
 from jwt.exceptions import InvalidTokenError
 from passlib.context import CryptContext
+from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import Shop, User
+from app.password_reset import (
+    PasswordReset,
+    allow_reset_request,
+    consume_password_reset,
+    issue_password_reset,
+    session_fingerprint,
+)
 from app.schemas import SignupCreate, UserLogin
 
 
@@ -99,6 +110,7 @@ def create_access_token(user: User) -> str:
         "shop_slug": user.shop_slug,
         "role": user.role,
         "exp": expires_at,
+        "session": session_fingerprint(user, get_jwt_secret()),
     }
 
     return jwt.encode(
@@ -184,7 +196,50 @@ def get_current_user(
     ):
         raise unauthorized_error
 
+    fingerprint = payload.get("session")
+    if fingerprint is None:
+        # Keep pre-release sessions valid until this account resets its password.
+        reset = db.get(PasswordReset, user.id)
+        if reset is not None and reset.completed_at is not None:
+            raise unauthorized_error
+    elif not isinstance(fingerprint, str) or not hmac.compare_digest(
+        fingerprint, session_fingerprint(user, get_jwt_secret())
+    ):
+        raise unauthorized_error
+
     return user
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=254)
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str = Field(min_length=43, max_length=43, pattern=r"^[A-Za-z0-9_-]+$")
+    password: str = Field(min_length=8, max_length=72)
+
+
+@router.post("/forgot-password", status_code=202)
+def forgot_password(payload: ForgotPasswordRequest, background_tasks: BackgroundTasks):
+    email = payload.email.strip().lower()
+    if not os.getenv("RESEND_API_KEY") or not os.getenv("REDIS_URL"):
+        raise HTTPException(503, "Password reset is temporarily unavailable. Please try again later.")
+    try:
+        allowed = allow_reset_request(email)
+    except redis.RedisError:
+        raise HTTPException(503, "Password reset is temporarily unavailable. Please try again later.") from None
+    if allowed:
+        background_tasks.add_task(issue_password_reset, email)
+    return {"success": True}
+
+
+@router.post("/reset-password")
+def reset_password(payload: ResetPasswordRequest, db: Session = Depends(get_db)):
+    if len(payload.password.encode("utf-8")) > 72:
+        raise HTTPException(400, "This password is too long. Use fewer characters.")
+    if not consume_password_reset(db, payload.token, payload.password, hash_password):
+        raise HTTPException(400, "This reset link is invalid or has expired. Request a new link.")
+    return {"success": True}
 
 
 @router.post("/signup")
