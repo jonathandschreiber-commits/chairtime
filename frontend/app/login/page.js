@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import styles from "./login.module.css";
@@ -151,6 +152,10 @@ export default function LoginPage() {
             {loading ? "Signing In..." : "Sign In"}
           </button>
         </form>
+
+        <p className={styles.footer}>
+          <Link className={styles.recoveryLink} href="/login/forgot-password">Forgot Password?</Link>
+        </p>
 
         <p className={styles.footer}>
           DayTello keeps scheduling simple for busy businesses.
