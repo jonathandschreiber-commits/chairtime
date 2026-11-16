@@ -23,6 +23,7 @@ from app.database import Base, get_db
 from app.models import Shop, User, generate_uuid
 from app.routes.auth import get_current_user, is_platform_admin
 from app.routes.billing import get_stripe_secret_key
+from app.twilio_business_usage import month_usage as twilio_month_usage
 
 router = APIRouter()
 REPORT_ZONE = ZoneInfo("America/New_York")
@@ -50,7 +51,7 @@ class ExpenseInput(BaseModel):
     request_id: str = Field(pattern=r"^[a-zA-Z0-9-]{16,64}$")
     incurred_on: date
     shop_slug: str | None = None
-    provider: Literal["highlevel", "highlevel_base", "railway", "vercel", "domain", "other"]
+    provider: Literal["highlevel", "highlevel_base", "twilio", "resend", "stripe", "railway", "vercel", "domain", "other"]
     description: str = Field(min_length=1, max_length=160)
     reference: str = Field(min_length=1, max_length=120)
     amount: Decimal = Field(gt=0, le=1000000, decimal_places=2)
@@ -631,7 +632,7 @@ def blank_row(shop):
         "subscription_refunds_cents": 0, "subscription_tax_cents": 0,
         "transaction_fee_collected_cents": 0, "transaction_fee_refunds_cents": 0,
         "stripe_cost_cents": 0, "adjustments_cents": 0,
-        "highlevel_recorded_cents": 0, "other_recorded_cents": 0}
+        "highlevel_recorded_cents": 0, "twilio_recorded_cents": 0, "other_recorded_cents": 0}
 
 
 def apply_transaction(reader, transaction, rows, by_customer, by_account):
@@ -721,20 +722,27 @@ def business_report(response: Response, month: str | None = None,
         BusinessExpense.incurred_on >= start.date(), BusinessExpense.incurred_on < end.date()
     ).order_by(BusinessExpense.incurred_on.desc(), BusinessExpense.created_at.desc()).all()
     highlevel = highlevel_month_usage(start, end, shops, db)
+    twilio = twilio_month_usage(start, end, shops, db)
     shared = []
     suppressed = []
     for expense in expenses:
         if expense.is_void:
             continue
-        if expense.provider == "highlevel" and highlevel["status"] == "connected":
+        if ((expense.provider == "highlevel" and highlevel["status"] == "connected")
+                or (expense.provider == "twilio" and twilio["status"] == "connected")):
             suppressed.append(expense.id)
             continue  # Preserve legacy entries in audit history; avoid counting wallet usage twice.
         if expense.shop_slug in rows:
-            key = "highlevel_recorded_cents" if expense.provider == "highlevel" else "other_recorded_cents"
+            key = {"highlevel": "highlevel_recorded_cents", "twilio": "twilio_recorded_cents"}.get(
+                expense.provider, "other_recorded_cents")
             rows[expense.shop_slug][key] += expense.amount_cents
         else:
             shared.append(expense_data(expense))
     warnings = []
+    if twilio["status"] != "connected":
+        warnings.append("Twilio usage is unavailable. Only manually recorded Twilio expenses are included, so remaining amounts may omit Twilio charges.")
+    elif not twilio["call_attribution_complete"]:
+        warnings.append("Twilio account charges are included. Some call prices or shop matches are unavailable and remain shared.")
     if highlevel["status"] == "unavailable":
         warnings.append("HighLevel costs could not be fully refreshed. Remaining totals are hidden; refresh to try again.")
         failure = highlevel.get("failure")
@@ -752,7 +760,7 @@ def business_report(response: Response, month: str | None = None,
     if highlevel["unclassified_count"]:
         warnings.append("Some HighLevel transactions need classification. Known costs are shown, but remaining totals are hidden.")
     if suppressed:
-        warnings.append("Legacy manual HighLevel entries are excluded while wallet costs are connected to prevent double counting. Record the separate agency subscription as HighLevel base plan.")
+        warnings.append("Manual usage entries for connected providers are excluded to prevent double counting. Record separate invoices only if their charges are outside the connected account feed.")
     complete = True
     key = os.getenv("STRIPE_SECRET_KEY", "")
     mode = "test" if key.startswith(("sk_test_", "rk_test_")) else "live" if key.startswith(("sk_live_", "rk_live_")) else "unknown"
@@ -778,32 +786,38 @@ def business_report(response: Response, month: str | None = None,
         "transaction_fee_collected_cents", "transaction_fee_refunds_cents", "stripe_cost_cents", "adjustments_cents")
     for row in rows.values():
         row["highlevel_live_cents"] = highlevel["shop_cents"].get(row["slug"]) if highlevel["status"] == "connected" else None
+        row["twilio_live_cents"] = twilio["shop_cents"].get(row["slug"])
         row["highlevel_shop_attribution_complete"] = False
         row["revenue_cents"] = (row["subscription_collected_cents"] - row["subscription_refunds_cents"]
             - row["subscription_tax_cents"] + row["transaction_fee_collected_cents"]
             - row["transaction_fee_refunds_cents"] + row["adjustments_cents"]) if complete else None
-        row["remaining_cents"] = (row["revenue_cents"] - row["stripe_cost_cents"]
-            - row["highlevel_recorded_cents"] - (row["highlevel_live_cents"] or 0) - row["other_recorded_cents"]) if complete and highlevel["status"] != "unavailable" and not highlevel["unclassified_count"] else None
+        row["assigned_cost_cents"] = (
+            row["stripe_cost_cents"] + row["highlevel_recorded_cents"] + (row["highlevel_live_cents"] or 0)
+            + row["twilio_recorded_cents"] + (row["twilio_live_cents"] or 0) + row["other_recorded_cents"]
+        ) if complete else None
+        row["remaining_cents"] = (
+            row["revenue_cents"] - row["assigned_cost_cents"]
+        ) if complete and highlevel["status"] != "unavailable" and not highlevel["unclassified_count"] else None
         if not complete:
             for field in financial_keys:
                 row[field] = None
             row["current_monthly_cents"] = None
     totals = {field: sum(row[field] for row in rows.values()) if complete and all(row[field] is not None for row in rows.values()) else None
               for field in (*financial_keys, "revenue_cents", "remaining_cents")}
-    totals["recorded_shop_cost_cents"] = sum(row["highlevel_recorded_cents"] + row["other_recorded_cents"] for row in rows.values())
+    totals["recorded_shop_cost_cents"] = sum(row["highlevel_recorded_cents"] + row["twilio_recorded_cents"] + row["other_recorded_cents"] for row in rows.values())
     totals["highlevel_live_cents"] = highlevel["total_cents"]
     totals["highlevel_shared_cents"] = highlevel["shared_cents"]
-    totals["shared_expense_cents"] = sum(item["amount_cents"] for item in shared) + (highlevel["shared_cents"] or 0)
+    totals["shared_expense_cents"] = sum(item["amount_cents"] for item in shared) + (highlevel["shared_cents"] or 0) + (twilio["shared_cents"] or 0)
     totals["remaining_after_shared_cents"] = totals["remaining_cents"] - totals["shared_expense_cents"] if totals["remaining_cents"] is not None else None
     totals["active_monthly_cents"] = sum(row["current_monthly_cents"] or 0 for row in rows.values() if row["subscription_status"] == "active") if complete else None
     return {"success": True, "month": month, "currency": "usd", "timezone": str(REPORT_ZONE),
         "checked_at": datetime.now(timezone.utc).isoformat(), "stripe_mode": mode,
         "stripe_complete": complete, "warnings": warnings, "shops": list(rows.values()),
-        "totals": totals, "highlevel": highlevel,
+        "totals": totals, "highlevel": highlevel, "twilio": twilio,
         "recent_outbound_messages": tracking_summary(db),
         "expenses": [{**expense_data(item), "excluded_from_totals": item.id in suppressed} for item in expenses],
         "shared_expenses": shared, "costs_complete": False,
-        "cost_note": "HighLevel wallet usage refreshes with this report. Shared or unmatched usage is not assigned to individual shops. Agency subscription and other operating expenses require separate entries. Remaining amounts exclude unrecorded costs.",
+        "cost_note": "HighLevel and Twilio costs refresh with this report when connected. Shared usage and unrecorded costs can affect per-shop margins.",
         "basis_note": "USD cash activity by Stripe balance transaction date, in Eastern time. Subscription refunds and platform fee refunds reduce revenue in the month recorded. Subscription tax is excluded proportionally to each payment or refund. Shop service sales are excluded. Stripe costs include fees attached to matched transactions; separate platform charges need an expense entry. Plan amounts are current list prices before discounts or tax, separate from collections."}
 
 
