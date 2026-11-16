@@ -24,7 +24,7 @@ from app.database import Base, get_db
 from app.models import Shop, User, generate_uuid
 from app.routes.auth import get_current_user, is_platform_admin
 from app.routes.billing import get_stripe_secret_key
-from app.twilio_business_usage import month_usage as twilio_month_usage
+from app.twilio_business_usage import month_usage as twilio_month_usage, relay_cost_review
 
 router = APIRouter()
 REPORT_ZONE = ZoneInfo("America/New_York")
@@ -731,6 +731,13 @@ def record_ai_plan(payload: AIPlanInput, user=Depends(require_business_admin),
         db.rollback()
         raise HTTPException(409, "Plan status changed concurrently. Refresh and try again.")
     return {"success": True}
+
+
+@router.get("/twilio-review")
+def twilio_review(response: Response, user=Depends(require_business_admin),
+                  db: Session = Depends(get_db)):
+    response.headers["Cache-Control"] = "no-store"
+    return relay_cost_review(db.query(Shop).all(), db)
 
 
 @router.get("/ai-usage")

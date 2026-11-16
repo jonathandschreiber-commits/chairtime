@@ -59,10 +59,10 @@ export default function AIUsageReview({ refreshKey }) {
   };
 
   return (
-    <section aria-labelledby="ai-usage-heading" className="mt-5 rounded-2xl border border-violet-200 bg-white p-5">
+    <section aria-labelledby="ai-usage-heading" className="rounded-2xl border border-violet-200 bg-white p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 id="ai-usage-heading" className="text-xl font-extrabold">AI usage review</h2>
+          <h2 id="ai-usage-heading" className="text-xl font-extrabold">HighLevel AI usage review</h2>
           <p className="mt-1 text-sm text-slate-600">Shops with 140 minutes of live Voice AI calls in the past 7 days.</p>
         </div>
         {review?.location_id && (

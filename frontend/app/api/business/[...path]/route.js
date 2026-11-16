@@ -9,7 +9,7 @@ async function proxy(request, { params }, method) {
     if (!token) return Response.json({ detail: "Please sign in." }, { status: 401 });
     const parts = (await params).path;
     const path = Array.isArray(parts) ? parts.join("/") : "";
-    const allowed = (method === "GET" && ["report", "highlevel-test", "ai-usage"].includes(path)) ||
+    const allowed = (method === "GET" && ["report", "highlevel-test", "ai-usage", "twilio-review"].includes(path)) ||
       (method === "POST" && path === "expenses") ||
       (method === "PATCH" && (path === "ai-plan" || /^expenses\/[a-zA-Z0-9-]+\/void$/.test(path)));
     if (!allowed) return Response.json({ detail: "Unknown report endpoint." }, { status: 404 });

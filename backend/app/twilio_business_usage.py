@@ -71,12 +71,86 @@ def _log_failure(stage, exc):
         logger.warning("Twilio %s failed (%s)", stage, type(exc).__name__)
 
 
+_FETCH_FAILURES = (httpx.HTTPError, TimeoutError, ValueError, KeyError, TypeError, AttributeError, InvalidOperation)
+RELAY_REVIEW_DOLLARS = Decimal("25")
+
+
+def _account_auth():
+    account = os.getenv("DAYTELLO_VOICE_RELAY_ACCOUNT_SID", "").strip()
+    key, secret = _report_credentials()
+    if re.fullmatch(r"AC[0-9a-fA-F]{32}", account) and re.fullmatch(r"SK[0-9a-fA-F]{32}", key) and secret:
+        return account, (key, secret)
+    return account, None
+
+
+def _matched_calls(client, account, start, end, shops, db, deadline):
+    shop_by_id = {str(shop.id): shop.slug for shop in shops}
+    relay_call = DayTelloVoiceRelayCall
+    # A Dial child can begin after its inbound parent, including near a window boundary.
+    first = start.date() - timedelta(days=1)
+    bindings = db.query(relay_call.call_sid, relay_call.shop_id).filter(
+        relay_call.account_sid == account,
+        relay_call.created_at >= datetime.combine(first, datetime.min.time()),
+        relay_call.created_at <= end.replace(tzinfo=None),
+    )
+    shop_by_call = {sid: shop_by_id[shop_id] for sid, shop_id in bindings if shop_id in shop_by_id}
+    if not shop_by_call:
+        return
+    params = {"StartTime>": first.isoformat(),
+              "StartTime<": (end.date() + timedelta(days=1)).isoformat(), "PageSize": 1000}
+    seen = set()
+    for call in _pages(client, f"/2010-04-01/Accounts/{account}", "Calls", "calls", params, deadline, limit=6):
+        sid = call["sid"]
+        shop = shop_by_call.get(sid) or shop_by_call.get(call.get("parent_call_sid"))
+        if not shop or sid in seen or call.get("account_sid") != account:
+            continue
+        if not call.get("start_time") and call.get("status") in {"busy", "no-answer", "canceled", "failed"} and call.get("price") is None:
+            continue
+        when = parsedate_to_datetime(call["start_time"]).astimezone(timezone.utc)
+        if start <= when < end:
+            seen.add(sid)
+            yield shop, call, sid in shop_by_call
+
+
+def relay_cost_review(shops, db, *, end=None):
+    """Flag shops on observed call-leg charges, without estimating missing prices."""
+    end = end or datetime.now(timezone.utc)
+    start = end - timedelta(days=30)
+    result = {"status": "unavailable", "shops": [], "partial": False, "window_ends_at": end.isoformat()}
+    account, auth = _account_auth()
+    if not auth:
+        return result
+    by_slug = {shop.slug: shop.name for shop in shops}
+    costs, seconds, missing = {}, {}, set()
+    try:
+        with httpx.Client(auth=auth, follow_redirects=False) as client:
+            for slug, call, inbound in _matched_calls(client, account, start, end, shops, db, time.monotonic() + 7):
+                if call.get("price") is None:
+                    missing.add(slug)
+                    continue
+                costs[slug] = costs.get(slug, Decimal(0)) + _usd(call, "price_unit", call_price=True)
+                if call.get("duration") is not None:
+                    key = slug, "inbound" if inbound else "outbound"
+                    seconds[key] = seconds.get(key, 0) + int(call["duration"])
+    except _FETCH_FAILURES as exc:
+        _log_failure("relay cost review", exc)
+        return result
+
+    flagged = [
+        {"slug": slug, "name": by_slug[slug], "cost_cents": _cents(cost),
+         "inbound_minutes": round(seconds[slug, "inbound"] / 60, 1) if (slug, "inbound") in seconds else None,
+         "outbound_minutes": round(seconds[slug, "outbound"] / 60, 1) if (slug, "outbound") in seconds else None}
+        for slug, cost in costs.items() if cost >= RELAY_REVIEW_DOLLARS
+    ]
+    return {**result, "status": "connected", "partial": bool(missing),
+            "shops": sorted(flagged, key=lambda shop: (-shop["cost_cents"], shop["name"]))}
+
+
 def month_usage(start, end, shops, db):
     result = {"status": "not_configured", "total_cents": None, "shared_cents": None,
               "shop_cents": {}, "categories": {}, "call_attribution_complete": False}
-    account = os.getenv("DAYTELLO_VOICE_RELAY_ACCOUNT_SID", "").strip()
-    key, secret = _report_credentials()
-    if not re.fullmatch(r"AC[0-9a-fA-F]{32}", account) or not re.fullmatch(r"SK[0-9a-fA-F]{32}", key) or not secret:
+    account, auth = _account_auth()
+    if not auth:
         return result
 
     base = f"/2010-04-01/Accounts/{account}"
@@ -87,8 +161,7 @@ def month_usage(start, end, shops, db):
     params = {"StartDate": first.isoformat(), "EndDate": min(last - timedelta(days=1), datetime.now(timezone.utc).date()).isoformat(),
               "PageSize": 1000, "IncludeSubaccounts": "false"}
     deadline = time.monotonic() + 7
-    failures = (httpx.HTTPError, TimeoutError, ValueError, KeyError, TypeError, AttributeError, InvalidOperation)
-    with httpx.Client(auth=(key, secret), follow_redirects=False) as client:
+    with httpx.Client(auth=auth, follow_redirects=False) as client:
         try:
             usage = {}
             for item in _pages(client, base, "Usage/Records", "usage_records", params, deadline, limit=3):
@@ -98,36 +171,17 @@ def month_usage(start, end, shops, db):
                         raise ValueError("Unexpected Twilio account or duplicate category")
                     usage[category] = _cents(_usd(item, "price_unit"))
             total = usage.pop("totalprice")
-        except failures as exc:
+        except _FETCH_FAILURES as exc:
             _log_failure("usage report", exc)
             return {**result, "status": "unavailable"}
 
         result.update(status="connected", total_cents=total, shared_cents=total, categories=usage)
-        shop_by_id = {str(shop.id): shop.slug for shop in shops}
-        relay_call = DayTelloVoiceRelayCall
-        bindings = db.query(relay_call.call_sid, relay_call.shop_id).filter(
-            relay_call.account_sid == account,
-            relay_call.created_at >= datetime.combine(first - timedelta(days=1), datetime.min.time()),
-            relay_call.created_at < datetime.combine(last + timedelta(days=1), datetime.min.time()),
-        )
-        shop_by_call = {sid: shop_by_id[shop_id] for sid, shop_id in bindings if shop_id in shop_by_id}
-        if not shop_by_call:
-            return result
         call_costs = {}
         missing_price = False
-        seen = set()
         try:
-            call_params = {"StartTime>": (first - timedelta(days=1)).isoformat(),
-                           "StartTime<": last.isoformat(), "PageSize": 1000}
-            for call in _pages(client, base, "Calls", "calls", call_params, deadline, limit=6):
-                sid = call["sid"]
-                shop = shop_by_call.get(sid) or shop_by_call.get(call.get("parent_call_sid"))
-                if not shop or sid in seen or call.get("account_sid") != account:
-                    continue
-                day = parsedate_to_datetime(call["start_time"]).astimezone(timezone.utc).date()
-                if not first <= day < last:
-                    continue
-                seen.add(sid)
+            utc_start = datetime.combine(first, datetime.min.time(), tzinfo=timezone.utc)
+            utc_end = datetime.combine(last, datetime.min.time(), tzinfo=timezone.utc)
+            for shop, call, _ in _matched_calls(client, account, utc_start, utc_end, shops, db, deadline):
                 if call.get("price") is None:
                     missing_price = True
                     continue
@@ -136,7 +190,7 @@ def month_usage(start, end, shops, db):
             attributed = {shop: _cents(cost) for shop, cost in call_costs.items()}
             if sum(attributed.values()) > max(0, total):
                 raise ValueError("Call charges do not reconcile to usage total")
-        except failures as exc:
+        except _FETCH_FAILURES as exc:
             _log_failure("call attribution", exc)
             return result
         result.update(shop_cents=attributed, shared_cents=total - sum(attributed.values()),
