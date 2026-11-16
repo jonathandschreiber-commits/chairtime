@@ -15,6 +15,88 @@ const fieldStyle = "w-full rounded-xl border border-slate-300 bg-white px-3 py-2
 const buttonStyle = "rounded-xl bg-violet-700 px-5 py-3 font-bold text-white hover:bg-violet-800 disabled:opacity-50";
 const newEntry = () => ({ request_id: crypto.randomUUID(), incurred_on: easternDate(), shop_slug: "", provider: "other", description: "", reference: "", amount: "", kind: "cost" });
 
+const shopDetailFields = [
+  ["Subscription collections", "subscription_collected_cents"],
+  ["Subscription refunds", "subscription_refunds_cents"],
+  ["Subscription tax excluded", "subscription_tax_cents"],
+  ["Platform fees collected", "transaction_fee_collected_cents"],
+  ["Platform fee refunds", "transaction_fee_refunds_cents"],
+  ["Subscription adjustments", "adjustments_cents"],
+  ["Stripe revenue, net", "revenue_cents"],
+  ["Stripe costs", "stripe_cost_cents"],
+  ["HighLevel allocated wallet costs", "highlevel_live_cents"],
+  ["HighLevel recorded costs", "highlevel_recorded_cents"],
+  ["Twilio matched call costs", "twilio_live_cents"],
+  ["Twilio manually recorded costs", "twilio_recorded_cents"],
+  ["Other recorded costs", "other_recorded_cents"],
+  ["Total assigned costs", "assigned_cost_cents"],
+  ["Contribution after assigned costs", "remaining_cents"],
+  ["Current plan list price per month", "current_monthly_cents"],
+];
+
+function providerCost(live, recorded, connected = false) {
+  if (live == null && !recorded && !connected) return null;
+  return (live ?? 0) + (recorded ?? 0);
+}
+
+function csvCell(value) {
+  if (value == null) return "";
+  if (typeof value === "number") return value;
+  let safe = String(value);
+  // Spreadsheet apps may interpret shop names or expense descriptions as formulas.
+  if (/^[\s\uFEFF]*[=+@-]|^[\t\r\n]/.test(safe)) safe = "'" + safe;
+  return '"' + safe.replaceAll('"', '""') + '"';
+}
+
+function downloadReport(report) {
+  const dollars = (cents) => cents == null ? null : cents / 100;
+  const rows = [
+    ["Month", report.month],
+    ["Report refreshed at", report.checked_at],
+    ["Stripe mode", report.stripe_mode],
+    ["Currency", "USD"],
+    ["HighLevel feed", report.highlevel?.status],
+    ["Twilio feed", report.twilio?.status],
+    ["Notes", "Amounts reflect available data. Blank means unavailable or unassigned. Provider breakdowns and expense entries are supporting details."],
+    ...report.warnings.map((warning) => ["Warning", warning]),
+    [],
+    ["Shop", "Shop slug", "Plan status", "HighLevel assigned cost", "Twilio assigned cost", ...shopDetailFields.map(([label]) => label)],
+    ...report.shops.map((shop) => [
+      shop.name, shop.slug, shop.subscription_status,
+      dollars(providerCost(shop.highlevel_live_cents, shop.highlevel_recorded_cents, report.highlevel?.status === "connected")),
+      dollars(providerCost(shop.twilio_live_cents, shop.twilio_recorded_cents)),
+      ...shopDetailFields.map(([, field]) => dollars(shop[field])),
+    ]),
+    [],
+    ["Business totals", "Amount (USD)"],
+    ["Net revenue", dollars(report.totals.revenue_cents)],
+    ["Shop contribution before shared costs", dollars(report.totals.remaining_cents)],
+    ["Shared and unallocated costs", dollars(report.totals.shared_expense_cents)],
+    ["After all recorded costs", dollars(report.totals.remaining_after_shared_cents)],
+    [],
+    ["Provider breakdown", "Category", "Amount (USD)"],
+    ["HighLevel", "Shared or unallocated", dollars(report.highlevel?.shared_cents)],
+    ...(report.highlevel?.categories ?? []).map(({ category, amount_cents }) => ["HighLevel", category, dollars(amount_cents)]),
+    ["Twilio", "Total usage", dollars(report.twilio?.total_cents)],
+    ["Twilio", "Shared or unallocated", dollars(report.twilio?.shared_cents)],
+    ...Object.entries(report.twilio?.categories ?? {}).map(([category, cents]) => ["Twilio", category, dollars(cents)]),
+    [],
+    ["Recorded expense date", "Shop slug", "Provider", "Description", "Reference", "Amount (USD)", "Status"],
+    ...report.expenses.map((expense) => [
+      expense.incurred_on, expense.shop_slug ?? "Shared", providers[expense.provider] ?? expense.provider,
+      expense.description, expense.reference, dollars(expense.amount_cents),
+      expense.is_void ? "Voided" : expense.excluded_from_totals ? "Excluded from totals" : "Included",
+    ]),
+  ];
+  const csv = rows.map((row) => row.map(csvCell).join(",")).join("\r\n");
+  const url = URL.createObjectURL(new Blob(["\uFEFF", csv], { type: "text/csv;charset=utf-8;" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `daytello-business-${report.month}.csv`;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 export default function BusinessPage() {
   const router = useRouter();
   const [authorized, setAuthorized] = useState(false);
@@ -115,10 +197,10 @@ export default function BusinessPage() {
   const totals = report?.totals || {};
   const remaining = totals.remaining_after_shared_cents;
   const stats = [
-    ["Subscription collections", totals.subscription_collected_cents, "Before refunds and tax exclusion"],
-    ["Transaction fees collected", totals.transaction_fee_collected_cents, "DayTello fees from shop card payments"],
-    ["Net revenue", totals.revenue_cents, "After refunds, tax exclusion and adjustments"],
-    ["After recorded costs", remaining, "Provisional · unrecorded costs excluded"],
+    ["Net Stripe revenue", totals.revenue_cents],
+    ["Shop contribution", totals.remaining_cents],
+    ["Shared and unallocated costs", totals.shared_expense_cents],
+    ["After all recorded costs", remaining],
   ];
 
   return <main className="min-h-screen bg-slate-50 px-4 py-8 text-slate-900 sm:px-8">
@@ -134,12 +216,10 @@ export default function BusinessPage() {
       {error && <div role="alert" className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-red-800">{error} {report && "Displayed figures are from the last successful refresh."}</div>}
       {notice && <div role="status" className="mt-4 rounded-xl bg-emerald-50 p-4 text-emerald-900">{notice}</div>}
       {report?.stripe_mode === "test" && <div className="mt-5 rounded-xl border border-violet-200 bg-violet-50 px-5 py-3 font-bold text-violet-900">Stripe test mode · revenue figures are test transactions. HighLevel costs are actual wallet charges.</div>}
-      {report?.warnings.map((warning) => <div key={warning} role="alert" className="mt-4 rounded-xl bg-red-50 p-4 text-red-800">{warning}</div>)}
-      <section aria-label="Financial totals" className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{stats.map(([label, value, caption], index) => <div key={label} className={`rounded-2xl border p-5 ${index === 3 ? "border-violet-300 bg-violet-100" : "border-slate-200 bg-white"}`}><p className="text-sm font-bold text-slate-600">{label}</p><p className={`mt-2 text-3xl font-extrabold ${value < 0 ? "text-red-700" : "text-slate-950"}`}>{money(value)}</p><p className="mt-2 text-xs leading-relaxed text-slate-600">{caption}</p></div>)}</section>
-      <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-relaxed text-amber-950"><strong>{report?.highlevel?.status === "connected" ? "HighLevel wallet costs are connected." : report?.highlevel?.status === "unavailable" ? "HighLevel costs could not be refreshed." : "HighLevel billing is not configured."}</strong> {report?.highlevel?.status === "connected" ? "Billed usage refreshes with this report. Shared and unmatched costs appear below. Dedicated number rentals, SMS with saved message IDs and Voice AI with matching call IDs are assigned to shops. Aggregated carrier fees, email charges and unmatched usage remain shared." : "Recorded manual costs remain visible. Refresh to retry the connection."} Agency subscription, hosting and other overhead require separate expense entries.</div>
+      <section aria-label="Financial totals" className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{stats.map(([label, value], index) => <div key={label} className={`rounded-2xl border p-5 ${index === 3 ? "border-violet-300 bg-violet-100" : "border-slate-200 bg-white"}`}><p className="text-sm font-bold text-slate-600">{label}</p><p className={`mt-2 text-3xl font-extrabold ${value < 0 ? "text-red-700" : "text-slate-950"}`}>{money(value)}</p></div>)}</section>
       <section className="mt-7 overflow-hidden rounded-2xl border border-slate-200 bg-white">
-        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 p-5"><div><h2 className="text-xl font-extrabold">By shop</h2><p className="mt-1 text-sm text-slate-500">Net revenue includes subscriptions and platform transaction fees.</p></div><label className="sr-only" htmlFor="shop-search">Find a shop</label><input id="shop-search" type="search" placeholder="Find a shop" value={search} onChange={(e) => setSearch(e.target.value)} className="rounded-xl border border-slate-300 px-3 py-2" /></div>
-        <div className="overflow-x-auto"><table className="w-full min-w-[1050px] text-sm"><thead className="bg-slate-50 text-slate-600"><tr>{["Shop / current plan", "Subscriptions, net", "Transaction fees, net", "Net revenue", "Stripe costs", "HighLevel allocated*", "Twilio allocated*", "Other recorded", "Remaining*"].map((label) => <th key={label} scope="col" className="px-4 py-4 text-left font-bold">{label}</th>)}</tr></thead>
+        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 p-5"><div><h2 className="text-xl font-extrabold">Contribution by shop</h2><p className="mt-1 text-sm text-slate-500">Net Stripe revenue includes subscriptions and DayTello’s platform fees, after refunds, tax exclusions and adjustments.</p></div><label className="sr-only" htmlFor="shop-search">Find a shop</label><input id="shop-search" type="search" placeholder="Find a shop" value={search} onChange={(e) => setSearch(e.target.value)} className="rounded-xl border border-slate-300 px-3 py-2" /><button type="button" disabled={!report || loading} onClick={() => downloadReport(report)} className={buttonStyle}>Export details CSV</button></div>
+        <div className="overflow-x-auto"><table className="w-full min-w-[880px] text-sm"><thead className="bg-slate-50 text-slate-600"><tr>{["Shop / current plan", "Stripe revenue, net", "Stripe costs", "HighLevel costs", "Twilio costs", "Other assigned costs", "Contribution*"].map((label) => <th key={label} scope="col" className="px-4 py-4 text-left font-bold">{label}</th>)}</tr></thead>
           <tbody>{rows.map((shop) => <Fragment key={shop.slug}><tr className="border-t border-slate-100 hover:bg-violet-50/40"><td className="px-4 py-4"><button
                   type="button"
                   aria-expanded={details === shop.slug}
@@ -151,9 +231,15 @@ export default function BusinessPage() {
                   <span className="mt-1 block text-xs font-semibold underline">
                     {details === shop.slug ? "Hide details" : "View details"}
                   </span>
-                </button><p className="mt-1 text-xs text-slate-500">{shop.subscription_status.replaceAll("_", " ")} · {money(shop.current_monthly_cents)}/month</p></td><td className="px-4 py-4">{report.stripe_complete ? money(shop.subscription_collected_cents - shop.subscription_refunds_cents - shop.subscription_tax_cents) : "—"}</td><td className="px-4 py-4">{report.stripe_complete ? money(shop.transaction_fee_collected_cents - shop.transaction_fee_refunds_cents) : "—"}</td><td className="px-4 py-4 font-bold">{money(shop.revenue_cents)}</td><td className="px-4 py-4">{money(shop.stripe_cost_cents)}</td><td className="px-4 py-4">{money((shop.highlevel_live_cents || 0) + shop.highlevel_recorded_cents)}</td><td className="px-4 py-4">{money(shop.twilio_live_cents == null && !shop.twilio_recorded_cents ? null : (shop.twilio_live_cents || 0) + (shop.twilio_recorded_cents || 0))}</td><td className="px-4 py-4">{money(shop.other_recorded_cents)}</td><td className={`px-4 py-4 font-bold ${shop.remaining_cents < 0 ? "text-red-700" : "text-violet-900"}`}>{money(shop.remaining_cents)}</td></tr>
+                </button><p className="mt-1 text-xs text-slate-500">{shop.subscription_status.replaceAll("_", " ")} · {money(shop.current_monthly_cents)}/month</p></td>
+                <td className="px-4 py-4 font-bold">{money(shop.revenue_cents)}</td>
+                <td className="px-4 py-4">{money(shop.stripe_cost_cents)}</td>
+                <td className="px-4 py-4">{money(providerCost(shop.highlevel_live_cents, shop.highlevel_recorded_cents, report.highlevel?.status === "connected"))}</td>
+                <td className="px-4 py-4">{money(providerCost(shop.twilio_live_cents, shop.twilio_recorded_cents))}</td>
+                <td className="px-4 py-4">{money(shop.other_recorded_cents)}</td>
+                <td className={`bg-violet-50 px-4 py-4 font-bold ${shop.remaining_cents < 0 ? "text-red-700" : "text-violet-900"}`}>{money(shop.remaining_cents)}</td></tr>
               {details === shop.slug && <tr className="border-t border-violet-200 bg-violet-50/50">
-                <td colSpan={9} className="px-4 py-5">
+                <td colSpan={7} className="px-4 py-5">
                   <section id={`shop-details-${shop.slug}`} aria-labelledby={`shop-details-title-${shop.slug}`}>
                     <div className="flex items-start justify-between gap-4">
                       <div>
@@ -163,26 +249,9 @@ export default function BusinessPage() {
                       <button type="button" onClick={() => setDetails(null)} className="font-bold text-violet-700 hover:underline">Close details</button>
                     </div>
                     <dl className="mt-5 grid gap-x-6 gap-y-4 sm:grid-cols-3 xl:grid-cols-4">
-                      {[
-                        ["Subscription collections", shop.subscription_collected_cents],
-                        ["Subscription refunds", shop.subscription_refunds_cents],
-                        ["Subscription tax excluded", shop.subscription_tax_cents],
-                        ["Platform fees collected", shop.transaction_fee_collected_cents],
-                        ["Platform fee refunds", shop.transaction_fee_refunds_cents],
-                        ["Subscription adjustments", shop.adjustments_cents],
-                        ["DayTello net revenue", shop.revenue_cents],
-                        ["Stripe costs", shop.stripe_cost_cents],
-                        ["HighLevel allocated wallet costs", shop.highlevel_live_cents],
-                        ["HighLevel recorded costs", shop.highlevel_recorded_cents],
-                        ["Twilio matched call costs", shop.twilio_live_cents],
-                        ["Twilio manually recorded costs", shop.twilio_recorded_cents],
-                        ["Other recorded costs", shop.other_recorded_cents],
-                        ["Total assigned costs", shop.assigned_cost_cents],
-                        ["Remaining after assigned costs", shop.remaining_cents],
-                        ["Current plan list price per month", shop.current_monthly_cents],
-                      ].map(([label, amount]) => <div key={label}>
+                      {shopDetailFields.map(([label, field]) => <div key={label}>
                         <dt className="text-sm text-slate-600">{label}</dt>
-                        <dd className="mt-1 font-bold">{money(amount)}</dd>
+                        <dd className="mt-1 font-bold">{money(shop[field])}</dd>
                       </div>)}
                     </dl>
                     {report.stripe_complete && shop.transaction_fee_collected_cents === 0 && shop.transaction_fee_refunds_cents === 0 && <p className="mt-4 text-sm text-slate-600">No DayTello platform fee collections or refunds were recorded for this month. This does not establish whether a fee is configured for future payments.</p>}
@@ -194,8 +263,13 @@ export default function BusinessPage() {
               </tr>}
             </Fragment>)}</tbody>
         </table>{!rows.length && <p className="p-6 text-slate-500">{loading ? "Loading shops…" : "No matching shops."}</p>}</div>
-        <p className="border-t border-slate-200 px-5 py-3 text-xs text-slate-500">*Allocated costs cover matched charges. Shared usage below can include costs incurred by individual shops. Remaining amounts are provisional.</p>
+        <p className="border-t border-slate-200 px-5 py-3 text-xs text-slate-500">*Contribution subtracts assigned costs from net revenue. Shared charges and overhead affect the business total below. Figures are provisional while charges are unallocated or unrecorded. A dash means unavailable.</p>
       </section>
+
+      {Boolean(report?.warnings.length) && <details className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-950">
+        <summary className="cursor-pointer font-bold">Billing and attribution notes ({report.warnings.length})</summary>
+        <ul className="mt-3 list-disc space-y-2 pl-5 text-sm">{report.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>
+      </details>}
 
       {report?.highlevel && <section className="mt-7 rounded-2xl border border-slate-200 bg-white p-5 sm:p-6">
         <div className="flex flex-wrap justify-between gap-4"><div><h2 className="text-xl font-extrabold">HighLevel wallet usage</h2><p className="mt-1 text-sm text-slate-500">Actual billed charges in USD · DayTello sub-account · {report.highlevel.transaction_count} transactions checked</p></div><div className="text-right"><p className="text-sm text-slate-500">Known wallet costs</p><p className="text-2xl font-extrabold">{money(report.highlevel.total_cents)}</p></div></div>
