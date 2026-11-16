@@ -749,8 +749,9 @@ def set_owner_call_voicemail_number(
             raise HTTPException(409, "Relay number and voicemail settings disagree")
         if not production and os.getenv("DAYTELLO_VOICE_RELAY_ALLOW_TEST_CALLS") != "true":
             raise HTTPException(409, "Voice relay live testing is not enabled")
-        verified_relay = VoiceRelayNumberProvider().find_existing(
-            str(shop.id), expected_number=relay.relay_number)
+        provider = VoiceRelayNumberProvider()
+        verified_relay = (provider.verify_assigned(relay.relay_number) if production else
+                          provider.find_existing(str(shop.id), expected_number=relay.relay_number))
         if not verified_relay or not verified_relay.get("route_verified"):
             raise HTTPException(409, "Relay provider routing could not be verified")
 

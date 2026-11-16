@@ -182,13 +182,14 @@ class VoiceRelayNumberProvider:
             raise HTTPException(409, "Reserved relay inventory has duplicate numbers")
         return sorted(numbers)
 
-    def verify_route(self, record, shop_id, expected_number=None, *, reserved=False):
+    def verify_route(self, record, shop_id, expected_number=None, *, reserved=False, assigned=False):
         """Fail closed on a changed route, account, DID, or phone ownership."""
         expected_url = relay_inbound_url(
             os.getenv("DAYTELLO_VOICE_RELAY_PUBLIC_ORIGIN", "").rstrip("/"))
         number = record.get("phone_number")
         if (record.get("account_sid") != self.account_sid
-                or record.get("friendly_name") != (RESERVE_LABEL if reserved else relay_shop_label(shop_id))
+                or (not assigned and record.get("friendly_name") !=
+                    (RESERVE_LABEL if reserved else relay_shop_label(shop_id)))
                 or not isinstance(number, str) or not US_NUMBER.fullmatch(number)
                 or (expected_number is not None and number != expected_number)
                 or not NUMBER_SID.fullmatch(str(record.get("sid") or ""))
@@ -202,6 +203,38 @@ class VoiceRelayNumberProvider:
             raise HTTPException(409, "Voice relay number route is not verified")
         return {"number": number, "provider_sid": record["sid"],
                 "route_verified": True}
+
+    def _assigned_record(self, number):
+        """Read a DID already bound to a shop in DayTello's database."""
+        if not isinstance(number, str) or not US_NUMBER.fullmatch(number):
+            raise HTTPException(409, "Invalid assigned relay number")
+        matches = [record for record in self._list(number=number)
+                   if record.get("phone_number") == number]
+        if len(matches) != 1:
+            raise HTTPException(409, "Assigned relay number ownership is ambiguous")
+        return matches[0], self.verify_route(matches[0], None, number, assigned=True)
+
+    def verify_assigned(self, number):
+        _, verified = self._assigned_record(number)
+        return verified
+
+    def name_assigned(self, number, shop_name):
+        record, verified = self._assigned_record(number)
+        label = shop_name.strip()[:64]
+        if not label:
+            raise HTTPException(409, "Invalid shop name for relay inventory")
+        if label == RESERVE_LABEL or re.fullmatch(r"DayTello Relay [0-9a-f]{32}", label):
+            label += " (shop)"
+        if record.get("friendly_name") == label:
+            return False
+        updated = self._request(
+            "POST", f"IncomingPhoneNumbers/{verified['provider_sid']}.json",
+            data={"FriendlyName": label},
+        )
+        self.verify_route(updated, None, number, assigned=True)
+        if updated.get("sid") != verified["provider_sid"] or updated.get("friendly_name") != label:
+            raise HTTPException(502, "Twilio did not confirm the shop's relay name")
+        return True
 
     def find_existing(self, shop_id, *, expected_number=None):
         matches = self._matches(shop_id)
