@@ -101,6 +101,32 @@ class ProviderTests(unittest.TestCase):
         })
         self.env.start()
 
+    def test_assigned_number_friendly_name_changes_without_routing_updates(self):
+        from urllib.parse import parse_qs
+
+        fake = FakeTwilio([record(friendly_name="DayTello Relay Reserve")])
+        def handle(request):
+            if request.method == "POST":
+                self.assertTrue(request.url.path.endswith(f"/IncomingPhoneNumbers/{PN}.json"))
+                self.assertEqual(parse_qs(request.content.decode()), {"FriendlyName": ["Final Trial"]})
+                fake.owned[0]["friendly_name"] = "Final Trial"
+                return httpx.Response(200, json=fake.owned[0])
+            return fake.handle(request)
+
+        with httpx.Client(transport=httpx.MockTransport(handle)) as client:
+            provider = VoiceRelayNumberProvider(client=client)
+            self.assertTrue(provider.name_assigned(NUMBER, "Final Trial"))
+            self.assertTrue(provider.verify_assigned(NUMBER)["route_verified"])
+            self.assertFalse(provider.name_assigned(NUMBER, "Final Trial"))
+            with self.assertRaises(HTTPException):
+                provider.find_existing(SHOP, expected_number=NUMBER)
+
+    def test_assigned_number_with_unverified_route_is_never_renamed(self):
+        fake = FakeTwilio([record(voice_url="https://different.example.test")])
+        with self.assertRaises(HTTPException):
+            self.provider(fake).name_assigned(NUMBER, "Final Trial")
+        self.assertEqual([request.method for request in fake.requests], ["GET"])
+
     def tearDown(self):
         self.env.stop()
 

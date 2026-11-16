@@ -592,6 +592,15 @@ app = FastAPI(
 
 
 if relay_enabled:
+    from threading import Thread
+    from app.voice_relay_provisioning import sync_assigned_relay_names
+
+    @app.on_event("startup")
+    def sync_production_relay_names():
+        Thread(target=sync_assigned_relay_names, daemon=True).start()
+
+
+if relay_enabled:
     app.include_router(voice_relay_router, prefix="/api")
     app.include_router(owner_voicemail_router, prefix="/api")
     app.include_router(relay_recording_router, prefix="/api")

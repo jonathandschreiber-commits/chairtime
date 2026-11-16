@@ -5,19 +5,49 @@ approval and a PostgreSQL row lock for the duration of provider operations.
 The adapter is intentionally independent of HighLevel's legacy DID pool.
 """
 import json
+import logging
 import os
 
-from app.voice_relay_mode import voice_relay_enabled
+from app.voice_relay_mode import production_relay_enabled, voice_relay_enabled
 
 from fastapi import HTTPException
 from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 
+from app.database import SessionLocal
 from app.models import Shop
 from app.voice_relay_models import DayTelloVoiceRelayAssignment
 from app.voice_relay_provider import VoiceRelayNumberProvider, US_NUMBER, preowned_relay_pool
 from app.voicemail_models import DayTelloVoicemailShopSettings
 from app.routes.voicemail_webhook import configured_routing_map, valid_phone
+
+
+logger = logging.getLogger(__name__)
+
+
+def sync_assigned_relay_names():
+    """Backfill names for verified production assignments without changing routes."""
+    if not production_relay_enabled():
+        return
+    try:
+        with SessionLocal() as db:
+            assignments = db.query(DayTelloVoiceRelayAssignment.relay_number, Shop.name).join(
+                Shop, Shop.id == DayTelloVoiceRelayAssignment.shop_id
+            ).all()
+        if not assignments:
+            return
+        provider = VoiceRelayNumberProvider()
+        updated = failed = 0
+        for number, name in assignments:
+            try:
+                updated += provider.name_assigned(number, name)
+            except HTTPException as exc:
+                failed += 1
+                logger.warning("Twilio assigned relay name could not be synced (HTTP %s)", exc.status_code)
+        logger.info("Twilio relay name sync: %s checked, %s updated, %s failed",
+                    len(assignments), updated, failed)
+    except Exception:
+        logger.exception("Twilio relay name sync failed")
 
 
 def _require_purchase_lock(db, approved):
@@ -122,8 +152,8 @@ def reserve_or_purchase_relay_for_shop(shop: Shop, db, number: str, *,
     # nor require PostgreSQL merely to verify an existing assignment.
     # New purchases still require a PostgreSQL row lock before provider I/O.
     _require_purchase_lock(db, purchase_approved)
-    verified = provider.purchase_approved_number(
-        str(shop.id), number, approved=purchase_approved)
+    verified = (provider.verify_assigned(number) if other_shop_relay and production_relay_enabled()
+                else provider.purchase_approved_number(str(shop.id), number, approved=purchase_approved))
     if not verified.get("route_verified") or verified.get("number") != number:
         raise HTTPException(409, "Provider DID route was not verified")
     # Recheck local conflicts after the remote operation, before DB commit.
@@ -144,6 +174,11 @@ def reserve_or_purchase_relay_for_shop(shop: Shop, db, number: str, *,
         # A purchased DID is not released here: the provider label allows
         # safe recovery without another charge on the next attempt.
         raise HTTPException(409, "Relay number claim was assigned concurrently")
+    if production_relay_enabled():
+        try:
+            provider.name_assigned(number, shop.name)
+        except HTTPException as exc:
+            logger.warning("Twilio assigned relay name could not be synced (HTTP %s)", exc.status_code)
     return {
         "shop_slug": shop.slug, "relay_number": number,
         "provider_route_verified": True,
@@ -179,7 +214,7 @@ def reserve_relay_for_area_code(shop: Shop, db, area_code: str, *,
 def allocate_preowned_relay_for_shop(shop: Shop, db, *, provider=None):
     """Assign an unused, already-owned reserve DID during AI onboarding.
 
-    No Twilio POST, number purchase, HighLevel action, call activation or SMS.
+    No number purchase, HighLevel action, call activation or SMS.
     Only DIDs explicitly inventoried as DayTello Relay Reserve qualify.
     Unique DB constraints prevent a reserve DID from belonging to two shops.
     """
@@ -190,7 +225,7 @@ def allocate_preowned_relay_for_shop(shop: Shop, db, *, provider=None):
         return None
     # Prefer explicit existing reservations, then discover any additional
     # provider-labeled reserve DIDs. Discovery is read-only; no per-shop
-    # environment edit, provider POST or number purchase is required.
+    # environment edit or number purchase is required.
     configured = preowned_relay_pool()
     provider = provider or VoiceRelayNumberProvider()
     numbers = list(dict.fromkeys(
