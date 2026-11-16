@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import AIUsageReview from "./AIUsageReview";
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
@@ -209,6 +210,7 @@ export default function BusinessPage() {
         <div><p className="text-xs font-extrabold uppercase tracking-widest text-violet-700">DayTello · Private business report</p><h1 className="mt-2 text-3xl font-extrabold sm:text-4xl">Revenue & costs</h1><p className="mt-2 text-slate-600">See what each shop contributes to your business.</p></div>
         <div className="flex flex-wrap items-center gap-3"><span className="text-sm font-bold text-slate-600">Platform administrator</span><button onClick={logout} className="rounded-xl border border-slate-300 bg-white px-4 py-2 font-bold">Log out</button></div>
       </header>
+      <AIUsageReview refreshKey={report?.checked_at} />
       <div className="mt-7 flex flex-wrap items-end justify-between gap-4">
         <div className="flex flex-wrap items-end gap-3"><label className="text-sm font-bold">Report month<input type="month" min="2020-01" max="2100-12" value={month} onChange={(e) => setMonth(e.target.value)} className={`${fieldStyle} mt-1`} /></label><button onClick={() => loadReport()} disabled={loading} className={buttonStyle}>{loading ? "Refreshing…" : "Refresh report"}</button></div>
         <p className="text-sm text-slate-500">{report ? `Updated ${new Date(report.checked_at).toLocaleString()} · auto-refresh every 2 minutes` : "Reading Stripe, HighLevel and Twilio activity…"}</p>

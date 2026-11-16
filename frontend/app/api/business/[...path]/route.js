@@ -9,9 +9,9 @@ async function proxy(request, { params }, method) {
     if (!token) return Response.json({ detail: "Please sign in." }, { status: 401 });
     const parts = (await params).path;
     const path = Array.isArray(parts) ? parts.join("/") : "";
-    const allowed = (method === "GET" && ["report", "highlevel-test"].includes(path)) ||
+    const allowed = (method === "GET" && ["report", "highlevel-test", "ai-usage"].includes(path)) ||
       (method === "POST" && path === "expenses") ||
-      (method === "PATCH" && /^expenses\/[a-zA-Z0-9-]+\/void$/.test(path));
+      (method === "PATCH" && (path === "ai-plan" || /^expenses\/[a-zA-Z0-9-]+\/void$/.test(path)));
     if (!allowed) return Response.json({ detail: "Unknown report endpoint." }, { status: 404 });
     // Mutations require the browser's same-origin session, as well as backend admin authorization.
     if (method !== "GET" && request.headers.get("origin") !== new URL(request.url).origin) {

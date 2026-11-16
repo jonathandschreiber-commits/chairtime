@@ -18,6 +18,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import func
 
+from app.ai_usage_review import HighLevelAIPlanRecord, review_usage
 from app.message_tracking import sms_reference, sms_shop_matches, tracking_summary
 from app.database import Base, get_db
 from app.models import Shop, User, generate_uuid
@@ -706,6 +707,38 @@ def current_plan(reader, shop, row):
             raise ReportIncomplete("A plan uses pricing that cannot be shown as a fixed USD monthly amount.")
         total += int(obj(price, "unit_amount")) * int(obj(item, "quantity", 0) or 0)
     row["current_monthly_cents"] = total if row["subscription_status"] in {"active", "trialing", "past_due", "unpaid"} else 0
+
+
+class AIPlanInput(BaseModel):
+    location_id: str = Field(min_length=1, max_length=128)
+    unlimited: bool
+
+
+@router.patch("/ai-plan")
+def record_ai_plan(payload: AIPlanInput, user=Depends(require_business_admin),
+                   db: Session = Depends(get_db)):
+    location = os.getenv("HIGHLEVEL_LOCATION_ID", "").strip()
+    if not location or payload.location_id != location:
+        raise HTTPException(409, "The HighLevel location changed. Refresh the report.")
+    row = HighLevelAIPlanRecord(
+        location_id=location, unlimited=payload.unlimited,
+        updated_at=datetime.now(timezone.utc), updated_by=user.id,
+    )
+    try:
+        db.merge(row)
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(409, "Plan status changed concurrently. Refresh and try again.")
+    return {"success": True}
+
+
+@router.get("/ai-usage")
+def ai_usage(response: Response, user=Depends(require_business_admin),
+             db: Session = Depends(get_db)):
+    response.headers["Cache-Control"] = "no-store"
+    shops = db.query(Shop).filter(Shop.ai_voice_enabled.is_(True)).all()
+    return review_usage(shops, db)
 
 
 @router.get("/report")
