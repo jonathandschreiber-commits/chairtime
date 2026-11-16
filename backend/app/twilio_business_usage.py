@@ -55,14 +55,27 @@ def _pages(client, base, resource, key, params, deadline, *, limit):
     raise ValueError("Twilio pagination limit reached")
 
 
+def _report_credentials():
+    for prefix in ("DAYTELLO_TWILIO_REPORT", "DAYTELLO_VOICE_RELAY_PRICING", "DAYTELLO_VOICE_RELAY_API"):
+        sid = os.getenv(f"{prefix}_KEY_SID", "").strip()
+        secret = os.getenv(f"{prefix}_KEY_SECRET", "").strip()
+        if sid or secret:
+            return sid, secret
+    return "", ""
+
+
+def _log_failure(stage, exc):
+    if isinstance(exc, httpx.HTTPStatusError):
+        logger.warning("Twilio %s returned HTTP %s", stage, exc.response.status_code)
+    else:
+        logger.warning("Twilio %s failed (%s)", stage, type(exc).__name__)
+
+
 def month_usage(start, end, shops, db):
     result = {"status": "not_configured", "total_cents": None, "shared_cents": None,
               "shop_cents": {}, "categories": {}, "call_attribution_complete": False}
     account = os.getenv("DAYTELLO_VOICE_RELAY_ACCOUNT_SID", "").strip()
-    # An explicit reporting key can be scoped independently from purchasing.
-    key = os.getenv("DAYTELLO_TWILIO_REPORT_KEY_SID") or os.getenv("DAYTELLO_VOICE_RELAY_API_KEY_SID", "")
-    secret = (os.getenv("DAYTELLO_TWILIO_REPORT_KEY_SECRET") if os.getenv("DAYTELLO_TWILIO_REPORT_KEY_SID")
-              else os.getenv("DAYTELLO_VOICE_RELAY_API_KEY_SECRET"))
+    key, secret = _report_credentials()
     if not re.fullmatch(r"AC[0-9a-fA-F]{32}", account) or not re.fullmatch(r"SK[0-9a-fA-F]{32}", key) or not secret:
         return result
 
@@ -86,7 +99,7 @@ def month_usage(start, end, shops, db):
                     usage[category] = _cents(_usd(item, "price_unit"))
             total = usage.pop("totalprice")
         except failures as exc:
-            logger.warning("Twilio usage report unavailable (%s)", type(exc).__name__)
+            _log_failure("usage report", exc)
             return {**result, "status": "unavailable"}
 
         result.update(status="connected", total_cents=total, shared_cents=total, categories=usage)
@@ -124,7 +137,7 @@ def month_usage(start, end, shops, db):
             if sum(attributed.values()) > max(0, total):
                 raise ValueError("Call charges do not reconcile to usage total")
         except failures as exc:
-            logger.warning("Twilio call attribution incomplete (%s)", type(exc).__name__)
+            _log_failure("call attribution", exc)
             return result
         result.update(shop_cents=attributed, shared_cents=total - sum(attributed.values()),
                       call_attribution_complete=not missing_price)
