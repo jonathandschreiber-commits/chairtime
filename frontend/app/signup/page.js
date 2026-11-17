@@ -33,8 +33,11 @@ export default function SignupPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  const pricingPreview = true;
+
   async function handleSubmit(event) {
     event.preventDefault();
+    if (pricingPreview) return;
 
     if (loading) {
       return;
@@ -872,7 +875,7 @@ export default function SignupPage() {
                           color: "#7c3aed",
                         }}
                       >
-                        $198/month total
+                        $99/month
                       </div>
 
                       <div
@@ -916,8 +919,12 @@ export default function SignupPage() {
                       lineHeight: "1.45",
                     }}
                   >
-                    Never lose a customer because you
-                    couldn&apos;t answer the phone.
+                    <div>250 AI receptionist minutes included each billing month.</div>
+                    <div>Minutes 251–1,000 are 19¢ each.</div>
+                    <div>Minutes 1,001 and up are 17¢ each.</div>
+                    <div style={{ marginTop: "4px", fontWeight: 650 }}>
+                      Rates are based on total AI minutes used that billing month.
+                    </div>
                   </div>
 
                   <div
@@ -995,7 +1002,7 @@ export default function SignupPage() {
               After 30 days, your selected plan will be{" "}
               <strong>
                 {selectedPlan === "scheduling_ai"
-                  ? "$198 per month"
+                  ? "$99 per month plus any additional AI minutes"
                   : "$49 per month"}
               </strong>{" "}
               unless you cancel.
@@ -1004,11 +1011,13 @@ export default function SignupPage() {
             <button
               className={styles.button}
               type="submit"
-              disabled={loading}
+              disabled={loading || pricingPreview}
             >
-              {loading
-                ? "Opening Secure Checkout..."
-                : "Create Account & Start Free Trial"}
+              {pricingPreview
+                ? "Pricing Preview · Checkout Unavailable"
+                : loading
+                  ? "Opening Secure Checkout..."
+                  : "Create Account & Start Free Trial"}
             </button>
           </form>
 
