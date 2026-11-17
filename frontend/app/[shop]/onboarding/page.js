@@ -4896,12 +4896,22 @@ function AiReceptionistStep({
       ) : null}
 
       {activePhoneNumber && provisioned && !voicemailRelayReady ? (
-        <AiStaffTransferSetup
-          key={`${shopSlug}-${activePhoneNumber}`}
-          shopSlug={shopSlug}
-          aiPhoneNumber={activePhoneNumber}
-          onReadyChange={onStaffTransferReadyChange}
-        />
+        <details style={{ marginTop: "16px" }}>
+          <summary style={{ cursor: "pointer", color: "#4338ca", fontWeight: 700 }}>
+            Other call options
+          </summary>
+          <p style={{ marginTop: "8px", fontSize: "14px", color: "#475569" }}>
+            Use these options if you prefer direct transfers to a different phone or want the AI
+            receptionist to handle calls without live transfers. If you save call forwarding above,
+            that completes your call setup.
+          </p>
+          <AiStaffTransferSetup
+            key={`${shopSlug}-${activePhoneNumber}`}
+            shopSlug={shopSlug}
+            aiPhoneNumber={activePhoneNumber}
+            onReadyChange={onStaffTransferReadyChange}
+          />
+        </details>
       ) : null}
  
       {statusError && (
@@ -5167,8 +5177,7 @@ function AiStaffTransferSetup({ shopSlug, aiPhoneNumber, onReadyChange }) {
         When a caller asks to speak to an employee
       </h3>
       <p style={{ color: "#4338ca", fontSize: "14px", lineHeight: 1.6 }}>
-        Would you like DayTello to transfer these calls to a live phone number?
-        You can choose not to be interrupted. No texting is required.
+        Choose whether the AI receptionist should connect callers to a person.
       </p>
       {loading ? (
         <p aria-live="polite">Loading your call-transfer setting...</p>
@@ -5208,8 +5217,9 @@ function AiStaffTransferSetup({ shopSlug, aiPhoneNumber, onReadyChange }) {
                 or to my business number if that number forwards to the AI.
               </label>
               <p style={{ fontSize: "12px", color: "#475569", lineHeight: 1.6 }}>
-                Use a direct line, not your published business number or DayTello AI number.
-                Test an answered call, an unanswered call, and voicemail afterward.
+                Enter a direct mobile or desk line that can ring an employee. The business number
+                entered earlier and your DayTello AI number are blocked to prevent calls from looping.
+                This is separate from the call forwarding and voicemail text setup above.
               </p>
             </div>
           ) : null}

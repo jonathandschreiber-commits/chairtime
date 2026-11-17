@@ -97,9 +97,9 @@ export default function OwnerVoicemailSetup({ shopSlug, onReadyChange }) {
         <form onSubmit={submit} style={{ display: "grid", gap: 16, marginTop: 12 }}>
           <p>{changingNumber
             ? "Verify the new number, then save it to replace the current forwarding destination and voicemail text recipient. Voicemail texts pause once you request a code and resume after you save."
-            : "Use a number you control. DayTello will try this number when callers ask for an employee and text a recording link if they leave a voicemail."}</p>
+            : "Enter your mobile number once. DayTello will ring it when callers ask for a person and text you a voicemail link if no one accepts. Use a mobile that can receive texts and does not forward calls back to DayTello."}</p>
           <div>
-            <label className={styles.formLabel} htmlFor="daytello-owner-phone">Owner phone number</label>
+            <label className={styles.formLabel} htmlFor="daytello-owner-phone">Mobile number for calls and voicemail texts</label>
             <input id="daytello-owner-phone" className={styles.textInput} type="tel"
               autoComplete="tel" placeholder="(555) 123-4567"
               style={{ borderColor: "#3b82f6", backgroundColor: "#eff6ff" }}
@@ -121,7 +121,7 @@ export default function OwnerVoicemailSetup({ shopSlug, onReadyChange }) {
                 value={code} onChange={(event) => setCode(event.target.value)} required />
             </div>
           )}
-          {phase === "save" && <p role="status">Phone verified. Save to apply this number to forwarding and voicemail texts.</p>}
+          {phase === "save" && <p role="status">Mobile number verified. Select Save Call Forwarding to finish this step.</p>}
           {error && <p role="alert">{error}</p>}
           {busy && phase === "save" && (
             <p role="status" style={{ padding: 12, borderRadius: 8, backgroundColor: "#eff6ff", color: "#1e3a8a" }}>
@@ -130,7 +130,7 @@ export default function OwnerVoicemailSetup({ shopSlug, onReadyChange }) {
           )}
           <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 12 }}>
             <button type="submit" className={styles.continueButton} disabled={busy}>
-              {busy ? (phase === "save" ? "Setting up…" : "Please wait…") : phase === "start" ? "Send Verification Code" : phase === "confirm" ? "Verify Phone" : "Save Forwarding & Voicemail Texts"}
+              {busy ? (phase === "save" ? "Setting up…" : "Please wait…") : phase === "start" ? "Send Verification Code" : phase === "confirm" ? "Verify Phone" : "Save Call Forwarding"}
             </button>
             {phase === "confirm" && (
               <button type="button" disabled={busy} onClick={() => { setCode(""); setError(""); setPhase("start"); }}>Change number or resend</button>
