@@ -789,6 +789,9 @@ export default function CalendarPage() {
               return loadedBarberId;
             }
 
+            if (loadedRole === "owner" && loadedBarbers.length === 1) {
+              return loadedBarbers[0].id;
+            }
             return "";
           }
         );
@@ -1024,6 +1027,7 @@ export default function CalendarPage() {
 
       return services.filter(
         (service) => {
+          if (service.is_active === false) return false;
           const serviceBarberId =
             String(
               service.barber_id || ""
@@ -1046,7 +1050,7 @@ export default function CalendarPage() {
       selectedBarberId,
     ]);
 
-  function resetAppointmentForm() {
+  function resetAppointmentForm(serviceId) {
     setAppointmentCustomerMode(
       existingCustomers.length
         ? "existing"
@@ -1058,40 +1062,43 @@ export default function CalendarPage() {
     setAppointmentCustomerName("");
     setAppointmentCustomerPhone("");
 
-    setAppointmentServiceId(
-      servicesForSelectedBarber[
-        0
-      ]?.id || ""
-    );
-
-    setAppointmentDate(
-      selectedDate
-    );
-
-    setAppointmentTime(
-      "09:00"
-    );
+    setAppointmentServiceId(serviceId);
 
     setAppointmentNotes("");
   }
 
   function openAppointmentForm(
-    time = ""
+    time = "",
+    date = selectedDate
   ) {
-    const availableTime = time || firstBookableStart(selectedDate);
-    if (!availableTime) {
-      setError("No appointment time is available within the saved shop and staff hours.");
+    if (!canManageSelectedBarberAppointments || !scheduleLoaded) return;
+    if (!selectedBarberId) {
+      setError(barbers.length
+        ? "Choose a staff member below to book an appointment."
+        : "Add a staff member in Shop Setup before booking an appointment.");
+      document.getElementById("calendar-staff")?.focus();
       return;
     }
-    if (
-      !selectedBarberId ||
-      !canManageSelectedBarberAppointments
-    ) {
+    if (!servicesForSelectedBarber.length) {
+      setError("Add an active service for this staff member in Shop Setup before booking.");
+      return;
+    }
+    if (!shopHours.length || !staffHours.some((rule) => rule.barber_id === selectedBarberId)) {
+      setError("Set shop hours and this staff member’s hours in Shop Setup before booking.");
       return;
     }
 
-    resetAppointmentForm();
+    const availableTime = time || firstBookableStart(date);
+    const startMinutes = minutesOfTime(availableTime);
+    const intervals = freeIntervalsForDate(date);
+    const fittingService = servicesForSelectedBarber.find((service) => {
+      const duration = Number(service.duration_minutes);
+      return duration > 0 && intervals.some(([start, end]) =>
+        start <= startMinutes && startMinutes + duration <= end);
+    });
+    resetAppointmentForm(fittingService?.id || servicesForSelectedBarber[0].id);
 
+    setAppointmentDate(date);
     setAppointmentTime(availableTime);
 
     setShowBlockForm(false);
@@ -2754,14 +2761,14 @@ export default function CalendarPage() {
                 Admin Home
               </button>
 
-              {canManageSelectedBarberAppointments && firstBookableStart(selectedDate) ? (
+              {canManageSelectedBarberAppointments ? (
                 <button
                   type="button"
                   onClick={() =>
                     openAppointmentForm()
                   }
                   disabled={
-                    !selectedBarberId
+                    loading || !scheduleLoaded
                   }
                   className="bg-blue-700 text-white rounded-xl px-5 py-3 font-bold shadow hover:bg-blue-800 disabled:opacity-50"
                 >
@@ -3109,6 +3116,12 @@ export default function CalendarPage() {
                     )}
                   </select>
                 </div>
+
+                {appointmentDate && !firstBookableStart(appointmentDate) ? (
+                  <p className="text-sm font-semibold text-amber-800" role="status">
+                    No appointment fits on this date. Choose another date.
+                  </p>
+                ) : null}
 
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div>
@@ -3510,6 +3523,8 @@ export default function CalendarPage() {
                 </label>
 
                 <select
+                  id="calendar-staff"
+                  aria-label="Staff"
                   value={
                     selectedBarberId
                   }
@@ -4107,21 +4122,7 @@ export default function CalendarPage() {
                                 ""
                               );
 
-                              const availableTime = firstBookableStart(date);
-                              if (!availableTime) return;
-                              resetAppointmentForm();
-                              setAppointmentTime(availableTime);
-
-                              setAppointmentDate(
-                                date
-                              );
-
-                              setShowAppointmentForm(
-                                true
-                              );
-
-                              setMessage("");
-                              setError("");
+                              openAppointmentForm("", date);
                             }}
                             className="w-full rounded-xl border-2 border-dashed border-emerald-300 bg-white px-3 py-2 text-sm font-bold text-emerald-800 hover:bg-emerald-50"
                           >
