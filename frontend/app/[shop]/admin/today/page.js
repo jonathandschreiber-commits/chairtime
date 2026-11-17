@@ -612,12 +612,26 @@ export default function AgendaPage() {
               </p>
             </div>
 
-            <Link
-              href={`/${shopSlug}/admin`}
-              className="inline-flex items-center justify-center rounded-xl bg-blue-600 px-5 py-3 font-bold text-white shadow hover:bg-blue-700"
-            >
-              Admin Home
-            </Link>
+            <div className="flex flex-wrap gap-3">
+              {(isOwner || (isStaff && (currentUserBarberId || staffCanManageOtherStaffAppointments))) && (
+                <Link
+                  href={{ pathname: `/${shopSlug}/admin/calendar`, query: {
+                    book: "1",
+                    date: selectedDate,
+                    staff: canModifyAppointment({ barber_id: selectedBarberId }) ? selectedBarberId : currentUserBarberId,
+                  } }}
+                  className="inline-flex items-center justify-center rounded-xl bg-blue-700 px-5 py-3 font-bold text-white shadow hover:bg-blue-800"
+                >
+                  + Appointment
+                </Link>
+              )}
+              <Link
+                href={`/${shopSlug}/admin`}
+                className="inline-flex items-center justify-center rounded-xl bg-blue-600 px-5 py-3 font-bold text-white shadow hover:bg-blue-700"
+              >
+                Admin Home
+              </Link>
+            </div>
           </div>
 
           {message ? (
