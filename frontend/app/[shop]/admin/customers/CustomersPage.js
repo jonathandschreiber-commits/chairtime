@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import {
   Suspense,
   useEffect,
@@ -1649,6 +1650,14 @@ function CustomersPageContent({ apiBase }) {
 
 
                   <div className="flex gap-2 flex-wrap">
+                    {["owner", "staff"].includes(currentUser?.role) && (
+                      <Link
+                        href={{ pathname: `/${shopSlug}/admin/calendar`, query: { book: "1", customer: latest.id } }}
+                        className="rounded-xl bg-purple-700 px-4 py-2 font-semibold text-white hover:bg-purple-800"
+                      >
+                        + Appointment
+                      </Link>
+                    )}
                     <a
                       href={
                         "tel:" +

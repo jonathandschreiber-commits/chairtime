@@ -4,7 +4,9 @@ import { useParams, useRouter } from "next/navigation";
 import {
   useCallback,
   useEffect,
+  useEffectEvent,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
@@ -250,6 +252,7 @@ export default function CalendarPage() {
   const [staffHours, setStaffHours] = useState([]);
   const [shopBlocks, setShopBlocks] = useState([]);
   const [scheduleLoaded, setScheduleLoaded] = useState(false);
+  const bookingShortcut = useRef(null);
 
   const [
     selectedDate,
@@ -1105,7 +1108,59 @@ export default function CalendarPage() {
     setShowAppointmentForm(true);
     setMessage("");
     setError("");
+    return true;
   }
+
+  const openBookingShortcut = useEffectEvent(() => {
+    if (!bookingShortcut.current) {
+      const query = new URLSearchParams(window.location.search);
+      if (query.get("book") !== "1") {
+        bookingShortcut.current = { handled: true };
+        return;
+      }
+
+      const date = query.get("date");
+      const parsed = /^\d{4}-\d{2}-\d{2}$/.test(date || "") ? new Date(`${date}T12:00:00`) : null;
+      const staffId = query.get("staff");
+      bookingShortcut.current = { customerId: query.get("customer"), handled: false };
+      const changeDate = parsed && localDateValue(parsed) === date && date !== selectedDate;
+      const changeStaff = staffId && staffId !== selectedBarberId &&
+        canManageAppointmentsForBarber(staffId) && barbers.some((staff) => staff.id === staffId);
+      if (changeDate) setSelectedDate(date);
+      if (changeStaff) setSelectedBarberId(staffId);
+      if (changeDate || changeStaff) return;
+    }
+
+    const shortcut = bookingShortcut.current;
+    if (shortcut.handled) return;
+    if (!canManageSelectedBarberAppointments) {
+      if (isStaff) setError("Ask the shop owner for appointment booking access.");
+      shortcut.handled = true;
+      return;
+    }
+
+    if (!selectedBarberId) {
+      openAppointmentForm();
+      if (!barbers.length) shortcut.handled = true;
+      return;
+    }
+
+    shortcut.handled = true;
+    if (!openAppointmentForm() || !shortcut.customerId) return;
+    const appointment = appointments.find((item) => String(item.id) === shortcut.customerId);
+    const customer = appointment && existingCustomers.find((item) =>
+      item.key === customerKey(appointment.customer_name, appointment.customer_phone));
+    if (customer) {
+      setAppointmentCustomerMode("existing");
+      chooseExistingCustomer(customer);
+    } else {
+      setError("The selected customer could not be loaded. Choose a customer in the booking form.");
+    }
+  });
+
+  useEffect(() => {
+    if (!loading && scheduleLoaded) openBookingShortcut();
+  }, [loading, scheduleLoaded, selectedBarberId, selectedDate]);
 
   function closeAppointmentForm() {
     setShowAppointmentForm(false);
