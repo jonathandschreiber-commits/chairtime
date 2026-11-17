@@ -921,8 +921,10 @@ export default function SignupPage() {
                   >
                     <div>250 AI receptionist minutes included each billing month.</div>
                     <div style={{ marginTop: "4px", fontSize: "13px" }}>
-                      <div>Minutes 251–1,000 are 19¢ each.</div>
-                      <div>Minutes 1,001 and up are 17¢ each.</div>
+                      <ul style={{ margin: 0, paddingLeft: "18px", listStyleType: "disc" }}>
+                        <li>Minutes 251–1,000 are 19¢ each.</li>
+                        <li>Minutes 1,001 and up are 17¢ each.</li>
+                      </ul>
                       <div style={{ marginTop: "4px", fontWeight: 650 }}>
                         Rates are based on total AI minutes used that billing month.
                       </div>
