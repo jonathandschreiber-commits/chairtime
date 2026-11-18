@@ -78,7 +78,10 @@ def summarize(subscription, preview, usage_price=None):
         if line_item != value(first, "id") or value(details, "proration", value(line, "proration", False)):
             continue
         period = value(line, "period", {})
-        if value(period, "start") != start or value(period, "end") != end:
+        # Stripe rounds metered invoice periods down to minute boundaries.
+        # Compare the same minute without accepting another billing cycle.
+        line_start, line_end = value(period, "start"), value(period, "end")
+        if line_start is None or line_end is None or line_start // 60 != start // 60 or line_end // 60 != end // 60:
             continue
         quantity = value(line, "quantity_decimal")
         if quantity is None:
