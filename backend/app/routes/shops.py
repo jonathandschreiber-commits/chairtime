@@ -342,9 +342,10 @@ def get_authenticated_shop(
             detail="Business not found.",
         )
  
-    return authenticated_shop_response(
-        shop
-    )
+    response = authenticated_shop_response(shop)
+    if current_user.role == "owner" and shop.ai_voice_enabled:
+        response["ai_phone_number"] = shop.highlevel_phone_number or None
+    return response
  
  
 @router.patch(
