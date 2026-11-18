@@ -82,6 +82,15 @@ class UsageAlertsTest(unittest.TestCase):
         self.assertEqual(self.sms.call_count, 1)
         self.assertEqual(alert_view(self.db, self.shop, self.billing)['sms_state'], 'unknown')
 
+    def test_definite_rejection_can_retry_without_resending_accepted_text(self):
+        self.email.return_value = SimpleNamespace(is_success=False, status_code=429)
+        send_limit_alert(self.db, self.shop, self.billing)
+        self.email.return_value = SimpleNamespace(is_success=True, status_code=200)
+        send_limit_alert(self.db, self.shop, self.billing)
+        send_limit_alert(self.db, self.shop, self.billing)
+        self.assertEqual(self.email.call_count, 2)
+        self.assertEqual(self.sms.call_count, 1)
+
     def test_tenant_and_subscription_scoped_identity(self):
         self.assertNotEqual(identity('shop1','sub1','date'), identity('shop2','sub1','date'))
         self.assertNotEqual(identity('shop1','sub1','date'), identity('shop1','sub2','date'))
