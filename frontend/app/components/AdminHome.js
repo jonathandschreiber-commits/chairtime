@@ -15,6 +15,7 @@ export default async function AdminHome({
   let businessName = "";
   let businessPhone = "";
   let aiPhoneNumber = "";
+  let bookingQrCode = "";
   let aiVoiceEnabled = false;
  
   let currentUser = null;
@@ -110,6 +111,7 @@ export default async function AdminHome({
               await response.json();
             businessPhone = currentShop?.phone || "";
             aiPhoneNumber = currentShop?.ai_phone_number || "";
+            bookingQrCode = currentShop?.booking_qr_code || "";
  
             if (
               currentShop?.name
@@ -403,6 +405,18 @@ export default async function AdminHome({
               >
                 {`daytello.com/${encodeURIComponent(shop)}`}
               </a>
+              {bookingQrCode.startsWith("data:image/svg+xml;base64,") && (
+                <figure className="mt-3">
+                  <img
+                    src={bookingQrCode}
+                    alt={`Scan to book with ${title}`}
+                    width={108}
+                    height={108}
+                    className="rounded-lg border border-slate-200 bg-white"
+                  />
+                  <figcaption className="mt-1 text-sm text-slate-600">Scan to book</figcaption>
+                </figure>
+              )}
             </div>
           </section>
         )}
