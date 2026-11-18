@@ -876,6 +876,32 @@ def get_ai_usage(current_user: User = Depends(get_current_user), db: Session = D
             # Canceled subscriptions may not have an upcoming invoice.
             pass
         response["billing"] = summarize(subscription, preview, price)
+        response["call_minutes"] = None
+        response["call_count"] = None
+        # Trial and legacy plans have no paid meter quantities. Show their actual
+        # call history separately, without treating it as billable overage.
+        if shop.ai_voice_enabled and (not metered or get_object_value(subscription, "status") == "trialing"):
+            from datetime import datetime, timezone
+            import os
+            from app.ai_usage_review import fetch_live_calls
+            agent = shop.highlevel_agent_id
+            location = shop.highlevel_location_id
+            token = os.getenv("HIGHLEVEL_API_TOKEN")
+            billing = response["billing"]
+            unique_agent = agent and db.query(Shop).filter(Shop.highlevel_agent_id == agent,
+                Shop.highlevel_location_id == location).count() == 1
+            if unique_agent and token and location == os.getenv("HIGHLEVEL_LOCATION_ID") and billing["period_start"] and billing["period_end"]:
+                start = datetime.fromisoformat(billing["period_start"])
+                period_end = datetime.fromisoformat(billing["period_end"])
+                end = min(period_end, datetime.now(timezone.utc))
+                try:
+                    if end > start:
+                        calls = [c for c in fetch_live_calls(location, token, {agent}, start, end) if c[2] < period_end]
+                        response["call_minutes"] = round(sum(c[3] for c in calls) / 60, 4)
+                        response["call_count"] = len(calls)
+                except Exception:
+                    # A provider outage must not turn missing usage into zero.
+                    response["call_usage_note"] = "Call history is temporarily unavailable. Refresh to check again."
         return response
     except (RuntimeError, ValueError):
         raise HTTPException(status_code=503, detail="Usage and billing information is temporarily unavailable. Please try again.")
