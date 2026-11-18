@@ -21,6 +21,7 @@ router = APIRouter()
 
 class CheckoutSessionCreate(BaseModel):
     plan: Literal["scheduling", "scheduling_ai"] = "scheduling"
+    metered_ai: bool = False
 
 
 class BookingSetupIntentCreate(BaseModel):
@@ -75,9 +76,14 @@ def get_ai_voice_price_id() -> str:
     return price_id
 
 
-def ai_checkout_line_items() -> list[dict]:
-    if os.getenv("DAYTELLO_AI_USAGE_BILLING_ENABLED") != "true":
+def ai_checkout_line_items(*, metered: bool) -> list[dict]:
+    if not metered:
         return [{"price": get_ai_voice_price_id(), "quantity": 1}]
+
+    if not all(os.getenv(flag) == "true" for flag in (
+        "DAYTELLO_AI_USAGE_BILLING_ENABLED", "DAYTELLO_AI_USAGE_WORKER_ENABLED",
+    )):
+        raise RuntimeError("AI Receptionist signup is temporarily unavailable.")
 
     base_price = os.getenv("STRIPE_AI_NEW_BASE_PRICE_ID")
     usage_price = os.getenv("STRIPE_AI_USAGE_PRICE_ID")
@@ -625,6 +631,15 @@ def create_connect_onboarding_link(
     )
 
 
+@router.get("/signup-pricing")
+def get_signup_pricing():
+    try:
+        ai_checkout_line_items(metered=True)
+    except RuntimeError:
+        return {"metered_ai": False}
+    return {"metered_ai": True}
+
+
 @router.post("/create-checkout-session")
 def create_checkout_session(
     payload: CheckoutSessionCreate | None = None,
@@ -652,7 +667,7 @@ def create_checkout_session(
         ]
 
         if selected_plan == "scheduling_ai":
-            ai_items = ai_checkout_line_items()
+            ai_items = ai_checkout_line_items(metered=bool(payload and payload.metered_ai))
             metered_ai = len(ai_items) == 2
             line_items.extend(ai_items)
 
