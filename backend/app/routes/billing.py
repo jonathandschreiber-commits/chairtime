@@ -637,6 +637,7 @@ def create_checkout_session(
         else "scheduling"
     )
 
+    metered_ai = False
     try:
         stripe.api_key = get_stripe_secret_key()
 
@@ -651,7 +652,9 @@ def create_checkout_session(
         ]
 
         if selected_plan == "scheduling_ai":
-            line_items.extend(ai_checkout_line_items())
+            ai_items = ai_checkout_line_items()
+            metered_ai = len(ai_items) == 2
+            line_items.extend(ai_items)
 
     except RuntimeError as exc:
         raise HTTPException(
@@ -674,6 +677,7 @@ def create_checkout_session(
         "owner_user_id": str(current_user.id),
         "plan": selected_plan,
         "welcome_email": "v1",
+        "metered_ai": "true" if metered_ai else "false",
         "ai_voice_enabled": (
             "true"
             if ai_voice_selected
@@ -748,6 +752,7 @@ def create_checkout_session(
         "success": True,
         "plan": selected_plan,
         "ai_voice_enabled": ai_voice_selected,
+        "metered_ai": metered_ai,
         "checkout_url": checkout_session.url,
         "checkout_session_id": checkout_session.id,
     }
@@ -1334,6 +1339,7 @@ async def stripe_webhook(
                         owner_id=get_object_value(metadata, "owner_user_id"),
                         plan=get_object_value(metadata, "plan"),
                         frontend_url=get_frontend_url(),
+                        metered_ai=get_object_value(metadata, "metered_ai") == "true",
                     )
 
         elif event_type in {
