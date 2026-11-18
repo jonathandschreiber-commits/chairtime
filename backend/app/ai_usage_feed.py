@@ -1,10 +1,11 @@
-"""Replay a shop's HighLevel Voice AI usage into a Stripe sandbox."""
+"""Report HighLevel Voice AI usage to Stripe and replay calls in a sandbox."""
 
 import argparse
 import hashlib
 import json
+import logging
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 import stripe
@@ -16,6 +17,18 @@ from app.database import Base, SessionLocal, engine
 from app.models import Shop
 
 
+logger = logging.getLogger(__name__)
+
+
+class LiveAIMeterDelivery(Base):
+    __tablename__ = "live_ai_meter_deliveries"
+
+    identifier = Column(String(64), primary_key=True)
+    customer_id = Column(String, nullable=False)
+    started_at = Column(DateTime, nullable=False)
+    accepted_at = Column(DateTime)
+
+
 class SandboxAIMeterDelivery(Base):
     __tablename__ = "sandbox_ai_meter_deliveries"
 
@@ -24,21 +37,27 @@ class SandboxAIMeterDelivery(Base):
     accepted_at = Column(DateTime)
 
 
-def deliver_call(db, stripe_client, customer_id, location, call):
+def deliver_call(db, stripe_client, customer_id, location, call, *, live=False):
     call_id, _, occurred_at, seconds = call
-    identifier = hashlib.sha256(f"{customer_id}:{location}:{call_id}".encode()).hexdigest()
-    delivery = db.get(SandboxAIMeterDelivery, identifier)
+    scope = "live" if live else customer_id
+    identifier = hashlib.sha256(f"{scope}:{location}:{call_id}".encode()).hexdigest()
+    model = LiveAIMeterDelivery if live else SandboxAIMeterDelivery
+    delivery = db.get(model, identifier)
     if delivery is None:
-        delivery = SandboxAIMeterDelivery(
+        delivery = model(
             identifier=identifier, started_at=datetime.now(timezone.utc).replace(tzinfo=None)
         )
+        if live:
+            delivery.customer_id = customer_id
         db.add(delivery)
         try:
             db.commit()
         except IntegrityError:
             db.rollback()
-            delivery = db.get(SandboxAIMeterDelivery, identifier)
+            delivery = db.get(model, identifier)
 
+    if live and delivery.customer_id != customer_id:
+        raise RuntimeError("HighLevel call was previously mapped to a different customer.")
     if delivery.accepted_at is not None:
         return False
     now = datetime.now(timezone.utc).replace(tzinfo=None)
@@ -58,6 +77,80 @@ def deliver_call(db, stripe_client, customer_id, location, call):
     delivery.accepted_at = datetime.now(timezone.utc).replace(tzinfo=None)
     db.commit()
     return True
+
+
+def report_live_usage(db, client, location, token, usage_price, now):
+    """Reconcile recent calls during each shop's current paid cycle."""
+    shops = db.query(Shop).filter(
+        Shop.ai_voice_enabled.is_(True),
+        Shop.highlevel_location_id == location,
+        Shop.highlevel_agent_id.is_not(None),
+        Shop.stripe_customer_id.is_not(None),
+        Shop.stripe_subscription_id.is_not(None),
+    ).all()
+    end = now - timedelta(minutes=3)
+    start = end - timedelta(hours=24)
+    windows = {}
+    failures = 0
+    for shop in shops:
+        try:
+            sub = client.v1.subscriptions.retrieve(shop.stripe_subscription_id)
+            if not sub.livemode or sub.customer != shop.stripe_customer_id:
+                raise ValueError("Stripe subscription does not match shop customer")
+            if sub.status not in {"active", "past_due"}:
+                continue
+            items = [item for item in sub["items"].data if item.price.id == usage_price]
+            if not items:
+                continue
+            item, = items
+            if not item.price.recurring or item.price.recurring.usage_type != "metered":
+                raise ValueError("Configured usage price is not metered")
+            window_start = max(item.current_period_start, sub.trial_end or 0)
+            windows[shop.highlevel_agent_id] = (
+                shop.stripe_customer_id, window_start, item.current_period_end,
+            )
+        except (stripe.StripeError, ValueError, AttributeError) as exc:
+            failures += 1
+            logger.error("AI meter subscription lookup failed for shop %s (%s)", shop.id, type(exc).__name__)
+
+    delivered = 0
+    if windows:
+        calls = fetch_live_calls(location, token, windows, start, end)
+        for call in calls:
+            _, agent, occurred_at, seconds = call
+            customer_id, period_start, period_end = windows[agent]
+            if seconds <= 0 or not period_start <= occurred_at.timestamp() < period_end:
+                continue
+            try:
+                delivered += deliver_call(db, client, customer_id, location, call, live=True)
+            except Exception as exc:
+                db.rollback()
+                failures += 1
+                logger.error("AI meter event delivery failed (%s)", type(exc).__name__)
+    return delivered, failures
+
+
+def run_live_meter_worker(stop):
+    key = os.getenv("STRIPE_SECRET_KEY", "").strip()
+    price = os.getenv("STRIPE_AI_USAGE_PRICE_ID", "").strip()
+    location = os.getenv("HIGHLEVEL_LOCATION_ID", "").strip()
+    token = os.getenv("HIGHLEVEL_API_TOKEN", "").strip()
+    if not key.startswith(("sk_live_", "rk_live_")) or not all((price, location, token)):
+        logger.error("Live AI meter worker configuration is incomplete")
+        return
+
+    client = stripe.StripeClient(key)
+    while not stop.is_set():
+        try:
+            with SessionLocal() as db:
+                delivered, failures = report_live_usage(
+                    db, client, location, token, price, datetime.now(timezone.utc)
+                )
+            if delivered or failures:
+                logger.info("AI meter events accepted=%s failures=%s", delivered, failures)
+        except Exception as exc:
+            logger.error("AI meter polling failed (%s)", type(exc).__name__)
+        stop.wait(300)
 
 
 def main():
