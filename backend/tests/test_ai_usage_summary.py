@@ -81,3 +81,11 @@ def test_fractional_minutes_preserved():
     result = summarize(sub, invoice, price)
     assert result['minutes_used'] == 1.16666666667
     assert round(result['minutes_remaining'], 2) == 248.83
+
+
+def test_stripe_minute_aligned_usage_period():
+    sub, invoice, price = fixtures()
+    sub['items']['data'][-1]['current_period_start'] += 13
+    sub['items']['data'][-1]['current_period_end'] += 13
+    result = summarize(sub, invoice, price)
+    assert result['minutes_used'] == 500 and result['usage_cents'] == 7250
