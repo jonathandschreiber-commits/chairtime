@@ -72,3 +72,12 @@ def test_unsupported_price_rejected():
     except ValueError:
         return
     raise AssertionError("Unsupported price was accepted")
+
+
+def test_fractional_minutes_preserved():
+    sub, invoice, price = fixtures()
+    invoice['lines']['data'] = [invoice['lines']['data'][0]]
+    invoice['lines']['data'][0].update(quantity=1, quantity_decimal='1.16666666667')
+    result = summarize(sub, invoice, price)
+    assert result['minutes_used'] == 1.16666666667
+    assert round(result['minutes_remaining'], 2) == 248.83
