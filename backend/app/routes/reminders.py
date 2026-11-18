@@ -79,7 +79,7 @@ def send_highlevel_sms(phone: str, message: str, *, shop_id=None, shop_slug=None
 
     # Owner voicemail notifications must never silently use a fallback sender.
     # This is test-only; existing appointment reminders retain their behavior.
-    if purpose == "voicemail-owner-notification":
+    if purpose in {"voicemail-owner-notification", "ai-usage-threshold"}:
         sender = os.getenv("HIGHLEVEL_SMS_FROM_NUMBER", "").strip()
         if (
             (os.getenv("DAYTELLO_VOICEMAIL_TEST_ONLY") != "true" and not production_relay_enabled())
@@ -157,7 +157,7 @@ def send_highlevel_sms(phone: str, message: str, *, shop_id=None, shop_slug=None
             .get("contactId")
         )
 
-        if (not contact_id and purpose == "voicemail-owner-notification"
+        if (not contact_id and purpose in {"voicemail-owner-notification", "ai-usage-threshold"}
                 and http_error.code in (400, 409, 422)):
             contact_id = _find_existing_voicemail_owner_contact(
                 api_token, location_id, formatted_phone,
