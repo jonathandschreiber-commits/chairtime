@@ -181,6 +181,9 @@ def run_live_meter_worker(stop):
                 delivered, failures = report_live_usage(
                     db, client, location, token, price, datetime.now(timezone.utc)
                 )
+            from app.ai_usage_alerts import check_usage_alerts
+            with SessionLocal() as db:
+                check_usage_alerts(db, client, price)
             if delivered or failures:
                 logger.info("AI meter events accepted=%s failures=%s", delivered, failures)
         except Exception as exc:

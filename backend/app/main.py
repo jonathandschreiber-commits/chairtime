@@ -588,6 +588,9 @@ if os.getenv("DAYTELLO_AI_USAGE_WORKER_ENABLED") == "true":
     ai_meter_stop = Event()
 
 
+from app.ai_usage_alerts import AIUsageLimitAlert
+
+
 Base.metadata.create_all(
     bind=engine
 )

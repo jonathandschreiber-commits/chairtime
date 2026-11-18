@@ -876,6 +876,8 @@ def get_ai_usage(current_user: User = Depends(get_current_user), db: Session = D
             # Canceled subscriptions may not have an upcoming invoice.
             pass
         response["billing"] = summarize(subscription, preview, price)
+        from app.ai_usage_alerts import alert_view
+        response["usage_limit"] = alert_view(db, shop, response["billing"])
         response["call_minutes"] = None
         response["call_count"] = None
         # Trial and legacy plans have no paid meter quantities. Show their actual
