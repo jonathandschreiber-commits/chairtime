@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import styles from "./signup.module.css";
 
 function normalizeSlug(value) {
@@ -33,11 +33,24 @@ export default function SignupPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const pricingPreview = true;
+  const [meteredAiAvailable, setMeteredAiAvailable] = useState(false);
+  const aiCheckoutPending = selectedPlan === "scheduling_ai" && !meteredAiAvailable;
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/billing/create-checkout-session", {
+      cache: "no-store",
+      signal: controller.signal,
+    })
+      .then((response) => response.ok ? response.json() : null)
+      .then((status) => setMeteredAiAvailable(status?.metered_ai === true))
+      .catch(() => {});
+    return () => controller.abort();
+  }, []);
 
   async function handleSubmit(event) {
     event.preventDefault();
-    if (pricingPreview) return;
+    if (aiCheckoutPending) return;
 
     if (loading) {
       return;
@@ -154,6 +167,7 @@ export default function SignupPage() {
           },
           body: JSON.stringify({
             plan: selectedPlan,
+            metered_ai: selectedPlan === "scheduling_ai",
           }),
         }
       );
@@ -1016,10 +1030,10 @@ export default function SignupPage() {
             <button
               className={styles.button}
               type="submit"
-              disabled={loading || pricingPreview}
+              disabled={loading || aiCheckoutPending}
             >
-              {pricingPreview
-                ? "Pricing Preview · Checkout Unavailable"
+              {aiCheckoutPending
+                ? "AI Receptionist Checkout Temporarily Unavailable"
                 : loading
                   ? "Opening Secure Checkout..."
                   : "Create Account & Start Free Trial"}
