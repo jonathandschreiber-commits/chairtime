@@ -14,6 +14,7 @@ export default async function AdminHome({
  
   let businessName = "";
   let businessPhone = "";
+  let aiPhoneNumber = "";
   let aiVoiceEnabled = false;
  
   let currentUser = null;
@@ -108,6 +109,7 @@ export default async function AdminHome({
             const currentShop =
               await response.json();
             businessPhone = currentShop?.phone || "";
+            aiPhoneNumber = currentShop?.ai_phone_number || "";
  
             if (
               currentShop?.name
@@ -401,8 +403,45 @@ export default async function AdminHome({
               >
                 {`daytello.com/${encodeURIComponent(shop)}`}
               </a>
-              {businessPhone && <p className="mt-2 text-sm text-slate-600">Shop phone {businessPhone}</p>}
             </div>
+          </section>
+        )}
+
+        {isOwner && shop && (businessPhone || aiVoiceEnabled) && (
+          <section className="mb-6 rounded-2xl border border-indigo-100 bg-white p-5" aria-labelledby="shop-phone-heading">
+            <h2 id="shop-phone-heading" className="text-lg font-bold text-slate-900">Shop phone &amp; call forwarding</h2>
+            <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
+              <div>
+                <dt className="font-semibold text-slate-700">Existing shop phone</dt>
+                <dd className="mt-1">
+                  {businessPhone ? <a className="text-indigo-700 underline" href={`tel:${businessPhone}`}>{businessPhone}</a> : "No shop phone on file"}
+                </dd>
+              </div>
+              {aiVoiceEnabled && (
+                <div>
+                  <dt className="font-semibold text-slate-700">DayTello AI Receptionist number</dt>
+                  <dd className="mt-1">
+                    {aiPhoneNumber ? <a className="text-indigo-700 underline" href={`tel:${aiPhoneNumber}`}>{aiPhoneNumber}</a> : "Number setup is pending"}
+                  </dd>
+                </div>
+              )}
+            </dl>
+            {aiVoiceEnabled && aiPhoneNumber && (
+              <div className="mt-4 text-sm text-slate-700">
+                <h3 className="font-semibold">Forward calls from your existing shop phone</h3>
+                <ol className="mt-2 list-decimal space-y-1 pl-5">
+                  <li>Call your DayTello AI number first and confirm the receptionist answers.</li>
+                  <li>In your current phone provider’s call-forwarding settings, set the destination to <strong>{aiPhoneNumber}</strong>. Choose all calls or unanswered calls, if supported.</li>
+                  <li>From another phone, call your existing shop number to confirm it reaches the receptionist.</li>
+                </ol>
+                <p className="mt-2">For live transfers, use a different number from the one you forward to DayTello. This avoids a call loop.</p>
+              </div>
+            )}
+            {aiVoiceEnabled && (
+              <a className="mt-3 inline-block text-sm font-semibold text-indigo-700 underline" href={`${basePath}/ai-receptionist`}>
+                {aiPhoneNumber ? "Test or manage your AI Receptionist" : "Continue AI phone setup"}
+              </a>
+            )}
           </section>
         )}
 
