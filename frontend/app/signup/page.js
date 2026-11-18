@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import styles from "./signup.module.css";
 
 function normalizeSlug(value) {
@@ -33,8 +33,24 @@ export default function SignupPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  const [meteredAiAvailable, setMeteredAiAvailable] = useState(false);
+  const aiCheckoutPending = selectedPlan === "scheduling_ai" && !meteredAiAvailable;
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/billing/create-checkout-session", {
+      cache: "no-store",
+      signal: controller.signal,
+    })
+      .then((response) => response.ok ? response.json() : null)
+      .then((status) => setMeteredAiAvailable(status?.metered_ai === true))
+      .catch(() => {});
+    return () => controller.abort();
+  }, []);
+
   async function handleSubmit(event) {
     event.preventDefault();
+    if (aiCheckoutPending) return;
 
     if (loading) {
       return;
@@ -151,6 +167,7 @@ export default function SignupPage() {
           },
           body: JSON.stringify({
             plan: selectedPlan,
+            metered_ai: selectedPlan === "scheduling_ai",
           }),
         }
       );
@@ -189,6 +206,11 @@ export default function SignupPage() {
       sessionStorage.setItem(
         "chairtime_signup_plan",
         selectedPlan
+      );
+
+      sessionStorage.setItem(
+        "daytello_signup_metered_ai",
+        String(checkoutData.metered_ai === true)
       );
 
       window.location.href = checkoutUrl;
@@ -872,7 +894,7 @@ export default function SignupPage() {
                           color: "#7c3aed",
                         }}
                       >
-                        $198/month total
+                        $98/month
                       </div>
 
                       <div
@@ -916,8 +938,12 @@ export default function SignupPage() {
                       lineHeight: "1.45",
                     }}
                   >
-                    Never lose a customer because you
-                    couldn&apos;t answer the phone.
+                    <div>250 AI receptionist minutes included each billing month.</div>
+                    <div style={{ marginTop: "4px", fontSize: "13px" }}>
+                      <ul style={{ margin: 0, paddingLeft: "18px", listStyleType: "disc", fontWeight: 400 }}>
+                        <li>Each additional AI minute is 29¢.</li>
+                      </ul>
+                    </div>
                   </div>
 
                   <div
@@ -995,7 +1021,7 @@ export default function SignupPage() {
               After 30 days, your selected plan will be{" "}
               <strong>
                 {selectedPlan === "scheduling_ai"
-                  ? "$198 per month"
+                  ? "$98 per month plus any additional AI minutes"
                   : "$49 per month"}
               </strong>{" "}
               unless you cancel.
@@ -1004,11 +1030,13 @@ export default function SignupPage() {
             <button
               className={styles.button}
               type="submit"
-              disabled={loading}
+              disabled={loading || aiCheckoutPending}
             >
-              {loading
-                ? "Opening Secure Checkout..."
-                : "Create Account & Start Free Trial"}
+              {aiCheckoutPending
+                ? "AI Receptionist Checkout Temporarily Unavailable"
+                : loading
+                  ? "Opening Secure Checkout..."
+                  : "Create Account & Start Free Trial"}
             </button>
           </form>
 

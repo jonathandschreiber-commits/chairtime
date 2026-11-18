@@ -286,6 +286,18 @@ export default async function AdminHome({
         ]
       : []),
  
+    ...(aiVoiceEnabled
+      ? [{
+          name: "AI Usage & Billing",
+          description: "See your AI minutes and usage charges.",
+          href: basePath + "/ai-usage",
+          icon: "📊",
+          cardClass: "bg-gradient-to-br from-indigo-50 to-violet-100 border-indigo-200",
+          iconClass: "bg-gradient-to-br from-indigo-500 to-violet-600",
+          arrowClass: "text-indigo-600 border-indigo-300 hover:bg-indigo-100",
+        }]
+      : []),
+
     {
       name: "Account Options",
       description:

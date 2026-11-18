@@ -8,6 +8,8 @@ export default function PaymentSuccessPage() {
   const [selectedPlan, setSelectedPlan] =
     useState("scheduling");
 
+  const [meteredAi, setMeteredAi] = useState(false);
+
   useEffect(() => {
     const storedShopSlug =
       sessionStorage.getItem(
@@ -21,14 +23,14 @@ export default function PaymentSuccessPage() {
 
     setShopSlug(storedShopSlug);
     setSelectedPlan(storedPlan);
+    setMeteredAi(sessionStorage.getItem("daytello_signup_metered_ai") === "true");
   }, []);
 
   const isAiPlan =
     selectedPlan === "scheduling_ai";
 
-  const monthlyPrice = isAiPlan
-    ? "$198 per month"
-    : "$49 per month";
+  const aiMonthlyPrice = meteredAi ? "$98 per month" : "$198 per month";
+  const monthlyPrice = isAiPlan ? aiMonthlyPrice : "$49 per month";
 
   const planName = isAiPlan
     ? "Business Management + AI Receptionist"
@@ -106,6 +108,10 @@ export default function PaymentSuccessPage() {
           not be charged today. Your{" "}
           <strong>{planName}</strong> plan is free for
           30 days, then {monthlyPrice}.
+          {isAiPlan && meteredAi && (
+            <> Your paid plan includes 250 AI voice minutes per billing cycle,
+            then $0.29 per additional minute.</>
+          )}
         </p>
 
         <div

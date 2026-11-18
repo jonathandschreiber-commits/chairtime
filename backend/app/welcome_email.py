@@ -35,7 +35,7 @@ def _utc_now():
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
-def _message(shop, owner, plan, frontend_url):
+def _message(shop, owner, plan, frontend_url, *, metered_ai=False):
     try:
         shop_timezone = ZoneInfo(shop.timezone or "America/New_York")
     except ZoneInfoNotFoundError:
@@ -49,6 +49,11 @@ def _message(shop, owner, plan, frontend_url):
         "owner_first_name": ((owner.name or "").split() or ["there"])[0],
         "shop_name": shop.name,
         "first_billing_date": f"{billing_day:%B} {billing_day.day}, {billing_day.year}",
+        "ai_monthly_price": "$98 per month" if metered_ai else "$198 per month",
+        "ai_usage_terms": (
+            " Your paid plan includes 250 AI voice minutes per billing cycle, then $0.29 per additional minute."
+            if metered_ai else ""
+        ),
         "setup_url": f"{shop_url}/onboarding",
         "account_options_url": f"{shop_url}/admin/account",
     }
@@ -64,7 +69,7 @@ def _message(shop, owner, plan, frontend_url):
     }
 
 
-def send_checkout_welcome(db, shop, *, owner_id, plan, frontend_url):
+def send_checkout_welcome(db, shop, *, owner_id, plan, frontend_url, metered_ai=False):
     api_key = os.getenv("RESEND_API_KEY", "").strip()
     if not api_key or plan not in SUBJECTS or not owner_id or not shop.trial_ends_at:
         logger.warning("Welcome email skipped because checkout email configuration is incomplete")
@@ -80,7 +85,7 @@ def send_checkout_welcome(db, shop, *, owner_id, plan, frontend_url):
             return
         delivery = ShopWelcomeEmail(
             shop_id=shop_id, created_at=_utc_now(),
-            payload=_message(shop, owner, plan, frontend_url),
+            payload=_message(shop, owner, plan, frontend_url, metered_ai=metered_ai),
         )
         db.add(delivery)
         db.commit()

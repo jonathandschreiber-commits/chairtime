@@ -21,6 +21,7 @@ router = APIRouter()
 
 class CheckoutSessionCreate(BaseModel):
     plan: Literal["scheduling", "scheduling_ai"] = "scheduling"
+    metered_ai: bool = False
 
 
 class BookingSetupIntentCreate(BaseModel):
@@ -73,6 +74,24 @@ def get_ai_voice_price_id() -> str:
         )
 
     return price_id
+
+
+def ai_checkout_line_items(*, metered: bool) -> list[dict]:
+    if not metered:
+        return [{"price": get_ai_voice_price_id(), "quantity": 1}]
+
+    if not all(os.getenv(flag) == "true" for flag in (
+        "DAYTELLO_AI_USAGE_BILLING_ENABLED", "DAYTELLO_AI_USAGE_WORKER_ENABLED",
+    )):
+        raise RuntimeError("AI Receptionist signup is temporarily unavailable.")
+
+    base_price = os.getenv("STRIPE_AI_NEW_BASE_PRICE_ID")
+    usage_price = os.getenv("STRIPE_AI_USAGE_PRICE_ID")
+    if not base_price or not usage_price:
+        raise RuntimeError("The new AI plan requires both Stripe price IDs.")
+    if len({get_scheduling_price_id(), get_ai_voice_price_id(), base_price, usage_price}) != 4:
+        raise RuntimeError("The scheduling, legacy AI, new AI base, and usage prices must be distinct.")
+    return [{"price": base_price, "quantity": 1}, {"price": usage_price}]
 
 
 def get_frontend_url() -> str:
@@ -498,19 +517,22 @@ def sync_subscription_to_shop(
     # Subscription items are authoritative; portal changes do not update metadata.
     # Never enable AI from an old metadata flag after the add-on is removed.
     items = get_object_value(get_object_value(subscription, "items", {}), "data", [])
-    ai_price_id = os.getenv("STRIPE_AI_VOICE_PRICE_ID")
-    if ai_price_id:
-        shop.ai_voice_enabled = (
-            subscription_status in {"active", "trialing"}
-            and any(
-                get_stripe_id(get_object_value(item, "price")) == ai_price_id
-                and (get_object_value(item, "quantity", 0) or 0) > 0
-                for item in items
-            )
+    ai_base_prices = {
+        price_id
+        for price_id in (
+            os.getenv("STRIPE_AI_VOICE_PRICE_ID"),
+            os.getenv("STRIPE_AI_NEW_BASE_PRICE_ID"),
         )
-    else:
-        # Missing billing configuration must not grant access.
-        shop.ai_voice_enabled = False
+        if price_id
+    }
+    shop.ai_voice_enabled = (
+        subscription_status in {"active", "trialing"}
+        and any(
+            get_stripe_id(get_object_value(item, "price")) in ai_base_prices
+            and (get_object_value(item, "quantity", 0) or 0) > 0
+            for item in items
+        )
+    )
 
     if customer_id:
         shop.stripe_customer_id = customer_id
@@ -609,6 +631,15 @@ def create_connect_onboarding_link(
     )
 
 
+@router.get("/signup-pricing")
+def get_signup_pricing():
+    try:
+        ai_checkout_line_items(metered=True)
+    except RuntimeError:
+        return {"metered_ai": False}
+    return {"metered_ai": True}
+
+
 @router.post("/create-checkout-session")
 def create_checkout_session(
     payload: CheckoutSessionCreate | None = None,
@@ -621,6 +652,7 @@ def create_checkout_session(
         else "scheduling"
     )
 
+    metered_ai = False
     try:
         stripe.api_key = get_stripe_secret_key()
 
@@ -635,14 +667,9 @@ def create_checkout_session(
         ]
 
         if selected_plan == "scheduling_ai":
-            ai_voice_price_id = get_ai_voice_price_id()
-
-            line_items.append(
-                {
-                    "price": ai_voice_price_id,
-                    "quantity": 1,
-                }
-            )
+            ai_items = ai_checkout_line_items(metered=bool(payload and payload.metered_ai))
+            metered_ai = len(ai_items) == 2
+            line_items.extend(ai_items)
 
     except RuntimeError as exc:
         raise HTTPException(
@@ -665,6 +692,7 @@ def create_checkout_session(
         "owner_user_id": str(current_user.id),
         "plan": selected_plan,
         "welcome_email": "v1",
+        "metered_ai": "true" if metered_ai else "false",
         "ai_voice_enabled": (
             "true"
             if ai_voice_selected
@@ -739,6 +767,7 @@ def create_checkout_session(
         "success": True,
         "plan": selected_plan,
         "ai_voice_enabled": ai_voice_selected,
+        "metered_ai": metered_ai,
         "checkout_url": checkout_session.url,
         "checkout_session_id": checkout_session.id,
     }
@@ -1325,6 +1354,7 @@ async def stripe_webhook(
                         owner_id=get_object_value(metadata, "owner_user_id"),
                         plan=get_object_value(metadata, "plan"),
                         frontend_url=get_frontend_url(),
+                        metered_ai=get_object_value(metadata, "metered_ai") == "true",
                     )
 
         elif event_type in {
