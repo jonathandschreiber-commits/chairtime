@@ -42,7 +42,7 @@ def qualifies(billing):
 
 
 def alert_view(db, shop, billing):
-    if not billing or not billing.get("metered") or billing.get("included_minutes") != 250:
+    if not billing or not billing.get("metered") or billing.get("included_minutes") != 250 or billing.get("overage_rate_cents") != 29:
         return None
     key = identity(shop.id, shop.stripe_subscription_id, billing["period_start"])
     row = db.get(AIUsageLimitAlert, key)
