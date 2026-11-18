@@ -80,9 +80,12 @@ def summarize(subscription, preview, usage_price=None):
         period = value(line, "period", {})
         if value(period, "start") != start or value(period, "end") != end:
             continue
-        if value(line, "quantity") is None:
+        quantity = value(line, "quantity_decimal")
+        if quantity is None:
+            quantity = value(line, "quantity")
+        if quantity is None:
             raise ValueError("Missing usage quantity")
-        used += Decimal(str(value(line, "quantity")))
+        used += Decimal(str(quantity))
         amount += value(line, "amount", 0)
         matched = True
     if not matched:
