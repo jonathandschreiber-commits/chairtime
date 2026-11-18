@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import AdminUserBar from "./AdminUserBar";
+import SavePageShortcut from "./SavePageShortcut";
  
 const COOKIE_NAME = "chairtime_token";
  
@@ -12,6 +13,7 @@ export default async function AdminHome({
     : "/admin";
  
   let businessName = "";
+  let businessPhone = "";
   let aiVoiceEnabled = false;
  
   let currentUser = null;
@@ -105,6 +107,7 @@ export default async function AdminHome({
           if (response.ok) {
             const currentShop =
               await response.json();
+            businessPhone = currentShop?.phone || "";
  
             if (
               currentShop?.name
@@ -373,6 +376,33 @@ export default async function AdminHome({
         </div>
  
  
+        {isOwner && shop && (
+          <section aria-label="Your DayTello pages" className="mb-6 grid gap-4 sm:grid-cols-2">
+            <div className="rounded-2xl border border-indigo-100 bg-white p-5">
+              <h2 className="text-lg font-bold text-slate-900">Owner dashboard</h2>
+              <p className="mt-1 text-sm text-slate-600">
+                You’re here. Use this page to set up your services and staff, and manage bookings.
+              </p>
+              <div className="mt-3"><SavePageShortcut pageName="your owner dashboard" /></div>
+            </div>
+            <div className="rounded-2xl border border-indigo-100 bg-white p-5">
+              <h2 className="text-lg font-bold text-slate-900">Customer booking page</h2>
+              <p className="mt-1 text-sm text-slate-600">
+                Open this page to see what customers see. Share this link so they can book.
+              </p>
+              <a
+                href={`/${encodeURIComponent(shop)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-3 inline-block break-all text-sm font-semibold text-indigo-700 underline"
+              >
+                { `daytello.com/${encodeURIComponent(shop)}` }
+              </a>
+              {businessPhone && <p className="mt-2 text-sm text-slate-600">Shop phone {businessPhone}</p>}
+            </div>
+          </section>
+        )}
+
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {buttons.map(
             (button) => (
