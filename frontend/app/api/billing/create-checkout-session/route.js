@@ -22,6 +22,19 @@ async function getAuthToken() {
   );
 }
 
+export async function GET() {
+  try {
+    const response = await fetch(`${getApiUrl()}/api/billing/signup-pricing`, {
+      cache: "no-store",
+    });
+    if (response.ok) {
+      const status = await response.json();
+      return NextResponse.json({ metered_ai: status.metered_ai === true });
+    }
+  } catch {}
+  return NextResponse.json({ metered_ai: false });
+}
+
 export async function POST(request) {
   try {
     const token = await getAuthToken();
