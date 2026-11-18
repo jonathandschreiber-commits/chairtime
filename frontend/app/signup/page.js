@@ -875,7 +875,7 @@ export default function SignupPage() {
                           color: "#7c3aed",
                         }}
                       >
-                        $99/month
+                        $98/month
                       </div>
 
                       <div
@@ -922,7 +922,7 @@ export default function SignupPage() {
                     <div>250 AI receptionist minutes included each billing month.</div>
                     <div style={{ marginTop: "4px", fontSize: "13px" }}>
                       <ul style={{ margin: 0, paddingLeft: "18px", listStyleType: "disc", fontWeight: 400 }}>
-                        <li>Each additional AI minute is 19¢.</li>
+                        <li>Each additional AI minute is 29¢.</li>
                       </ul>
                     </div>
                   </div>
@@ -1002,7 +1002,7 @@ export default function SignupPage() {
               After 30 days, your selected plan will be{" "}
               <strong>
                 {selectedPlan === "scheduling_ai"
-                  ? "$99 per month plus any additional AI minutes"
+                  ? "$98 per month plus any additional AI minutes"
                   : "$49 per month"}
               </strong>{" "}
               unless you cancel.
