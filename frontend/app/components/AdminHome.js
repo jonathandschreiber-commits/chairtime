@@ -7,6 +7,7 @@ const COOKIE_NAME = "chairtime_token";
  
 export default async function AdminHome({
   shop = "",
+  showShopInfo = false,
 }) {
   const basePath = shop
     ? "/" + shop + "/admin"
@@ -331,6 +332,15 @@ export default async function AdminHome({
    */
   const buttons = isOwner
     ? [
+        {
+          name: "Your Shop Info",
+          description: "Your shop links, QR code, phone numbers, and setup instructions.",
+          href: basePath + "/shop-info",
+          icon: "🏪",
+          cardClass: "bg-gradient-to-br from-indigo-50 to-violet-100 border-indigo-200",
+          iconClass: "bg-gradient-to-br from-indigo-500 to-violet-600",
+          arrowClass: "text-indigo-600 border-indigo-300 hover:bg-indigo-100",
+        },
         ...operationalButtons,
         ...ownerButtons,
       ]
@@ -358,7 +368,7 @@ export default async function AdminHome({
               </p>
  
               <h1 className="text-4xl sm:text-5xl font-extrabold text-slate-900 leading-tight">
-                {title}
+                {showShopInfo ? "Your Shop Info" : title}
               </h1>
  
               {currentUserName &&
@@ -380,17 +390,17 @@ export default async function AdminHome({
         </div>
  
  
-        {isOwner && shop && (
+        {showShopInfo && isOwner && shop && (
           <section aria-label="Your DayTello pages" className="mb-6 grid gap-4 sm:grid-cols-2">
             <div className="rounded-2xl border border-indigo-100 bg-white p-5">
               <h2 className="text-lg font-bold text-slate-900">Owner dashboard</h2>
               <p className="mt-1 text-sm text-slate-600">
-                You’re here. Use this page to set up your services and staff, and manage bookings.
+                Use your owner dashboard to set up your services and staff, and manage bookings.
               </p>
               <p className="mt-3 break-all text-sm text-slate-700">
                 {`daytello.com/${encodeURIComponent(shop)}/admin`}
               </p>
-              <div className="mt-2"><SavePageShortcut pageName="your owner dashboard" /></div>
+              <a className="mt-2 inline-block text-sm font-semibold text-indigo-700 underline" href={basePath}>Open your owner dashboard</a>
             </div>
             <div className="rounded-2xl border border-indigo-100 bg-white p-5">
               <h2 className="text-lg font-bold text-slate-900">Customer booking page</h2>
@@ -421,7 +431,7 @@ export default async function AdminHome({
           </section>
         )}
 
-        {isOwner && shop && (businessPhone || aiVoiceEnabled) && (
+        {showShopInfo && isOwner && shop && (businessPhone || aiVoiceEnabled) && (
           <section className="mb-6 rounded-2xl border border-indigo-100 bg-white p-5" aria-labelledby="shop-phone-heading">
             <h2 id="shop-phone-heading" className="text-lg font-bold text-slate-900">Shop phone &amp; call forwarding</h2>
             <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
@@ -459,7 +469,11 @@ export default async function AdminHome({
           </section>
         )}
 
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {showShopInfo && (
+          <a href={basePath} className="mb-5 inline-block font-semibold text-indigo-700 underline">Back to dashboard</a>
+        )}
+        {!showShopInfo && isOwner && <div className="mb-4"><SavePageShortcut pageName="your owner dashboard" /></div>}
+        {!showShopInfo && <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {buttons.map(
             (button) => (
               <a
@@ -495,7 +509,7 @@ export default async function AdminHome({
               </a>
             )
           )}
-        </div>
+        </div>}
  
  
         <p className="text-center text-sm text-slate-500 mt-8">
