@@ -1,3 +1,5 @@
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
@@ -578,6 +580,14 @@ if relay_enabled:
     from app.voice_relay_delivery import router as relay_recording_router
 
 
+if os.getenv("DAYTELLO_AI_USAGE_WORKER_ENABLED") == "true":
+    from threading import Event, Thread
+
+    from app.ai_usage_feed import run_live_meter_worker
+
+    ai_meter_stop = Event()
+
+
 Base.metadata.create_all(
     bind=engine
 )
@@ -589,6 +599,17 @@ run_startup_migrations()
 app = FastAPI(
     title="ChairTime API"
 )
+
+
+if os.getenv("DAYTELLO_AI_USAGE_WORKER_ENABLED") == "true":
+    @app.on_event("startup")
+    def start_ai_meter_worker():
+        ai_meter_stop.clear()
+        Thread(target=run_live_meter_worker, args=(ai_meter_stop,), daemon=True).start()
+
+    @app.on_event("shutdown")
+    def stop_ai_meter_worker():
+        ai_meter_stop.set()
 
 
 if relay_enabled:
