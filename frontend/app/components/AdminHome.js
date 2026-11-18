@@ -383,7 +383,10 @@ export default async function AdminHome({
               <p className="mt-1 text-sm text-slate-600">
                 You’re here. Use this page to set up your services and staff, and manage bookings.
               </p>
-              <div className="mt-3"><SavePageShortcut pageName="your owner dashboard" /></div>
+              <p className="mt-3 break-all text-sm text-slate-700">
+                {`daytello.com/${encodeURIComponent(shop)}/admin`}
+              </p>
+              <div className="mt-2"><SavePageShortcut pageName="your owner dashboard" /></div>
             </div>
             <div className="rounded-2xl border border-indigo-100 bg-white p-5">
               <h2 className="text-lg font-bold text-slate-900">Customer booking page</h2>
@@ -396,7 +399,7 @@ export default async function AdminHome({
                 rel="noopener noreferrer"
                 className="mt-3 inline-block break-all text-sm font-semibold text-indigo-700 underline"
               >
-                { `daytello.com/${encodeURIComponent(shop)}` }
+                {`daytello.com/${encodeURIComponent(shop)}`}
               </a>
               {businessPhone && <p className="mt-2 text-sm text-slate-600">Shop phone {businessPhone}</p>}
             </div>
