@@ -194,6 +194,11 @@ export default function SignupPage() {
         selectedPlan
       );
 
+      sessionStorage.setItem(
+        "daytello_signup_metered_ai",
+        String(checkoutData.metered_ai === true)
+      );
+
       window.location.href = checkoutUrl;
     } catch (error) {
       setError(
