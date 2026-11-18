@@ -7,6 +7,7 @@ import {
   useState,
 } from "react";
 import { useParams } from "next/navigation";
+import SavePageShortcut from "../components/SavePageShortcut";
 
 const STRIPE_PUBLISHABLE_KEY =
   process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY ||
@@ -1732,6 +1733,9 @@ export default function ShopBookingPage({ apiBase }) {
             Choose your service, staff
             member, date, and time.
           </p>
+          <div className="mt-3">
+            <SavePageShortcut pageName="your booking page" />
+          </div>
 
           {message && (
             <p
@@ -1764,7 +1768,6 @@ export default function ShopBookingPage({ apiBase }) {
               onChange={
                 handlePhoneChange
               }
-              placeholder="240-555-1234"
             />
 
 
