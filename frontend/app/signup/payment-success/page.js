@@ -153,7 +153,7 @@ export default function PaymentSuccessPage() {
             fontSize: "12px",
           }}
         >
-          Checkout confirmed.
+          Look for “Welcome to DayTello” from welcome@updates.daytello.com. If it’s missing, check Spam or Junk and mark it as “Not spam.” You can continue setup here right away.
         </p>
       </section>
     </main>
