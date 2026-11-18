@@ -850,3 +850,60 @@ def confirm_ai_upgrade(payload: AIUpgradeConfirm, current_user: User = Depends(g
     except stripe.StripeError as exc:
         db.rollback()
         raise HTTPException(status_code=502, detail=stripe_error_message(exc, "Could not verify the upgrade. Check again; do not start another subscription."))
+
+
+@router.get("/ai-usage")
+def get_ai_usage(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    from app.ai_usage_summary import summarize
+    shop = get_owner_shop(current_user, db)
+    response = {"success": True, "shop_slug": shop.slug, "shop_name": shop.name,
+                "ai_enabled": bool(shop.ai_voice_enabled), "billing": None}
+    if not shop.stripe_subscription_id or not shop.stripe_customer_id:
+        response["message"] = "Your shop does not have a billing subscription yet."
+        return response
+    try:
+        stripe.api_key = get_stripe_secret_key()
+        subscription = stripe.Subscription.retrieve(shop.stripe_subscription_id)
+        if get_stripe_id(get_object_value(subscription, "customer")) != shop.stripe_customer_id:
+            raise HTTPException(status_code=409, detail="The billing account could not be verified for this shop.")
+        metered = [item for item in get_object_value(get_object_value(subscription, "items", {}), "data", [])
+                   if get_object_value(get_object_value(get_object_value(item, "price", {}), "recurring", {}), "usage_type") == "metered"]
+        price = stripe.Price.retrieve(get_stripe_id(get_object_value(metered[0], "price")), expand=["tiers"]) if len(metered) == 1 else None
+        preview = None
+        try:
+            preview = stripe.Invoice.create_preview(customer=shop.stripe_customer_id, subscription=shop.stripe_subscription_id)
+        except stripe.InvalidRequestError:
+            # Canceled subscriptions may not have an upcoming invoice.
+            pass
+        response["billing"] = summarize(subscription, preview, price)
+        response["call_minutes"] = None
+        response["call_count"] = None
+        # Trial and legacy plans have no paid meter quantities. Show their actual
+        # call history separately, without treating it as billable overage.
+        if shop.ai_voice_enabled and (not metered or get_object_value(subscription, "status") == "trialing"):
+            from datetime import datetime, timezone
+            import os
+            from app.ai_usage_review import fetch_live_calls
+            agent = shop.highlevel_agent_id
+            location = shop.highlevel_location_id
+            token = os.getenv("HIGHLEVEL_API_TOKEN")
+            billing = response["billing"]
+            unique_agent = agent and db.query(Shop).filter(Shop.highlevel_agent_id == agent,
+                Shop.highlevel_location_id == location).count() == 1
+            if unique_agent and token and location == os.getenv("HIGHLEVEL_LOCATION_ID") and billing["period_start"] and billing["period_end"]:
+                start = datetime.fromisoformat(billing["period_start"])
+                period_end = datetime.fromisoformat(billing["period_end"])
+                end = min(period_end, datetime.now(timezone.utc))
+                try:
+                    if end > start:
+                        calls = [c for c in fetch_live_calls(location, token, {agent}, start, end) if c[2] < period_end]
+                        response["call_minutes"] = round(sum(c[3] for c in calls) / 60, 4)
+                        response["call_count"] = len(calls)
+                except Exception:
+                    # A provider outage must not turn missing usage into zero.
+                    response["call_usage_note"] = "Call history is temporarily unavailable. Refresh to check again."
+        return response
+    except (RuntimeError, ValueError):
+        raise HTTPException(status_code=503, detail="Usage and billing information is temporarily unavailable. Please try again.")
+    except stripe.StripeError:
+        raise HTTPException(status_code=502, detail="Unable to load usage and billing information. Please try again.")
