@@ -1,4 +1,9 @@
+import base64
 import re
+from urllib.parse import quote
+
+import qrcode
+from qrcode.image.svg import SvgPathImage
  
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.exc import IntegrityError
@@ -342,9 +347,15 @@ def get_authenticated_shop(
             detail="Business not found.",
         )
  
-    return authenticated_shop_response(
-        shop
-    )
+    response = authenticated_shop_response(shop)
+    if current_user.role == "owner":
+        booking_url = f"https://www.daytello.com/{quote(shop.slug, safe='')}"
+        qr_image = qrcode.make(booking_url, image_factory=SvgPathImage)
+        qr_bytes = base64.b64encode(qr_image.to_string()).decode("ascii")
+        response["booking_qr_code"] = f"data:image/svg+xml;base64,{qr_bytes}"
+        if shop.ai_voice_enabled:
+            response["ai_phone_number"] = shop.highlevel_phone_number or None
+    return response
  
  
 @router.patch(

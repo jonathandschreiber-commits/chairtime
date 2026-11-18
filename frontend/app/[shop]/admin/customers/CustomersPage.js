@@ -25,7 +25,6 @@ const QUICK_TAGS = [
   "VIP",
   "Loyal",
   "No-show risk",
-  "Difficult",
   "Cash",
   "Family",
 ];

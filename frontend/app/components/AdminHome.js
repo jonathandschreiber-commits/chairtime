@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import AdminUserBar from "./AdminUserBar";
+import SavePageShortcut from "./SavePageShortcut";
  
 const COOKIE_NAME = "chairtime_token";
  
@@ -12,6 +13,9 @@ export default async function AdminHome({
     : "/admin";
  
   let businessName = "";
+  let businessPhone = "";
+  let aiPhoneNumber = "";
+  let bookingQrCode = "";
   let aiVoiceEnabled = false;
  
   let currentUser = null;
@@ -105,6 +109,9 @@ export default async function AdminHome({
           if (response.ok) {
             const currentShop =
               await response.json();
+            businessPhone = currentShop?.phone || "";
+            aiPhoneNumber = currentShop?.ai_phone_number || "";
+            bookingQrCode = currentShop?.booking_qr_code || "";
  
             if (
               currentShop?.name
@@ -373,6 +380,85 @@ export default async function AdminHome({
         </div>
  
  
+        {isOwner && shop && (
+          <section aria-label="Your DayTello pages" className="mb-6 grid gap-4 sm:grid-cols-2">
+            <div className="rounded-2xl border border-indigo-100 bg-white p-5">
+              <h2 className="text-lg font-bold text-slate-900">Owner dashboard</h2>
+              <p className="mt-1 text-sm text-slate-600">
+                You’re here. Use this page to set up your services and staff, and manage bookings.
+              </p>
+              <p className="mt-3 break-all text-sm text-slate-700">
+                {`daytello.com/${encodeURIComponent(shop)}/admin`}
+              </p>
+              <div className="mt-2"><SavePageShortcut pageName="your owner dashboard" /></div>
+            </div>
+            <div className="rounded-2xl border border-indigo-100 bg-white p-5">
+              <h2 className="text-lg font-bold text-slate-900">Customer booking page</h2>
+              <p className="mt-1 text-sm text-slate-600">
+                Open this page to see what customers see. Share this link so they can book.
+              </p>
+              <a
+                href={`/${encodeURIComponent(shop)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-3 inline-block break-all text-sm font-semibold text-indigo-700 underline"
+              >
+                {`daytello.com/${encodeURIComponent(shop)}`}
+              </a>
+              {bookingQrCode.startsWith("data:image/svg+xml;base64,") && (
+                <figure className="mt-3">
+                  <img
+                    src={bookingQrCode}
+                    alt={`Scan to book with ${title}`}
+                    width={108}
+                    height={108}
+                    className="rounded-lg border border-slate-200 bg-white"
+                  />
+                  <figcaption className="mt-1 text-sm text-slate-600">Scan to book</figcaption>
+                </figure>
+              )}
+            </div>
+          </section>
+        )}
+
+        {isOwner && shop && (businessPhone || aiVoiceEnabled) && (
+          <section className="mb-6 rounded-2xl border border-indigo-100 bg-white p-5" aria-labelledby="shop-phone-heading">
+            <h2 id="shop-phone-heading" className="text-lg font-bold text-slate-900">Shop phone &amp; call forwarding</h2>
+            <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
+              <div>
+                <dt className="font-semibold text-slate-700">Existing shop phone</dt>
+                <dd className="mt-1">
+                  {businessPhone ? <a className="text-indigo-700 underline" href={`tel:${businessPhone}`}>{businessPhone}</a> : "No shop phone on file"}
+                </dd>
+              </div>
+              {aiVoiceEnabled && (
+                <div>
+                  <dt className="font-semibold text-slate-700">DayTello AI Receptionist number</dt>
+                  <dd className="mt-1">
+                    {aiPhoneNumber ? <a className="text-indigo-700 underline" href={`tel:${aiPhoneNumber}`}>{aiPhoneNumber}</a> : "Number setup is pending"}
+                  </dd>
+                </div>
+              )}
+            </dl>
+            {aiVoiceEnabled && aiPhoneNumber && (
+              <div className="mt-4 text-sm text-slate-700">
+                <h3 className="font-semibold">Forward calls from your existing shop phone</h3>
+                <ol className="mt-2 list-decimal space-y-1 pl-5">
+                  <li>Call your DayTello AI number first and confirm the receptionist answers.</li>
+                  <li>In your current phone provider’s call-forwarding settings, set the destination to <strong>{aiPhoneNumber}</strong>. Choose all calls or unanswered calls, if supported.</li>
+                  <li>From another phone, call your existing shop number to confirm it reaches the receptionist.</li>
+                </ol>
+                <p className="mt-2">For live transfers, use a different number from the one you forward to DayTello. This avoids a call loop.</p>
+              </div>
+            )}
+            {aiVoiceEnabled && (
+              <a className="mt-3 inline-block text-sm font-semibold text-indigo-700 underline" href={`${basePath}/ai-receptionist`}>
+                {aiPhoneNumber ? "Test or manage your AI Receptionist" : "Continue AI phone setup"}
+              </a>
+            )}
+          </section>
+        )}
+
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {buttons.map(
             (button) => (

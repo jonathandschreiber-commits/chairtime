@@ -54,6 +54,9 @@ def _message(shop, owner, plan, frontend_url, *, metered_ai=False):
             " Your paid plan includes 250 AI voice minutes per billing cycle, then $0.29 per additional minute."
             if metered_ai else ""
         ),
+        "admin_url": f"{shop_url}/admin",
+        "booking_url": shop_url,
+        "shop_phone": shop.phone or "No shop phone on file yet.",
         "setup_url": f"{shop_url}/onboarding",
         "account_options_url": f"{shop_url}/admin/account",
     }
