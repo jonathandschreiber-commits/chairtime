@@ -716,7 +716,7 @@ export default function SignupPage() {
                           color: "#0f172a",
                         }}
                       >
-                        Business Management
+                        {t("Business Management")}
                       </div>
 
                       <div
@@ -727,7 +727,7 @@ export default function SignupPage() {
                           color: "#4f46e5",
                         }}
                       >
-                        $49/month
+                        {t("$49/month")}
                       </div>
                     </div>
 
@@ -756,8 +756,7 @@ export default function SignupPage() {
                       lineHeight: "1.5",
                     }}
                   >
-                    Everything you need to manage your
-                    appointments and customers.
+                    {t("Everything you need to manage your appointments and customers.")}
                   </p>
 
                   <div
@@ -787,7 +786,7 @@ export default function SignupPage() {
                             ✓
                           </span>
 
-                          <span>{feature}</span>
+                          <span>{t(feature)}</span>
                         </div>
                       )
                     )}
@@ -804,7 +803,7 @@ export default function SignupPage() {
                       fontSize: "13px",
                     }}
                   >
-                    Your first 30 days are free.
+                    {t("Your first 30 days are free.")}
                   </div>
                 </button>
 
@@ -852,7 +851,7 @@ export default function SignupPage() {
                       fontWeight: "900",
                     }}
                   >
-                    NEVER MISS A CALL
+                    {t("NEVER MISS A CALL")}
                   </div>
 
                   <div
@@ -872,9 +871,9 @@ export default function SignupPage() {
                           color: "#0f172a",
                         }}
                       >
-                        Business Management
+                        {t("Business Management")}
                         <br />
-                        + AI Receptionist
+                        {t("+ AI Receptionist")}
                       </div>
 
                       <div
@@ -885,7 +884,7 @@ export default function SignupPage() {
                           color: "#7c3aed",
                         }}
                       >
-                        $98/month
+                        {t("$98/month")}
                       </div>
 
                       <div
@@ -897,7 +896,7 @@ export default function SignupPage() {
                           lineHeight: "1.35",
                         }}
                       >
-                        Includes Business Management AND:
+                        {t("Includes Business Management AND:")}
                       </div>
                     </div>
 
@@ -929,10 +928,10 @@ export default function SignupPage() {
                       lineHeight: "1.45",
                     }}
                   >
-                    <div>250 AI receptionist minutes included each billing month.</div>
+                    <div>{t("250 AI receptionist minutes included each billing month.")}</div>
                     <div style={{ marginTop: "4px", fontSize: "13px" }}>
                       <ul style={{ margin: 0, paddingLeft: "18px", listStyleType: "disc", fontWeight: 400 }}>
-                        <li>Each additional AI minute is 29¢.</li>
+                        <li>{t("Each additional AI minute is 29¢.")}</li>
                       </ul>
                     </div>
                   </div>
@@ -963,7 +962,7 @@ export default function SignupPage() {
                           ✓
                         </span>
 
-                        <span>{feature}</span>
+                        <span>{t(feature)}</span>
                       </div>
                     ))}
                   </div>
@@ -979,7 +978,7 @@ export default function SignupPage() {
                       fontSize: "13px",
                     }}
                   >
-                    Your first 30 days are free.
+                    {t("Your first 30 days are free.")}
                   </div>
                 </button>
               </div>
@@ -999,23 +998,15 @@ export default function SignupPage() {
               }}
             >
               <strong>
-                Next: secure card setup with Stripe.
+                {t("Next: secure card setup with Stripe.")}
               </strong>
               <br />
-              A credit card is required to start your
-              free trial, but you&apos;ll pay{" "}
-              <strong>$0 today</strong>. You won&apos;t
-              be charged until your 30-day free trial
-              ends.
-              <br />
-              <br />
-              After 30 days, your selected plan will be{" "}
-              <strong>
-                {selectedPlan === "scheduling_ai"
-                  ? "$98 per month plus any additional AI minutes"
-                  : "$49 per month"}
-              </strong>{" "}
-              unless you cancel.
+              {t("A credit card is required to start your free trial. You will not be charged today. Your selected plan begins billing after your 30-day trial unless you cancel.")}
+              <br /><br />
+              <strong>{t(selectedPlan === "scheduling_ai"
+                ? "After 30 days, your selected plan will be $98 per month plus any additional AI minutes unless you cancel."
+                : "After 30 days, your selected plan will be $49 per month unless you cancel."
+              )}</strong>
             </div>
 
             <button
@@ -1024,20 +1015,20 @@ export default function SignupPage() {
               disabled={loading || aiCheckoutPending}
             >
               {aiCheckoutPending
-                ? "AI Receptionist Checkout Temporarily Unavailable"
+                ? t("AI Receptionist Checkout Temporarily Unavailable")
                 : loading
-                  ? "Opening Secure Checkout..."
-                  : "Create Account & Start Free Trial"}
+                  ? t("Opening Secure Checkout...")
+                  : t("Create Account & Start Free Trial")}
             </button>
           </form>
 
           <p className={styles.footer}>
-            Already have a DayTello account?{" "}
+            {t("Already have a DayTello account?")}{" "}
             <Link
               href="/login"
               className={styles.loginLink}
             >
-              Sign in
+              {t("Sign in")}
             </Link>
           </p>
         </section>
