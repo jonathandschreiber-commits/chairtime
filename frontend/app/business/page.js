@@ -315,6 +315,11 @@ export default function BusinessPage() {
         <h2 className="text-lg font-bold">Recent outgoing texts</h2>
         <p className="mt-2 text-sm text-slate-600">Saved message IDs link future billed SMS charges to the sending shop. Accepted means HighLevel accepted the request; it does not confirm delivery or billing.</p>
         {report?.highlevel?.status === "connected" && <p className="mt-2 text-sm text-slate-600">Matched SMS charges this month: {report.highlevel.matched_sms_transactions ?? 0} · Unmatched: {report.highlevel.unmatched_sms_transactions ?? 0} · Matched Voice AI charges: {report.highlevel.matched_voice_transactions ?? 0} · Unmatched: {report.highlevel.unmatched_voice_transactions ?? 0} · Matched phone call charges: {report.highlevel.matched_phone_call_transactions ?? 0} · Matched number rentals: {report.highlevel.matched_number_transactions ?? 0}</p>}
+        {report?.highlevel?.wallet_detail_results && <p className="mt-2 text-sm text-slate-600">
+          Wallet detail references found: {report.highlevel.wallet_detail_references ?? 0}
+          {Object.entries(report.highlevel.wallet_detail_results).map(([result, count]) =>
+            <span key={result}> · {result}: {count}</span>)}
+        </p>}
         <div className="mt-4 space-y-3">{report?.recent_outbound_messages?.length ? report.recent_outbound_messages.map((item) => <div key={item.attempt_id} className="rounded-xl bg-slate-50 p-3 text-sm"><p className="font-semibold">{item.shop_slug || "Unassigned"} · {item.purpose}</p><p className="mt-1 break-all text-slate-600">{item.status} · {item.created_at} · Message ID: {item.message_id || "Not recorded"}</p></div>) : <p className="text-sm text-slate-500">No tracked texts yet. Tracking begins after these changes are deployed.</p>}</div>
       </section>
       <footer className="mt-6 pb-6 text-xs leading-relaxed text-slate-500"><p>{report?.basis_note}</p><p className="mt-2">Active recurring plan total: {money(totals.active_monthly_cents)}/month. Trials are excluded from this recurring total. Subscription collections and transaction fees come from Stripe, not estimated plan amounts.</p></footer>

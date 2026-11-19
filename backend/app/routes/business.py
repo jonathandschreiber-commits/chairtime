@@ -119,6 +119,7 @@ def wallet_call_references(records, token, location):
     """Read only the identifiers needed for attribution, within the report's time budget."""
     deadline = time.monotonic() + 5
     references = {}
+    results = {}
     for row, _, description in records:
         category = highlevel_usage_category(description)
         if category not in {"Voice AI", "Phone calls"}:
@@ -129,15 +130,16 @@ def wallet_call_references(records, token, location):
         transaction_id = row["id"]
         if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", transaction_id):
             continue
-        query = urlencode({"settlementTime": row["settlementTime"]})
+        query = urlencode({"settlementTime": row["settlementTime"], "locationId": location})
         req = url_request.Request(
             f"https://services.leadconnectorhq.com/wallet/transactions/{transaction_id}?{query}",
             headers={"Authorization": f"Bearer {token}", "Version": "v3",
-                     "Accept": "application/json", "LocationId": location},
+                     "Accept": "application/json"},
         )
         try:
             with url_request.urlopen(req, timeout=min(2, remaining)) as reply:
                 raw = reply.read(256_001)
+            results["responses"] = results.get("responses", 0) + 1
             if len(raw) > 256_000:
                 continue
             data = json.loads(raw)
@@ -164,11 +166,13 @@ def wallet_call_references(records, token, location):
             if isinstance(identity, str) and re.fullmatch(r"[A-Za-z0-9_-]{1,128}", identity):
                 references[transaction_id] = (field, identity)
         except url_error.HTTPError as failure:
+            key = f"HTTP {failure.code}"
+            results[key] = results.get(key, 0) + 1
             if failure.code in {401, 403, 429}:
                 break
         except (url_error.URLError, TimeoutError, OSError, ValueError):
-            continue
-    return references
+            results["failed requests"] = results.get("failed requests", 0) + 1
+    return references, results
 
 
 def voice_shop_matches(location, descriptions, shops, diagnostic=None, wallet_references=()):
@@ -379,7 +383,7 @@ def highlevel_month_usage(start, end, shops, db=None, include_voice_diagnostic=F
                 db.rollback()
                 tracking_available = False
         voice_diagnostic = {} if include_voice_diagnostic else None
-        wallet_references = wallet_call_references(records, token, location)
+        wallet_references, wallet_detail_results = wallet_call_references(records, token, location)
         voice_matches, voice_status = voice_shop_matches(
             location, [text for _, _, text in records], shops, diagnostic=voice_diagnostic,
             wallet_references=wallet_references.values())
@@ -456,6 +460,8 @@ def highlevel_month_usage(start, end, shops, db=None, include_voice_diagnostic=F
                 "unmatched_voice_transactions": unmatched_voice,
                 "matched_number_transactions": matched_numbers,
                 "matched_phone_call_transactions": matched_phone_calls,
+                "wallet_detail_results": wallet_detail_results,
+                "wallet_detail_references": len(wallet_references),
                 "excluded_funding_count": ignored, "checked_at": datetime.now(timezone.utc).isoformat(),
                 "through": cutoff.isoformat(), "basis": "USD wallet charges by settlement time; sub-cent amounts are rounded only after aggregation."}
     except (url_error.URLError, TimeoutError, OSError, ValueError, TypeError, InvalidOperation, UnicodeError) as failure:
