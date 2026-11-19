@@ -1841,7 +1841,7 @@ export default function SetupPage() {
         <div className="bg-white p-6 rounded-2xl shadow-lg border border-indigo-200 space-y-5">
           <div>
             <h2 className="text-2xl font-bold">
-              Shop Closures & Breaks
+              {t("Shop Closures & Breaks")}
             </h2>
 
             <p className="text-gray-600 mt-1">
@@ -1852,7 +1852,7 @@ export default function SetupPage() {
 
           <div className="border rounded-2xl p-4 space-y-3">
             <h3 className="text-xl font-bold">
-              One-Time Time Block
+              {t("One-Time Time Block")}
             </h3>
 
             <p className="text-sm text-gray-600">
@@ -1870,7 +1870,7 @@ export default function SetupPage() {
                   event.target.value
                 )
               }
-              placeholder="Reason"
+              placeholder={t("Reason")}
               className="border p-3 rounded w-full"
             />
 
@@ -1901,13 +1901,13 @@ export default function SetupPage() {
               onClick={addShopBlockTime}
               className="bg-black text-white px-4 py-3 rounded-xl font-bold"
             >
-              Block Entire Shop
+              {t("Block Entire Shop")}
             </button>
           </div>
 
           <div className="border rounded-2xl p-4 space-y-3">
             <h3 className="text-xl font-bold">
-              Full-Day Shop Closure
+              {t("Full-Day Shop Closure")}
             </h3>
 
             <p className="text-sm text-gray-600">
@@ -1935,7 +1935,7 @@ export default function SetupPage() {
                   event.target.value
                 )
               }
-              placeholder="Reason"
+              placeholder={t("Reason")}
               className="border p-3 rounded w-full"
             />
 
@@ -1948,7 +1948,7 @@ export default function SetupPage() {
                 }
                 className="bg-black text-white px-4 py-3 rounded-xl font-bold"
               >
-                Close Shop
+                {t("Close Shop")}
               </button>
 
               <button
@@ -1959,7 +1959,7 @@ export default function SetupPage() {
                 }
                 className="bg-gray-800 text-white px-4 py-3 rounded-xl font-bold"
               >
-                Vacation
+                {t("Vacation")}
               </button>
 
               <button
@@ -1970,14 +1970,14 @@ export default function SetupPage() {
                 }
                 className="bg-gray-200 px-4 py-3 rounded-xl font-bold"
               >
-                Holiday
+                {t("Holiday")}
               </button>
             </div>
           </div>
 
           <div className="border rounded-2xl p-4 space-y-3">
             <h3 className="text-xl font-bold">
-              Recurring Shop Block
+              {t("Recurring Shop Block")}
             </h3>
 
             <p className="text-sm text-gray-600">
@@ -1994,14 +1994,14 @@ export default function SetupPage() {
                   event.target.value
                 )
               }
-              placeholder="Reason"
+              placeholder={t("Reason")}
               className="border p-3 rounded w-full"
             />
 
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
                 <p className="font-bold mb-1">
-                  Start Date
+                  {t("Start Date")}
                 </p>
 
                 <input
@@ -2018,7 +2018,7 @@ export default function SetupPage() {
 
               <div>
                 <p className="font-bold mb-1">
-                  End Date
+                  {t("End Date")}
                 </p>
 
                 <input
@@ -2037,7 +2037,7 @@ export default function SetupPage() {
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
                 <p className="font-bold mb-1">
-                  Start Time
+                  {t("Start Time")}
                 </p>
 
                 <input
@@ -2054,7 +2054,7 @@ export default function SetupPage() {
 
               <div>
                 <p className="font-bold mb-1">
-                  End Time
+                  {t("End Time")}
                 </p>
 
                 <input
@@ -2072,7 +2072,7 @@ export default function SetupPage() {
 
             <div>
               <p className="font-bold mb-2">
-                Days
+                {t("Days")}
               </p>
 
               <div className="grid gap-2 sm:grid-cols-4">
@@ -2119,19 +2119,19 @@ export default function SetupPage() {
               onClick={addRecurringShopBlock}
               className="bg-black text-white px-4 py-3 rounded-xl font-bold"
             >
-              Save Recurring Block
+              {t("Save Recurring Block")}
             </button>
           </div>
 
           <div className="space-y-2">
             <h3 className="text-xl font-bold">
-              Upcoming Shop-Wide Blocks
+              {t("Upcoming Shop-Wide Blocks")}
             </h3>
 
             {upcomingShopBlockedTimes.length ===
             0 ? (
               <p className="text-gray-500">
-                No upcoming shop-wide closures
+                {t("No upcoming shop-wide closures")}
                 or breaks.
               </p>
             ) : (
@@ -2160,7 +2160,7 @@ export default function SetupPage() {
 
                       {block.series_id && (
                         <p className="text-xs text-gray-500 mt-1">
-                          Recurring
+                          {t("Recurring")}
                         </p>
                       )}
                     </div>
@@ -2174,7 +2174,7 @@ export default function SetupPage() {
                         }
                         className="bg-red-500 text-white px-3 py-2 rounded"
                       >
-                        Delete This One
+                        {t("Delete This One")}
                       </button>
 
                       {block.series_id && (
@@ -2186,7 +2186,7 @@ export default function SetupPage() {
                           }
                           className="bg-red-700 text-white px-3 py-2 rounded"
                         >
-                          Delete Series
+                          {t("Delete Series")}
                         </button>
                       )}
                     </div>
@@ -2201,7 +2201,7 @@ export default function SetupPage() {
 
         <div className="bg-white p-6 rounded-2xl shadow-lg border border-indigo-200 space-y-4">
           <h2 className="text-2xl font-bold">
-            Staff Member
+            {t("Staff Member")}
           </h2>
 
           <p className="text-gray-600">
@@ -2213,14 +2213,14 @@ export default function SetupPage() {
           {barbers.length === 0 ? (
             <div className="space-y-3">
               <p className="text-gray-500">
-                No staff members found.
+                {t("No staff members found.")}
               </p>
 
               <a
                 href={`/${shopSlug}/admin/staff`}
                 className="inline-block bg-black text-white px-4 py-3 rounded-xl font-bold"
               >
-                Add Staff
+                {t("Add Staff")}
               </a>
             </div>
           ) : (
@@ -2273,7 +2273,7 @@ export default function SetupPage() {
                 className="border p-3 rounded w-full"
               >
                 <option value="">
-                  Choose service
+                  {t("Choose service")}
                 </option>
 
                 {availableCatalogServices.map(
@@ -2300,7 +2300,7 @@ export default function SetupPage() {
               <input
                 type="number"
                 min="1"
-                placeholder="Duration in minutes"
+                placeholder={t("Duration in minutes")}
                 value={serviceDuration}
                 onChange={(event) =>
                   setServiceDuration(
@@ -2314,7 +2314,7 @@ export default function SetupPage() {
                 type="number"
                 min="0"
                 step="0.01"
-                placeholder="Price"
+                placeholder={t("Price")}
                 value={servicePrice}
                 onChange={(event) =>
                   setServicePrice(
@@ -2337,7 +2337,7 @@ export default function SetupPage() {
                     : "bg-black text-white"
                 }`}
               >
-                Assign Service
+                {t("Assign Service")}
               </button>
 
               <div className="space-y-2">
@@ -2406,7 +2406,7 @@ export default function SetupPage() {
                                 )
                               }
                               className="border p-3 rounded w-full"
-                              placeholder="Duration in minutes"
+                              placeholder={t("Duration in minutes")}
                             />
 
                             <input
@@ -2425,7 +2425,7 @@ export default function SetupPage() {
                                 )
                               }
                               className="border p-3 rounded w-full"
-                              placeholder="Price"
+                              placeholder={t("Price")}
                             />
 
                             <div className="flex gap-2">
@@ -2437,7 +2437,7 @@ export default function SetupPage() {
                                 }
                                 className="bg-black text-white px-4 py-2 rounded-xl"
                               >
-                                Save
+                                {t("Save")}
                               </button>
 
                               <button
@@ -2446,7 +2446,7 @@ export default function SetupPage() {
                                 }
                                 className="bg-gray-200 px-4 py-2 rounded-xl"
                               >
-                                Cancel
+                                {t("Cancel")}
                               </button>
                             </div>
                           </div>
@@ -2490,7 +2490,7 @@ export default function SetupPage() {
                                 }
                                 className="bg-red-500 text-white px-3 py-2 rounded"
                               >
-                                Remove
+                                {t("Remove")}
                               </button>
                             </div>
                           </div>
@@ -2504,7 +2504,7 @@ export default function SetupPage() {
 
             <div className="bg-white p-6 rounded-2xl shadow-lg border border-indigo-200 space-y-4">
               <h2 className="text-2xl font-bold">
-                Weekly Availability
+                {t("Weekly Availability")}
               </h2>
 
               <p className="text-gray-600">
@@ -2563,7 +2563,7 @@ export default function SetupPage() {
                 onClick={addAvailabilityRule}
                 className="bg-black text-white px-4 py-3 rounded-xl"
               >
-                Save Availability
+                {t("Save Availability")}
               </button>
 
               <div className="space-y-2">
@@ -2615,7 +2615,7 @@ export default function SetupPage() {
 
             <div className="bg-white p-6 rounded-2xl shadow-lg border border-indigo-200 space-y-4">
               <h2 className="text-2xl font-bold">
-                Quick Block Time
+                {t("Quick Block Time")}
               </h2>
 
               <p className="text-gray-600">
@@ -2633,7 +2633,7 @@ export default function SetupPage() {
                     event.target.value
                   )
                 }
-                placeholder="Reason"
+                placeholder={t("Reason")}
                 className="border p-3 rounded w-full"
               />
 
@@ -2663,18 +2663,18 @@ export default function SetupPage() {
                 onClick={blockTime}
                 className="bg-black text-white px-4 py-3 rounded-xl"
               >
-                Block Time
+                {t("Block Time")}
               </button>
 
               <div className="space-y-2 pt-2">
                 <h3 className="text-lg font-bold">
-                  Upcoming Blocked Times
+                  {t("Upcoming Blocked Times")}
                 </h3>
 
                 {selectedBarberBlockedTimes.length ===
                 0 ? (
                   <p className="text-gray-500">
-                    No upcoming blocked times
+                    {t("No upcoming blocked times")}
                     for{" "}
                     {selectedBarber.name}.
                   </p>
@@ -2715,7 +2715,7 @@ export default function SetupPage() {
 
             <div className="bg-white p-6 rounded-2xl shadow-lg border border-indigo-200 space-y-4">
               <h2 className="text-2xl font-bold">
-                Full Day Block
+                {t("Full Day Block")}
               </h2>
 
               <p className="text-gray-600">
@@ -2747,7 +2747,7 @@ export default function SetupPage() {
                   }
                   className="bg-black text-white px-4 py-3 rounded-xl"
                 >
-                  Vacation
+                  {t("Vacation")}
                 </button>
 
                 <button
