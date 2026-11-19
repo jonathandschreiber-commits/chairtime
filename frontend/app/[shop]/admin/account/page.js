@@ -1,6 +1,6 @@
 "use client";
 
-import { ShopMessage, useShopMessages } from "../../../components/ShopLanguage";
+import { ShopMessage, useShopLanguage, useShopMessages } from "../../../components/ShopLanguage";
 
 
 import { useEffect, useState } from "react";
@@ -8,6 +8,7 @@ import { useParams } from "next/navigation";
 
 export default function AccountOptionsPage() {
   const t = useShopMessages();
+  const language = useShopLanguage();
   const params = useParams();
   const shop = params?.shop || "";
 
@@ -97,7 +98,7 @@ export default function AccountOptionsPage() {
     }
 
     return date.toLocaleDateString(
-      undefined,
+      language === "en" ? undefined : language,
       {
         year: "numeric",
         month: "long",
@@ -747,7 +748,7 @@ export default function AccountOptionsPage() {
             <p className="text-lg text-slate-800 mt-3 leading-relaxed"><ShopMessage>{"Save time and manage your bookings in one place. Your AI Receptionist checks live availability before booking to help prevent double bookings and appointments outside staff hours."}</ShopMessage></p>
             <p className="text-base text-slate-700 mt-3 leading-relaxed"><ShopMessage>{"It uses your shop's current services, staff, prices and hours. Keep your existing phone number and booking URL."}</ShopMessage></p>
             {account?.ai_voice_enabled ? (
-              <button type="button" onClick={startAIUpgrade} disabled={upgrading} className="mt-4 rounded-xl bg-violet-600 px-5 py-3 font-extrabold text-white disabled:opacity-60">{upgrading ? "Checking..." : "Continue AI Receptionist Setup"}</button>
+              <button type="button" onClick={startAIUpgrade} disabled={upgrading} className="mt-4 rounded-xl bg-violet-600 px-5 py-3 font-extrabold text-white disabled:opacity-60">{t(upgrading ? "Checking..." : "Continue AI Receptionist Setup")}</button>
             ) : upgradeQuote ? (
               <div className="mt-4 rounded-xl border border-violet-200 bg-white p-5">
                 <h3 className="font-bold text-lg">Confirm your upgrade</h3>
@@ -903,13 +904,11 @@ export default function AccountOptionsPage() {
             ) : (
               <>
                 <p className="font-extrabold text-slate-800">
-                  Card payments are not set up
+                  {t("Card payments are not set up")}
                 </p>
 
                 <p className="text-sm text-slate-600 mt-1">
-                  You can connect Stripe if
-                  you decide to accept or
-                  require customer cards.
+                  {t("You can connect Stripe if you decide to accept or require customer cards.")}
                 </p>
                 {paymentPolicy !== "none" ? (
                   <button type="button" onClick={finishStripeSetup} disabled={openingStripe}
@@ -930,12 +929,11 @@ export default function AccountOptionsPage() {
 
             <div>
               <h2 className="text-2xl font-extrabold text-slate-900">
-                Payment History
+                {t("Payment History")}
               </h2>
 
               <p className="text-slate-500 text-sm">
-                Payments for your DayTello
-                subscription.
+                {t("Payments for your DayTello subscription.")}
               </p>
             </div>
           </div>
@@ -984,10 +982,7 @@ export default function AccountOptionsPage() {
                             : "bg-slate-100 text-slate-600"
                         }`}
                       >
-                        {invoice.paid
-                          ? "Paid"
-                          : invoice.status ||
-                            "Pending"}
+                        {t(invoice.paid || invoice.status === "paid" ? "Paid" : invoice.status || "Pending")}
                       </span>
 
                       {invoice.hosted_invoice_url ? (
@@ -999,7 +994,7 @@ export default function AccountOptionsPage() {
                           rel="noreferrer"
                           className="font-bold text-indigo-600 hover:text-indigo-800"
                         >
-                          View Invoice
+                          {t("View Invoice")}
                         </a>
                       ) : null}
                     </div>
@@ -1011,9 +1006,7 @@ export default function AccountOptionsPage() {
         </section>
 
         <p className="text-center text-sm text-slate-500 mt-8">
-          DayTello keeps your subscription
-          billing and customer payments
-          separate so they're easy to manage.
+          {t("DayTello keeps your subscription billing and customer payments separate so they're easy to manage.")}
         </p>
       </div>
     </main>

@@ -16,6 +16,17 @@ export function normalizeShopLanguage(value) {
 
 // Values follow the order of the five translated languages in SHOP_LANGUAGES.
 const translations = {
+  "DayTello keeps your subscription billing and customer payments separate so they're easy to manage.": ["DayTello mantiene separadas las facturas de tu suscripción y los pagos de los clientes para que puedas gestionarlos fácilmente.", "DayTello tách riêng hóa đơn đăng ký và các khoản thanh toán của khách hàng để bạn dễ quản lý.", "DayTello 将订阅账单与客户付款分开，方便管理。", "DayTello는 쉽게 관리할 수 있도록 구독 청구와 고객 결제를 구분합니다.", "DayTello แยกการเรียกเก็บค่าสมัครใช้งานและการชำระเงินของลูกค้าเพื่อให้จัดการได้ง่าย"],
+  "Checking...": ["Comprobando…", "Đang kiểm tra…", "正在检查…", "확인 중…", "กำลังตรวจสอบ…"],
+  "Pending": ["Pendiente", "Đang chờ", "待处理", "대기 중", "รอดำเนินการ"],
+  "Paid": ["Pagada", "Đã thanh toán", "已付款", "결제 완료", "ชำระแล้ว"],
+  "View Invoice": ["Ver factura", "Xem hóa đơn", "查看账单", "청구서 보기", "ดูใบแจ้งหนี้"],
+  "Payments for your DayTello subscription.": ["Pagos de tu suscripción a DayTello.", "Các khoản thanh toán cho gói đăng ký DayTello.", "您的 DayTello 订阅付款。", "DayTello 구독 결제 내역입니다.", "การชำระเงินสำหรับการสมัครใช้งาน DayTello"],
+  "Payment History": ["Historial de pagos", "Lịch sử thanh toán", "付款记录", "결제 내역", "ประวัติการชำระเงิน"],
+  "You can connect Stripe if you decide to accept or require customer cards.": ["Puedes conectar Stripe si decides aceptar o solicitar tarjetas a tus clientes.", "Bạn có thể kết nối Stripe nếu muốn chấp nhận hoặc yêu cầu khách cung cấp thẻ.", "如果决定接受或要求客户提供银行卡，可以连接 Stripe。", "고객 카드를 받거나 필수로 지정하려면 Stripe를 연결하세요.", "คุณเชื่อมต่อ Stripe ได้หากต้องการรับบัตรหรือกำหนดให้ลูกค้าใช้บัตร"],
+  "Card payments are not set up": ["Los pagos con tarjeta aún no están configurados", "Chưa thiết lập thanh toán bằng thẻ", "尚未设置银行卡支付", "카드 결제가 설정되지 않았습니다", "ยังไม่ได้ตั้งค่าการชำระเงินด้วยบัตร"],
+  "Customers save a card when making a reservation.": ["Los clientes guardan una tarjeta al reservar.", "Khách hàng lưu thông tin thẻ khi đặt lịch.", "客户预约时保存银行卡信息。", "고객은 예약할 때 카드를 등록합니다.", "ลูกค้าบันทึกบัตรเมื่อทำการจอง"],
+  "Require a card to reserve": ["Solicitar una tarjeta para reservar", "Yêu cầu thẻ khi đặt lịch", "预约时要求提供银行卡", "예약 시 카드 등록 필수", "ต้องใช้บัตรในการจอง"],
   "Let your dedicated AI Receptionist answer calls and book appointments while you work.": ["Deja que tu recepcionista con IA atienda llamadas y reserve citas mientras trabajas."],
   "Save time and manage your bookings in one place. Your AI Receptionist checks live availability before booking to help prevent double bookings and appointments outside staff hours.": ["Ahorra tiempo y gestiona tus reservas en un solo lugar. La recepcionista con IA consulta la disponibilidad en tiempo real antes de reservar para evitar citas duplicadas o fuera del horario del personal."],
   "It uses your shop's current services, staff, prices and hours. Keep your existing phone number and booking URL.": ["Usa los servicios, personal, precios y horarios actuales de tu negocio. Conserva tu número de teléfono y enlace de reservas."],
@@ -116,7 +127,7 @@ const translations = {
   "Your DayTello account": ["Tu cuenta de DayTello"],
   "Manage Billing": ["Gestionar facturación"],
   "Cancel Subscription": ["Cancelar suscripción"],
-  "Continue AI Receptionist Setup": ["Continuar la configuración de la recepcionista con IA"],
+  "Continue AI Receptionist Setup": ["Continuar la configuración de la recepcionista con IA", "Tiếp tục thiết lập lễ tân AI", "继续设置 AI 接待员", "AI 전화 응대 설정 계속", "ตั้งค่าพนักงานรับสาย AI ต่อ"],
   "Customer Payments": ["Pagos de clientes"],
   "Choose how customers use cards with your business.": ["Elige cómo pueden usar tarjetas tus clientes."],
   "Don't accept cards": ["No aceptar tarjetas"],
