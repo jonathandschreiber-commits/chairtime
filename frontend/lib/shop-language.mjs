@@ -1,0 +1,94 @@
+export const DEFAULT_LANGUAGE = "en";
+export const SHOP_LANGUAGES = {
+  en: "English",
+  es: "Español",
+  vi: "Tiếng Việt",
+  "zh-Hans": "简体中文",
+  ko: "한국어",
+  th: "ไทย",
+};
+
+export const LANGUAGE_STORAGE_KEY = "daytello.shop-language";
+
+export function normalizeShopLanguage(value) {
+  return Object.hasOwn(SHOP_LANGUAGES, value) ? value : DEFAULT_LANGUAGE;
+}
+
+// Values follow the order of the five translated languages in SHOP_LANGUAGES.
+const translations = {
+  "Business Management": ["Gestión del negocio", "Quản lý cửa hàng", "店铺管理", "매장 관리", "จัดการธุรกิจ"],
+  "+ AI Receptionist": ["+ Recepcionista con IA", "+ Lễ tân AI", "+ AI 接待员", "+ AI 전화 응대", "+ พนักงานรับสาย AI"],
+  "$49/month": ["$49 al mes", "$49/tháng", "$49/月", "월 $49", "$49/เดือน"],
+  "$98/month": ["$98 al mes", "$98/tháng", "$98/月", "월 $98", "$98/เดือน"],
+  "Everything you need to manage your appointments and customers.": ["Todo lo que necesitas para gestionar tus citas y clientes.", "Mọi công cụ để quản lý lịch hẹn và khách hàng.", "管理预约和客户所需的全部工具。", "예약과 고객 관리에 필요한 모든 기능입니다.", "ครบทุกเครื่องมือสำหรับจัดการนัดหมายและลูกค้า"],
+  "Your first 30 days are free.": ["Tus primeros 30 días son gratis.", "Miễn phí 30 ngày đầu.", "前 30 天免费。", "첫 30일은 무료입니다.", "ฟรี 30 วันแรก"],
+  "NEVER MISS A CALL": ["ATIENDE TODAS LAS LLAMADAS", "KHÔNG BỎ LỠ CUỘC GỌI", "不错过任何来电", "놓치는 전화 없이", "ไม่พลาดทุกสาย"],
+  "Includes Business Management AND:": ["Incluye Gestión del negocio y además:", "Bao gồm Quản lý cửa hàng cùng các tính năng sau:", "包含店铺管理功能，另有：", "매장 관리 기능에 다음이 추가됩니다.", "รวมการจัดการธุรกิจและฟีเจอร์ต่อไปนี้"],
+  "250 AI receptionist minutes included each billing month.": ["Incluye 250 minutos de recepcionista con IA por ciclo de facturación mensual.", "Bao gồm 250 phút lễ tân AI mỗi kỳ thanh toán hàng tháng.", "每月计费周期包含 250 分钟 AI 接待通话。", "월 결제 주기마다 AI 전화 응대 250분이 포함됩니다.", "รวมเวลารับสาย AI 250 นาทีต่อรอบบิลรายเดือน"],
+  "Each additional AI minute is 29¢.": ["Cada minuto adicional de IA cuesta $0.29.", "Mỗi phút AI vượt mức có giá $0.29.", "超出后每分钟 $0.29。", "초과 이용 시 분당 $0.29입니다.", "นาที AI ที่เกินคิด $0.29 ต่อนาที"],
+  "Online booking 24/7": ["Reservas en línea las 24 horas", "Đặt lịch trực tuyến 24/7", "全天在线预约", "24시간 온라인 예약", "จองออนไลน์ได้ตลอด 24 ชั่วโมง"],
+  "Daily schedule and calendar": ["Agenda diaria y calendario", "Lịch làm việc hằng ngày", "日程和日历", "일일 일정 및 캘린더", "ตารางประจำวันและปฏิทิน"],
+  "Customer records and history": ["Fichas e historial de clientes", "Hồ sơ và lịch sử khách hàng", "客户档案和历史记录", "고객 기록 및 이용 내역", "ข้อมูลและประวัติลูกค้า"],
+  "Text confirmations and reminders": ["Confirmaciones y recordatorios por SMS", "Tin nhắn xác nhận và nhắc hẹn", "短信确认和提醒", "문자 예약 확인 및 알림", "ข้อความยืนยันและเตือนนัด"],
+  "Staff schedules and availability": ["Horarios y disponibilidad del personal", "Lịch làm việc và thời gian rảnh của nhân viên", "员工排班和可预约时间", "직원 일정 및 예약 가능 시간", "ตารางงานและเวลาว่างของพนักงาน"],
+  "Services, pricing and appointment times": ["Servicios, precios y horarios de citas", "Dịch vụ, giá và thời gian hẹn", "服务、价格和预约时间", "서비스, 가격 및 예약 시간", "บริการ ราคา และเวลานัดหมาย"],
+  "Customer notes": ["Notas sobre clientes", "Ghi chú về khách hàng", "客户备注", "고객 메모", "บันทึกเกี่ยวกับลูกค้า"],
+  "Easy appointment changes and cancellations": ["Cambios y cancelaciones de citas sencillos", "Đổi hoặc hủy lịch hẹn dễ dàng", "轻松更改或取消预约", "간편한 예약 변경 및 취소", "เปลี่ยนหรือยกเลิกนัดได้ง่าย"],
+  "Optional card-on-file to reduce no-shows": ["Opción de guardar una tarjeta para reducir las ausencias", "Tùy chọn lưu thẻ để giảm tình trạng khách vắng hẹn", "可选保存银行卡，减少爽约", "노쇼 방지를 위한 카드 저장 옵션", "เลือกบันทึกบัตรเพื่อลดการไม่มาตามนัดได้"],
+  "Answers calls when you're busy": ["Atiende llamadas cuando estás ocupado", "Trả lời cuộc gọi khi bạn bận", "忙碌时接听来电", "바쁠 때 전화 응대", "รับสายเมื่อคุณไม่ว่าง"],
+  "Answers calls when you're closed": ["Atiende llamadas fuera del horario comercial", "Trả lời cuộc gọi ngoài giờ mở cửa", "打烊后接听来电", "영업시간 외 전화 응대", "รับสายนอกเวลาทำการ"],
+  "Books appointments directly into your schedule": ["Agenda citas directamente en tu calendario", "Đặt hẹn trực tiếp vào lịch của bạn", "直接将预约加入日程", "내 일정에 바로 예약 등록", "ลงนัดหมายในตารางของคุณโดยตรง"],
+  "Answers common scheduling questions": ["Responde preguntas frecuentes sobre citas", "Trả lời câu hỏi thường gặp về đặt lịch", "回答常见预约问题", "예약 관련 자주 묻는 질문에 답변", "ตอบคำถามที่พบบ่อยเกี่ยวกับการนัดหมาย"],
+  "Helps turn missed calls into appointments": ["Ayuda a convertir llamadas perdidas en citas", "Giúp biến cuộc gọi nhỡ thành lịch hẹn", "帮助把未接来电转化为预约", "부재중 전화를 예약으로 연결", "ช่วยเปลี่ยนสายที่พลาดให้เป็นการนัดหมาย"],
+  "Keep your existing business phone number": ["Conserva el número de teléfono de tu negocio", "Giữ nguyên số điện thoại của cửa hàng", "保留现有店铺电话号码", "기존 매장 전화번호 유지", "ใช้เบอร์โทรธุรกิจเดิมได้"],
+  "Next: secure card setup with Stripe.": ["Siguiente paso: registra tu tarjeta de forma segura con Stripe.", "Tiếp theo: đăng ký thẻ an toàn qua Stripe.", "下一步：通过 Stripe 安全绑定银行卡。", "다음 단계: Stripe에서 안전하게 카드 등록", "ขั้นถัดไป ลงทะเบียนบัตรอย่างปลอดภัยผ่าน Stripe"],
+  "After 30 days, your selected plan will be $49 per month unless you cancel.": ["Después de 30 días, el plan cuesta $49 al mes, a menos que lo canceles.", "Sau 30 ngày, gói có giá $49/tháng nếu bạn không hủy.", "若未取消，30 天后每月收费 $49。", "취소하지 않으면 30일 후 월 $49가 청구됩니다.", "หากไม่ยกเลิก หลังครบ 30 วันจะคิด $49 ต่อเดือน"],
+  "After 30 days, your selected plan will be $98 per month plus any additional AI minutes unless you cancel.": ["Después de 30 días, el plan cuesta $98 al mes más los minutos adicionales de IA, a menos que lo canceles.", "Sau 30 ngày, gói có giá $98/tháng cộng phí phút AI vượt mức nếu bạn không hủy.", "若未取消，30 天后每月收费 $98，另计超出额度的 AI 通话费用。", "취소하지 않으면 30일 후 월 $98와 AI 초과 이용료가 청구됩니다.", "หากไม่ยกเลิก หลังครบ 30 วันจะคิด $98 ต่อเดือน พร้อมค่าบริการนาที AI ที่เกิน"],
+  "AI Receptionist Checkout Temporarily Unavailable": ["El pago del plan con recepcionista con IA no está disponible temporalmente", "Thanh toán gói lễ tân AI tạm thời không khả dụng", "AI 接待员方案暂时无法结账", "AI 전화 응대 요금제 결제가 일시적으로 불가능합니다", "ขณะนี้ไม่สามารถชำระเงินแพ็กเกจพนักงานรับสาย AI ได้"],
+  "Opening Secure Checkout...": ["Abriendo el pago seguro…", "Đang mở trang thanh toán an toàn…", "正在打开安全结账页面…", "보안 결제 화면을 여는 중…", "กำลังเปิดหน้าชำระเงินที่ปลอดภัย…"],
+  "Create Account & Start Free Trial": ["Crear cuenta e iniciar prueba gratis", "Tạo tài khoản và bắt đầu dùng thử miễn phí", "创建账户并开始免费试用", "계정을 만들고 무료 체험 시작", "สร้างบัญชีและเริ่มทดลองใช้ฟรี"],
+  "Already have a DayTello account?": ["¿Ya tienes una cuenta de DayTello?", "Bạn đã có tài khoản DayTello?", "已有 DayTello 账户？", "이미 DayTello 계정이 있나요?", "มีบัญชี DayTello แล้วหรือยัง?"],
+  "Sign in": ["Iniciar sesión", "Đăng nhập", "登录", "로그인", "เข้าสู่ระบบ"],
+
+  "Tell us about your business, choose the plan that works best for you, and start your first 30 days free.": ["Cuéntanos sobre tu negocio, elige el plan que más te convenga y empieza con 30 días gratis.", "Hãy giới thiệu cơ sở kinh doanh của bạn, chọn gói phù hợp và dùng thử miễn phí 30 ngày.", "请填写店铺信息，选择适合您的方案，免费试用 30 天。", "사업장 정보를 입력하고 알맞은 요금제를 선택해 30일 무료 체험을 시작하세요.", "กรอกข้อมูลธุรกิจ เลือกแพ็กเกจที่เหมาะกับคุณ แล้วเริ่มทดลองใช้ฟรี 30 วัน"],
+  "YOUR FIRST 30 DAYS ARE FREE — $0 TODAY": ["TUS PRIMEROS 30 DÍAS SON GRATIS. HOY PAGAS $0.", "MIỄN PHÍ 30 NGÀY ĐẦU. HÔM NAY TRẢ $0.", "前 30 天免费，今天支付 $0", "첫 30일 무료 · 오늘 결제 금액 $0", "ฟรี 30 วันแรก วันนี้จ่าย $0"],
+  "A credit card is required to start your free trial. You will not be charged today. Your selected plan begins billing after your 30-day trial unless you cancel.": ["Necesitas una tarjeta de crédito para iniciar la prueba gratis. Hoy no se te cobrará. El plan elegido se cobrará tras los 30 días de prueba, a menos que lo canceles.", "Bạn cần thẻ tín dụng để bắt đầu dùng thử miễn phí. Hôm nay bạn sẽ không bị tính phí. Gói đã chọn sẽ bắt đầu tính phí sau 30 ngày dùng thử nếu bạn không hủy.", "开始免费试用需要信用卡。今天不会扣费。若未取消，所选方案将在 30 天试用期结束后开始收费。", "무료 체험을 시작하려면 신용카드가 필요합니다. 오늘은 결제되지 않습니다. 취소하지 않으면 30일 체험이 끝난 뒤 선택한 요금제가 청구됩니다.", "ต้องใช้บัตรเครดิตเพื่อเริ่มทดลองใช้ฟรี วันนี้จะไม่มีการเรียกเก็บเงิน หากไม่ยกเลิก ระบบจะเริ่มคิดค่าบริการตามแพ็กเกจที่เลือกหลังครบ 30 วัน"],
+  "Enter it exactly as you want customers to see it.": ["Escribe el nombre tal como quieres que lo vean tus clientes.", "Nhập tên đúng như bạn muốn khách hàng nhìn thấy.", "请填写您希望向客户显示的店铺名称。", "고객에게 표시할 이름을 그대로 입력하세요.", "กรอกชื่อที่ต้องการให้ลูกค้าเห็น"],
+  "This updates automatically from your business name. You can change the URL above if you prefer something different.": ["La URL se genera automáticamente a partir del nombre de tu negocio. Puedes editarla arriba.", "Đường dẫn được tạo tự động từ tên cơ sở kinh doanh. Bạn có thể chỉnh sửa ở trên.", "网址会根据店铺名称自动生成。您也可以在上方修改。", "사업장 이름으로 주소가 자동 생성됩니다. 위에서 주소를 변경할 수 있습니다.", "ระบบจะสร้าง URL จากชื่อธุรกิจโดยอัตโนมัติ คุณแก้ไข URL ด้านบนได้"],
+  "Business Type": ["Tipo de negocio", "Loại hình kinh doanh", "店铺类型", "업종", "ประเภทธุรกิจ"],
+  "Business Phone": ["Teléfono del negocio", "Số điện thoại của cơ sở", "店铺电话", "사업장 전화번호", "เบอร์โทรธุรกิจ"],
+  "Other Service Business": ["Otro negocio de servicios", "Dịch vụ khác", "其他服务业", "기타 서비스업", "ธุรกิจบริการอื่น ๆ"],
+  "Barbershop": ["Barbería", "Tiệm cắt tóc nam", "男士理发店", "이발소", "ร้านตัดผมชาย"],
+  "Hair Salon": ["Peluquería", "Tiệm làm tóc", "美发店", "미용실", "ร้านทำผม"],
+  "Nail Salon": ["Salón de uñas", "Tiệm làm móng", "美甲店", "네일숍", "ร้านทำเล็บ"],
+  "Massage / Wellness": ["Masajes / Bienestar", "Mát-xa / Chăm sóc sức khỏe", "按摩／养生", "마사지 / 웰니스", "นวด / สุขภาพ"],
+  "Personal Training / Fitness": ["Entrenamiento personal / Gimnasio", "Huấn luyện cá nhân / Thể hình", "私人教练／健身", "개인 트레이닝 / 피트니스", "เทรนส่วนตัว / ฟิตเนส"],
+  "At least 8 characters": ["Al menos 8 caracteres", "Ít nhất 8 ký tự", "至少 8 个字符", "8자 이상", "อย่างน้อย 8 อักขระ"],
+  "Enter password again": ["Vuelve a escribir la contraseña", "Nhập lại mật khẩu", "再次输入密码", "비밀번호 다시 입력", "กรอกรหัสผ่านอีกครั้ง"],
+  "Choose your plan": ["Elige tu plan", "Chọn gói của bạn", "选择您的方案", "요금제 선택", "เลือกแพ็กเกจ"],
+  "Both plans include your first 30 days free. Choose what works best for your business.": ["Ambos planes incluyen 30 días gratis. Elige el que mejor se adapte a tu negocio.", "Cả hai gói đều miễn phí 30 ngày đầu. Hãy chọn gói phù hợp với cơ sở của bạn.", "两个方案均包含前 30 天免费试用。请选择适合您店铺的方案。", "두 요금제 모두 처음 30일은 무료입니다. 사업장에 알맞은 요금제를 선택하세요.", "ทั้งสองแพ็กเกจทดลองใช้ฟรี 30 วันแรก เลือกแพ็กเกจที่เหมาะกับธุรกิจของคุณ"],
+
+  "← Back to DayTello": ["← Volver a DayTello", "← Quay lại DayTello", "← 返回 DayTello", "← DayTello로 돌아가기", "← กลับไปที่ DayTello"],
+  "Start your free month": ["Comienza tu mes gratis", "Bắt đầu tháng dùng thử miễn phí", "开始免费试用一个月", "1개월 무료 체험 시작", "เริ่มทดลองใช้ฟรีหนึ่งเดือน"],
+  "Your business": ["Tu negocio", "Cơ sở kinh doanh của bạn", "您的店铺", "내 사업장", "ธุรกิจของคุณ"],
+  "Business Name": ["Nombre del negocio", "Tên cơ sở kinh doanh", "店铺名称", "사업장 이름", "ชื่อธุรกิจ"],
+  "Your booking page": ["Tu página de reservas", "Trang đặt lịch của bạn", "您的预约页面", "내 예약 페이지", "หน้าจองคิวของคุณ"],
+  "Your account": ["Tu cuenta", "Tài khoản của bạn", "您的账户", "내 계정", "บัญชีของคุณ"],
+  "Your Name": ["Tu nombre", "Họ và tên", "您的姓名", "이름", "ชื่อของคุณ"],
+  Email: ["Correo electrónico", "Email", "电子邮箱", "이메일", "อีเมล"],
+  Password: ["Contraseña", "Mật khẩu", "密码", "비밀번호", "รหัสผ่าน"],
+  "Confirm Password": ["Confirmar contraseña", "Xác nhận mật khẩu", "确认密码", "비밀번호 확인", "ยืนยันรหัสผ่าน"],
+  "Staff Dashboard": ["Panel del personal", "Bảng điều khiển nhân viên", "员工控制台", "직원 대시보드", "แดชบอร์ดพนักงาน"],
+  "Admin Dashboard": ["Panel de administración", "Bảng điều khiển quản trị", "管理控制台", "관리자 대시보드", "แดชบอร์ดผู้ดูแล"],
+  "Your Shop Info": ["Información de tu negocio", "Thông tin cửa hàng của bạn", "您的店铺信息", "내 매장 정보", "ข้อมูลร้านของคุณ"],
+  "Owner dashboard": ["Panel del propietario", "Bảng điều khiển chủ cửa hàng", "店主管理面板", "사업주 대시보드", "แดชบอร์ดเจ้าของร้าน"],
+  "Customer booking page": ["Página de reservas para clientes", "Trang đặt lịch cho khách hàng", "客户预约页面", "고객 예약 페이지", "หน้าจองคิวสำหรับลูกค้า"],
+};
+
+const translatedLanguages = Object.keys(SHOP_LANGUAGES).slice(1);
+
+export function translateShopMessage(language, message) {
+  return Object.hasOwn(translations, message)
+    ? translations[message][translatedLanguages.indexOf(language)] ?? message
+    : message;
+}

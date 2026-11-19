@@ -1,5 +1,6 @@
 "use client";
 
+import { ShopMessage, useShopLanguage, useShopMessages } from "../components/ShopLanguage";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import styles from "./signup.module.css";
@@ -14,6 +15,8 @@ function normalizeSlug(value) {
 }
 
 export default function SignupPage() {
+  const t = useShopMessages();
+  const language = useShopLanguage();
   const [businessName, setBusinessName] = useState("");
   const [shopSlug, setShopSlug] = useState("");
   const [shopSlugEdited, setShopSlugEdited] = useState(false);
@@ -167,6 +170,7 @@ export default function SignupPage() {
           },
           body: JSON.stringify({
             plan: selectedPlan,
+            language,
             metered_ai: selectedPlan === "scheduling_ai",
           }),
         }
@@ -251,19 +255,17 @@ export default function SignupPage() {
     <main className={styles.page}>
       <div className={styles.container}>
         <Link href="/" className={styles.backLink}>
-          ← Back to DayTello
+          <ShopMessage>← Back to DayTello</ShopMessage>
         </Link>
 
         <section className={styles.card}>
           <div className={styles.brand}>
             <h1 className={styles.brandName}>
-              Start your free month
+              <ShopMessage>Start your free month</ShopMessage>
             </h1>
 
             <p className={styles.brandText}>
-              Tell us about your business, choose the
-              plan that works best for you, and start
-              your first 30 days free.
+              {t("Tell us about your business, choose the plan that works best for you, and start your first 30 days free.")}
             </p>
           </div>
 
@@ -288,7 +290,7 @@ export default function SignupPage() {
                 marginBottom: "6px",
               }}
             >
-              YOUR FIRST 30 DAYS ARE FREE — $0 TODAY
+              {t("YOUR FIRST 30 DAYS ARE FREE — $0 TODAY")}
             </div>
 
             <div
@@ -297,11 +299,7 @@ export default function SignupPage() {
                 lineHeight: "1.55",
               }}
             >
-              A credit card is required to start your
-              free trial. You will not be charged
-              today. Your selected plan begins billing
-              after your 30-day trial unless you
-              cancel.
+              {t("A credit card is required to start your free trial. You will not be charged today. Your selected plan begins billing after your 30-day trial unless you cancel.")}
             </div>
           </div>
 
@@ -320,7 +318,7 @@ export default function SignupPage() {
 
             <section className={styles.section}>
               <h2 className={styles.sectionTitle}>
-                Your business
+                <ShopMessage>Your business</ShopMessage>
               </h2>
 
               <div className={styles.grid}>
@@ -330,7 +328,7 @@ export default function SignupPage() {
                       className={styles.label}
                       htmlFor="businessName"
                     >
-                      Business Name
+                      <ShopMessage>Business Name</ShopMessage>
                     </label>
 
                     <p
@@ -341,8 +339,7 @@ export default function SignupPage() {
                         lineHeight: "1.4",
                       }}
                     >
-                      Enter it exactly as you want
-                      customers to see it.
+                      {t("Enter it exactly as you want customers to see it.")}
                     </p>
 
                     <input
@@ -390,7 +387,7 @@ export default function SignupPage() {
                           marginBottom: "6px",
                         }}
                       >
-                        Your booking page
+                        <ShopMessage>Your booking page</ShopMessage>
                       </div>
 
                       <div
@@ -454,9 +451,7 @@ export default function SignupPage() {
                           lineHeight: "1.4",
                         }}
                       >
-                        This updates automatically from your
-                        business name. You can change the URL
-                        above if you prefer something different.
+                        {t("This updates automatically from your business name. You can change the URL above if you prefer something different.")}
                       </p>
                     </div>
                   </div>
@@ -467,7 +462,7 @@ export default function SignupPage() {
                     className={styles.label}
                     htmlFor="businessType"
                   >
-                    Business Type
+                    {t("Business Type")}
                   </label>
 
                   <select
@@ -482,27 +477,27 @@ export default function SignupPage() {
                     disabled={loading}
                   >
                     <option value="service_business">
-                      Other Service Business
+                      {t("Other Service Business")}
                     </option>
 
                     <option value="barbershop">
-                      Barbershop
+                      {t("Barbershop")}
                     </option>
 
                     <option value="hair_salon">
-                      Hair Salon
+                      {t("Hair Salon")}
                     </option>
 
                     <option value="nail_salon">
-                      Nail Salon
+                      {t("Nail Salon")}
                     </option>
 
                     <option value="massage">
-                      Massage / Wellness
+                      {t("Massage / Wellness")}
                     </option>
 
                     <option value="trainer">
-                      Personal Training / Fitness
+                      {t("Personal Training / Fitness")}
                     </option>
                   </select>
                 </div>
@@ -512,7 +507,7 @@ export default function SignupPage() {
                     className={styles.label}
                     htmlFor="phone"
                   >
-                    Business Phone
+                    {t("Business Phone")}
                   </label>
 
                   <input
@@ -534,7 +529,7 @@ export default function SignupPage() {
 
             <section className={styles.section}>
               <h2 className={styles.sectionTitle}>
-                Your account
+                <ShopMessage>Your account</ShopMessage>
               </h2>
 
               <div className={styles.grid}>
@@ -544,7 +539,7 @@ export default function SignupPage() {
                       className={styles.label}
                       htmlFor="ownerName"
                     >
-                      Your Name
+                      <ShopMessage>Your Name</ShopMessage>
                     </label>
 
                     <input
@@ -571,7 +566,7 @@ export default function SignupPage() {
                       className={styles.label}
                       htmlFor="email"
                     >
-                      Email
+                      <ShopMessage>Email</ShopMessage>
                     </label>
 
                     <input
@@ -601,7 +596,7 @@ export default function SignupPage() {
 
                     htmlFor="password"
                   >
-                    Password
+                    <ShopMessage>Password</ShopMessage>
                   </label>
 
                   <input
@@ -615,7 +610,7 @@ export default function SignupPage() {
                         event.target.value
                       )
                     }
-                    placeholder="At least 8 characters"
+                    placeholder={t("At least 8 characters")}
                     disabled={loading}
                     required
                   />
@@ -626,7 +621,7 @@ export default function SignupPage() {
                     className={styles.label}
                     htmlFor="confirmPassword"
                   >
-                    Confirm Password
+                    <ShopMessage>Confirm Password</ShopMessage>
                   </label>
 
                   <input
@@ -640,7 +635,7 @@ export default function SignupPage() {
                         event.target.value
                       )
                     }
-                    placeholder="Enter password again"
+                    placeholder={t("Enter password again")}
                     disabled={loading}
                     required
                   />
@@ -655,7 +650,7 @@ export default function SignupPage() {
                 }}
               >
                 <h2 className={styles.sectionTitle}>
-                  Choose your plan
+                  {t("Choose your plan")}
                 </h2>
 
                 <p
@@ -666,9 +661,7 @@ export default function SignupPage() {
                     marginTop: "5px",
                   }}
                 >
-                  Both plans include your first 30 days
-                  free. Choose what works best for your
-                  business.
+                  {t("Both plans include your first 30 days free. Choose what works best for your business.")}
                 </p>
               </div>
 
@@ -725,7 +718,7 @@ export default function SignupPage() {
                           color: "#0f172a",
                         }}
                       >
-                        Business Management
+                        {t("Business Management")}
                       </div>
 
                       <div
@@ -736,7 +729,7 @@ export default function SignupPage() {
                           color: "#4f46e5",
                         }}
                       >
-                        $49/month
+                        {t("$49/month")}
                       </div>
                     </div>
 
@@ -765,8 +758,7 @@ export default function SignupPage() {
                       lineHeight: "1.5",
                     }}
                   >
-                    Everything you need to manage your
-                    appointments and customers.
+                    {t("Everything you need to manage your appointments and customers.")}
                   </p>
 
                   <div
@@ -796,7 +788,7 @@ export default function SignupPage() {
                             ✓
                           </span>
 
-                          <span>{feature}</span>
+                          <span>{t(feature)}</span>
                         </div>
                       )
                     )}
@@ -813,7 +805,7 @@ export default function SignupPage() {
                       fontSize: "13px",
                     }}
                   >
-                    Your first 30 days are free.
+                    {t("Your first 30 days are free.")}
                   </div>
                 </button>
 
@@ -861,7 +853,7 @@ export default function SignupPage() {
                       fontWeight: "900",
                     }}
                   >
-                    NEVER MISS A CALL
+                    {t("NEVER MISS A CALL")}
                   </div>
 
                   <div
@@ -881,9 +873,9 @@ export default function SignupPage() {
                           color: "#0f172a",
                         }}
                       >
-                        Business Management
+                        {t("Business Management")}
                         <br />
-                        + AI Receptionist
+                        {t("+ AI Receptionist")}
                       </div>
 
                       <div
@@ -894,7 +886,7 @@ export default function SignupPage() {
                           color: "#7c3aed",
                         }}
                       >
-                        $98/month
+                        {t("$98/month")}
                       </div>
 
                       <div
@@ -906,7 +898,7 @@ export default function SignupPage() {
                           lineHeight: "1.35",
                         }}
                       >
-                        Includes Business Management AND:
+                        {t("Includes Business Management AND:")}
                       </div>
                     </div>
 
@@ -938,10 +930,10 @@ export default function SignupPage() {
                       lineHeight: "1.45",
                     }}
                   >
-                    <div>250 AI receptionist minutes included each billing month.</div>
+                    <div>{t("250 AI receptionist minutes included each billing month.")}</div>
                     <div style={{ marginTop: "4px", fontSize: "13px" }}>
                       <ul style={{ margin: 0, paddingLeft: "18px", listStyleType: "disc", fontWeight: 400 }}>
-                        <li>Each additional AI minute is 29¢.</li>
+                        <li>{t("Each additional AI minute is 29¢.")}</li>
                       </ul>
                     </div>
                   </div>
@@ -972,7 +964,7 @@ export default function SignupPage() {
                           ✓
                         </span>
 
-                        <span>{feature}</span>
+                        <span>{t(feature)}</span>
                       </div>
                     ))}
                   </div>
@@ -988,7 +980,7 @@ export default function SignupPage() {
                       fontSize: "13px",
                     }}
                   >
-                    Your first 30 days are free.
+                    {t("Your first 30 days are free.")}
                   </div>
                 </button>
               </div>
@@ -1008,23 +1000,15 @@ export default function SignupPage() {
               }}
             >
               <strong>
-                Next: secure card setup with Stripe.
+                {t("Next: secure card setup with Stripe.")}
               </strong>
               <br />
-              A credit card is required to start your
-              free trial, but you&apos;ll pay{" "}
-              <strong>$0 today</strong>. You won&apos;t
-              be charged until your 30-day free trial
-              ends.
-              <br />
-              <br />
-              After 30 days, your selected plan will be{" "}
-              <strong>
-                {selectedPlan === "scheduling_ai"
-                  ? "$98 per month plus any additional AI minutes"
-                  : "$49 per month"}
-              </strong>{" "}
-              unless you cancel.
+              {t("A credit card is required to start your free trial. You will not be charged today. Your selected plan begins billing after your 30-day trial unless you cancel.")}
+              <br /><br />
+              <strong>{t(selectedPlan === "scheduling_ai"
+                ? "After 30 days, your selected plan will be $98 per month plus any additional AI minutes unless you cancel."
+                : "After 30 days, your selected plan will be $49 per month unless you cancel."
+              )}</strong>
             </div>
 
             <button
@@ -1033,20 +1017,20 @@ export default function SignupPage() {
               disabled={loading || aiCheckoutPending}
             >
               {aiCheckoutPending
-                ? "AI Receptionist Checkout Temporarily Unavailable"
+                ? t("AI Receptionist Checkout Temporarily Unavailable")
                 : loading
-                  ? "Opening Secure Checkout..."
-                  : "Create Account & Start Free Trial"}
+                  ? t("Opening Secure Checkout...")
+                  : t("Create Account & Start Free Trial")}
             </button>
           </form>
 
           <p className={styles.footer}>
-            Already have a DayTello account?{" "}
+            {t("Already have a DayTello account?")}{" "}
             <Link
               href="/login"
               className={styles.loginLink}
             >
-              Sign in
+              {t("Sign in")}
             </Link>
           </p>
         </section>

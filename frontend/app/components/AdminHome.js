@@ -1,3 +1,4 @@
+import { ShopMessage } from "./ShopLanguage";
 import { cookies } from "next/headers";
 import AdminUserBar from "./AdminUserBar";
 import SavePageShortcut from "./SavePageShortcut";
@@ -362,13 +363,11 @@ export default async function AdminHome({
  
             <div className="flex-1 min-w-0">
               <p className="text-sm font-extrabold tracking-wider text-indigo-600 uppercase mb-1">
-                {isStaff
-                  ? "Staff Dashboard"
-                  : "Admin Dashboard"}
+                <ShopMessage>{isStaff ? "Staff Dashboard" : "Admin Dashboard"}</ShopMessage>
               </p>
  
               <h1 className="text-4xl sm:text-5xl font-extrabold text-slate-900 leading-tight">
-                {showShopInfo ? "Your Shop Info" : title}
+                {showShopInfo ? <ShopMessage>Your Shop Info</ShopMessage> : title}
               </h1>
  
               {currentUserName &&
@@ -393,7 +392,7 @@ export default async function AdminHome({
         {showShopInfo && isOwner && shop && (
           <section aria-label="Your DayTello pages" className="mb-6 grid gap-4 sm:grid-cols-2">
             <div className="rounded-2xl border border-indigo-100 bg-white p-5">
-              <h2 className="text-lg font-bold text-slate-900">Owner dashboard</h2>
+              <h2 className="text-lg font-bold text-slate-900"><ShopMessage>Owner dashboard</ShopMessage></h2>
               <p className="mt-1 text-sm text-slate-600">
                 Use your owner dashboard to set up your services and staff, and manage bookings.
               </p>
@@ -403,7 +402,7 @@ export default async function AdminHome({
               <a className="mt-2 inline-block text-sm font-semibold text-indigo-700 underline" href={basePath}>Open your owner dashboard</a>
             </div>
             <div className="rounded-2xl border border-indigo-100 bg-white p-5">
-              <h2 className="text-lg font-bold text-slate-900">Customer booking page</h2>
+              <h2 className="text-lg font-bold text-slate-900"><ShopMessage>Customer booking page</ShopMessage></h2>
               <p className="mt-1 text-sm text-slate-600">
                 Open this page to see what customers see. Share this link so they can book.
               </p>

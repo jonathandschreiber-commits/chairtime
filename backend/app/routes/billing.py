@@ -19,9 +19,21 @@ from app.routes.customer_verification import (
 router = APIRouter()
 
 
+# Stripe uses "zh" for Simplified Chinese Checkout.
+CHECKOUT_LANGUAGES = {
+    "en": ("en", "DayTello is operated by PSI Meeting, Inc."),
+    "es": ("es", "DayTello es operado por PSI Meeting, Inc."),
+    "vi": ("vi", "DayTello do PSI Meeting, Inc. vận hành."),
+    "zh-Hans": ("zh", "DayTello 由 PSI Meeting, Inc. 运营。"),
+    "ko": ("ko", "DayTello는 PSI Meeting, Inc.에서 운영합니다."),
+    "th": ("th", "DayTello ดำเนินการโดย PSI Meeting, Inc."),
+}
+
+
 class CheckoutSessionCreate(BaseModel):
     plan: Literal["scheduling", "scheduling_ai"] = "scheduling"
     metered_ai: bool = False
+    language: str | None = None
 
 
 class BookingSetupIntentCreate(BaseModel):
@@ -652,6 +664,11 @@ def create_checkout_session(
         else "scheduling"
     )
 
+    locale, operator_notice = CHECKOUT_LANGUAGES.get(
+        payload.language if payload else None,
+        ("auto", CHECKOUT_LANGUAGES["en"][1]),
+    )
+
     metered_ai = False
     try:
         stripe.api_key = get_stripe_secret_key()
@@ -722,9 +739,8 @@ def create_checkout_session(
             mode="subscription",
             customer=shop.stripe_customer_id,
             payment_method_collection="always",
-            custom_text={
-                "submit": {"message": "DayTello is operated by PSI Meeting, Inc."},
-            },
+            locale=locale,
+            custom_text={"submit": {"message": operator_notice}},
             line_items=line_items,
             subscription_data={
                 "trial_period_days": 30,
