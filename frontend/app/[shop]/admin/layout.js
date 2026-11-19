@@ -1,3 +1,4 @@
+import { ShopLanguageRegion } from "../../components/ShopLanguage";
 import { getBackendUrl } from "../../../lib/backend-url.js";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
@@ -53,5 +54,5 @@ export default async function ShopAdminLayout({
     redirect(`/${user.shop_slug}/admin`);
   }
 
-  return children;
+  return <ShopLanguageRegion>{children}</ShopLanguageRegion>;
 }

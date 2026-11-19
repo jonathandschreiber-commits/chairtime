@@ -1,5 +1,6 @@
 "use client";
 
+import { ShopMessage } from "../components/ShopLanguage";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import styles from "./signup.module.css";
@@ -251,13 +252,13 @@ export default function SignupPage() {
     <main className={styles.page}>
       <div className={styles.container}>
         <Link href="/" className={styles.backLink}>
-          ← Back to DayTello
+          <ShopMessage>← Back to DayTello</ShopMessage>
         </Link>
 
         <section className={styles.card}>
           <div className={styles.brand}>
             <h1 className={styles.brandName}>
-              Start your free month
+              <ShopMessage>Start your free month</ShopMessage>
             </h1>
 
             <p className={styles.brandText}>
@@ -320,7 +321,7 @@ export default function SignupPage() {
 
             <section className={styles.section}>
               <h2 className={styles.sectionTitle}>
-                Your business
+                <ShopMessage>Your business</ShopMessage>
               </h2>
 
               <div className={styles.grid}>
@@ -330,7 +331,7 @@ export default function SignupPage() {
                       className={styles.label}
                       htmlFor="businessName"
                     >
-                      Business Name
+                      <ShopMessage>Business Name</ShopMessage>
                     </label>
 
                     <p
@@ -390,7 +391,7 @@ export default function SignupPage() {
                           marginBottom: "6px",
                         }}
                       >
-                        Your booking page
+                        <ShopMessage>Your booking page</ShopMessage>
                       </div>
 
                       <div
@@ -534,7 +535,7 @@ export default function SignupPage() {
 
             <section className={styles.section}>
               <h2 className={styles.sectionTitle}>
-                Your account
+                <ShopMessage>Your account</ShopMessage>
               </h2>
 
               <div className={styles.grid}>
@@ -544,7 +545,7 @@ export default function SignupPage() {
                       className={styles.label}
                       htmlFor="ownerName"
                     >
-                      Your Name
+                      <ShopMessage>Your Name</ShopMessage>
                     </label>
 
                     <input
@@ -571,7 +572,7 @@ export default function SignupPage() {
                       className={styles.label}
                       htmlFor="email"
                     >
-                      Email
+                      <ShopMessage>Email</ShopMessage>
                     </label>
 
                     <input
@@ -601,7 +602,7 @@ export default function SignupPage() {
 
                     htmlFor="password"
                   >
-                    Password
+                    <ShopMessage>Password</ShopMessage>
                   </label>
 
                   <input
@@ -626,7 +627,7 @@ export default function SignupPage() {
                     className={styles.label}
                     htmlFor="confirmPassword"
                   >
-                    Confirm Password
+                    <ShopMessage>Confirm Password</ShopMessage>
                   </label>
 
                   <input
