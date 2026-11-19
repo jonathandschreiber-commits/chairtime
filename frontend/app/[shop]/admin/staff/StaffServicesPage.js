@@ -1,6 +1,6 @@
 "use client";
 
-import { ShopMessage } from "../../../components/ShopLanguage";
+import { ShopMessage, useShopMessages } from "../../../components/ShopLanguage";
 
 
 import { useEffect, useState } from "react";
@@ -11,6 +11,7 @@ import {
 
 
 export default function StaffServicesPage({ apiBase }) {
+  const t = useShopMessages();
   const params = useParams();
   const router = useRouter();
   const shopSlug = params.shop;
@@ -1129,10 +1130,7 @@ export default function StaffServicesPage({ apiBase }) {
                 <ShopMessage>Staff &amp; Services</ShopMessage>
               </h1>
 
-              <p className="text-lg text-gray-700 mt-2">
-                Manage the shop&apos;s staff, login access,
-                and master service list.
-              </p>
+              <p className="text-lg text-gray-700 mt-2"><ShopMessage>{"Manage the shop's staff, login access, and master service list."}</ShopMessage></p>
             </div>
 
             <a
@@ -1147,19 +1145,13 @@ export default function StaffServicesPage({ apiBase }) {
 
         <section className="bg-white rounded-3xl shadow-lg p-6 border border-rose-200 space-y-4">
           <div>
-            <p className="text-sm font-extrabold uppercase tracking-widest text-rose-600 mb-1">
-              Team
-            </p>
+            <p className="text-sm font-extrabold uppercase tracking-widest text-rose-600 mb-1"><ShopMessage>{"Team"}</ShopMessage></p>
 
             <h2 className="text-3xl font-extrabold text-rose-950">
               <ShopMessage>Staff</ShopMessage>
             </h2>
 
-            <p className="text-gray-600 mt-1">
-              Add the people who take appointments.
-              You can also give individual staff members
-              their own DayTello login.
-            </p>
+            <p className="text-gray-600 mt-1"><ShopMessage>{"Add the people who take appointments. You can also give individual staff members their own DayTello login."}</ShopMessage></p>
           </div>
 
 
@@ -1177,9 +1169,7 @@ export default function StaffServicesPage({ apiBase }) {
 
 
           <div className="rounded-2xl bg-rose-50 border border-rose-100 p-4 space-y-3">
-            <label className="block font-bold text-rose-950">
-              Add staff member
-            </label>
+            <label className="block font-bold text-rose-950"><ShopMessage>{"Add staff member"}</ShopMessage></label>
 
             <input
               type="text"
@@ -1189,16 +1179,14 @@ export default function StaffServicesPage({ apiBase }) {
                   event.target.value
                 )
               }
-              placeholder="Staff name"
+              placeholder={t("Staff name")}
               className="border border-rose-200 bg-white p-3 rounded-xl w-full focus:outline-none focus:ring-2 focus:ring-rose-300"
             />
 
             <button
               onClick={addBarber}
               className="bg-rose-700 hover:bg-rose-800 text-white px-5 py-3 rounded-xl font-bold shadow"
-            >
-              + Add Staff Member
-            </button>
+            ><ShopMessage>{"+ Add Staff Member"}</ShopMessage></button>
           </div>
 
 
@@ -1260,18 +1248,14 @@ export default function StaffServicesPage({ apiBase }) {
                               )
                             }
                             className="bg-rose-700 text-white px-4 py-2 rounded-xl font-semibold"
-                          >
-                            Save
-                          </button>
+                          ><ShopMessage>{"Save"}</ShopMessage></button>
 
                           <button
                             onClick={
                               cancelEditingBarber
                             }
                             className="bg-gray-200 px-4 py-2 rounded-xl font-semibold"
-                          >
-                            Cancel
-                          </button>
+                          ><ShopMessage>{"Cancel"}</ShopMessage></button>
                         </div>
                       </div>
                     ) : accessBarberId ===
@@ -1330,7 +1314,7 @@ export default function StaffServicesPage({ apiBase }) {
                                     .value
                                 )
                               }
-                              placeholder="At least 8 characters"
+                              placeholder={t("At least 8 characters")}
                               autoComplete="new-password"
                               className="border border-blue-200 bg-white p-3 rounded-xl w-full focus:outline-none focus:ring-2 focus:ring-blue-300"
                             />
@@ -1395,9 +1379,7 @@ export default function StaffServicesPage({ apiBase }) {
                                 savingAccess
                               }
                               className="bg-gray-200 px-4 py-2 rounded-xl font-semibold"
-                            >
-                              Cancel
-                            </button>
+                            ><ShopMessage>{"Cancel"}</ShopMessage></button>
                           </div>
                         </div>
                       </div>
@@ -1432,7 +1414,7 @@ export default function StaffServicesPage({ apiBase }) {
                                     .value
                                 )
                               }
-                              placeholder="At least 8 characters"
+                              placeholder={t("At least 8 characters")}
                               autoComplete="new-password"
                               className="border border-amber-200 bg-white p-3 rounded-xl w-full focus:outline-none focus:ring-2 focus:ring-amber-300"
                             />
@@ -1495,9 +1477,7 @@ export default function StaffServicesPage({ apiBase }) {
                                 savingResetPassword
                               }
                               className="bg-gray-200 px-4 py-2 rounded-xl font-semibold"
-                            >
-                              Cancel
-                            </button>
+                            ><ShopMessage>{"Cancel"}</ShopMessage></button>
                           </div>
                         </div>
                       </div>
@@ -1509,16 +1489,12 @@ export default function StaffServicesPage({ apiBase }) {
                               {barber.name}
                             </p>
 
-                            <p className="text-sm text-gray-500">
-                              Staff member
-                            </p>
+                            <p className="text-sm text-gray-500"><ShopMessage>{"Staff member"}</ShopMessage></p>
 
                             {teamLoaded &&
                               !teamMember && (
                                 <div className="mt-2">
-                                  <span className="inline-flex items-center rounded-full bg-gray-100 px-3 py-1 text-xs font-bold text-gray-700">
-                                    DayTello access: Not enabled
-                                  </span>
+                                  <span className="inline-flex items-center rounded-full bg-gray-100 px-3 py-1 text-xs font-bold text-gray-700"><ShopMessage>{"DayTello access: Not enabled"}</ShopMessage></span>
                                 </div>
                               )}
 
@@ -1559,9 +1535,7 @@ export default function StaffServicesPage({ apiBase }) {
                                     )
                                   }
                                   className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl font-semibold"
-                                >
-                                  Give Login Access
-                                </button>
+                                ><ShopMessage>{"Give Login Access"}</ShopMessage></button>
                               )}
 
                             {teamMember &&
@@ -1626,9 +1600,7 @@ export default function StaffServicesPage({ apiBase }) {
                                   )
                                 }
                                 className="bg-red-600 text-white px-4 py-2 rounded-xl font-semibold"
-                              >
-                                Delete
-                              </button>
+                              ><ShopMessage>{"Delete"}</ShopMessage></button>
                             )}
                           </div>
                         </div>
@@ -1682,18 +1654,11 @@ export default function StaffServicesPage({ apiBase }) {
 
         <section className="bg-white rounded-3xl shadow-lg p-6 border border-rose-200 space-y-4">
           <div>
-            <p className="text-sm font-extrabold uppercase tracking-widest text-rose-600 mb-1">
-              Menu
-            </p>
+            <p className="text-sm font-extrabold uppercase tracking-widest text-rose-600 mb-1"><ShopMessage>{"Menu"}</ShopMessage></p>
 
-            <h2 className="text-3xl font-extrabold text-rose-950">
-              Services
-            </h2>
+            <h2 className="text-3xl font-extrabold text-rose-950"><ShopMessage>{"Services"}</ShopMessage></h2>
 
-            <p className="text-gray-600 mt-1">
-              Add each service once here. Assign it to individual
-              staff members in Shop Setup.
-            </p>
+            <p className="text-gray-600 mt-1"><ShopMessage>{"Add each service once here. Assign it to individual staff members in Shop Setup."}</ShopMessage></p>
           </div>
 
 
@@ -1705,9 +1670,7 @@ export default function StaffServicesPage({ apiBase }) {
 
 
           <div className="rounded-2xl bg-rose-50 border border-rose-100 p-4 space-y-3">
-            <label className="block font-bold text-rose-950">
-              Add service
-            </label>
+            <label className="block font-bold text-rose-950"><ShopMessage>{"Add service"}</ShopMessage></label>
 
             <input
               type="text"
@@ -1717,16 +1680,14 @@ export default function StaffServicesPage({ apiBase }) {
                   event.target.value
                 )
               }
-              placeholder="Service name"
+              placeholder={t("Service name")}
               className="border border-rose-200 bg-white p-3 rounded-xl w-full focus:outline-none focus:ring-2 focus:ring-rose-300"
             />
 
             <button
               onClick={addService}
               className="bg-rose-700 hover:bg-rose-800 text-white px-5 py-3 rounded-xl font-bold shadow"
-            >
-              + Add Service
-            </button>
+            ><ShopMessage>{"+ Add Service"}</ShopMessage></button>
           </div>
 
 
@@ -1770,18 +1731,14 @@ export default function StaffServicesPage({ apiBase }) {
                             )
                           }
                           className="bg-rose-700 text-white px-4 py-2 rounded-xl font-semibold"
-                        >
-                          Save
-                        </button>
+                        ><ShopMessage>{"Save"}</ShopMessage></button>
 
                         <button
                           onClick={
                             cancelEditingService
                           }
                           className="bg-gray-200 px-4 py-2 rounded-xl font-semibold"
-                        >
-                          Cancel
-                        </button>
+                        ><ShopMessage>{"Cancel"}</ShopMessage></button>
                       </div>
                     </div>
                   ) : (
@@ -1793,8 +1750,7 @@ export default function StaffServicesPage({ apiBase }) {
 
                         {service.assignment_count >
                           0 && (
-                          <p className="text-sm text-gray-600 mt-1">
-                            Assigned to{" "}
+                          <p className="text-sm text-gray-600 mt-1"><ShopMessage>{"Assigned to"}</ShopMessage>{" "}
                             {service.assigned_staff.join(
                               ", "
                             )}
@@ -1825,9 +1781,7 @@ export default function StaffServicesPage({ apiBase }) {
                           <button
                             disabled
                             className="bg-gray-300 text-gray-600 px-4 py-2 rounded-xl cursor-not-allowed font-semibold"
-                          >
-                            In Use
-                          </button>
+                          ><ShopMessage>{"In Use"}</ShopMessage></button>
                         ) : (
                           <button
                             onClick={() =>
@@ -1836,9 +1790,7 @@ export default function StaffServicesPage({ apiBase }) {
                               )
                             }
                             className="bg-red-600 text-white px-4 py-2 rounded-xl font-semibold"
-                          >
-                            Delete
-                          </button>
+                          ><ShopMessage>{"Delete"}</ShopMessage></button>
                         )}
                       </div>
                     </div>

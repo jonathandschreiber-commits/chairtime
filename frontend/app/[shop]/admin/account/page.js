@@ -1,12 +1,13 @@
 "use client";
 
-import { ShopMessage } from "../../../components/ShopLanguage";
+import { ShopMessage, useShopMessages } from "../../../components/ShopLanguage";
 
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 
 export default function AccountOptionsPage() {
+  const t = useShopMessages();
   const params = useParams();
   const shop = params?.shop || "";
 
@@ -546,7 +547,7 @@ export default function AccountOptionsPage() {
     Number(subscription.monthly_price || 49);
 
   const monthlyPriceText =
-    `$${monthlyPrice.toFixed(0)} per month`;
+    t("{price} per month").replace("{price}", `$${monthlyPrice.toFixed(0)}`);
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-sky-50 px-5 py-8 sm:py-10">
@@ -561,9 +562,7 @@ export default function AccountOptionsPage() {
               <ShopMessage>Account Options</ShopMessage>
             </h1>
 
-            <p className="text-slate-600 mt-2">
-              Manage your subscription and payment settings.
-            </p>
+            <p className="text-slate-600 mt-2"><ShopMessage>{"Manage your subscription and payment settings."}</ShopMessage></p>
           </div>
 
           <a
@@ -595,13 +594,9 @@ export default function AccountOptionsPage() {
                 </div>
 
                 <div>
-                  <h2 className="text-2xl font-extrabold text-slate-900">
-                    Subscription
-                  </h2>
+                  <h2 className="text-2xl font-extrabold text-slate-900"><ShopMessage>{"Subscription"}</ShopMessage></h2>
 
-                  <p className="text-slate-500 text-sm">
-                    Your DayTello account
-                  </p>
+                  <p className="text-slate-500 text-sm"><ShopMessage>{"Your DayTello account"}</ShopMessage></p>
                 </div>
               </div>
 
@@ -623,7 +618,7 @@ export default function AccountOptionsPage() {
                   : "bg-amber-100 text-amber-700"
               }`}
             >
-              {subscriptionStatus}
+              <ShopMessage>{subscriptionStatus}</ShopMessage>
             </span>
           </div>
 
@@ -647,11 +642,9 @@ export default function AccountOptionsPage() {
                 "trialing" &&
               trialDate ? (
                 <p className="text-slate-700">
-                  Your free trial ends{" "}
-                  <strong>{trialDate}</strong>.
-                  {" "}Your {`$${monthlyPrice}`} monthly
-                  subscription begins after the
-                  trial unless you cancel.
+                  {t("Your free trial ends {date}. Your {price} monthly subscription begins after the trial unless you cancel.")
+                    .replace("{date}", trialDate)
+                    .replace("{price}", `$${monthlyPrice}`)}
                 </p>
               ) : subscription.cancel_at_period_end ? (
                 <p className="text-slate-700">
@@ -706,9 +699,9 @@ export default function AccountOptionsPage() {
                   disabled={openingBilling}
                   className="rounded-xl bg-indigo-600 px-5 py-3 font-extrabold text-white hover:bg-indigo-700 disabled:opacity-60"
                 >
-                  {openingBilling
+                  <ShopMessage>{openingBilling
                     ? "Opening..."
-                    : "Manage Billing"}
+                    : "Manage Billing"}</ShopMessage>
                 </button>
 
                 {subscription.cancel_at_period_end ? (
@@ -737,9 +730,9 @@ export default function AccountOptionsPage() {
                     }
                     className="rounded-xl border border-slate-300 bg-white px-5 py-3 font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-60"
                   >
-                    {changingSubscription
+                    <ShopMessage>{changingSubscription
                       ? "Saving..."
-                      : "Cancel Subscription"}
+                      : "Cancel Subscription"}</ShopMessage>
                   </button>
                 )}
               </>
@@ -750,15 +743,9 @@ export default function AccountOptionsPage() {
         {hasSubscription ? (
           <section className="bg-gradient-to-br from-violet-100 via-violet-50 to-indigo-50 rounded-3xl border-2 border-violet-300 shadow-sm p-6 sm:p-8 mb-5">
             <h2 className="text-3xl sm:text-4xl font-extrabold text-violet-900"><ShopMessage>AI Receptionist</ShopMessage></h2>
-            <p className="text-xl sm:text-2xl font-bold text-violet-800 mt-3 leading-snug">
-              Let your dedicated AI Receptionist answer calls and book appointments while you work.
-            </p>
-            <p className="text-lg text-slate-800 mt-3 leading-relaxed">
-              Save time and manage your bookings in one place. Your AI Receptionist checks live availability before booking to help prevent double bookings and appointments outside staff hours.
-            </p>
-            <p className="text-base text-slate-700 mt-3 leading-relaxed">
-              It uses your shop&apos;s current services, staff, prices and hours. Keep your existing phone number and booking URL.
-            </p>
+            <p className="text-xl sm:text-2xl font-bold text-violet-800 mt-3 leading-snug"><ShopMessage>{"Let your dedicated AI Receptionist answer calls and book appointments while you work."}</ShopMessage></p>
+            <p className="text-lg text-slate-800 mt-3 leading-relaxed"><ShopMessage>{"Save time and manage your bookings in one place. Your AI Receptionist checks live availability before booking to help prevent double bookings and appointments outside staff hours."}</ShopMessage></p>
+            <p className="text-base text-slate-700 mt-3 leading-relaxed"><ShopMessage>{"It uses your shop's current services, staff, prices and hours. Keep your existing phone number and booking URL."}</ShopMessage></p>
             {account?.ai_voice_enabled ? (
               <button type="button" onClick={startAIUpgrade} disabled={upgrading} className="mt-4 rounded-xl bg-violet-600 px-5 py-3 font-extrabold text-white disabled:opacity-60">{upgrading ? "Checking..." : "Continue AI Receptionist Setup"}</button>
             ) : upgradeQuote ? (
@@ -771,7 +758,7 @@ export default function AccountOptionsPage() {
                 <p className="text-sm mt-2">Next, choose your receptionist number and forward your existing business number.</p>
                 <div className="flex flex-wrap gap-3 mt-4">
                   <button type="button" onClick={confirmAIUpgrade} disabled={upgrading} className="rounded-xl bg-violet-600 px-5 py-3 font-extrabold text-white disabled:opacity-60">{upgrading ? "Confirming..." : "Confirm Upgrade & Set Up AI Receptionist"}</button>
-                  <button type="button" onClick={() => setUpgradeQuote(null)} disabled={upgrading} className="rounded-xl border px-5 py-3 font-bold">Cancel</button>
+                  <button type="button" onClick={() => setUpgradeQuote(null)} disabled={upgrading} className="rounded-xl border px-5 py-3 font-bold"><ShopMessage>{"Cancel"}</ShopMessage></button>
                 </div>
               </div>
             ) : <button type="button" onClick={startAIUpgrade} disabled={upgrading} className="mt-4 rounded-xl bg-violet-600 px-5 py-3 font-extrabold text-white disabled:opacity-60">{upgrading ? "Checking..." : "Upgrade to AI Receptionist"}</button>}
@@ -785,14 +772,9 @@ export default function AccountOptionsPage() {
             </div>
 
             <div>
-              <h2 className="text-2xl font-extrabold text-slate-900">
-                Customer Payments
-              </h2>
+              <h2 className="text-2xl font-extrabold text-slate-900"><ShopMessage>{"Customer Payments"}</ShopMessage></h2>
 
-              <p className="text-slate-500 text-sm">
-                Choose how customers use cards
-                with your business.
-              </p>
+              <p className="text-slate-500 text-sm"><ShopMessage>{"Choose how customers use cards with your business."}</ShopMessage></p>
             </div>
           </div>
 
@@ -855,11 +837,11 @@ export default function AccountOptionsPage() {
 
                     <div>
                       <p className="font-extrabold text-slate-900">
-                        {option.title}
+                        <ShopMessage>{option.title}</ShopMessage>
                       </p>
 
                       <p className="text-sm text-slate-600 mt-1">
-                        {option.description}
+                        <ShopMessage>{option.description}</ShopMessage>
                       </p>
                     </div>
                   </div>

@@ -167,9 +167,7 @@ export default function AIReceptionistPage() {
                       {agentName}
                     </h2>
 
-                    <p className="text-slate-600 mt-1">
-                      Your dedicated AI phone receptionist
-                    </p>
+                    <p className="text-slate-600 mt-1"><ShopMessage>{"Your dedicated AI phone receptionist"}</ShopMessage></p>
                   </div>
                 </div>
 
@@ -180,47 +178,35 @@ export default function AIReceptionistPage() {
                       : "inline-flex rounded-full bg-amber-100 px-4 py-2 text-sm font-extrabold text-amber-700"
                   }
                 >
-                  {provisioned
+                  <ShopMessage>{provisioned
                     ? "Active"
-                    : "Setup Required"}
+                    : "Setup Required"}</ShopMessage>
                 </span>
               </div>
 
               {provisioned && (
                 <div className="mt-6 rounded-2xl border border-emerald-200 bg-emerald-50 p-5">
                   <p className="font-extrabold text-emerald-800">
-                    ✓ Your AI Receptionist is ready
+                    ✓ <ShopMessage>Your AI Receptionist is ready</ShopMessage>
                   </p>
 
-                  <p className="text-sm text-emerald-700 mt-1">
-                    It is connected to your DayTello
-                    services, staff, availability, and
-                    booking system.
-                  </p>
+                  <p className="text-sm text-emerald-700 mt-1"><ShopMessage>{"It is connected to your DayTello services, staff, availability, and booking system."}</ShopMessage></p>
                 </div>
               )}
             </section>
 
             <section className="bg-white rounded-3xl shadow-lg border border-sky-100 p-7">
-              <h2 className="text-2xl font-extrabold text-slate-900">
-                Phone Setup
-              </h2>
+              <h2 className="text-2xl font-extrabold text-slate-900"><ShopMessage>{"Phone Setup"}</ShopMessage></h2>
 
               {phoneNumber ? (
                 <>
-                  <p className="text-slate-600 mt-2">
-                    Your AI Receptionist phone number:
-                  </p>
+                  <p className="text-slate-600 mt-2"><ShopMessage>{"Your AI Receptionist phone number:"}</ShopMessage></p>
 
                   <p className="text-2xl font-extrabold text-slate-900 mt-3">
                     {displayPhoneNumber}
                   </p>
 
-                  <p className="text-sm text-slate-600 mt-4">
-                    Forward your existing business phone
-                    number to this number when you want
-                    your AI Receptionist to answer calls.
-                  </p>
+                  <p className="text-sm text-slate-600 mt-4"><ShopMessage>{"Forward your existing business phone number to this number when you want your AI Receptionist to answer calls."}</ShopMessage></p>
                 </>
               ) : (
                 <>
@@ -249,23 +235,16 @@ export default function AIReceptionistPage() {
             {provisioned && phoneNumber && <OwnerVoicemailSetup key={shopSlug} shopSlug={shopSlug} />}
 
             <section className="bg-white rounded-3xl shadow-lg border border-fuchsia-100 p-7">
-              <h2 className="text-2xl font-extrabold text-slate-900">
-                Test Your AI Receptionist
-              </h2>
+              <h2 className="text-2xl font-extrabold text-slate-900"><ShopMessage>{"Test Your AI Receptionist"}</ShopMessage></h2>
 
-              <p className="text-slate-600 mt-2">
-                Make sure your receptionist understands
-                your services, staff, availability, and
-                booking rules before you send customer
-                calls to it.
-              </p>
+              <p className="text-slate-600 mt-2"><ShopMessage>{"Make sure your receptionist understands your services, staff, availability, and booking rules before you send customer calls to it."}</ShopMessage></p>
 
               {phoneNumber ? (
                 <a
                   href={`tel:${phoneNumber}`}
                   className="inline-flex mt-5 rounded-xl bg-gradient-to-r from-fuchsia-600 to-violet-600 px-6 py-3 font-extrabold text-white shadow-md hover:shadow-lg"
                 >
-                  📞 Call My AI Receptionist
+                  📞 <ShopMessage>Call My AI Receptionist</ShopMessage>
                 </a>
               ) : (
                 <button
@@ -279,52 +258,39 @@ export default function AIReceptionistPage() {
             </section>
 
             <section className="bg-white rounded-3xl shadow-lg border border-slate-200 p-7">
-              <h2 className="text-2xl font-extrabold text-slate-900">
-                What Your Receptionist Can Do
-              </h2>
+              <h2 className="text-2xl font-extrabold text-slate-900"><ShopMessage>{"What Your Receptionist Can Do"}</ShopMessage></h2>
 
               <div className="grid sm:grid-cols-2 gap-4 mt-5">
                 <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4">
                   <p className="font-extrabold">
-                    📅 Check availability
+                    📅 <ShopMessage>Check availability</ShopMessage>
                   </p>
 
-                  <p className="text-sm text-slate-600 mt-1">
-                    Uses your real DayTello schedules.
-                  </p>
+                  <p className="text-sm text-slate-600 mt-1"><ShopMessage>{"Uses your real DayTello schedules."}</ShopMessage></p>
                 </div>
 
                 <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4">
                   <p className="font-extrabold">
-                    ✂️ Explain services
+                    ✂️ <ShopMessage>Explain services</ShopMessage>
                   </p>
 
-                  <p className="text-sm text-slate-600 mt-1">
-                    Uses the services configured for your
-                    business.
-                  </p>
+                  <p className="text-sm text-slate-600 mt-1"><ShopMessage>{"Uses the services configured for your business."}</ShopMessage></p>
                 </div>
 
                 <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4">
                   <p className="font-extrabold">
-                    👥 Work with staff
+                    👥 <ShopMessage>Work with staff</ShopMessage>
                   </p>
 
-                  <p className="text-sm text-slate-600 mt-1">
-                    Understands your staff and their
-                    schedules.
-                  </p>
+                  <p className="text-sm text-slate-600 mt-1"><ShopMessage>{"Understands your staff and their schedules."}</ShopMessage></p>
                 </div>
 
                 <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4">
                   <p className="font-extrabold">
-                    ✓ Book appointments
+                    ✓ <ShopMessage>Book appointments</ShopMessage>
                   </p>
 
-                  <p className="text-sm text-slate-600 mt-1">
-                    Creates appointments directly in
-                    DayTello.
-                  </p>
+                  <p className="text-sm text-slate-600 mt-1"><ShopMessage>{"Creates appointments directly in DayTello."}</ShopMessage></p>
                 </div>
               </div>
             </section>

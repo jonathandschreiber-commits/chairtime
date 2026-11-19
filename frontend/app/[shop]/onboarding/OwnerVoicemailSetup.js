@@ -1,9 +1,11 @@
 "use client";
 
+import { ShopMessage, useShopMessages } from "../../components/ShopLanguage";
 import { useEffect, useState } from "react";
 import styles from "./onboarding.module.css";
 
 export default function OwnerVoicemailSetup({ shopSlug, onReadyChange }) {
+  const t = useShopMessages();
   const url = `/api/shops/${encodeURIComponent(shopSlug)}/owner-voicemail`;
   const [available, setAvailable] = useState(false);
   const [number, setNumber] = useState("");
@@ -73,13 +75,13 @@ export default function OwnerVoicemailSetup({ shopSlug, onReadyChange }) {
 
   return (
     <section style={{ marginTop: 16, padding: 16, border: "1px solid #c4b5fd", borderRadius: 12 }}>
-      <h3 style={{ fontWeight: 800 }}>Forward calls and get voicemail texts</h3>
+      <h3 style={{ fontWeight: 800 }}><ShopMessage>{"Forward calls and get voicemail texts"}</ShopMessage></h3>
       {phase === "done" ? (
         <div style={{ display: "grid", gap: 12, marginTop: 12 }}>
-          <p role="status">Setup saved. Calls and voicemail texts go to <strong>{savedNumber}</strong>.</p>
+          <p role="status">{t("Setup saved. Calls and voicemail texts go to {number}.").replace("{number}", savedNumber)}</p>
           <p>
-            {relayNumber && <>Forwarded calls come from <strong>{relayNumber}</strong>. Save it as <strong>DayTello</strong> so you can recognize it if your phone shows “Potential Spam.” </>}
-            Answer and press <strong>1</strong> to accept. If nobody accepts, DayTello texts you a voicemail link.
+            {relayNumber && <>{t("Forwarded calls come from {number}. Save it as DayTello so you can recognize it if your phone shows “Potential Spam.”").replace("{number}", relayNumber)}{" "}</>}
+            {t("Answer and press 1 to accept. If nobody accepts, DayTello texts you a voicemail link.")}
           </p>
           <button type="button" className={styles.continueButton} style={{ justifySelf: "start" }}
             onClick={() => {
@@ -89,9 +91,7 @@ export default function OwnerVoicemailSetup({ shopSlug, onReadyChange }) {
               setError("");
               setChangingNumber(true);
               setPhase("start");
-            }}>
-            Change forwarding number
-          </button>
+            }}><ShopMessage>{"Change forwarding number"}</ShopMessage></button>
         </div>
       ) : (
         <form onSubmit={submit} style={{ display: "grid", gap: 16, marginTop: 12 }}>

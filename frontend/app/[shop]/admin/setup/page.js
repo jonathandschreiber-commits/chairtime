@@ -1844,10 +1844,7 @@ export default function SetupPage() {
               {t("Shop Closures & Breaks")}
             </h2>
 
-            <p className="text-gray-600 mt-1">
-              These blocks apply to every staff
-              member in the shop.
-            </p>
+            <p className="text-gray-600 mt-1"><ShopMessage>{"These blocks apply to every staff member in the shop."}</ShopMessage></p>
           </div>
 
           <div className="border rounded-2xl p-4 space-y-3">
@@ -1855,12 +1852,7 @@ export default function SetupPage() {
               {t("One-Time Time Block")}
             </h3>
 
-            <p className="text-sm text-gray-600">
-              Use this for a staff meeting,
-              special closure, or another
-              one-time period when nobody can
-              be booked.
-            </p>
+            <p className="text-sm text-gray-600"><ShopMessage>{"Use this for a staff meeting, special closure, or another one-time period when nobody can be booked."}</ShopMessage></p>
 
             <input
               type="text"
@@ -1910,11 +1902,7 @@ export default function SetupPage() {
               {t("Full-Day Shop Closure")}
             </h3>
 
-            <p className="text-sm text-gray-600">
-              Use this for a holiday, vacation
-              day, weather closure, or other
-              full-day closing.
-            </p>
+            <p className="text-sm text-gray-600"><ShopMessage>{"Use this for a holiday, vacation day, weather closure, or other full-day closing."}</ShopMessage></p>
 
             <input
               type="date"
@@ -1980,11 +1968,7 @@ export default function SetupPage() {
               {t("Recurring Shop Block")}
             </h3>
 
-            <p className="text-sm text-gray-600">
-              Use this for a recurring lunch,
-              staff meeting, or another
-              shop-wide break.
-            </p>
+            <p className="text-sm text-gray-600"><ShopMessage>{"Use this for a recurring lunch, staff meeting, or another shop-wide break."}</ShopMessage></p>
 
             <input
               type="text"
@@ -2248,10 +2232,7 @@ export default function SetupPage() {
         {selectedBarber && (
           <>
             <div className="bg-white p-6 rounded-2xl shadow-lg border border-indigo-200 space-y-4">
-              <h2 className="text-2xl font-bold">
-
-                         Services
-              </h2>
+              <h2 className="text-2xl font-bold"><ShopMessage>{"Services"}</ShopMessage></h2>
 
               <p className="text-gray-600">
                 Assign services to{" "}
@@ -2603,9 +2584,7 @@ export default function SetupPage() {
                             )
                           }
                           className="bg-red-500 text-white px-3 py-1 rounded"
-                        >
-                          Delete
-                        </button>
+                        ><ShopMessage>{"Delete"}</ShopMessage></button>
                       </div>
                     )
                   )
@@ -2703,9 +2682,7 @@ export default function SetupPage() {
                             )
                           }
                           className="bg-red-500 text-white px-3 py-1 rounded"
-                        >
-                          Delete
-                        </button>
+                        ><ShopMessage>{"Delete"}</ShopMessage></button>
                       </div>
                     )
                   )
