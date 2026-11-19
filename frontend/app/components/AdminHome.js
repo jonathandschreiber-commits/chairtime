@@ -375,14 +375,14 @@ export default async function AdminHome({
                   <p className="mt-2 text-lg font-bold text-indigo-700">
                     {currentUserName}
                     {" · "}
-                    {currentUserRole}
+                    <ShopMessage>{currentUserRole}</ShopMessage>
                   </p>
                 )}
  
               <p className="text-gray-600 mt-2 text-base">
-                {isStaff
+                <ShopMessage>{isStaff
                   ? "Appointments and customer information for your workday."
-                  : "Everything you need to manage your business in one place."}
+                  : "Everything you need to manage your business in one place."}</ShopMessage>
               </p>
             </div>
           </div>
@@ -489,13 +489,11 @@ export default async function AdminHome({
  
                   <div className="flex-1 min-w-0">
                     <h2 className="text-xl font-extrabold text-slate-900">
-                      {button.name}
+                      <ShopMessage>{button.name}</ShopMessage>
                     </h2>
  
                     <p className="text-sm text-slate-600 mt-1 leading-relaxed">
-                      {
-                        button.description
-                      }
+                      <ShopMessage>{button.description}</ShopMessage>
                     </p>
                   </div>
  
@@ -512,7 +510,7 @@ export default async function AdminHome({
  
  
         <p className="text-center text-sm text-slate-500 mt-8">
-          Simple scheduling for busy businesses.
+          <ShopMessage>Simple scheduling for busy businesses.</ShopMessage>
         </p>
       </div>
     </main>

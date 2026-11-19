@@ -1,5 +1,7 @@
 "use client";
 
+import { ShopMessage } from "./ShopLanguage";
+
 import { useRef, useState } from "react";
 
 const instructions = {
@@ -31,7 +33,7 @@ export default function SavePageShortcut({ pageName }) {
 
   return (
     <div>
-      <p className="text-sm font-semibold text-slate-700">Save this page to your phone or computer</p>
+      <p className="text-sm font-semibold text-slate-700"><ShopMessage>Save this page to your phone or computer</ShopMessage></p>
       <div className="mt-1 flex flex-wrap gap-x-4 gap-y-2" aria-label="Device instructions">
         {Object.keys(instructions).map((name) => (
           <button

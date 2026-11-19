@@ -1,5 +1,7 @@
 "use client";
 
+import { ShopMessage } from "./ShopLanguage";
+
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
@@ -99,7 +101,7 @@ export default function AdminUserBar() {
 
           {roleLabel && (
             <p className="text-sm text-gray-600">
-              {roleLabel}
+              <ShopMessage>{roleLabel}</ShopMessage>
             </p>
           )}
         </div>
@@ -111,9 +113,7 @@ export default function AdminUserBar() {
         disabled={loggingOut}
         className="rounded-xl bg-gray-900 px-4 py-2 font-bold text-white hover:bg-gray-700 disabled:opacity-60"
       >
-        {loggingOut
-          ? "Logging Out..."
-          : "Log Out"}
+        <ShopMessage>{loggingOut ? "Logging Out..." : "Log Out"}</ShopMessage>
       </button>
     </div>
   );
