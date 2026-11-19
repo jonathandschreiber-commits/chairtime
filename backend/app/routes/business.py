@@ -115,11 +115,68 @@ def voice_billing_reference(description):
     return match.group(1) if match else None
 
 
-def voice_shop_matches(location, descriptions, shops, diagnostic=None):
+def wallet_call_references(records, token, location):
+    """Read only the identifiers needed for attribution, within the report's time budget."""
+    deadline = time.monotonic() + 5
+    references = {}
+    for row, _, description in records:
+        category = highlevel_usage_category(description)
+        if category not in {"Voice AI", "Phone calls"}:
+            continue
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        transaction_id = row["id"]
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", transaction_id):
+            continue
+        query = urlencode({"settlementTime": row["settlementTime"]})
+        req = url_request.Request(
+            f"https://services.leadconnectorhq.com/wallet/transactions/{transaction_id}?{query}",
+            headers={"Authorization": f"Bearer {token}", "Version": "v3",
+                     "Accept": "application/json", "LocationId": location},
+        )
+        try:
+            with url_request.urlopen(req, timeout=min(2, remaining)) as reply:
+                raw = reply.read(256_001)
+            if len(raw) > 256_000:
+                continue
+            data = json.loads(raw)
+            if not isinstance(data, dict):
+                continue
+            transaction = data.get("data", data)
+            if not isinstance(transaction, dict):
+                continue
+            transaction = transaction.get("transaction", transaction)
+            if not isinstance(transaction, dict):
+                continue
+            if transaction.get("id", transaction_id) != transaction_id:
+                continue
+            if transaction.get("locationId", location) != location:
+                continue
+            details = transaction.get("details")
+            event = details.get("eventBody") if isinstance(details, dict) else None
+            if not isinstance(event, dict):
+                continue
+            meta = event.get("meta")
+            field = "id" if category == "Voice AI" else "messageId"
+            identity = (event.get("voiceAiCallId") if field == "id"
+                        else meta.get("messageId") if isinstance(meta, dict) else None)
+            if isinstance(identity, str) and re.fullmatch(r"[A-Za-z0-9_-]{1,128}", identity):
+                references[transaction_id] = (field, identity)
+        except url_error.HTTPError as failure:
+            if failure.code in {401, 403, 429}:
+                break
+        except (url_error.URLError, TimeoutError, OSError, ValueError):
+            continue
+    return references
+
+
+def voice_shop_matches(location, descriptions, shops, diagnostic=None, wallet_references=()):
     """Exact provider call/message IDs only. Never infer ownership from caller numbers."""
     wanted = {ref for text in descriptions if (ref := voice_billing_reference(text))}
     token = (os.getenv("HIGHLEVEL_API_TOKEN") or "").strip()
-    if not wanted:
+    structured = set(wallet_references)
+    if not wanted and not structured:
         return {}, "not_needed"
     if not token:
         return {}, "not_configured"
@@ -205,6 +262,10 @@ def voice_shop_matches(location, descriptions, shops, diagnostic=None):
                                  if isinstance(value, str)}:
                     if identity in wanted:
                         candidates.setdefault(identity, set()).update(slugs)
+                for field in ("id", "messageId"):
+                    identity = log.get(field)
+                    if isinstance(identity, str) and (field, identity) in structured:
+                        candidates.setdefault((field, identity), set()).update(slugs)
                 # Caller numbers, transcripts and summaries are never stored or returned.
         matches = {identity: next(iter(slugs)) for identity, slugs in candidates.items()
                    if len(slugs) == 1 and None not in slugs}
@@ -318,8 +379,11 @@ def highlevel_month_usage(start, end, shops, db=None, include_voice_diagnostic=F
                 db.rollback()
                 tracking_available = False
         voice_diagnostic = {} if include_voice_diagnostic else None
+        wallet_references = wallet_call_references(records, token, location)
         voice_matches, voice_status = voice_shop_matches(
-            location, [text for _, _, text in records], shops, diagnostic=voice_diagnostic)
+            location, [text for _, _, text in records], shops, diagnostic=voice_diagnostic,
+            wallet_references=wallet_references.values())
+        matched_phone_calls = 0
         matched_voice = unmatched_voice = matched_numbers = 0
         matched_sms = unmatched_sms = 0
         grouped = {}
@@ -346,12 +410,16 @@ def highlevel_month_usage(start, end, shops, db=None, include_voice_diagnostic=F
                     slug = candidates[0]
                     matched_numbers += 1
             voice_reference = voice_billing_reference(description)
-            if category == "Voice AI" and voice_reference:
-                slug = voice_matches.get(voice_reference)
+            detail_reference = wallet_references.get(row["id"])
+            if category == "Voice AI":
+                slug = voice_matches.get(detail_reference or voice_reference)
                 if slug:
                     matched_voice += 1
                 else:
                     unmatched_voice += 1
+            if category == "Phone calls" and detail_reference:
+                slug = voice_matches.get(detail_reference)
+                matched_phone_calls += int(slug is not None)
             reference = sms_reference(description)
             if category == "SMS" and reference:
                 slug = message_matches.get(reference)
@@ -387,6 +455,7 @@ def highlevel_month_usage(start, end, shops, db=None, include_voice_diagnostic=F
                 "matched_voice_transactions": matched_voice,
                 "unmatched_voice_transactions": unmatched_voice,
                 "matched_number_transactions": matched_numbers,
+                "matched_phone_call_transactions": matched_phone_calls,
                 "excluded_funding_count": ignored, "checked_at": datetime.now(timezone.utc).isoformat(),
                 "through": cutoff.isoformat(), "basis": "USD wallet charges by settlement time; sub-cent amounts are rounded only after aggregation."}
     except (url_error.URLError, TimeoutError, OSError, ValueError, TypeError, InvalidOperation, UnicodeError) as failure:
