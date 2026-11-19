@@ -1,6 +1,6 @@
 "use client";
 
-import { ShopMessage, useShopMessages } from "../components/ShopLanguage";
+import { ShopMessage, useShopLanguage, useShopMessages } from "../components/ShopLanguage";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import styles from "./signup.module.css";
@@ -16,6 +16,7 @@ function normalizeSlug(value) {
 
 export default function SignupPage() {
   const t = useShopMessages();
+  const language = useShopLanguage();
   const [businessName, setBusinessName] = useState("");
   const [shopSlug, setShopSlug] = useState("");
   const [shopSlugEdited, setShopSlugEdited] = useState(false);
@@ -169,6 +170,7 @@ export default function SignupPage() {
           },
           body: JSON.stringify({
             plan: selectedPlan,
+            language,
             metered_ai: selectedPlan === "scheduling_ai",
           }),
         }
