@@ -148,7 +148,7 @@ function CustomerPaymentStatus({ shop, appointmentId }) {
     label = labels[payment.payment_status];
   }
   return <div ref={element} className="mt-2">
-    <p role="status" className={`text-sm font-bold ${!error && payment?.payment_status === "paid" ? "text-green-800" : "text-gray-800"}`><ShopMessage>{label}</ShopMessage></p>
+    <p role="status" className={`text-sm font-bold ${!error && payment?.payment_status === "paid" ? "text-green-800" : "text-gray-800"}`}><ShopMessage>{label}</ShopMessage></p>
     <Link href={`/${shop}/admin/payments/${encodeURIComponent(appointmentId)}`} className="mt-1 inline-block text-sm text-blue-800 underline"><ShopMessage>Payment details</ShopMessage></Link>
   </div>;
 }
