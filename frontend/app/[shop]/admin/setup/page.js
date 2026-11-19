@@ -1,6 +1,6 @@
 "use client";
 
-import { ShopMessage } from "../../../components/ShopLanguage";
+import { ShopMessage, useShopMessages } from "../../../components/ShopLanguage";
 
 
 import { useEffect, useMemo, useState } from "react";
@@ -38,6 +38,7 @@ const WEEKDAYS = [
 ];
 
 export default function SetupPage() {
+  const t = useShopMessages();
   const params = useParams();
   const router = useRouter();
   const shopSlug = params.shop;
@@ -1569,7 +1570,7 @@ export default function SetupPage() {
               </h1>
 
               <p className="mt-2 text-lg text-gray-700">
-                Manage shop hours, closures, staff schedules, and services.
+                {t("Manage shop hours, closures, staff schedules, and services.")}
               </p>
             </div>
 
@@ -1593,23 +1594,22 @@ export default function SetupPage() {
         <div className="bg-white p-6 rounded-2xl shadow-lg border border-indigo-200 space-y-4">
           <div>
             <h2 className="text-2xl font-bold">
-              Staff Appointment Access
+              {t("Staff Appointment Access")}
             </h2>
 
             <p className="text-gray-600 mt-1">
-              Decide whether staff can manage appointments assigned
-              to other staff members.
+              {t("Decide whether staff can manage appointments assigned to other staff members.")}
             </p>
           </div>
 
           {!staffAppointmentPermissionLoaded ? (
             <p className="text-gray-500">
-              Loading staff appointment setting...
+              {t("Loading staff appointment setting...")}
             </p>
           ) : (
             <div className="space-y-3">
               <p className="font-bold">
-                Can staff manage other staff members&apos; appointments?
+                {t("Can staff manage other staff members' appointments?")}
               </p>
 
               <label
@@ -1633,13 +1633,11 @@ export default function SetupPage() {
 
                   <div>
                     <p className="font-extrabold">
-                      No
+                      {t("No")}
                     </p>
 
                     <p className="text-sm text-gray-600 mt-1">
-                      Staff can view everyone&apos;s schedule but
-                      can only add, change, or cancel their own
-                      appointments.
+                      {t("Staff can view everyone's schedule but can only add, change, or cancel their own appointments.")}
                     </p>
                   </div>
                 </div>
@@ -1666,12 +1664,11 @@ export default function SetupPage() {
 
                   <div>
                     <p className="font-extrabold">
-                      Yes
+                      {t("Yes")}
                     </p>
 
                     <p className="text-sm text-gray-600 mt-1">
-                      Staff can add, change, or cancel appointments
-                      for any staff member.
+                      {t("Staff can add, change, or cancel appointments for any staff member.")}
                     </p>
                   </div>
                 </div>
@@ -1679,7 +1676,7 @@ export default function SetupPage() {
 
               {savingStaffAppointmentPermission && (
                 <p className="text-sm font-semibold text-indigo-700">
-                  Saving...
+                  {t("Saving...")}
                 </p>
               )}
             </div>
@@ -1691,12 +1688,11 @@ export default function SetupPage() {
         <div className="bg-white p-6 rounded-2xl shadow-lg border border-indigo-200 space-y-5">
           <div>
             <h2 className="text-2xl font-bold">
-              Shop Hours
+              {t("Shop Hours")}
             </h2>
 
             <p className="text-gray-600 mt-1">
-              These hours apply to the entire shop.
-              A day with no hours is closed.
+              {t("These hours apply to the entire shop. A day with no hours is closed.")}
             </p>
           </div>
 
@@ -1714,7 +1710,7 @@ export default function SetupPage() {
                 key={day}
                 value={day}
               >
-                {day}
+                {t(day)}
               </option>
             ))}
           </select>
@@ -1722,7 +1718,7 @@ export default function SetupPage() {
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
               <p className="font-bold mb-1">
-                Opens
+                {t("Opens")}
               </p>
 
               <input
@@ -1739,7 +1735,7 @@ export default function SetupPage() {
 
             <div>
               <p className="font-bold mb-1">
-                Closes
+                {t("Closes")}
               </p>
 
               <input
@@ -1759,7 +1755,7 @@ export default function SetupPage() {
             onClick={addShopHours}
             className="bg-black text-white px-4 py-3 rounded-xl font-bold"
           >
-            Save Shop Hours
+            {t("Save Shop Hours")}
           </button>
 
           <div className="space-y-2">
@@ -1780,12 +1776,12 @@ export default function SetupPage() {
                   <div className="flex justify-between items-center gap-3">
                     <div>
                       <p className="font-bold">
-                        {dayName}
+                        {t(dayName)}
                       </p>
 
                       {rules.length === 0 ? (
                         <p className="text-sm text-gray-500">
-                          Closed
+                          {t("Closed")}
                         </p>
                       ) : (
                         rules.map((rule) => (
@@ -1817,7 +1813,7 @@ export default function SetupPage() {
                           }
                           className="bg-red-500 text-white px-3 py-1 rounded"
                         >
-                          Delete {formatTime(rule.start_time)}–
+                          {t("Delete")} {formatTime(rule.start_time)}–
                           {formatTime(rule.end_time)}
                         </button>
                       ))}
@@ -1831,7 +1827,7 @@ export default function SetupPage() {
                           }
                           className="bg-gray-200 px-3 py-1 rounded"
                         >
-                          Closed
+                          {t("Closed")}
                         </button>
                       )}
                     </div>
@@ -2110,7 +2106,7 @@ export default function SetupPage() {
                         />
 
                         <span>
-                          {dayName}
+                          {t(dayName)}
                         </span>
                       </label>
                     );
@@ -2536,7 +2532,7 @@ export default function SetupPage() {
                     key={day}
                     value={day}
                   >
-                    {day}
+                    {t(day)}
                   </option>
                 ))}
               </select>
@@ -2762,7 +2758,7 @@ export default function SetupPage() {
                   }
                   className="bg-red-600 text-white px-4 py-3 rounded-xl"
                 >
-                  Closed
+                  {t("Closed")}
                 </button>
               </div>
             </div>
