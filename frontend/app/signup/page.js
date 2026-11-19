@@ -1,6 +1,6 @@
 "use client";
 
-import { ShopMessage } from "../components/ShopLanguage";
+import { ShopMessage, useShopMessages } from "../components/ShopLanguage";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import styles from "./signup.module.css";
@@ -15,6 +15,7 @@ function normalizeSlug(value) {
 }
 
 export default function SignupPage() {
+  const t = useShopMessages();
   const [businessName, setBusinessName] = useState("");
   const [shopSlug, setShopSlug] = useState("");
   const [shopSlugEdited, setShopSlugEdited] = useState(false);
@@ -262,9 +263,7 @@ export default function SignupPage() {
             </h1>
 
             <p className={styles.brandText}>
-              Tell us about your business, choose the
-              plan that works best for you, and start
-              your first 30 days free.
+              {t("Tell us about your business, choose the plan that works best for you, and start your first 30 days free.")}
             </p>
           </div>
 
@@ -289,7 +288,7 @@ export default function SignupPage() {
                 marginBottom: "6px",
               }}
             >
-              YOUR FIRST 30 DAYS ARE FREE — $0 TODAY
+              {t("YOUR FIRST 30 DAYS ARE FREE — $0 TODAY")}
             </div>
 
             <div
@@ -298,11 +297,7 @@ export default function SignupPage() {
                 lineHeight: "1.55",
               }}
             >
-              A credit card is required to start your
-              free trial. You will not be charged
-              today. Your selected plan begins billing
-              after your 30-day trial unless you
-              cancel.
+              {t("A credit card is required to start your free trial. You will not be charged today. Your selected plan begins billing after your 30-day trial unless you cancel.")}
             </div>
           </div>
 
@@ -342,8 +337,7 @@ export default function SignupPage() {
                         lineHeight: "1.4",
                       }}
                     >
-                      Enter it exactly as you want
-                      customers to see it.
+                      {t("Enter it exactly as you want customers to see it.")}
                     </p>
 
                     <input
@@ -455,9 +449,7 @@ export default function SignupPage() {
                           lineHeight: "1.4",
                         }}
                       >
-                        This updates automatically from your
-                        business name. You can change the URL
-                        above if you prefer something different.
+                        {t("This updates automatically from your business name. You can change the URL above if you prefer something different.")}
                       </p>
                     </div>
                   </div>
@@ -468,7 +460,7 @@ export default function SignupPage() {
                     className={styles.label}
                     htmlFor="businessType"
                   >
-                    Business Type
+                    {t("Business Type")}
                   </label>
 
                   <select
@@ -483,27 +475,27 @@ export default function SignupPage() {
                     disabled={loading}
                   >
                     <option value="service_business">
-                      Other Service Business
+                      {t("Other Service Business")}
                     </option>
 
                     <option value="barbershop">
-                      Barbershop
+                      {t("Barbershop")}
                     </option>
 
                     <option value="hair_salon">
-                      Hair Salon
+                      {t("Hair Salon")}
                     </option>
 
                     <option value="nail_salon">
-                      Nail Salon
+                      {t("Nail Salon")}
                     </option>
 
                     <option value="massage">
-                      Massage / Wellness
+                      {t("Massage / Wellness")}
                     </option>
 
                     <option value="trainer">
-                      Personal Training / Fitness
+                      {t("Personal Training / Fitness")}
                     </option>
                   </select>
                 </div>
@@ -513,7 +505,7 @@ export default function SignupPage() {
                     className={styles.label}
                     htmlFor="phone"
                   >
-                    Business Phone
+                    {t("Business Phone")}
                   </label>
 
                   <input
@@ -616,7 +608,7 @@ export default function SignupPage() {
                         event.target.value
                       )
                     }
-                    placeholder="At least 8 characters"
+                    placeholder={t("At least 8 characters")}
                     disabled={loading}
                     required
                   />
@@ -641,7 +633,7 @@ export default function SignupPage() {
                         event.target.value
                       )
                     }
-                    placeholder="Enter password again"
+                    placeholder={t("Enter password again")}
                     disabled={loading}
                     required
                   />
@@ -656,7 +648,7 @@ export default function SignupPage() {
                 }}
               >
                 <h2 className={styles.sectionTitle}>
-                  Choose your plan
+                  {t("Choose your plan")}
                 </h2>
 
                 <p
@@ -667,9 +659,7 @@ export default function SignupPage() {
                     marginTop: "5px",
                   }}
                 >
-                  Both plans include your first 30 days
-                  free. Choose what works best for your
-                  business.
+                  {t("Both plans include your first 30 days free. Choose what works best for your business.")}
                 </p>
               </div>
 

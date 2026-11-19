@@ -64,6 +64,11 @@ export function ShopLanguageRegion({ children }) {
   );
 }
 
+export function useShopMessages() {
+  const language = useContext(LanguageContext);
+  return (message) => translateShopMessage(language, message);
+}
+
 export function ShopMessage({ children }) {
   const language = useContext(LanguageContext);
   const message = translateShopMessage(language, children);
