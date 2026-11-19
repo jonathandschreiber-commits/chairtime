@@ -1,5 +1,8 @@
 "use client";
 
+import { ShopMessage, useShopLanguage, useShopMessages } from "../../../components/ShopLanguage";
+
+
 import { useParams, useRouter } from "next/navigation";
 import {
   useCallback,
@@ -213,6 +216,8 @@ function earliestStartInHour(intervals, hourText, durations) {
 }
 
 export default function CalendarPage() {
+  const language = useShopLanguage();
+  const t = useShopMessages();
   const params = useParams();
   const router = useRouter();
 
@@ -2520,7 +2525,7 @@ export default function CalendarPage() {
           </div>
 
           <span className="rounded-full bg-white/70 px-3 py-1 text-sm font-bold">
-            {statusLabel}
+            <ShopMessage>{statusLabel}</ShopMessage>
           </span>
         </div>
 
@@ -2616,7 +2621,7 @@ export default function CalendarPage() {
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
                 <label className="block font-semibold mb-1">
-                  Date
+                  <ShopMessage>Date</ShopMessage>
                 </label>
 
                 <input
@@ -2792,14 +2797,11 @@ export default function CalendarPage() {
               </p>
 
               <h1 className="text-5xl font-extrabold tracking-tight mb-3">
-                Calendar
+                <ShopMessage>Calendar</ShopMessage>
               </h1>
 
               <p className="text-lg text-gray-700">
-                View the shop schedule
-                and quickly manage
-                appointments and blocked
-                time.
+                <ShopMessage>View the shop schedule and quickly manage appointments and blocked time.</ShopMessage>
               </p>
             </div>
 
@@ -2813,7 +2815,7 @@ export default function CalendarPage() {
                 }
                 className="bg-blue-600 text-white rounded-xl px-5 py-3 font-bold shadow hover:bg-blue-700"
               >
-                Admin Home
+                <ShopMessage>Admin Home</ShopMessage>
               </button>
 
               {canManageSelectedBarberAppointments ? (
@@ -2827,7 +2829,7 @@ export default function CalendarPage() {
                   }
                   className="bg-blue-700 text-white rounded-xl px-5 py-3 font-bold shadow hover:bg-blue-800 disabled:opacity-50"
                 >
-                  + Appointment
+                  <ShopMessage>+ Appointment</ShopMessage>
                 </button>
               ) : null}
 
@@ -2842,7 +2844,7 @@ export default function CalendarPage() {
                   }
                   className="bg-emerald-700 text-white rounded-xl px-5 py-3 font-bold shadow hover:bg-emerald-800 disabled:opacity-50"
                 >
-                  + Block Time
+                  <ShopMessage>+ Block Time</ShopMessage>
                 </button>
               ) : null}
             </div>
@@ -3181,7 +3183,7 @@ export default function CalendarPage() {
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div>
                     <label className="block font-bold mb-2">
-                      Date
+                      <ShopMessage>Date</ShopMessage>
                     </label>
 
                     <input
@@ -3398,7 +3400,7 @@ export default function CalendarPage() {
             "one-time" ? (
               <div className="mt-6">
                 <label className="block font-semibold mb-2">
-                  Date
+                  <ShopMessage>Date</ShopMessage>
                 </label>
 
                 <input
@@ -3574,7 +3576,7 @@ export default function CalendarPage() {
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 flex-1">
               <div>
                 <label className="block font-semibold mb-2">
-                  Staff
+                  <ShopMessage>Staff</ShopMessage>
                 </label>
 
                 <select
@@ -3628,7 +3630,7 @@ export default function CalendarPage() {
 
               <div>
                 <label className="block font-semibold mb-2">
-                  Date
+                  <ShopMessage>Date</ShopMessage>
                 </label>
 
                 <input
@@ -3665,7 +3667,7 @@ export default function CalendarPage() {
 
               <div>
                 <label className="block font-semibold mb-2">
-                  View
+                  <ShopMessage>View</ShopMessage>
                 </label>
 
                 <div className="flex rounded-xl overflow-hidden border border-gray-300">
@@ -3683,7 +3685,7 @@ export default function CalendarPage() {
                         : "bg-white text-gray-800"
                     }`}
                   >
-                    Day
+                    <ShopMessage>Day</ShopMessage>
                   </button>
 
                   <button
@@ -3700,10 +3702,10 @@ export default function CalendarPage() {
                         : "bg-white text-gray-800"
                     }`}
                   >
-                    Week
+                    <ShopMessage>Week</ShopMessage>
                   </button>
                   <button type="button" onClick={() => setViewMode("month")}
-                    className={`flex-1 px-4 py-3 font-semibold ${viewMode === "month" ? "bg-emerald-700 text-white" : "bg-white text-gray-800"}`}>Month</button>
+                    className={`flex-1 px-4 py-3 font-semibold ${viewMode === "month" ? "bg-emerald-700 text-white" : "bg-white text-gray-800"}`}><ShopMessage>Month</ShopMessage></button>
                 </div>
               </div>
             </div>
@@ -3726,15 +3728,15 @@ export default function CalendarPage() {
               }}
               className="bg-gray-900 text-white rounded-xl px-5 py-3 font-bold"
             >
-              Today
+              <ShopMessage>Today</ShopMessage>
             </button>
           </div>
         </section>
 
         <div className="flex items-center justify-between gap-3">
-          <button type="button" onClick={() => shiftCalendar(-1)} className="rounded-xl border bg-white px-4 py-3 font-bold">Previous</button>
-          <p className="font-bold">{new Date(`${selectedDate}T12:00:00`).toLocaleDateString([], viewMode === "month" ? { month: "long", year: "numeric" } : { month: "long", day: "numeric", year: "numeric" })}</p>
-          <button type="button" onClick={() => shiftCalendar(1)} className="rounded-xl border bg-white px-4 py-3 font-bold">Next</button>
+          <button type="button" onClick={() => shiftCalendar(-1)} className="rounded-xl border bg-white px-4 py-3 font-bold"><ShopMessage>Previous</ShopMessage></button>
+          <p className="font-bold">{new Date(`${selectedDate}T12:00:00`).toLocaleDateString(language === "en" ? undefined : language, viewMode === "month" ? { month: "long", year: "numeric" } : { month: "long", day: "numeric", year: "numeric" })}</p>
+          <button type="button" onClick={() => shiftCalendar(1)} className="rounded-xl border bg-white px-4 py-3 font-bold"><ShopMessage>Next</ShopMessage></button>
         </div>
 
         {loading ? (
@@ -3769,7 +3771,7 @@ export default function CalendarPage() {
                   const blocks = [...shopBlocks, ...blockedTimes.filter((item) => !selectedBarberId || item.barber_id === selectedBarberId)].filter((item) => Boolean(itemIntervalOnDate(item, date)));
                   const otherMonth = viewMode === "month" && date.slice(0, 7) !== selectedDate.slice(0, 7);
                   return <div key={date} className={`border p-3 min-h-[160px] ${otherMonth ? "bg-gray-100" : "bg-white"}`}>
-                    <button type="button" onClick={() => openCalendarDay(date)} className="font-bold text-emerald-800 underline mb-3">{new Date(`${date}T12:00:00`).toLocaleDateString([], { month: "short", day: "numeric" })}</button>
+                    <button type="button" onClick={() => openCalendarDay(date)} className="font-bold text-emerald-800 underline mb-3">{new Date(`${date}T12:00:00`).toLocaleDateString(language === "en" ? undefined : language, { month: "short", day: "numeric" })}</button>
                     {!scheduleLoaded ? <p className="text-sm text-gray-600">Hours unavailable</p> : !shopHours.length ? <p className="text-sm text-gray-600">Shop hours not set</p> : !intervalsForDate(shopHours, date).length ? <p className="text-sm font-semibold">Shop closed</p> : null}
                     {selectedBarberId && dayScheduleStatus(date) ? <p className="text-sm text-gray-600">{dayScheduleStatus(date)}</p> : null}
                     <div className="space-y-3">
@@ -3779,7 +3781,7 @@ export default function CalendarPage() {
                         <p className="text-xs">{STATUS_LABELS[appointment.status] || appointment.status}</p>
                       </button>)}
                       {blocks.map((block, index) => <p key={`${block.id}-${index}`} className="rounded-xl border bg-gray-200 p-2 text-sm">{block.barber_id ? `${barbers.find((staff) => staff.id === block.barber_id)?.name || "Staff"}: ` : "Shop: "}{block.reason || "Blocked"}</p>)}
-                      {!items.length && !blocks.length ? <p className="text-sm text-gray-500">No appointments.</p> : null}
+                      {!items.length && !blocks.length ? <p className="text-sm text-gray-500"><ShopMessage>No appointments.</ShopMessage></p> : null}
                     </div>
                   </div>;
                 })}
@@ -3794,7 +3796,7 @@ export default function CalendarPage() {
           <section className="bg-white rounded-3xl shadow-lg overflow-hidden">
             <div className="p-6 border-b">
               <p className="text-sm font-extrabold uppercase tracking-widest text-emerald-700">
-                Day View
+                <ShopMessage>Day View</ShopMessage>
               </p>
 
               <h2 className="text-3xl font-bold mt-1">
@@ -3804,7 +3806,7 @@ export default function CalendarPage() {
                 {new Date(
                   `${selectedDate}T12:00:00`
                 ).toLocaleDateString(
-                  [],
+                  language === "en" ? undefined : language,
                   {
                     weekday:
                       "long",
@@ -3904,14 +3906,16 @@ export default function CalendarPage() {
                             }
                             className="w-full text-left rounded-2xl border-2 border-dashed border-emerald-200 bg-emerald-50/50 px-4 py-4 font-semibold text-emerald-800 hover:bg-emerald-50"
                           >
-                            Open{availableStart !== hourText ? ` at ${availableStart}` : ""} · Add appointment
+                            {availableStart !== hourText
+                              ? t("Open at {time}").replace("{time}", availableStart)
+                              : t("Open")} · {t("Add appointment")}
                           </button>
                         ) : null}
 
                         {isOpen &&
                         !canManageSelectedBarberAppointments ? (
                           <div className="rounded-2xl border border-gray-200 bg-gray-50 px-4 py-4 text-gray-500">
-                            Open
+                            <ShopMessage>Open</ShopMessage>
                           </div>
                         ) : null}
 
@@ -4027,7 +4031,7 @@ export default function CalendarPage() {
                           {new Date(
                             `${date}T12:00:00`
                           ).toLocaleDateString(
-                            [],
+                            language === "en" ? undefined : language,
                             {
                               month:
                                 "short",
@@ -4041,7 +4045,7 @@ export default function CalendarPage() {
                         {dayScheduleStatus(date) ? <p className="text-sm font-semibold text-gray-600">{dayScheduleStatus(date)}</p> : null}
                         {items.length === 0 ? (
                           <p className="text-sm text-gray-500">
-                            No appointments
+                            <ShopMessage>No appointments</ShopMessage>
                           </p>
                         ) : null}
 
@@ -4181,7 +4185,7 @@ export default function CalendarPage() {
                             }}
                             className="w-full rounded-xl border-2 border-dashed border-emerald-300 bg-white px-3 py-2 text-sm font-bold text-emerald-800 hover:bg-emerald-50"
                           >
-                            + Appointment
+                            <ShopMessage>+ Appointment</ShopMessage>
                           </button>
                         ) : null}
                       </div>

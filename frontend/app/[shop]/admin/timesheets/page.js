@@ -1,4 +1,7 @@
 "use client";
+
+import { ShopMessage } from "../../../components/ShopLanguage";
+
 import {useEffect, useRef, useState} from "react";
 import {useParams} from "next/navigation";
 import Link from "next/link";
@@ -117,8 +120,8 @@ export default function TimesheetPage() {
   return <main className="min-h-screen bg-slate-50 px-4 py-8 text-slate-900">
     <div className="mx-auto max-w-7xl">
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
-        <div><h1 className="text-3xl font-bold">Time Sheet Report</h1><p className="mt-2 text-slate-600">Scheduled hours and owner-entered compensation for each worker.</p></div>
-        <Link href={shop ? `/${shop}/admin` : "/admin"} onClick={e => {if (dirty && !window.confirm("Leave without saving your entries?")) e.preventDefault();}} className="rounded-lg border bg-white px-4 py-2">← Admin Home</Link>
+        <div><h1 className="text-3xl font-bold"><ShopMessage>Time Sheet Report</ShopMessage></h1><p className="mt-2 text-slate-600">Scheduled hours and owner-entered compensation for each worker.</p></div>
+        <Link href={shop ? `/${shop}/admin` : "/admin"} onClick={e => {if (dirty && !window.confirm("Leave without saving your entries?")) e.preventDefault();}} className="rounded-lg border bg-white px-4 py-2"><ShopMessage>← Admin Home</ShopMessage></Link>
       </div>
       <div className="mb-5 flex flex-wrap items-end gap-4 rounded-xl border bg-white p-5">
         <label className="font-semibold">Start date<input type="date" min="2020-01-01" max="2100-12-31" value={startDate} disabled={busy} onChange={e => changeDate("start",e.target.value)} className={`${inputClass} mt-2`} /></label>
@@ -146,7 +149,7 @@ export default function TimesheetPage() {
           </div>
           <p className="mt-2 text-sm text-slate-500">Owner-approved paid time adds hours back to the hours after blocks. For example, enter 5 to pay five hours of otherwise deducted time.</p>
           <div className="mt-4 flex flex-wrap gap-x-8 gap-y-2 rounded-lg bg-indigo-50 p-4"><p>Hourly compensation: <strong>{money(t.hourly)}</strong></p><p>Commission: <strong>{money(w.commission)}</strong></p><p>Total: <strong>{money(t.total)}</strong></p></div>
-          <details className="mt-5"><summary className="cursor-pointer font-semibold">Daily hours and deduction reasons</summary><div className="mt-3 overflow-x-auto"><table className="w-full text-left text-sm"><thead><tr className="border-b"><th className="p-2">Date</th><th className="p-2">Scheduled</th><th className="p-2">Deducted</th><th className="p-2">After blocks</th><th className="p-2">Deduction details</th></tr></thead><tbody>{w.days.map(day => <tr key={day.date} className="border-b align-top"><td className="p-2 whitespace-nowrap">{day.date}</td><td className="p-2">{hours(day.scheduled_seconds)}</td><td className="p-2">{hours(day.deducted_seconds)}</td><td className="p-2">{hours(day.remaining_seconds)}</td><td className="p-2">{day.deductions.length ? day.deductions.map((d,i)=><p key={i} className="mb-1">{clock(d.start)}–{clock(d.end)} ({hours(d.seconds)} hours): {d.reasons.join("; ")}</p>) : "No deductions"}</td></tr>)}</tbody></table></div></details>
+          <details className="mt-5"><summary className="cursor-pointer font-semibold">Daily hours and deduction reasons</summary><div className="mt-3 overflow-x-auto"><table className="w-full text-left text-sm"><thead><tr className="border-b"><th className="p-2"><ShopMessage>Date</ShopMessage></th><th className="p-2">Scheduled</th><th className="p-2">Deducted</th><th className="p-2">After blocks</th><th className="p-2">Deduction details</th></tr></thead><tbody>{w.days.map(day => <tr key={day.date} className="border-b align-top"><td className="p-2 whitespace-nowrap">{day.date}</td><td className="p-2">{hours(day.scheduled_seconds)}</td><td className="p-2">{hours(day.deducted_seconds)}</td><td className="p-2">{hours(day.remaining_seconds)}</td><td className="p-2">{day.deductions.length ? day.deductions.map((d,i)=><p key={i} className="mb-1">{clock(d.start)}–{clock(d.end)} ({hours(d.seconds)} hours): {d.reasons.join("; ")}</p>) : "No deductions"}</td></tr>)}</tbody></table></div></details>
         </section>;})}</div>
         <p className="mt-5 text-sm text-slate-500">Compensation is calculated from unrounded scheduled duration and rounded to cents per worker. Save before exporting. Hourly rates carry forward from the most recent saved earlier period; paid-time adjustments and commissions start at zero for a new date range.</p>
       </>}

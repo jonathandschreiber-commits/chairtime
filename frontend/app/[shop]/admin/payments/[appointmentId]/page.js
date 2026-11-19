@@ -1,4 +1,7 @@
 "use client";
+
+import { ShopMessage } from "../../../../components/ShopLanguage";
+
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
@@ -61,7 +64,7 @@ export default function CollectPaymentPage() {
   return (
     <main className="mx-auto max-w-xl p-6">
       <Link className="text-blue-700 underline" href={`/${shop}/admin/calendar`}>Back to calendar</Link>
-      <h1 className="mt-6 text-3xl font-bold">Payment details</h1>
+      <h1 className="mt-6 text-3xl font-bold"><ShopMessage>Payment details</ShopMessage></h1>
       {error && <p role="alert" className="mt-4 text-red-700">{error}</p>}
       {!data && !error && <p className="mt-4">Loading appointment…</p>}
       {data && <section className="mt-6 rounded-2xl border bg-white p-6">

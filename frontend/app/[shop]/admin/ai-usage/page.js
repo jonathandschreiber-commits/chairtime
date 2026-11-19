@@ -1,5 +1,8 @@
 "use client";
 
+import { ShopMessage } from "../../../components/ShopLanguage";
+
+
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
@@ -42,8 +45,8 @@ export default function AIUsagePage() {
   return <main className="mx-auto max-w-4xl px-4 py-8 sm:px-6">
     <Link href={base} className="text-sm font-semibold text-indigo-700">Back to dashboard</Link>
     <section className="mt-4 rounded-2xl border border-indigo-100 bg-white p-6 shadow-sm">
-      <div className="flex flex-wrap items-center justify-between gap-4"><div><h1 className="text-2xl font-bold text-slate-900">AI Usage &amp; Billing</h1><p className="mt-1 text-slate-600">{data?.shop_name || "Your shop"}</p></div><button type="button" onClick={() => setRefresh(n => n + 1)} disabled={loading} className="rounded-lg border border-indigo-200 px-4 py-2 text-sm font-semibold text-indigo-700 disabled:opacity-50">{loading ? "Loading…" : "Refresh"}</button></div>
-      {error && <div role="alert" className="mt-5 rounded-lg bg-red-50 p-4 text-red-800">{error} <Link href="/login" className="underline">Sign in</Link></div>}
+      <div className="flex flex-wrap items-center justify-between gap-4"><div><h1 className="text-2xl font-bold text-slate-900"><ShopMessage>AI Usage &amp; Billing</ShopMessage></h1><p className="mt-1 text-slate-600">{data?.shop_name || "Your shop"}</p></div><button type="button" onClick={() => setRefresh(n => n + 1)} disabled={loading} className="rounded-lg border border-indigo-200 px-4 py-2 text-sm font-semibold text-indigo-700 disabled:opacity-50"><ShopMessage>{loading ? "Loading…" : "Refresh"}</ShopMessage></button></div>
+      {error && <div role="alert" className="mt-5 rounded-lg bg-red-50 p-4 text-red-800">{error} <Link href="/login" className="underline"><ShopMessage>Sign in</ShopMessage></Link></div>}
       {loading && <p role="status" className="mt-5 text-slate-600">Loading your billing period and usage…</p>}
       {!loading && data && !b && <p className="mt-5 text-slate-700">{data.message}</p>}
       {b && <><div className="mt-5 flex flex-wrap gap-x-6 gap-y-2 text-sm text-slate-700"><p><strong>Billing period:</strong> {date(b.period_start)} – {date(b.period_end)}</p><p><strong>Status:</strong> {b.status === "trialing" ? "Free trial" : b.status?.replaceAll("_", " ")}</p></div>

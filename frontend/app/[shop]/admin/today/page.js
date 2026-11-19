@@ -1,5 +1,8 @@
 "use client";
 
+import { ShopMessage, useShopMessages } from "../../../components/ShopLanguage";
+
+
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import {
@@ -79,6 +82,7 @@ function AgendaPayment({ shop, appointmentId }) {
 }
 
 export default function AgendaPage() {
+  const t = useShopMessages();
   const params = useParams();
   const router = useRouter();
 
@@ -604,11 +608,11 @@ export default function AgendaPage() {
               </p>
 
               <h1 className="text-5xl font-extrabold tracking-tight mb-2 text-gray-950">
-                Daily Agenda
+                <ShopMessage>Daily Agenda</ShopMessage>
               </h1>
 
               <p className="text-lg text-gray-700">
-                Today at a glance. Simple and fast.
+                <ShopMessage>Today at a glance. Simple and fast.</ShopMessage>
               </p>
             </div>
 
@@ -622,14 +626,14 @@ export default function AgendaPage() {
                   } }}
                   className="inline-flex items-center justify-center rounded-xl bg-blue-700 px-5 py-3 font-bold text-white shadow hover:bg-blue-800"
                 >
-                  + Appointment
+                  <ShopMessage>+ Appointment</ShopMessage>
                 </Link>
               )}
               <Link
                 href={`/${shopSlug}/admin`}
                 className="inline-flex items-center justify-center rounded-xl bg-blue-600 px-5 py-3 font-bold text-white shadow hover:bg-blue-700"
               >
-                Admin Home
+                <ShopMessage>Admin Home</ShopMessage>
               </Link>
             </div>
           </div>
@@ -651,7 +655,7 @@ export default function AgendaPage() {
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
               <label className="block font-bold mb-2">
-                Date
+                <ShopMessage>Date</ShopMessage>
               </label>
 
               <input
@@ -668,7 +672,7 @@ export default function AgendaPage() {
 
             <div>
               <label className="block font-bold mb-2">
-                Staff
+                <ShopMessage>Staff</ShopMessage>
               </label>
 
               <select
@@ -681,7 +685,7 @@ export default function AgendaPage() {
                 }
               >
                 <option value="">
-                  All staff
+                  {t("All staff")}
                 </option>
 
                 {barbers.map((barber) => (
@@ -710,7 +714,7 @@ export default function AgendaPage() {
           agendaAppointments.length === 0 ? (
             <div className="bg-white rounded-3xl shadow-lg p-6 border border-orange-200">
               <p className="text-2xl font-bold">
-                No appointments.
+                <ShopMessage>No appointments.</ShopMessage>
               </p>
             </div>
           ) : null}
@@ -779,21 +783,21 @@ export default function AgendaPage() {
                             className="bg-black text-white rounded-xl p-4 text-center font-bold"
                             href={`tel:${phone}`}
                           >
-                            Call
+                            <ShopMessage>Call</ShopMessage>
                           </a>
 
                           <a
                             className="bg-gray-800 text-white rounded-xl p-4 text-center font-bold"
                             href={`sms:${phone}`}
                           >
-                            Text
+                            <ShopMessage>Text</ShopMessage>
                           </a>
                         </div>
                       </div>
 
                       <div>
                         <span className="font-bold bg-white border rounded-full px-3 py-1">
-                          {statusLabel}
+                          <ShopMessage>{statusLabel}</ShopMessage>
                         </span>
                       </div>
                     </div>

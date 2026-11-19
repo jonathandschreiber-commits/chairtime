@@ -1,5 +1,8 @@
 "use client";
 
+import { ShopMessage } from "../../../components/ShopLanguage";
+
+
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 
@@ -555,7 +558,7 @@ export default function AccountOptionsPage() {
             </p>
 
             <h1 className="text-3xl sm:text-4xl font-extrabold text-slate-900 mt-1">
-              Account Options
+              <ShopMessage>Account Options</ShopMessage>
             </h1>
 
             <p className="text-slate-600 mt-2">
@@ -567,7 +570,7 @@ export default function AccountOptionsPage() {
             href={`/${shop}/admin`}
             className="inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-4 py-2.5 font-bold text-slate-700 hover:bg-slate-50"
           >
-            ← Admin Home
+            <ShopMessage>← Admin Home</ShopMessage>
           </a>
         </div>
 
@@ -746,7 +749,7 @@ export default function AccountOptionsPage() {
 
         {hasSubscription ? (
           <section className="bg-gradient-to-br from-violet-100 via-violet-50 to-indigo-50 rounded-3xl border-2 border-violet-300 shadow-sm p-6 sm:p-8 mb-5">
-            <h2 className="text-3xl sm:text-4xl font-extrabold text-violet-900">AI Receptionist</h2>
+            <h2 className="text-3xl sm:text-4xl font-extrabold text-violet-900"><ShopMessage>AI Receptionist</ShopMessage></h2>
             <p className="text-xl sm:text-2xl font-bold text-violet-800 mt-3 leading-snug">
               Let your dedicated AI Receptionist answer calls and book appointments while you work.
             </p>

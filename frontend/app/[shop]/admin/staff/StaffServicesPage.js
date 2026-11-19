@@ -1,5 +1,8 @@
 "use client";
 
+import { ShopMessage } from "../../../components/ShopLanguage";
+
+
 import { useEffect, useState } from "react";
 import {
   useParams,
@@ -1123,7 +1126,7 @@ export default function StaffServicesPage({ apiBase }) {
               </p>
 
               <h1 className="text-5xl font-extrabold tracking-tight text-gray-950">
-                Staff & Services
+                <ShopMessage>Staff &amp; Services</ShopMessage>
               </h1>
 
               <p className="text-lg text-gray-700 mt-2">
@@ -1136,7 +1139,7 @@ export default function StaffServicesPage({ apiBase }) {
               href={`/${shopSlug}/admin`}
               className="inline-flex items-center justify-center bg-blue-600 text-white px-5 py-3 rounded-xl font-bold shadow hover:bg-blue-700"
             >
-              Admin Home
+              <ShopMessage>Admin Home</ShopMessage>
             </a>
           </div>
         </section>
@@ -1149,7 +1152,7 @@ export default function StaffServicesPage({ apiBase }) {
             </p>
 
             <h2 className="text-3xl font-extrabold text-rose-950">
-              Staff
+              <ShopMessage>Staff</ShopMessage>
             </h2>
 
             <p className="text-gray-600 mt-1">
@@ -1612,7 +1615,7 @@ export default function StaffServicesPage({ apiBase }) {
                               }
                               className="bg-rose-700 text-white px-4 py-2 rounded-xl font-semibold"
                             >
-                              Edit
+                              <ShopMessage>Edit</ShopMessage>
                             </button>
 
                             {!teamMember && (
@@ -1814,7 +1817,7 @@ export default function StaffServicesPage({ apiBase }) {
                           }
                           className="bg-rose-700 text-white px-4 py-2 rounded-xl font-semibold"
                         >
-                          Edit
+                          <ShopMessage>Edit</ShopMessage>
                         </button>
 
                         {service.assignment_count >
@@ -1851,7 +1854,7 @@ export default function StaffServicesPage({ apiBase }) {
           href={`/${shopSlug}/admin`}
           className="inline-flex items-center justify-center bg-blue-600 text-white px-5 py-3 rounded-xl font-bold shadow hover:bg-blue-700"
         >
-          Admin Home
+          <ShopMessage>Admin Home</ShopMessage>
         </a>
       </div>
     </main>

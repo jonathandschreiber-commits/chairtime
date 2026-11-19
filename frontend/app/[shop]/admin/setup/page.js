@@ -1,5 +1,8 @@
 "use client";
 
+import { ShopMessage } from "../../../components/ShopLanguage";
+
+
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 
@@ -1562,7 +1565,7 @@ export default function SetupPage() {
               </p>
 
               <h1 className="text-5xl font-extrabold tracking-tight text-gray-950">
-                Shop Setup
+                <ShopMessage>Shop Setup</ShopMessage>
               </h1>
 
               <p className="mt-2 text-lg text-gray-700">
@@ -1574,7 +1577,7 @@ export default function SetupPage() {
               href={`/${shopSlug}/admin`}
               className="inline-flex items-center justify-center bg-blue-600 text-white px-5 py-3 rounded-xl font-bold shadow hover:bg-blue-700"
             >
-              Admin Home
+              <ShopMessage>Admin Home</ShopMessage>
             </a>
           </div>
         </section>
@@ -2480,7 +2483,7 @@ export default function SetupPage() {
                                 }
                                 className="bg-black text-white px-3 py-2 rounded"
                               >
-                                Edit
+                                <ShopMessage>Edit</ShopMessage>
                               </button>
 
                               <button
@@ -2770,7 +2773,7 @@ export default function SetupPage() {
           href={`/${shopSlug}/admin`}
           className="inline-flex items-center justify-center bg-blue-600 text-white px-5 py-3 rounded-xl font-bold shadow hover:bg-blue-700"
         >
-          Admin Home
+          <ShopMessage>Admin Home</ShopMessage>
         </a>
       </div>
     </main>

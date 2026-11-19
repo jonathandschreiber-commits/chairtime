@@ -1,5 +1,8 @@
 "use client";
 
+import { ShopMessage } from "../../../components/ShopLanguage";
+
+
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import OwnerVoicemailSetup from "../../onboarding/OwnerVoicemailSetup";
@@ -107,7 +110,7 @@ export default function AIReceptionistPage() {
             </p>
 
             <h1 className="text-4xl sm:text-5xl font-extrabold text-slate-900">
-              AI Receptionist
+              <ShopMessage>AI Receptionist</ShopMessage>
             </h1>
 
             <p className="text-gray-600 mt-2">
@@ -122,7 +125,7 @@ export default function AIReceptionistPage() {
             }
             className="rounded-xl border border-slate-300 bg-white px-4 py-3 font-bold text-slate-700 hover:bg-slate-50"
           >
-            ← Admin Home
+            <ShopMessage>← Admin Home</ShopMessage>
           </button>
         </div>
 

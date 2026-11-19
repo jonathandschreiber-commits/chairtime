@@ -1,5 +1,8 @@
 "use client";
 
+import { ShopMessage, useShopMessages } from "../../../components/ShopLanguage";
+
+
 import {
   Suspense,
   useEffect,
@@ -145,13 +148,14 @@ function CustomerPaymentStatus({ shop, appointmentId }) {
     label = labels[payment.payment_status];
   }
   return <div ref={element} className="mt-2">
-    <p role="status" className={`text-sm font-bold ${!error && payment?.payment_status === "paid" ? "text-green-800" : "text-gray-800"}`}>{label}</p>
-    <Link href={`/${shop}/admin/payments/${encodeURIComponent(appointmentId)}`} className="mt-1 inline-block text-sm text-blue-800 underline">Payment details</Link>
+    <p role="status" className={`text-sm font-bold ${!error && payment?.payment_status === "paid" ? "text-green-800" : "text-gray-800"}`><ShopMessage>{label}</ShopMessage></p>
+    <Link href={`/${shop}/admin/payments/${encodeURIComponent(appointmentId)}`} className="mt-1 inline-block text-sm text-blue-800 underline"><ShopMessage>Payment details</ShopMessage></Link>
   </div>;
 }
 
 
 function CustomersPageContent({ apiBase }) {
+  const t = useShopMessages();
   const params = useParams();
   const router = useRouter();
 
@@ -1294,7 +1298,7 @@ function CustomersPageContent({ apiBase }) {
 
 
           <span className="bg-white border rounded-full px-3 py-1 text-sm font-bold self-start">
-            {statusLabel}
+            <ShopMessage>{statusLabel}</ShopMessage>
           </span>
         </div>
 
@@ -1477,14 +1481,11 @@ function CustomersPageContent({ apiBase }) {
               </p>
 
               <h1 className="text-5xl font-extrabold tracking-tight text-gray-950">
-                Customers
+                <ShopMessage>Customers</ShopMessage>
               </h1>
 
               <p className="mt-2 text-lg text-gray-700">
-                Find customers,
-                review history,
-                and manage upcoming
-                appointments.
+                <ShopMessage>Find customers, review history, and manage upcoming appointments.</ShopMessage>
               </p>
             </div>
 
@@ -1498,7 +1499,7 @@ function CustomersPageContent({ apiBase }) {
               }
               className="inline-flex items-center justify-center rounded-xl bg-blue-600 px-5 py-3 font-bold text-white shadow hover:bg-blue-700"
             >
-              Admin Home
+              <ShopMessage>Admin Home</ShopMessage>
             </button>
 
           </div>
@@ -1507,7 +1508,7 @@ function CustomersPageContent({ apiBase }) {
 
         <section className="bg-white rounded-3xl p-5 shadow-lg border border-purple-200">
           <label className="block text-lg font-bold mb-2 text-purple-950">
-            Search customers
+            <ShopMessage>Search customers</ShopMessage>
           </label>
 
           <input
@@ -1520,7 +1521,7 @@ function CustomersPageContent({ apiBase }) {
                 event.target.value
               )
             }
-            placeholder="Search by name or phone"
+            placeholder={t("Search by name or phone")}
             className="w-full border border-purple-200 rounded-xl p-4 text-lg bg-purple-50 focus:outline-none focus:ring-2 focus:ring-purple-300"
           />
 
@@ -1653,7 +1654,7 @@ function CustomersPageContent({ apiBase }) {
                         href={{ pathname: `/${shopSlug}/admin/calendar`, query: { book: "1", customer: latest.id } }}
                         className="rounded-xl bg-purple-700 px-4 py-2 font-semibold text-white hover:bg-purple-800"
                       >
-                        + Appointment
+                        <ShopMessage>+ Appointment</ShopMessage>
                       </Link>
                     )}
                     <a
@@ -1663,7 +1664,7 @@ function CustomersPageContent({ apiBase }) {
                       }
                       className="bg-black text-white px-4 py-2 rounded-xl font-semibold"
                     >
-                      Call
+                      <ShopMessage>Call</ShopMessage>
                     </a>
 
 
@@ -1674,7 +1675,7 @@ function CustomersPageContent({ apiBase }) {
                       }
                       className="bg-blue-700 text-white px-4 py-2 rounded-xl font-semibold"
                     >
-                      Text
+                      <ShopMessage>Text</ShopMessage>
                     </a>
 
 
@@ -1695,7 +1696,7 @@ function CustomersPageContent({ apiBase }) {
                       }}
                       className="bg-green-600 text-white px-4 py-2 rounded-xl font-semibold"
                     >
-                      Edit
+                      <ShopMessage>Edit</ShopMessage>
                     </button>
                   </div>
                 </div>
@@ -1759,7 +1760,7 @@ function CustomersPageContent({ apiBase }) {
                     }}
                     className="bg-purple-950 text-white px-3 py-2 rounded-full font-semibold"
                   >
-                    + Add Tag
+                    <ShopMessage>+ Add Tag</ShopMessage>
                   </button>
                 </div>
 
@@ -1821,7 +1822,7 @@ function CustomersPageContent({ apiBase }) {
                 <div className="mt-5 bg-amber-50 border border-amber-200 p-4 rounded-2xl">
                   <div className="flex justify-between items-center gap-3 mb-2">
                     <p className="font-bold text-lg">
-                      Customer Notes
+                      <ShopMessage>Customer Notes</ShopMessage>
                     </p>
 
 
@@ -1839,7 +1840,7 @@ function CustomersPageContent({ apiBase }) {
                       }}
                       className="bg-amber-600 text-white px-3 py-2 rounded-xl font-semibold"
                     >
-                      Edit Notes
+                      <ShopMessage>Edit Notes</ShopMessage>
                     </button>
                   </div>
 
@@ -1852,8 +1853,7 @@ function CustomersPageContent({ apiBase }) {
                     </p>
                   ) : (
                     <p className="text-gray-600">
-                      No permanent customer
-                      notes.
+                      <ShopMessage>No permanent customer notes.</ShopMessage>
                     </p>
                   )}
                 </div>
@@ -1970,7 +1970,7 @@ function CustomersPageContent({ apiBase }) {
 
                 <div className="mt-7">
                   <h3 className="text-2xl font-extrabold text-purple-950 mb-3">
-                    Upcoming Appointments
+                    <ShopMessage>Upcoming Appointments</ShopMessage>
                   </h3>
 
 
@@ -1992,8 +1992,7 @@ function CustomersPageContent({ apiBase }) {
                   ) : (
                     <div className="border border-purple-100 rounded-2xl p-4 bg-purple-50">
                       <p className="text-gray-600">
-                        No upcoming
-                        appointments.
+                        <ShopMessage>No upcoming appointments.</ShopMessage>
                       </p>
                     </div>
                   )}
@@ -2002,7 +2001,7 @@ function CustomersPageContent({ apiBase }) {
 
                 <div className="mt-7">
                   <h3 className="text-2xl font-extrabold text-purple-950 mb-3">
-                    Past Appointments
+                    <ShopMessage>Past Appointments</ShopMessage>
                   </h3>
 
 
