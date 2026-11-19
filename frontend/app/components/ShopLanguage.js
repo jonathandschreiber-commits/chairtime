@@ -48,6 +48,7 @@ export function ShopLanguageRegion({ children }) {
       <div>
         <div className="mx-auto flex max-w-6xl justify-end px-6 pt-3">
           <select
+            translate="no"
             aria-label="Language / Idioma / Ngôn ngữ / 语言 / 언어 / ภาษา"
             className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
             value={language}
@@ -77,6 +78,6 @@ export function ShopMessage({ children }) {
   const language = useContext(LanguageContext);
   const message = translateShopMessage(language, children);
   return language !== DEFAULT_LANGUAGE && message !== children
-    ? <span lang={language}>{message}</span>
+    ? <span lang={language} translate="no">{message}</span>
     : message;
 }

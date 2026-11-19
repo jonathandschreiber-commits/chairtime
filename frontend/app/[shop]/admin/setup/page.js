@@ -72,7 +72,8 @@ export default function SetupPage() {
   const [availabilityStart, setAvailabilityStart] = useState("09:00");
   const [availabilityEnd, setAvailabilityEnd] = useState("17:00");
 
-  const [blockReason, setBlockReason] = useState("Lunch");
+  const [blockReasonInput, setBlockReason] = useState(null);
+  const blockReason = blockReasonInput ?? t("Lunch");
   const [blockStart, setBlockStart] = useState("");
   const [blockEnd, setBlockEnd] = useState("");
 
@@ -90,7 +91,8 @@ export default function SetupPage() {
   /*
    * One-time shop-wide time block
    */
-  const [shopBlockReason, setShopBlockReason] = useState("Closed");
+  const [shopBlockReasonInput, setShopBlockReason] = useState(null);
+  const shopBlockReason = shopBlockReasonInput ?? t("Closed");
   const [shopBlockStart, setShopBlockStart] = useState("");
   const [shopBlockEnd, setShopBlockEnd] = useState("");
 
@@ -101,13 +103,14 @@ export default function SetupPage() {
     new Date().toISOString().slice(0, 10)
   );
 
-  const [shopClosureReason, setShopClosureReason] =
-    useState("Closed");
+  const [shopClosureReasonInput, setShopClosureReason] = useState(null);
+  const shopClosureReason = shopClosureReasonInput ?? t("Closed");
 
   /*
    * Recurring shop-wide block
    */
-  const [recurringReason, setRecurringReason] = useState("Lunch");
+  const [recurringReasonInput, setRecurringReason] = useState(null);
+  const recurringReason = recurringReasonInput ?? t("Lunch");
 
   const [recurringStartDate, setRecurringStartDate] = useState(
     new Date().toISOString().slice(0, 10)
@@ -460,7 +463,7 @@ export default function SetupPage() {
     setAvailabilityStart("09:00");
     setAvailabilityEnd("17:00");
 
-    setBlockReason("Lunch");
+    setBlockReason(null);
     setBlockStart("");
     setBlockEnd("");
 
@@ -648,7 +651,7 @@ export default function SetupPage() {
       return;
     }
 
-    setShopBlockReason("Closed");
+    setShopBlockReason(null);
     setShopBlockStart("");
     setShopBlockEnd("");
 
@@ -1272,7 +1275,7 @@ export default function SetupPage() {
       return;
     }
 
-    setBlockReason("Lunch");
+    setBlockReason(null);
     setBlockStart("");
     setBlockEnd("");
 

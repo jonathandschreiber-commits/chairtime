@@ -394,17 +394,17 @@ export default async function AdminHome({
             <div className="rounded-2xl border border-indigo-100 bg-white p-5">
               <h2 className="text-lg font-bold text-slate-900"><ShopMessage>Owner dashboard</ShopMessage></h2>
               <p className="mt-1 text-sm text-slate-600">
-                Use your owner dashboard to set up your services and staff, and manage bookings.
+                <ShopMessage>Use your owner dashboard to set up your services and staff, and manage bookings.</ShopMessage>
               </p>
               <p className="mt-3 break-all text-sm text-slate-700">
                 {`daytello.com/${encodeURIComponent(shop)}/admin`}
               </p>
-              <a className="mt-2 inline-block text-sm font-semibold text-indigo-700 underline" href={basePath}>Open your owner dashboard</a>
+              <a className="mt-2 inline-block text-sm font-semibold text-indigo-700 underline" href={basePath}><ShopMessage>Open your owner dashboard</ShopMessage></a>
             </div>
             <div className="rounded-2xl border border-indigo-100 bg-white p-5">
               <h2 className="text-lg font-bold text-slate-900"><ShopMessage>Customer booking page</ShopMessage></h2>
               <p className="mt-1 text-sm text-slate-600">
-                Open this page to see what customers see. Share this link so they can book.
+                <ShopMessage>Open this page to see what customers see. Share this link so they can book.</ShopMessage>
               </p>
               <a
                 href={`/${encodeURIComponent(shop)}`}
@@ -418,7 +418,7 @@ export default async function AdminHome({
                 <figure className="mt-3">
                   <img
                     src={bookingQrCode}
-                    alt={`Scan to book with ${title}`}
+                    alt={`<ShopMessage>Scan to book</ShopMessage> with ${title}`}
                     width={108}
                     height={108}
                     className="rounded-lg border border-slate-200 bg-white"
@@ -432,44 +432,44 @@ export default async function AdminHome({
 
         {showShopInfo && isOwner && shop && (businessPhone || aiVoiceEnabled) && (
           <section className="mb-6 rounded-2xl border border-indigo-100 bg-white p-5" aria-labelledby="shop-phone-heading">
-            <h2 id="shop-phone-heading" className="text-lg font-bold text-slate-900">Shop phone &amp; call forwarding</h2>
+            <h2 id="shop-phone-heading" className="text-lg font-bold text-slate-900"><ShopMessage>Shop phone &amp; call forwarding</ShopMessage></h2>
             <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
               <div>
-                <dt className="font-semibold text-slate-700">Existing shop phone</dt>
+                <dt className="font-semibold text-slate-700"><ShopMessage>Existing shop phone</ShopMessage></dt>
                 <dd className="mt-1">
-                  {businessPhone ? <a className="text-indigo-700 underline" href={`tel:${businessPhone}`}>{businessPhone}</a> : "No shop phone on file"}
+                  {businessPhone ? <a className="text-indigo-700 underline" href={`tel:${businessPhone}`}>{businessPhone}</a> : <ShopMessage>No shop phone on file</ShopMessage>}
                 </dd>
               </div>
               {aiVoiceEnabled && (
                 <div>
-                  <dt className="font-semibold text-slate-700">DayTello AI Receptionist number</dt>
+                  <dt className="font-semibold text-slate-700"><ShopMessage>DayTello AI Receptionist number</ShopMessage></dt>
                   <dd className="mt-1">
-                    {aiPhoneNumber ? <a className="text-indigo-700 underline" href={`tel:${aiPhoneNumber}`}>{aiPhoneNumber}</a> : "Number setup is pending"}
+                    {aiPhoneNumber ? <a className="text-indigo-700 underline" href={`tel:${aiPhoneNumber}`}>{aiPhoneNumber}</a> : <ShopMessage>Number setup is pending</ShopMessage>}
                   </dd>
                 </div>
               )}
             </dl>
             {aiVoiceEnabled && aiPhoneNumber && (
               <div className="mt-4 text-sm text-slate-700">
-                <h3 className="font-semibold">Forward calls from your existing shop phone</h3>
+                <h3 className="font-semibold"><ShopMessage>Forward calls from your existing shop phone</ShopMessage></h3>
                 <ol className="mt-2 list-decimal space-y-1 pl-5">
-                  <li>Call your DayTello AI number first and confirm the receptionist answers.</li>
-                  <li>In your current phone provider’s call-forwarding settings, set the destination to <strong>{aiPhoneNumber}</strong>. Choose all calls or unanswered calls, if supported.</li>
-                  <li>From another phone, call your existing shop number to confirm it reaches the receptionist.</li>
+                  <li><ShopMessage>Call your DayTello AI number first and confirm the receptionist answers.</ShopMessage></li>
+                  <li><ShopMessage>In your current phone provider’s call-forwarding settings, set the destination to</ShopMessage>{" "}<strong>{aiPhoneNumber}</strong>.{" "}<ShopMessage>Choose all calls or unanswered calls, if supported.</ShopMessage></li>
+                  <li><ShopMessage>From another phone, call your existing shop number to confirm it reaches the receptionist.</ShopMessage></li>
                 </ol>
-                <p className="mt-2">For live transfers, use a different number from the one you forward to DayTello. This avoids a call loop.</p>
+                <p className="mt-2"><ShopMessage>For live transfers, use a different number from the one you forward to DayTello. This avoids a call loop.</ShopMessage></p>
               </div>
             )}
             {aiVoiceEnabled && (
               <a className="mt-3 inline-block text-sm font-semibold text-indigo-700 underline" href={`${basePath}/ai-receptionist`}>
-                {aiPhoneNumber ? "Test or manage your AI Receptionist" : "Continue AI phone setup"}
+                <ShopMessage>{aiPhoneNumber ? "Test or manage your AI Receptionist" : "Continue AI phone setup"}</ShopMessage>
               </a>
             )}
           </section>
         )}
 
         {showShopInfo && (
-          <a href={basePath} className="mb-5 inline-block font-semibold text-indigo-700 underline">Back to dashboard</a>
+          <a href={basePath} className="mb-5 inline-block font-semibold text-indigo-700 underline"><ShopMessage>Back to dashboard</ShopMessage></a>
         )}
         {!showShopInfo && isOwner && <div className="mb-4"><SavePageShortcut pageName="your owner dashboard" /></div>}
         {!showShopInfo && <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
