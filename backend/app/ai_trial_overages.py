@@ -26,7 +26,7 @@ def overage_cents(seconds):
 
 
 def settle_trial(db, client, sub, agent, location, token, now):
-    if sub.metadata.get("ai_trial_overages") != POLICY or not sub.trial_start or not sub.trial_end:
+    if getattr(sub.metadata, "ai_trial_overages", None) != POLICY or not sub.trial_start or not sub.trial_end:
         return
     if sub.status == "trialing":
         return
@@ -43,7 +43,7 @@ def settle_trial(db, client, sub, agent, location, token, now):
 
     invoices = client.v1.invoices
     invoice = next((item for item in invoices.list({"customer": sub.customer}).auto_paging_iter()
-                    if item.metadata.get("ai_trial_settlement") == key), None)
+                    if getattr(item.metadata, "ai_trial_settlement", None) == key), None)
     if invoice is None:
         seconds = Decimal(0)
         cursor = start
@@ -67,7 +67,7 @@ def settle_trial(db, client, sub, agent, location, token, now):
             invoice = invoices.create(params, options={"idempotency_key": f"{key}:invoice"})
 
     if invoice is not None and invoice.status == "draft":
-        if not any(line.metadata.get("ai_trial_settlement") == key for line in invoice.lines.auto_paging_iter()):
+        if not any(getattr(line.metadata, "ai_trial_settlement", None) == key for line in invoice.lines.auto_paging_iter()):
             client.v1.invoice_items.create({
                 "customer": sub.customer,
                 "invoice": invoice.id,
