@@ -304,7 +304,11 @@ export default function SignupPage() {
               }}
             >
               {t("A credit card is required to start your free trial. You will not be charged today. Your selected plan begins billing after your 30-day trial unless you cancel.")}
-              {trialAiOverages && <> {t("If you select the AI Receptionist, the first 250 minutes of your 30-day trial are free. Each additional minute costs 29¢. Overage charges are billed when your trial ends or your cancellation takes effect, whichever comes first.")}</>}
+              {trialAiOverages && (
+                <p style={{ fontSize: "0.875em", margin: "0.65rem 0 0" }}>
+                  {t("If you select the AI Receptionist, the first 250 minutes of your 30-day trial are free. Each additional minute costs 29¢. Overage charges are billed when your trial ends or your cancellation takes effect, whichever comes first.")}
+                </p>
+              )}
             </div>
           </div>
 
@@ -1009,8 +1013,12 @@ export default function SignupPage() {
               </strong>
               <br />
               {t("A credit card is required to start your free trial. You will not be charged today. Your selected plan begins billing after your 30-day trial unless you cancel.")}
-              {trialAiOverages && <> {t("If you select the AI Receptionist, the first 250 minutes of your 30-day trial are free. Each additional minute costs 29¢. Overage charges are billed when your trial ends or your cancellation takes effect, whichever comes first.")}</>}
-              <br /><br />
+              {trialAiOverages && (
+                <p style={{ fontSize: "0.875em", margin: "0.65rem 0 0.9rem" }}>
+                  {t("If you select the AI Receptionist, the first 250 minutes of your 30-day trial are free. Each additional minute costs 29¢. Overage charges are billed when your trial ends or your cancellation takes effect, whichever comes first.")}
+                </p>
+              )}
+              {!trialAiOverages && <><br /><br /></>}
               <strong>{t(selectedPlan === "scheduling_ai"
                 ? "After 30 days, your selected plan will be $98 per month plus any additional AI minutes unless you cancel."
                 : "After 30 days, your selected plan will be $49 per month unless you cancel."
