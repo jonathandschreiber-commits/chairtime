@@ -29,7 +29,10 @@ export async function GET() {
     });
     if (response.ok) {
       const status = await response.json();
-      return NextResponse.json({ metered_ai: status.metered_ai === true });
+      return NextResponse.json({
+        metered_ai: status.metered_ai === true,
+        trial_ai_overages: status.trial_ai_overages === true,
+      });
     }
   } catch {}
   return NextResponse.json({ metered_ai: false });

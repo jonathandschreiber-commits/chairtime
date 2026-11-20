@@ -643,13 +643,17 @@ def create_connect_onboarding_link(
     )
 
 
+def trial_ai_overages_enabled():
+    return os.getenv("DAYTELLO_AI_USAGE_WORKER_ENABLED") == "true"
+
+
 @router.get("/signup-pricing")
 def get_signup_pricing():
     try:
         ai_checkout_line_items(metered=True)
     except RuntimeError:
         return {"metered_ai": False}
-    return {"metered_ai": True}
+    return {"metered_ai": True, "trial_ai_overages": trial_ai_overages_enabled()}
 
 
 @router.post("/create-checkout-session")
@@ -716,6 +720,15 @@ def create_checkout_session(
             else "false"
         ),
     }
+
+    if metered_ai and trial_ai_overages_enabled():
+        from app.ai_trial_overages import POLICY
+        plan_metadata["ai_trial_overages"] = POLICY
+        operator_notice += (
+            " Your first 250 AI Receptionist minutes during the 30-day trial are free. "
+            "Additional minutes cost 29¢ each and are billed when your trial ends or "
+            "your cancellation takes effect, whichever comes first."
+        )
 
     try:
         if not shop.stripe_customer_id:
