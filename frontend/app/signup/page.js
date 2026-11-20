@@ -37,6 +37,7 @@ export default function SignupPage() {
   const [error, setError] = useState("");
 
   const [meteredAiAvailable, setMeteredAiAvailable] = useState(false);
+  const [trialAiOverages, setTrialAiOverages] = useState(false);
   const aiCheckoutPending = selectedPlan === "scheduling_ai" && !meteredAiAvailable;
 
   useEffect(() => {
@@ -46,7 +47,10 @@ export default function SignupPage() {
       signal: controller.signal,
     })
       .then((response) => response.ok ? response.json() : null)
-      .then((status) => setMeteredAiAvailable(status?.metered_ai === true))
+      .then((status) => {
+        setMeteredAiAvailable(status?.metered_ai === true);
+        setTrialAiOverages(status?.trial_ai_overages === true);
+      })
       .catch(() => {});
     return () => controller.abort();
   }, []);
@@ -300,6 +304,7 @@ export default function SignupPage() {
               }}
             >
               {t("A credit card is required to start your free trial. You will not be charged today. Your selected plan begins billing after your 30-day trial unless you cancel.")}
+              {trialAiOverages && <> {t("If you select the AI Receptionist, the first 250 minutes of your 30-day trial are free. Each additional minute costs 29¢. Overage charges are billed when your trial ends or your cancellation takes effect, whichever comes first.")}</>}
             </div>
           </div>
 
@@ -1004,6 +1009,7 @@ export default function SignupPage() {
               </strong>
               <br />
               {t("A credit card is required to start your free trial. You will not be charged today. Your selected plan begins billing after your 30-day trial unless you cancel.")}
+              {trialAiOverages && <> {t("If you select the AI Receptionist, the first 250 minutes of your 30-day trial are free. Each additional minute costs 29¢. Overage charges are billed when your trial ends or your cancellation takes effect, whichever comes first.")}</>}
               <br /><br />
               <strong>{t(selectedPlan === "scheduling_ai"
                 ? "After 30 days, your selected plan will be $98 per month plus any additional AI minutes unless you cancel."

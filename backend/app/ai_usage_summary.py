@@ -64,6 +64,9 @@ def summarize(subscription, preview, usage_price=None):
     rate = float(Decimal(str(value(tiers[1], "unit_amount_decimal", value(tiers[1], "unit_amount")))))
     result.update(included_minutes=included, overage_rate_cents=rate)
     if status == "trialing":
+        if value(value(subscription, "metadata", {}), "ai_trial_overages") == "250_minutes_29_cents_v1":
+            result["trial_overages_enabled"] = True
+            return result
         result["note"] = "You are in your free trial. Paid usage tracking and your included minutes begin when the trial ends."
         return result
     if preview is None or value(value(preview, "lines", {}), "has_more", False):

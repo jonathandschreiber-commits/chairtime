@@ -12,6 +12,7 @@ import stripe
 from sqlalchemy import Column, DateTime, String
 from sqlalchemy.exc import IntegrityError
 
+from app.ai_trial_overages import settle_trial
 from app.ai_usage_review import fetch_live_calls
 from app.database import Base, SessionLocal, engine
 from app.models import Shop
@@ -103,7 +104,6 @@ def previous_invoice_window(sub, item, lookback_start):
 def report_live_usage(db, client, location, token, usage_price, now):
     """Reconcile recent calls in paid cycles with open usage windows."""
     shops = db.query(Shop).filter(
-        Shop.ai_voice_enabled.is_(True),
         Shop.highlevel_location_id == location,
         Shop.highlevel_agent_id.is_not(None),
         Shop.stripe_customer_id.is_not(None),
@@ -120,7 +120,13 @@ def report_live_usage(db, client, location, token, usage_price, now):
             )
             if not sub.livemode or sub.customer != shop.stripe_customer_id:
                 raise ValueError("Stripe subscription does not match shop customer")
-            if sub.status not in {"active", "past_due"}:
+            try:
+                settle_trial(db, client, sub, shop.highlevel_agent_id, location, token, now)
+            except Exception as exc:
+                db.rollback()
+                failures += 1
+                logger.error("AI trial settlement failed for shop %s (%s)", shop.id, type(exc).__name__)
+            if not shop.ai_voice_enabled or sub.status not in {"active", "past_due"}:
                 continue
             items = [item for item in sub["items"].data if item.price.id == usage_price]
             if not items:
