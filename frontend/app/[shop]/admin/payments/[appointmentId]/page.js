@@ -4,7 +4,7 @@ import { ShopMessage } from "../../../../components/ShopLanguage";
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 export default function CollectPaymentPage() {
   const { shop, appointmentId } = useParams();
@@ -12,6 +12,8 @@ export default function CollectPaymentPage() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [confirmRefund, setConfirmRefund] = useState(false);
+  const [offerId, setOfferId] = useState("");
+  const pendingSale = useRef(null);
   const endpoint = `/api/payments/appointments/${encodeURIComponent(appointmentId)}`;
 
   const read = useCallback(async () => {
@@ -61,6 +63,36 @@ export default function CollectPaymentPage() {
     finally { setBusy(false); }
   }
 
+  async function packageAction(action) {
+    if (busy) return;
+    let payload;
+    if (action === "record-package-sale") {
+      const offer = data.package_offers.find(item => item.id === offerId);
+      if (!offer || !window.confirm(`Confirm you already received $${(offer.price_cents / 100).toFixed(2)} for this package.`)) return;
+      if (pendingSale.current?.offer_id !== offer.id) {
+        pendingSale.current = { offer_id: offer.id, request_id: crypto.randomUUID() };
+      }
+      payload = pendingSale.current;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      const response = await fetch(`${endpoint}/${action}`, {
+        method: "POST",
+        headers: payload ? { "Content-Type": "application/json" } : undefined,
+        body: payload ? JSON.stringify(payload) : undefined,
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.detail || "Could not update the package.");
+      if (payload) {
+        pendingSale.current = null;
+        setOfferId("");
+      }
+      await read();
+    } catch (failure) { setError(failure.message); }
+    finally { setBusy(false); }
+  }
+
   return (
     <main className="mx-auto max-w-xl p-6">
       <Link className="text-blue-700 underline" href={`/${shop}/admin/calendar`}>Back to calendar</Link>
@@ -70,13 +102,30 @@ export default function CollectPaymentPage() {
       {data && <section className="mt-6 rounded-2xl border bg-white p-6">
         <p className="text-xl font-bold">{data.customer_name}</p>
         <p className="mt-2">{data.service_name} — ${data.amount}</p>
-        {data.payment_status === "paid" ? <p role="status" className="mt-5 font-bold text-green-700">Paid — ${data.amount}</p> :
+        {data.package_offers?.length > 0 && <div className="my-4 space-y-2 rounded-xl border p-4">
+          <h2 className="font-bold">Prepaid packages</h2>
+          <p>{data.package_sessions_remaining} eligible sessions remaining</p>
+          <label className="block">Record a package already paid
+            <select className="block w-full rounded border p-2" value={offerId} onChange={event => setOfferId(event.target.value)}>
+              <option value="">Choose package</option>
+              {data.package_offers.map(offer => <option key={offer.id} value={offer.id}>
+                {offer.name} · {offer.sessions} sessions · ${(offer.price_cents / 100).toFixed(2)}
+              </option>)}
+            </select>
+          </label>
+          <button type="button" disabled={busy || !offerId} className="rounded bg-indigo-700 px-3 py-2 text-white disabled:opacity-50" onClick={() => packageAction("record-package-sale")}>Record payment received</button>
+        </div>}
+        {data.package_paid ? <div className="mt-4 space-y-2">
+          <p role="status" className="font-bold text-green-700">Paid with package</p>
+          <button type="button" disabled={busy} className="underline" onClick={() => packageAction("reverse-package")}>Restore package session</button>
+        </div> : data.payment_status === "paid" ? <p role="status" className="mt-5 font-bold text-green-700">Paid — ${data.amount}</p> :
           ["refunded", "partially_refunded", "refund_pending"].includes(data.payment_status) ? <div role="status" className="mt-5">
             <p className="font-bold">{data.payment_status === "refunded" ? "Refunded" : data.payment_status === "refund_pending" ? "Refund pending" : "Partially refunded"}</p>
             <p>Refunded to the original card: ${data.refunded_amount}</p>
             {data.payment_status === "refund_pending" && <p>Stripe has not confirmed completion. Refresh the status before taking another action.</p>}
           </div> : data.payment_status === "processing" ? <p className="mt-5">Payment is processing. Please check again before collecting another payment.</p> :
           <>
+            {data.can_redeem_package && <button type="button" disabled={busy} className="mt-4 rounded-xl bg-green-700 px-4 py-3 font-bold text-white" onClick={() => packageAction("redeem-package")}>Complete checkout using 1 package session</button>}
             <p className="mt-5">Text a secure Stripe payment link to the customer’s saved phone number. They enter their card details on their own device.</p>
             <button type="button" disabled={busy || !!error || data.uses_tap_to_pay ||
               ["sent", "sending", "unknown"].includes(data.text_link_status) ||

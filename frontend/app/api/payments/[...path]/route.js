@@ -14,8 +14,9 @@ async function proxy(request, context, method) {
     const appointment = path?.[0] === "appointments" &&
       /^[a-zA-Z0-9-]{1,100}$/.test(path[1] || "") &&
       ((method === "GET" && path.length === 2) ||
-       (method === "POST" && path.length === 3 && ["checkout", "text-link", "refund"].includes(path[2])));
-    if (!receipt && !appointment) return json({ detail: "Payment endpoint not found." }, 404);
+       (method === "POST" && path.length === 3 && ["checkout", "text-link", "refund", "record-package-sale", "redeem-package", "reverse-package"].includes(path[2])));
+    const packageOffers = path?.length === 1 && path[0] === "packages";
+    if (!receipt && !appointment && !packageOffers) return json({ detail: "Payment endpoint not found." }, 404);
     if (method === "POST") {
       const origin = request.headers.get("origin");
       if (origin && origin !== new URL(request.url).origin) return json({ detail: "Invalid request origin." }, 403);
@@ -32,8 +33,11 @@ async function proxy(request, context, method) {
       for (const key of ["token", "shop_slug"]) query.set(key, incoming.get(key) || "");
     }
     const endpoint = `${getBackendUrl()}/api/payments/${path.map(encodeURIComponent).join("/")}`;
+    const sendsPackageData = method === "POST" && (packageOffers || path[2] === "record-package-sale");
+    const body = sendsPackageData ? JSON.stringify(await request.json()) : undefined;
+    if (sendsPackageData) headers["Content-Type"] = "application/json";
     const response = await fetch(endpoint + (receipt ? `?${query}` : ""), {
-      method, headers, cache: "no-store", signal: AbortSignal.timeout(30000),
+      method, headers, body, cache: "no-store", signal: AbortSignal.timeout(30000),
     });
     let data;
     try { data = await response.json(); }
