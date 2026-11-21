@@ -9,9 +9,13 @@ import stripe
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+from pydantic import BaseModel, Field
+from uuid import UUID
 
 from app.database import get_db
-from app.models import Appointment, Service, Shop, User
+from app.models import Appointment, Service, ServiceCatalog, Shop, User
+from app.service_packages import (PackageOffer, PackageSale, PackageRedemption, available_sales,
+    current_redemption, matching_offers, phone_key, reject_redeemed, timestamp)
 from app.payment_records import ServicePayment, TerminalPaymentAttempt, PaymentLinkDelivery, ServicePaymentRefund
 from app.routes.reminders import send_highlevel_sms
 from app.routes.auth import get_current_user, get_jwt_secret
@@ -237,6 +241,9 @@ def get_payment(appointment_id: str, response: Response,
     except stripe.StripeError:
         db.rollback()
         raise stripe_failure()
+    offers = matching_offers(db, appointment)
+    sales = available_sales(db, appointment, offers)
+    redemption = current_redemption(db, appointment)
     delivery = db.get(PaymentLinkDelivery, record.session_id) if record and record.session_id else None
     return {"success": True, "shop_slug": user.shop_slug,
             "can_refund": bool(str(user.role or "").lower() == "owner" and record and
@@ -247,6 +254,10 @@ def get_payment(appointment_id: str, response: Response,
             "text_link_recipient": delivery.recipient_last4 if delivery else None,
             "appointment_id": appointment.id, "customer_name": appointment.customer_name,
             "appointment_status": appointment.status,
+            "package_paid": bool(redemption),
+            "package_offers": [offer_view(offer) for offer in offers],
+            "package_sessions_remaining": sum(sale.sessions_remaining for sale in sales),
+            "can_redeem_package": not record and bool(sales) and appointment.status in {"confirmed", "completed"},
             "service_name": record.service_name if record else (service.name if service else None),
             "amount": f"{service.price:.2f}" if service else None,
             **{k: v for k, v in payment_data(record, db).items() if v is not None}}
@@ -257,6 +268,7 @@ def create_service_checkout(appointment_id: str,
                             user: User = Depends(get_current_user),
                             db: Session = Depends(get_db)):
     appointment = appointment_for_user(db, appointment_id, user)
+    reject_redeemed(db, appointment)
     shop = db.query(Shop).filter(Shop.slug == user.shop_slug).first()
     if not shop or shop.payment_policy not in {"accept_cards", "card_required"}:
         raise HTTPException(409, "Enable credit card payments for this shop first.")
@@ -441,6 +453,7 @@ def text_payment_link(appointment_id: str,
                       db: Session = Depends(get_db)):
     # Recipient and amount always come from this authenticated shop's appointment.
     appointment = appointment_for_user(db, appointment_id, user)
+    reject_redeemed(db, appointment)
     digits = "".join(c for c in appointment.customer_phone or "" if c.isdigit())
     if len(digits) == 11 and digits.startswith("1"):
         digits = digits[1:]
@@ -587,3 +600,103 @@ async def payment_webhook(request: Request, db: Session = Depends(get_db)):
             raise stripe_failure()
     return {"received": True}
 
+
+
+class PackageOfferInput(BaseModel):
+    catalog_id: str
+    name: str = Field(min_length=1, max_length=100, pattern=r"\S")
+    sessions: int = Field(ge=2, le=1000)
+    price_cents: int = Field(ge=1, le=99999999)
+
+
+class PackageSaleInput(BaseModel):
+    offer_id: str
+    request_id: UUID
+
+
+def offer_view(offer):
+    return {key: getattr(offer, key) for key in ("id", "name", "catalog_id", "sessions", "price_cents")}
+
+
+@router.get("/packages")
+def get_packages(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    require_payment_user(user)
+    return [offer_view(offer) for offer in db.query(PackageOffer).filter_by(shop_slug=user.shop_slug)
+            .order_by(PackageOffer.name)]
+
+
+@router.post("/packages")
+def create_package(payload: PackageOfferInput, user: User = Depends(get_current_user),
+                   db: Session = Depends(get_db)):
+    require_payment_user(user)
+    if user.role != "owner":
+        raise HTTPException(403, "Only the owner can set up packages.")
+    if not db.query(ServiceCatalog).filter_by(id=payload.catalog_id, shop_slug=user.shop_slug).first():
+        raise HTTPException(404, "Service not found.")
+    offer = PackageOffer(shop_slug=user.shop_slug, **payload.model_dump())
+    db.add(offer)
+    db.commit()
+    return offer_view(offer)
+
+
+@router.post("/appointments/{appointment_id}/record-package-sale")
+def record_package_sale(appointment_id: str, payload: PackageSaleInput,
+                        user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    appointment = appointment_for_user(db, appointment_id, user)
+    offer = next((item for item in matching_offers(db, appointment) if item.id == payload.offer_id), None)
+    customer = phone_key(appointment.customer_phone)
+    if not offer or not customer:
+        raise HTTPException(409, "The package or customer could not be matched.")
+    sale_id = str(payload.request_id)
+    existing = db.get(PackageSale, sale_id)
+    if not existing:
+        db.add(PackageSale(id=sale_id, shop_slug=user.shop_slug, offer_id=offer.id,
+                           customer_phone=customer, sessions_remaining=offer.sessions,
+                           sessions=offer.sessions, price_cents=offer.price_cents, recorded_by=user.id))
+        try:
+            db.commit()
+            return {"success": True}
+        except IntegrityError:
+            db.rollback()
+            existing = db.get(PackageSale, sale_id)
+    if not existing or (existing.shop_slug, existing.offer_id, existing.customer_phone) != (
+        user.shop_slug, offer.id, customer
+    ):
+        raise HTTPException(409, "This sale reference is already in use.")
+    return {"success": True}
+
+
+@router.post("/appointments/{appointment_id}/redeem-package")
+def redeem_package(appointment_id: str, user: User = Depends(get_current_user),
+                   db: Session = Depends(get_db)):
+    appointment = appointment_for_user(db, appointment_id, user)
+    if current_redemption(db, appointment):
+        return {"success": True}
+    if appointment.status not in {"confirmed", "completed"} or db.query(ServicePayment).filter_by(
+        appointment_id=appointment.id
+    ).first():
+        raise HTTPException(409, "This appointment cannot be paid with a package.")
+    for sale in available_sales(db, appointment, matching_offers(db, appointment)):
+        updated = db.query(PackageSale).filter(PackageSale.id == sale.id, PackageSale.sessions_remaining > 0).update(
+            {PackageSale.sessions_remaining: PackageSale.sessions_remaining - 1}
+        )
+        if updated:
+            db.add(PackageRedemption(appointment_id=appointment.id, sale_id=sale.id, redeemed_by=user.id))
+            db.commit()
+            return {"success": True}
+    raise HTTPException(409, "There are no eligible package sessions left.")
+
+
+@router.post("/appointments/{appointment_id}/reverse-package")
+def reverse_package(appointment_id: str, user: User = Depends(get_current_user),
+                    db: Session = Depends(get_db)):
+    appointment = appointment_for_user(db, appointment_id, user)
+    redemption = current_redemption(db, appointment)
+    if redemption:
+        db.query(PackageSale).filter_by(id=redemption.sale_id).update(
+            {PackageSale.sessions_remaining: PackageSale.sessions_remaining + 1}
+        )
+        redemption.reversed_at = timestamp()
+        redemption.reversed_by = user.id
+        db.commit()
+    return {"success": True}
