@@ -260,6 +260,15 @@ export default async function AdminHome({
     },
  
     {
+      name: "Sell a Service or Package",
+      description: "Text a Stripe payment link to a customer.",
+      href: basePath + "/retail",
+      icon: "💳",
+      cardClass: "bg-gradient-to-br from-emerald-50 to-teal-100 border-emerald-200",
+      iconClass: "bg-gradient-to-br from-emerald-500 to-teal-500",
+      arrowClass: "text-emerald-600 border-emerald-300 hover:bg-emerald-100",
+    },
+    {
       name: "Staff & Services",
       description:
         "Manage staff members and the services you offer.",

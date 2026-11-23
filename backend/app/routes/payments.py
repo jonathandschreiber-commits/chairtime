@@ -15,7 +15,7 @@ from typing import Literal
 from zoneinfo import ZoneInfo
 
 from app.database import get_db
-from app.models import Appointment, Service, ServiceCatalog, Shop, User
+from app.models import Appointment, Barber, Service, ServiceCatalog, Shop, User
 from app.service_packages import (PackageOffer, PackageSale, PackageRedemption, PackageCheckout, DeletedPackageOffer, PackageExpiration, expiration_date, package_sales, available_sales,
     current_redemption, matching_offers, phone_key, reject_redeemed, timestamp)
 from app.payment_records import ServicePayment, TerminalPaymentAttempt, PaymentLinkDelivery, ServicePaymentRefund
@@ -268,7 +268,7 @@ def get_payment(appointment_id: str, response: Response,
             "appointment_id": appointment.id, "customer_name": appointment.customer_name,
             "appointment_status": appointment.status,
             "package_paid": bool(redemption),
-            "package_offers": [offer_view(offer, db) for offer in offers if not db.get(DeletedPackageOffer, offer.id)],
+            "package_offers": [offer_view(offer, db) for offer in offers if offer.sessions > 1 and not db.get(DeletedPackageOffer, offer.id)],
             "can_edit_package_expiration": user.role == "owner",
             "package_balances": [
                 {"id": sale.id, "sessions_remaining": sale.sessions_remaining,
@@ -644,7 +644,7 @@ def offer_view(offer, db):
 def get_packages(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     require_payment_user(user)
     return [offer_view(offer, db) for offer in db.query(PackageOffer).filter_by(shop_slug=user.shop_slug)
-            .filter(~PackageOffer.id.in_(db.query(DeletedPackageOffer.offer_id))).order_by(PackageOffer.name)]
+            .filter(PackageOffer.sessions > 1, ~PackageOffer.id.in_(db.query(DeletedPackageOffer.offer_id))).order_by(PackageOffer.name)]
 
 
 @router.post("/packages")
@@ -737,38 +737,45 @@ def text_package_link(appointment_id: str, payload: PackageSaleInput,
                       user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     appointment = appointment_for_user(db, appointment_id, user)
     offer = next((item for item in matching_offers(db, appointment) if item.id == payload.offer_id), None)
-    digits = phone_key(appointment.customer_phone or "")
+    if offer and offer.sessions == 1:
+        offer = None
+    return send_purchase_link(db, user, offer, phone_key(appointment.customer_phone or ""), appointment.id, payload.request_id)
+
+
+def send_purchase_link(db, user, offer, digits, sale_context, request_id):
     shop = db.query(Shop).filter_by(slug=user.shop_slug).one()
     if not offer or db.get(DeletedPackageOffer, offer.id) or len(digits) != 10:
-        raise HTTPException(409, "Choose an eligible package and check the customer's US phone number.")
+        raise HTTPException(409, "Choose an available service or package and check the customer's US phone number.")
     if shop.payment_policy not in {"accept_cards", "card_required"} or not shop.stripe_connect_account_id:
         raise HTTPException(409, "Enable card payments and connect this shop to Stripe first.")
-    purchase_id = str(payload.request_id)
+    purchase_id = str(request_id)
     purchase = db.get(PackageCheckout, purchase_id)
     if purchase and (purchase.appointment_id, purchase.offer_id, purchase.customer_phone, purchase.shop_slug) != (
-        appointment.id, offer.id, digits, shop.slug
+        sale_context, offer.id, digits, shop.slug
     ):
         raise HTTPException(409, "This purchase reference does not match.")
-    if not purchase:
+    if not purchase and sale_context != "retail":
         purchase = db.query(PackageCheckout).filter_by(
-            appointment_id=appointment.id, offer_id=offer.id, customer_phone=digits,
+            appointment_id=sale_context, offer_id=offer.id, customer_phone=digits,
             status="pending",
         ).first()
     if not purchase:
         purchase = PackageCheckout(
-            id=purchase_id, appointment_id=appointment.id, shop_slug=shop.slug,
+            id=purchase_id, appointment_id=sale_context, shop_slug=shop.slug,
             account_id=shop.stripe_connect_account_id, offer_id=offer.id, name=offer.name,
             customer_phone=digits, sessions=offer.sessions, price_cents=offer.price_cents,
             fee_cents=service_fee_cents(offer.price_cents),
             recorded_by=user.id,
         )
         db.add(purchase)
-        terms = offer_view(offer, db)
-        db.add(PackageExpiration(key="checkout:" + purchase.id,
+        if offer.sessions > 1:
+            terms = offer_view(offer, db)
+            db.add(PackageExpiration(key="checkout:" + purchase.id,
                                  duration=terms["expiration_duration"], unit=terms["expiration_unit"]))
         db.commit()
-        appointment_for_user(db, appointment_id, user)
-        db.refresh(purchase)
+        if sale_context != "retail":
+            appointment_for_user(db, sale_context, user)
+    db.refresh(purchase, with_for_update=True)
     if purchase.account_id != shop.stripe_connect_account_id:
         raise HTTPException(409, "This purchase belongs to a previous Stripe account.")
     if purchase.status != "pending":

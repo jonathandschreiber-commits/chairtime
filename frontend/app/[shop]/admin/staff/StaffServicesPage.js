@@ -30,7 +30,17 @@ export default function StaffServicesPage({ apiBase }) {
 
   const [barbers, setBarbers] = useState([]);
   const [services, setServices] = useState([]);
+  const [retailServices, setRetailServices] = useState([]);
   const [teamMembers, setTeamMembers] = useState([]);
+
+  useEffect(() => {
+    if (!ownerAuthorized) return;
+    const controller = new AbortController();
+    fetch("/api/payments/retail", { signal: controller.signal }).then(async response => {
+      if (response.ok) setRetailServices((await response.json()).services);
+    }).catch(() => {});
+    return () => controller.abort();
+  }, [ownerAuthorized, shopSlug]);
 
   const [newBarberName, setNewBarberName] =
     useState("");
@@ -1749,6 +1759,12 @@ export default function StaffServicesPage({ apiBase }) {
                         <p className="text-xl font-extrabold text-rose-950">
                           {service.name}
                         </p>
+                        {retailServices.filter(option => option.catalog_id === service.id).map(option => (
+                          <p key={option.id} className="text-sm text-gray-600">
+                            {option.staff && <>{option.staff} · </>}{option.duration_minutes} min · ${(option.price_cents / 100).toFixed(2)}
+                          </p>
+                        ))}
+                        {retailServices.some(option => option.catalog_id === service.id) && <a className="text-sm font-semibold text-indigo-700 underline" href={`/${shopSlug}/admin/retail?service=${encodeURIComponent(service.id)}`}>Sell</a>}
 
                         {service.assignment_count >
                           0 && (

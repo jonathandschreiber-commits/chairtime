@@ -18,7 +18,9 @@ async function proxy(request, context, method) {
     const packageOffers = path?.[0] === "packages" && (path.length === 1 ||
       (method === "POST" && path.length === 3 && /^[a-zA-Z0-9-]{1,100}$/.test(path[1]) &&
         ["edit", "delete"].includes(path[2])));
-    if (!receipt && !appointment && !packageOffers) return json({ detail: "Payment endpoint not found." }, 404);
+    const retail = path?.[0] === "retail" && (path.length === 1 ||
+      (method === "GET" && path.length === 2 && path[1] === "customers"));
+    if (!receipt && !appointment && !packageOffers && !retail) return json({ detail: "Payment endpoint not found." }, 404);
     if (method === "POST") {
       const origin = request.headers.get("origin");
       if (origin && origin !== new URL(request.url).origin) return json({ detail: "Invalid request origin." }, 403);
@@ -34,11 +36,12 @@ async function proxy(request, context, method) {
       const incoming = new URL(request.url).searchParams;
       for (const key of ["token", "shop_slug"]) query.set(key, incoming.get(key) || "");
     }
+    if (retail && path[1] === "customers") query.set("q", new URL(request.url).searchParams.get("q") || "");
     const endpoint = `${getBackendUrl()}/api/payments/${path.map(encodeURIComponent).join("/")}`;
-    const sendsPackageData = method === "POST" && ((packageOffers && path[2] !== "delete") || ["text-package-link", "package-expiration"].includes(path[2]));
+    const sendsPackageData = method === "POST" && (retail || (packageOffers && path[2] !== "delete") || ["text-package-link", "package-expiration"].includes(path[2]));
     const body = sendsPackageData ? JSON.stringify(await request.json()) : undefined;
     if (sendsPackageData) headers["Content-Type"] = "application/json";
-    const response = await fetch(endpoint + (receipt ? `?${query}` : ""), {
+    const response = await fetch(endpoint + (query.size ? `?${query}` : ""), {
       method, headers, body, cache: "no-store", signal: AbortSignal.timeout(30000),
     });
     let data;

@@ -1,5 +1,7 @@
 "use client";
 
+import { useParams } from "next/navigation";
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
 function ExpirationFields({ offer }) {
@@ -35,6 +37,7 @@ function ExpirationFields({ offer }) {
 
 
 export default function ServicePackages({ catalog }) {
+  const { shop } = useParams();
   const [offers, setOffers] = useState([]);
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -151,6 +154,7 @@ export default function ServicePackages({ catalog }) {
               <p className="text-sm text-slate-600">{catalog.find(item => item.id === offer.catalog_id)?.name || "Service unavailable"} · {offer.sessions} treatments · ${(offer.price_cents / 100).toFixed(2)} · Expires after {offer.expiration_duration ?? 1} {offer.expiration_unit ?? "years"}</p>
             </div>
             <div className="flex gap-2 text-sm">
+              <Link className="rounded-xl bg-indigo-700 px-3 py-2 font-bold text-white" href={`/${shop}/admin/retail?package=${encodeURIComponent(offer.id)}`}>Sell</Link>
               <button type="button" disabled={busy} className={actionClass} onClick={() => { setEditing(offer); setDeleting(null); setNotice(""); setError(""); }}>Edit</button>
               <button type="button" disabled={busy} className="rounded-xl bg-red-600 px-3 py-2 font-bold text-white disabled:opacity-50" onClick={() => { setDeleting(offer.id); setNotice(""); setError(""); }}>Delete</button>
             </div>
