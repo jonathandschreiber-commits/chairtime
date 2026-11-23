@@ -158,6 +158,7 @@ export default function CollectPaymentPage() {
         </div>}
         {data.package_paid ? <div className="mt-4 space-y-2">
           <p role="status" className="font-bold text-green-700">Paid with package</p>
+          <Link href={`/${shop}/admin/retail`} className="text-indigo-700 underline">Sell another service or package</Link>
         </div> : data.payment_status === "paid" ? <p role="status" className="mt-5 font-bold text-green-700">Paid — ${data.amount}</p> :
           ["refunded", "partially_refunded", "refund_pending"].includes(data.payment_status) ? <div role="status" className="mt-5">
             <p className="font-bold">{data.payment_status === "refunded" ? "Refunded" : data.payment_status === "refund_pending" ? "Refund pending" : "Partially refunded"}</p>
