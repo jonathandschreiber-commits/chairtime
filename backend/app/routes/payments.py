@@ -954,6 +954,8 @@ class RetailSaleInput(BaseModel):
     kind: Literal["service", "package"]
     item_id: str
     phone: str = Field(max_length=32)
+    method: Literal["cash", "check", "external_card", "bank_transfer", "other"] | None = None
+    reference: str = Field(default="", max_length=250)
 
 
 @router.post("/retail")
@@ -983,4 +985,8 @@ def retail_sale(payload: RetailSaleInput, user: User = Depends(get_current_user)
             except IntegrityError:
                 db.rollback()
                 offer = db.get(PackageOffer, offer_id)
+    if payload.method:
+        from app.routes.sales import record_retail_payment
+
+        return record_retail_payment(db, user, offer, digits, payload)
     return send_purchase_link(db, user, offer, digits, "retail", payload.request_id)

@@ -61,3 +61,18 @@ class ServicePaymentRefund(Base):
     requested_by = Column(String, nullable=True)
     refund_id = Column(String, nullable=True)
     request_status = Column(String, nullable=True)
+
+
+class ManualRetailPayment(Base):
+    __tablename__ = "manual_retail_payments"
+
+    id = Column(String, primary_key=True)
+    shop_slug = Column(String, nullable=False, index=True)
+    offer_id = Column(String, nullable=False)
+    customer_phone = Column(String, nullable=False)
+    item_name = Column(String, nullable=False)
+    amount_cents = Column(Integer, nullable=False)
+    method = Column(String, nullable=False)
+    reference = Column(String)
+    recorded_by = Column(String, nullable=False)
+    created_at = Column(DateTime, nullable=False)

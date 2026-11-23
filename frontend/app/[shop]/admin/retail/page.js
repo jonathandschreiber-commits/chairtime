@@ -18,6 +18,8 @@ export default function RetailPage() {
   const [customers, setCustomers] = useState([]);
   const [phone, setPhone] = useState("");
   const [choice, setChoice] = useState("");
+  const [method, setMethod] = useState("");
+  const [reference, setReference] = useState("");
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -55,15 +57,16 @@ export default function RetailPage() {
     setError("");
     setStatus("");
     const [kind, item_id] = choice.split(":");
-    const key = JSON.stringify([kind, item_id, phone]);
+    const key = JSON.stringify([kind, item_id, phone, method, reference]);
     if (draft.current?.key !== key) draft.current = { key, id: crypto.randomUUID() };
     try {
       const result = await retailRequest("", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ kind, item_id, phone, request_id: draft.current.id }),
+        body: JSON.stringify({ kind, item_id, phone, method: method || null, reference, request_id: draft.current.id }),
       });
       const messages = {
+        recorded: "Payment recorded. Prepaid sessions are available.",
         sent: "Payment link texted. Awaiting payment.",
         paid: "Stripe confirmed payment.",
         pending: "Awaiting payment.",
@@ -84,6 +87,7 @@ export default function RetailPage() {
   return (
     <main className="mx-auto max-w-xl space-y-4 px-5 py-8">
       <Link href={`/${shop}/admin`} className="text-blue-700 underline">Admin Home</Link>
+      <Link href={`/${shop}/admin/sales`} className="ml-4 text-blue-700 underline">Sales</Link>
       <h1 className="text-3xl font-bold">Sell a Service or Package</h1>
       {error && <p role="alert" className="rounded-xl bg-red-50 p-3 text-red-800">{error}</p>}
       {status && <p role="status" className="rounded-xl bg-emerald-50 p-3 text-emerald-800">{status}</p>}
@@ -94,14 +98,14 @@ export default function RetailPage() {
         </label>
         {customers.map(({ name, phone: number }) => (
           <button key={JSON.stringify([name, number])} type="button" className="mr-2 rounded-lg border px-3 py-2"
-            onClick={() => { setPhone(number); setQuery(""); setCustomers([]); }}>{name} · {number}</button>
+            onClick={() => { setPhone(number); setStatus(""); setQuery(""); setCustomers([]); }}>{name} · {number}</button>
         ))}
         <label className="block font-semibold">Customer mobile number
-          <input required type="tel" value={phone} onChange={event => setPhone(event.target.value)}
+          <input required type="tel" value={phone} onChange={event => { setPhone(event.target.value); setStatus(""); }}
             className="mt-1 block w-full rounded-lg border p-2" />
         </label>
         <label className="block font-semibold">What are you selling?
-          <select required value={choice} onChange={event => setChoice(event.target.value)}
+          <select required value={choice} onChange={event => { setChoice(event.target.value); setStatus(""); }}
             className="mt-1 block w-full rounded-lg border p-2">
             <option value="">Choose a service or package</option>
             <optgroup label="Services">{catalog?.services.map(item => (
@@ -116,8 +120,26 @@ export default function RetailPage() {
             ))}</optgroup>
           </select>
         </label>
-        <button disabled={busy || !catalog} className="rounded-xl bg-indigo-700 px-4 py-3 font-bold text-white disabled:opacity-50">
-          {busy ? "Checking payment link…" : status === "Payment link texted. Awaiting payment." ? "Check payment status" : "Text payment link"}
+        <label className="block font-semibold">Payment method
+          <select value={method} onChange={event => { setMethod(event.target.value); setStatus(""); }}
+            className="mt-1 block w-full rounded-lg border p-2">
+            <option value="">Stripe payment link</option>
+            <option value="cash">Cash</option>
+            <option value="check">Check</option>
+            <option value="external_card">External card terminal</option>
+            <option value="bank_transfer">Bank transfer</option>
+            <option value="other">Other</option>
+          </select>
+        </label>
+        {method && <>
+          <label className="block font-semibold">Reference or note (optional)
+            <input value={reference} onChange={event => setReference(event.target.value)} maxLength={250}
+              className="mt-1 block w-full rounded-lg border p-2" />
+          </label>
+          <label className="flex gap-2"><input key={method} type="checkbox" required /> I already received this payment.</label>
+        </>}
+        <button disabled={busy || !catalog || (method && status.startsWith("Payment recorded."))} className="rounded-xl bg-indigo-700 px-4 py-3 font-bold text-white disabled:opacity-50">
+          {busy ? "Saving…" : method ? "Record payment" : status === "Payment link texted. Awaiting payment." ? "Check payment status" : "Text payment link"}
         </button>
       </form>
     </main>
