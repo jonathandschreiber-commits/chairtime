@@ -872,3 +872,39 @@ def reverse_package(appointment_id: str, user: User = Depends(get_current_user),
         redemption.reversed_by = user.id
         db.commit()
     return {"success": True}
+
+
+def shop_zone(db, slug):
+    shop = db.query(Shop).filter_by(slug=slug).first()
+    return ZoneInfo(shop.timezone if shop and shop.timezone else "America/New_York")
+
+
+class PurchaseExpirationInput(BaseModel):
+    purchase_id: str
+    expiration_date: date
+
+
+@router.post("/appointments/{appointment_id}/package-expiration")
+def update_purchase_expiration(appointment_id: str, payload: PurchaseExpirationInput,
+                               user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    appointment = appointment_for_user(db, appointment_id, user)
+    if user.role != "owner":
+        raise HTTPException(403, "Only the owner can change a package expiration date.")
+    sale = next((item for item in available_sales(db, appointment, matching_offers(db, appointment))
+                 if item.id == payload.purchase_id), None)
+    if not sale:
+        raise HTTPException(404, "Active package purchase not found.")
+    db.refresh(sale, with_for_update=True)
+    terms = db.get(PackageExpiration, "sale:" + sale.id, populate_existing=True)
+    if sale.sessions_remaining < 1 or (terms and terms.expires_at <= timestamp()):
+        raise HTTPException(409, "This purchase is no longer active.")
+    zone = shop_zone(db, appointment.shop_slug)
+    if not datetime.now(zone).date() <= payload.expiration_date < date.max:
+        raise HTTPException(422, "Choose today or a future expiration date.")
+    expires_at = datetime.combine(payload.expiration_date + timedelta(days=1), datetime.min.time(), zone)
+    if not terms:
+        terms = PackageExpiration(key="sale:" + sale.id, duration=1, unit="years")
+        db.add(terms)
+    terms.expires_at = expires_at.astimezone(timezone.utc).replace(tzinfo=None)
+    db.commit()
+    return {"success": True}
