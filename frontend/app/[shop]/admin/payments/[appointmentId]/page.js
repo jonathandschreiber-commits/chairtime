@@ -1,6 +1,6 @@
 "use client";
 
-import PackageBalances from "../../../components/PackageBalances";
+import PackageBalances from "../../../../components/PackageBalances";
 
 import { ShopMessage } from "../../../../components/ShopLanguage";
 
