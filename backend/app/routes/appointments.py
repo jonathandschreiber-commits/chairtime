@@ -4,6 +4,8 @@ from zoneinfo import ZoneInfo
 
 import stripe
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.encoders import jsonable_encoder
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.booking_lock import lock_booking_provider
@@ -11,6 +13,7 @@ from app.service_packages import redeem_on_completion
 from app.database import get_db
 from app.models import (
     Appointment,
+    AppointmentCompletionNote,
     AvailabilityRule,
     ShopAvailabilityRule,
     ShopBlockedTime,
@@ -1101,12 +1104,26 @@ def list_admin_appointments(
 
     shop_slug = require_user_shop_slug(current_user)
 
-    return (
+    appointments = (
         db.query(Appointment)
         .filter(Appointment.shop_slug == shop_slug)
         .order_by(Appointment.start_datetime.asc())
         .all()
     )
+    notes = {}
+    for note in db.query(AppointmentCompletionNote).filter(
+        AppointmentCompletionNote.shop_slug == shop_slug,
+        AppointmentCompletionNote.appointment_id.in_([appointment.id for appointment in appointments]),
+    ).order_by(AppointmentCompletionNote.created_at, AppointmentCompletionNote.id):
+        notes.setdefault(note.appointment_id, []).append({
+            "id": note.id,
+            "body": note.body,
+            "created_at": note.created_at.isoformat() + "Z",
+        })
+    return [
+        {**jsonable_encoder(appointment), "completion_notes": notes.get(appointment.id, [])}
+        for appointment in appointments
+    ]
 
 
 @router.patch("/admin/appointments/{appointment_id}/cancel")
@@ -1187,10 +1204,15 @@ def cancel_admin_appointment(
     return appointment
 
 
+class CompletionNoteInput(BaseModel):
+    completion_note: str = Field(min_length=1, max_length=2000, pattern=r"\S")
+
+
 @router.patch("/admin/appointments/{appointment_id}/status")
 def update_admin_appointment_status(
     appointment_id: str,
     appointment_status: str,
+    completion: CompletionNoteInput | None = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -1232,7 +1254,7 @@ def update_admin_appointment_status(
 
         # Refresh after acquiring the lock so we do not
         # make a decision using stale appointment data.
-        db.refresh(appointment)
+        db.refresh(appointment, with_for_update=appointment_status == "completed")
 
     old_status = str(
         appointment.status or ""
@@ -1275,6 +1297,11 @@ def update_admin_appointment_status(
     try:
         if appointment_status == "completed":
             redeem_on_completion(db, appointment, current_user.id)
+            if completion and old_status != "completed":
+                db.add(AppointmentCompletionNote(
+                    appointment_id=appointment.id, shop_slug=shop_slug,
+                    body=completion.completion_note.strip(), created_by=current_user.id,
+                ))
         appointment.status = appointment_status
         db.commit()
         db.refresh(appointment)

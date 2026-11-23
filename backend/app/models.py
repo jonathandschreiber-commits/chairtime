@@ -501,3 +501,14 @@ class Appointment(Base):
         DateTime,
         server_default=func.now(),
     )
+
+
+class AppointmentCompletionNote(Base):
+    __tablename__ = "appointment_completion_notes"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    appointment_id = Column(String, nullable=False, index=True)
+    shop_slug = Column(String, nullable=False, index=True)
+    body = Column(Text, nullable=False)
+    created_by = Column(String, nullable=False)
+    created_at = Column(DateTime, nullable=False, server_default=func.now())

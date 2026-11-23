@@ -269,6 +269,8 @@ function CustomersPageContent({ apiBase }) {
   ] = useState(false);
 
 
+  const [completionDraft, setCompletionDraft] = useState(null);
+
   const [
     updatingAppointmentId,
     setUpdatingAppointmentId,
@@ -1009,7 +1011,8 @@ function CustomersPageContent({ apiBase }) {
 
   async function updateAppointmentStatus(
     appointmentId,
-    status
+    status,
+    completionNote
   ) {
     if (updatingAppointmentId) {
       return;
@@ -1057,6 +1060,8 @@ function CustomersPageContent({ apiBase }) {
 
             body: JSON.stringify({
               status,
+              source: "customers",
+              completion_note: completionNote,
             }),
           }
         );
@@ -1097,6 +1102,7 @@ function CustomersPageContent({ apiBase }) {
       );
 
 
+      setCompletionDraft(null);
       await loadData();
     } catch (statusError) {
       setError(
@@ -1297,6 +1303,12 @@ function CustomersPageContent({ apiBase }) {
                 {appointment.notes}
               </p>
             )}
+            {appointment.completion_notes?.map(note => (
+              <div key={note.id} className="mt-2 rounded-lg border bg-white p-3 text-sm">
+                <p className="font-semibold">Completion note · <time dateTime={note.created_at}>{new Date(note.created_at).toLocaleString()}</time></p>
+                <p className="mt-1 whitespace-pre-wrap">{note.body}</p>
+              </div>
+            ))}
           </div>
 
 
@@ -1305,6 +1317,29 @@ function CustomersPageContent({ apiBase }) {
           </span>
         </div>
 
+
+        {allowActions && completionDraft?.appointmentId === appointment.id && (
+          <form className="mt-4 space-y-3 rounded-xl border bg-white p-4" onSubmit={event => {
+            event.preventDefault();
+            const note = completionDraft.note.trim();
+            if (note) updateAppointmentStatus(appointment.id, "completed", note);
+          }}>
+            <label className="block font-semibold">
+              Completion note
+              <textarea required maxLength={2000} rows={3} value={completionDraft.note}
+                onChange={event => setCompletionDraft({ ...completionDraft, note: event.target.value })}
+                className="mt-1 block w-full rounded-lg border p-2" placeholder="What was done at this appointment?" />
+            </label>
+            <div className="flex gap-2">
+              <button type="submit" disabled={busy || !completionDraft.note.trim()}
+                className="rounded-xl bg-green-700 px-4 py-2 font-semibold text-white disabled:opacity-60">
+                Confirm Complete
+              </button>
+              <button type="button" disabled={busy} onClick={() => setCompletionDraft(null)}
+                className="rounded-xl border px-4 py-2">Cancel</button>
+            </div>
+          </form>
+        )}
 
         {allowActions &&
           !isMoving && (
@@ -1341,12 +1376,9 @@ function CustomersPageContent({ apiBase }) {
               <button
                 type="button"
                 onClick={() =>
-                  updateAppointmentStatus(
-                    appointment.id,
-                    "completed"
-                  )
+                  setCompletionDraft({ appointmentId: appointment.id, note: "" })
                 }
-                disabled={busy}
+                disabled={busy || completionDraft?.appointmentId === appointment.id}
                 className="bg-green-600 text-white px-3 py-2 rounded-xl font-semibold disabled:opacity-60"
               >
                 Complete
