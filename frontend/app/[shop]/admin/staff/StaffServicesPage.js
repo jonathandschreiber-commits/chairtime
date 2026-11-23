@@ -1,5 +1,7 @@
 "use client";
 
+import ServicePackages from "../setup/ServicePackages";
+
 import { ShopMessage, useShopMessages } from "../../../components/ShopLanguage";
 
 
@@ -1800,6 +1802,8 @@ export default function StaffServicesPage({ apiBase }) {
             )}
           </div>
         </section>
+
+        <ServicePackages catalog={services} />
 
 
         <a

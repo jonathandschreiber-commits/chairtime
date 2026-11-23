@@ -54,11 +54,12 @@ export default function ServicePackages({ catalog }) {
 
   return (
     <section className="space-y-4 rounded-2xl border border-indigo-200 bg-white p-6">
-      <h2 className="text-2xl font-bold">Service packages</h2>
+      <h2 className="text-2xl font-bold">Service Packages</h2>
       {error && <p role="alert" className="text-red-700">{error}</p>}
       {offers.map(offer => (
         <p key={offer.id}>{offer.name} · {offer.sessions} sessions · ${(offer.price_cents / 100).toFixed(2)}</p>
       ))}
+      {ready && catalog.length === 0 && <p>Add a service above to create a package.</p>}
       {ready && catalog.length > 0 && (
         <form onSubmit={save} className="grid gap-3 sm:grid-cols-2">
           <label>Service
@@ -67,8 +68,8 @@ export default function ServicePackages({ catalog }) {
             </select>
           </label>
           <label>Package name<input required maxLength={100} name="name" className="block w-full rounded border p-2" /></label>
-          <label>Sessions<input required type="number" min={2} max={1000} name="sessions" className="block w-full rounded border p-2" /></label>
-          <label>Package price ($)<input required type="number" min="0.50" max="999999.99" step="0.01" name="price" className="block w-full rounded border p-2" /></label>
+          <label>Number of treatments<input required type="number" min={2} max={1000} name="sessions" className="block w-full rounded border p-2" /></label>
+          <label>Total package price ($)<input required type="number" min="0.50" max="999999.99" step="0.01" name="price" className="block w-full rounded border p-2" /></label>
           <button disabled={busy} className="rounded bg-indigo-700 px-4 py-2 text-white disabled:opacity-50">Add package</button>
         </form>
       )}

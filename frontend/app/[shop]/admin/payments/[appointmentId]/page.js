@@ -64,9 +64,8 @@ export default function CollectPaymentPage() {
     finally { setBusy(false); }
   }
 
-  async function packageAction(action) {
+  async function packageAction(action, payload) {
     if (busy) return;
-    let payload;
     if (action === "text-package-link") {
       const offer = data.package_offers.find(item => item.id === offerId);
       if (!offer) return;
@@ -85,7 +84,8 @@ export default function CollectPaymentPage() {
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.detail || "Could not update the package.");
-      if (payload) {
+      if (action === "adjust-package") setPackageNotice("Package balance updated.");
+      if (action === "text-package-link") {
         const notices = {
           sent: "Package payment link texted. Sessions are added after Stripe confirms payment.",
           paid: "Stripe confirmed payment. Package sessions are available.",
@@ -126,6 +126,34 @@ export default function CollectPaymentPage() {
           </label>
           <button type="button" disabled={busy || !offerId} className="rounded bg-indigo-700 px-3 py-2 text-white disabled:opacity-50" onClick={() => packageAction("text-package-link")}>Text package payment link</button>
         </div>}
+        {data.adjustable_packages?.length > 0 && (
+          <form className="my-4 space-y-3 rounded-xl border p-4" onSubmit={event => {
+            event.preventDefault();
+            const fields = new FormData(event.currentTarget);
+            packageAction("adjust-package", {
+              request_id: crypto.randomUUID(),
+              sale_id: fields.get("purchase"),
+              delta: Number(fields.get("change")),
+              reason: fields.get("reason"),
+            });
+          }}>
+            <h2 className="font-bold">Adjust package sessions</h2>
+            <label className="block">Purchased package
+              <select name="purchase" className="block w-full rounded border p-2" required>
+                {data.adjustable_packages.map(purchase => (
+                  <option key={purchase.id} value={purchase.id}>{purchase.name} · {purchase.remaining} remaining</option>
+                ))}
+              </select>
+            </label>
+            <label className="block">Sessions to add or deduct (use a minus sign to deduct)
+              <input name="change" type="number" min={-1000} max={1000} step={1} className="block w-full rounded border p-2" required />
+            </label>
+            <label className="block">Reason
+              <input name="reason" maxLength={300} className="block w-full rounded border p-2" required />
+            </label>
+            <button disabled={busy} className="rounded bg-indigo-700 px-3 py-2 text-white disabled:opacity-50">Save adjustment</button>
+          </form>
+        )}
         {data.package_paid ? <div className="mt-4 space-y-2">
           <p role="status" className="font-bold text-green-700">Paid with package</p>
           <button type="button" disabled={busy} className="underline" onClick={() => packageAction("reverse-package")}>Restore package session</button>

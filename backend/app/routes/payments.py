@@ -14,7 +14,7 @@ from uuid import UUID
 
 from app.database import get_db
 from app.models import Appointment, Service, ServiceCatalog, Shop, User
-from app.service_packages import (PackageOffer, PackageSale, PackageRedemption, PackageCheckout, available_sales,
+from app.service_packages import (PackageOffer, PackageSale, PackageRedemption, PackageCheckout, PackageAdjustment, available_sales,
     current_redemption, matching_offers, phone_key, reject_redeemed, timestamp)
 from app.payment_records import ServicePayment, TerminalPaymentAttempt, PaymentLinkDelivery, ServicePaymentRefund
 from app.routes.reminders import send_highlevel_sms
@@ -253,6 +253,13 @@ def get_payment(appointment_id: str, response: Response,
         raise stripe_failure()
     offers = matching_offers(db, appointment)
     sales = available_sales(db, appointment, offers)
+    adjustments = []
+    if user.role == "owner":
+        names = {offer.id: offer.name for offer in offers}
+        adjustments = [
+            {"id": sale.id, "name": names[sale.offer_id], "remaining": sale.sessions_remaining}
+            for sale in customer_package_sales(db, appointment, offers)
+        ]
     redemption = current_redemption(db, appointment)
     delivery = db.get(PaymentLinkDelivery, record.session_id) if record and record.session_id else None
     return {"success": True, "shop_slug": user.shop_slug,
@@ -265,6 +272,7 @@ def get_payment(appointment_id: str, response: Response,
             "appointment_id": appointment.id, "customer_name": appointment.customer_name,
             "appointment_status": appointment.status,
             "package_paid": bool(redemption),
+            "adjustable_packages": adjustments,
             "package_offers": [offer_view(offer) for offer in offers],
             "package_sessions_remaining": sum(sale.sessions_remaining for sale in sales),
             "can_redeem_package": not record and bool(sales) and appointment.status in {"confirmed", "completed"},
@@ -802,4 +810,50 @@ def reverse_package(appointment_id: str, user: User = Depends(get_current_user),
         redemption.reversed_at = timestamp()
         redemption.reversed_by = user.id
         db.commit()
+    return {"success": True}
+
+
+def customer_package_sales(db, appointment, offers):
+    return db.query(PackageSale).filter(
+        PackageSale.shop_slug == appointment.shop_slug,
+        PackageSale.customer_phone == phone_key(appointment.customer_phone),
+        PackageSale.offer_id.in_([offer.id for offer in offers]),
+    ).order_by(PackageSale.created_at, PackageSale.id)
+
+
+class PackageAdjustmentInput(BaseModel):
+    request_id: UUID
+    sale_id: str
+    delta: int = Field(ge=-1000, le=1000)
+    reason: str = Field(min_length=1, max_length=300)
+
+
+@router.post("/appointments/{appointment_id}/adjust-package")
+def adjust_package(appointment_id: str, payload: PackageAdjustmentInput,
+                   user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    appointment = appointment_for_user(db, appointment_id, user)
+    if user.role != "owner":
+        raise HTTPException(403, "Only the owner can adjust package balances.")
+    reason = payload.reason.strip()
+    if not payload.delta or not reason:
+        raise HTTPException(422, "Enter a session change and a reason.")
+    sale = customer_package_sales(db, appointment, matching_offers(db, appointment)).filter(
+        PackageSale.id == payload.sale_id
+    ).with_for_update().first()
+    if not sale:
+        raise HTTPException(404, "Package purchase not found.")
+    request_id = str(payload.request_id)
+    prior = db.get(PackageAdjustment, request_id)
+    if prior:
+        if (prior.sale_id, prior.adjusted_by, prior.delta, prior.reason) != (sale.id, user.id, payload.delta, reason):
+            raise HTTPException(409, "This adjustment reference is already in use.")
+        return {"success": True}
+    remaining = PackageSale.sessions_remaining + payload.delta
+    updated = db.query(PackageSale).filter(PackageSale.id == sale.id, remaining >= 0).update(
+        {PackageSale.sessions_remaining: remaining}, synchronize_session=False
+    )
+    if not updated:
+        raise HTTPException(409, "The adjustment would leave a negative session balance.")
+    db.add(PackageAdjustment(id=request_id, sale_id=sale.id, adjusted_by=user.id, delta=payload.delta, reason=reason))
+    db.commit()
     return {"success": True}

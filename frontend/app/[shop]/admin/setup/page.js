@@ -1,6 +1,5 @@
 "use client";
 
-import ServicePackages from "./ServicePackages";
 
 import { ShopMessage, useShopMessages } from "../../../components/ShopLanguage";
 
@@ -2186,7 +2185,6 @@ export default function SetupPage() {
           </div>
         </div>
 
-        <ServicePackages catalog={serviceCatalog} />
 
         {/* INDIVIDUAL STAFF SETTINGS */}
 

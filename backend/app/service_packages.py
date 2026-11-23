@@ -102,3 +102,13 @@ class PackageCheckout(Base):
     checkout_url = Column(String)
     status = Column(String, nullable=False, default="pending")
     created_at = Column(DateTime, nullable=False, default=timestamp)
+
+
+class PackageAdjustment(Base):
+    __tablename__ = "package_adjustments"
+    id = Column(String, primary_key=True)
+    sale_id = Column(String, ForeignKey("package_sales.id"), nullable=False)
+    adjusted_by = Column(String, nullable=False)
+    delta = Column(Integer, nullable=False)
+    reason = Column(String, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=timestamp)
