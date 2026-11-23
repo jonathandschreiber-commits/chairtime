@@ -915,3 +915,72 @@ def update_purchase_expiration(appointment_id: str, payload: PurchaseExpirationI
     terms.expires_at = expires_at.astimezone(timezone.utc).replace(tzinfo=None)
     db.commit()
     return {"success": True}
+def retail_catalog(db, slug):
+    catalog = {item.name.strip().casefold(): item for item in db.query(ServiceCatalog).filter_by(shop_slug=slug)}
+    staff = {item.id: item.name for item in db.query(Barber).filter_by(shop_slug=slug)}
+    return [(item, catalog[item.name.strip().casefold()], staff.get(item.barber_id)) for item in
+            db.query(Service).filter_by(shop_slug=slug, is_active=True).order_by(Service.name)
+            if item.name.strip().casefold() in catalog and item.duration_minutes > 0 and item.price >= Decimal("0.50")]
+
+
+@router.get("/retail")
+def retail_options(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    require_payment_user(user)
+    return {
+        "services": [{"id": item.id, "catalog_id": catalog.id, "name": item.name, "staff": staff,
+                      "duration_minutes": item.duration_minutes, "price_cents": int(item.price * 100)}
+                     for item, catalog, staff in retail_catalog(db, user.shop_slug)],
+        "packages": get_packages(user, db),
+    }
+
+
+@router.get("/retail/customers")
+def retail_customers(q: str = "", user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    require_payment_user(user)
+    q = q.strip()[:100]
+    if len(q) < 2:
+        return []
+    query = db.query(Appointment.customer_name, Appointment.customer_phone).filter_by(shop_slug=user.shop_slug)
+    digits = phone_key(q)
+    predicate = Appointment.customer_name.icontains(q, autoescape=True)
+    if digits:
+        predicate |= Appointment.customer_phone.contains(digits, autoescape=True)
+    return [{"name": name, "phone": phone} for name, phone in query.filter(predicate).distinct().limit(30)
+            if len(phone_key(phone or "")) == 10]
+
+
+class RetailSaleInput(BaseModel):
+    request_id: UUID
+    kind: Literal["service", "package"]
+    item_id: str
+    phone: str = Field(max_length=32)
+
+
+@router.post("/retail")
+def retail_sale(payload: RetailSaleInput, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    require_payment_user(user)
+    digits = phone_key(payload.phone)
+    if len(digits) != 10:
+        raise HTTPException(422, "Enter a valid US mobile number.")
+    if payload.kind == "package":
+        offer = db.query(PackageOffer).filter_by(id=payload.item_id, shop_slug=user.shop_slug).filter(
+            PackageOffer.sessions > 1
+        ).first()
+    else:
+        selected = next((entry for entry in retail_catalog(db, user.shop_slug) if entry[0].id == payload.item_id), None)
+        if not selected:
+            raise HTTPException(404, "Service with a price and duration not found.")
+        service, catalog, _ = selected
+        price = int(service.price * 100)
+        offer_id = f"retail-{service.id}-{price}-{service.duration_minutes}"
+        offer = db.get(PackageOffer, offer_id)
+        if not offer:
+            offer = PackageOffer(id=offer_id, shop_slug=user.shop_slug, catalog_id=catalog.id,
+                                 name=f"{service.name} ({service.duration_minutes} min)", sessions=1, price_cents=price)
+            db.add(offer)
+            try:
+                db.flush()
+            except IntegrityError:
+                db.rollback()
+                offer = db.get(PackageOffer, offer_id)
+    return send_purchase_link(db, user, offer, digits, "retail", payload.request_id)
