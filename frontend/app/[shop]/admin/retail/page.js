@@ -117,7 +117,7 @@ export default function RetailPage() {
           </select>
         </label>
         <button disabled={busy || !catalog} className="rounded-xl bg-indigo-700 px-4 py-3 font-bold text-white disabled:opacity-50">
-          {busy ? "Checking payment link…" : "Text payment link"}
+          {busy ? "Checking payment link…" : status === "Payment link texted. Awaiting payment." ? "Check payment status" : "Text payment link"}
         </button>
       </form>
     </main>
