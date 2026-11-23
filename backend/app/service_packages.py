@@ -1,9 +1,10 @@
 """Prepaid service entitlements recorded by shop staff."""
-from datetime import datetime, timezone
+from calendar import monthrange
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 from fastapi import HTTPException
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, or_
 
 from app.database import Base
 from app.models import Service, ServiceCatalog
@@ -75,13 +76,38 @@ def reject_redeemed(db, appointment):
         raise HTTPException(409, "This appointment was paid with a package session.")
 
 
-def available_sales(db, appointment, offers):
-    return db.query(PackageSale).filter(
+class PackageExpiration(Base):
+    __tablename__ = "package_expirations"
+    key = Column(String, primary_key=True)
+    duration = Column(Integer, nullable=False)
+    unit = Column(String, nullable=False)
+    expires_at = Column(DateTime)
+
+
+def expiration_date(start, duration, unit):
+    if unit == "days":
+        return start + timedelta(days=duration)
+    months = duration * (12 if unit == "years" else 1)
+    year, month = divmod(start.year * 12 + start.month - 1 + months, 12)
+    month += 1
+    return start.replace(year=year, month=month, day=min(start.day, monthrange(year, month)[1]))
+
+
+def package_sales(db, appointment, offers):
+    return db.query(PackageSale, PackageExpiration).outerjoin(
+        PackageExpiration, PackageExpiration.key == "sale:" + PackageSale.id
+    ).filter(
         PackageSale.shop_slug == appointment.shop_slug,
         PackageSale.customer_phone == phone_key(appointment.customer_phone),
         PackageSale.offer_id.in_([offer.id for offer in offers]),
+    ).order_by(PackageSale.created_at, PackageSale.id)
+
+
+def available_sales(db, appointment, offers):
+    return [sale for sale, _ in package_sales(db, appointment, offers).filter(
         PackageSale.sessions_remaining > 0,
-    ).order_by(PackageSale.created_at, PackageSale.id).all()
+        or_(PackageExpiration.expires_at.is_(None), PackageExpiration.expires_at > timestamp()),
+    )]
 
 
 class PackageCheckout(Base):
@@ -112,3 +138,27 @@ class PackageAdjustment(Base):
     delta = Column(Integer, nullable=False)
     reason = Column(String, nullable=False)
     created_at = Column(DateTime, nullable=False, default=timestamp)
+
+
+class DeletedPackageOffer(Base):
+    __tablename__ = "deleted_package_offers"
+    offer_id = Column(String, ForeignKey("package_offers.id"), primary_key=True)
+
+
+
+def redeem_on_completion(db, appointment, user_id):
+    from app.payment_records import ServicePayment
+
+    # Share the appointment lock used by payment and redemption routes.
+    db.refresh(appointment, with_for_update=True)
+    if appointment.status == "completed" or current_redemption(db, appointment):
+        return
+    if db.query(ServicePayment).filter_by(appointment_id=appointment.id).first():
+        return
+    for sale in available_sales(db, appointment, matching_offers(db, appointment)):
+        updated = db.query(PackageSale).filter(
+            PackageSale.id == sale.id, PackageSale.sessions_remaining > 0,
+        ).update({PackageSale.sessions_remaining: PackageSale.sessions_remaining - 1})
+        if updated:
+            db.add(PackageRedemption(appointment_id=appointment.id, sale_id=sale.id, redeemed_by=user_id))
+            return

@@ -1,5 +1,7 @@
 "use client";
 
+import PackageBalances from "../../../components/PackageBalances";
+
 import { ShopMessage } from "../../../../components/ShopLanguage";
 
 import Link from "next/link";
@@ -84,7 +86,7 @@ export default function CollectPaymentPage() {
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.detail || "Could not update the package.");
-      if (action === "adjust-package") setPackageNotice("Package balance updated.");
+      if (action === "package-expiration") setPackageNotice("Expiration date saved.");
       if (action === "text-package-link") {
         const notices = {
           sent: "Package payment link texted. Sessions are added after Stripe confirms payment.",
@@ -112,10 +114,37 @@ export default function CollectPaymentPage() {
       {data && <section className="mt-6 rounded-2xl border bg-white p-6">
         <p className="text-xl font-bold">{data.customer_name}</p>
         <p className="mt-2">{data.service_name} — ${data.amount}</p>
-        {data.package_offers?.length > 0 && <div className="my-4 space-y-2 rounded-xl border p-4">
+        {(data.package_offers?.length > 0 || data.package_sessions_remaining > 0 || data.package_balances?.length > 0) && <div className="my-4 space-y-2 rounded-xl border p-4">
           <h2 className="font-bold">Prepaid packages</h2>
           {packageNotice && <p role="status">{packageNotice}</p>}
-          <p>{data.package_sessions_remaining} eligible sessions remaining</p>
+          <PackageBalances payment={data} />
+          {data.can_edit_package_expiration && data.package_balances?.filter(purchase =>
+            !purchase.expired && purchase.sessions_remaining > 0
+          ).map(purchase => (
+            <details key={purchase.id} className="rounded-lg border p-3">
+              <summary className="cursor-pointer font-medium">
+                Edit expiration for purchase {new Date(purchase.purchased_at).toLocaleDateString()}
+              </summary>
+              <form className="mt-2 flex flex-wrap items-end gap-2" onSubmit={event => {
+                event.preventDefault();
+                const fields = new FormData(event.currentTarget);
+                packageAction("package-expiration", {
+                  purchase_id: purchase.id,
+                  expiration_date: fields.get("expiration"),
+                });
+              }}>
+                <label>Last day to use
+                  <input type="date" name="expiration" required defaultValue={purchase.expiration_date ?? ""}
+                    key={purchase.expiration_date ?? "unset"} className="block rounded border p-2" />
+                </label>
+                <button disabled={busy} className="rounded bg-indigo-700 px-3 py-2 text-white disabled:opacity-50">
+                  Save expiration
+                </button>
+              </form>
+            </details>
+          ))}
+
+          {data.package_offers?.length > 0 && <>
           <label className="block">Choose a package to sell
             <select className="block w-full rounded border p-2" value={offerId} onChange={event => setOfferId(event.target.value)}>
               <option value="">Choose package</option>
@@ -125,38 +154,10 @@ export default function CollectPaymentPage() {
             </select>
           </label>
           <button type="button" disabled={busy || !offerId} className="rounded bg-indigo-700 px-3 py-2 text-white disabled:opacity-50" onClick={() => packageAction("text-package-link")}>Text package payment link</button>
+          </>}
         </div>}
-        {data.adjustable_packages?.length > 0 && (
-          <form className="my-4 space-y-3 rounded-xl border p-4" onSubmit={event => {
-            event.preventDefault();
-            const fields = new FormData(event.currentTarget);
-            packageAction("adjust-package", {
-              request_id: crypto.randomUUID(),
-              sale_id: fields.get("purchase"),
-              delta: Number(fields.get("change")),
-              reason: fields.get("reason"),
-            });
-          }}>
-            <h2 className="font-bold">Adjust package sessions</h2>
-            <label className="block">Purchased package
-              <select name="purchase" className="block w-full rounded border p-2" required>
-                {data.adjustable_packages.map(purchase => (
-                  <option key={purchase.id} value={purchase.id}>{purchase.name} · {purchase.remaining} remaining</option>
-                ))}
-              </select>
-            </label>
-            <label className="block">Sessions to add or deduct (use a minus sign to deduct)
-              <input name="change" type="number" min={-1000} max={1000} step={1} className="block w-full rounded border p-2" required />
-            </label>
-            <label className="block">Reason
-              <input name="reason" maxLength={300} className="block w-full rounded border p-2" required />
-            </label>
-            <button disabled={busy} className="rounded bg-indigo-700 px-3 py-2 text-white disabled:opacity-50">Save adjustment</button>
-          </form>
-        )}
         {data.package_paid ? <div className="mt-4 space-y-2">
           <p role="status" className="font-bold text-green-700">Paid with package</p>
-          <button type="button" disabled={busy} className="underline" onClick={() => packageAction("reverse-package")}>Restore package session</button>
         </div> : data.payment_status === "paid" ? <p role="status" className="mt-5 font-bold text-green-700">Paid — ${data.amount}</p> :
           ["refunded", "partially_refunded", "refund_pending"].includes(data.payment_status) ? <div role="status" className="mt-5">
             <p className="font-bold">{data.payment_status === "refunded" ? "Refunded" : data.payment_status === "refund_pending" ? "Refund pending" : "Partially refunded"}</p>
@@ -164,7 +165,6 @@ export default function CollectPaymentPage() {
             {data.payment_status === "refund_pending" && <p>Stripe has not confirmed completion. Refresh the status before taking another action.</p>}
           </div> : data.payment_status === "processing" ? <p className="mt-5">Payment is processing. Please check again before collecting another payment.</p> :
           <>
-            {data.can_redeem_package && <button type="button" disabled={busy} className="mt-4 rounded-xl bg-green-700 px-4 py-3 font-bold text-white" onClick={() => packageAction("redeem-package")}>Complete checkout using 1 package session</button>}
             <p className="mt-5">Text a secure Stripe payment link to the customer’s saved phone number. They enter their card details on their own device.</p>
             <button type="button" disabled={busy || !!error || data.uses_tap_to_pay ||
               ["sent", "sending", "unknown"].includes(data.text_link_status) ||

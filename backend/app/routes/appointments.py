@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.booking_lock import lock_booking_provider
+from app.service_packages import redeem_on_completion
 from app.database import get_db
 from app.models import (
     Appointment,
@@ -1271,9 +1272,10 @@ def update_admin_appointment_status(
             shop_slug,
         )
 
-    appointment.status = appointment_status
-
     try:
+        if appointment_status == "completed":
+            redeem_on_completion(db, appointment, current_user.id)
+        appointment.status = appointment_status
         db.commit()
         db.refresh(appointment)
 
@@ -1617,9 +1619,10 @@ def update_appointment_status_compatibility(
             shop_slug,
         )
 
-    appointment.status = status_value
-
     try:
+        if status_value == "completed":
+            redeem_on_completion(db, appointment, current_user.id)
+        appointment.status = status_value
         db.commit()
         db.refresh(appointment)
 

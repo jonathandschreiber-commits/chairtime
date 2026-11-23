@@ -1,5 +1,7 @@
 "use client";
 
+import PackageBalances from "../../../components/PackageBalances";
+
 import { ShopMessage, useShopMessages } from "../../../components/ShopLanguage";
 
 
@@ -149,9 +151,7 @@ function CustomerPaymentStatus({ shop, appointmentId }) {
   }
   return <div ref={element} className="mt-2">
     <p role="status" className={`text-sm font-bold ${!error && payment?.payment_status === "paid" ? "text-green-800" : "text-gray-800"}`}><ShopMessage>{label}</ShopMessage></p>
-    {payment?.package_sessions_remaining > 0 && (
-      <p className="text-sm text-gray-700">Eligible package sessions remaining: {payment.package_sessions_remaining}</p>
-    )}
+    <PackageBalances payment={payment} />
     <Link href={`/${shop}/admin/payments/${encodeURIComponent(appointmentId)}`} className="mt-1 inline-block text-sm text-blue-800 underline"><ShopMessage>Payment details</ShopMessage></Link>
   </div>;
 }

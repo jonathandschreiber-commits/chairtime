@@ -1,6 +1,6 @@
 """One customer-approved Stripe Checkout payment per appointment."""
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from urllib.parse import quote
 
@@ -11,10 +11,12 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
 from uuid import UUID
+from typing import Literal
+from zoneinfo import ZoneInfo
 
 from app.database import get_db
 from app.models import Appointment, Service, ServiceCatalog, Shop, User
-from app.service_packages import (PackageOffer, PackageSale, PackageRedemption, PackageCheckout, PackageAdjustment, available_sales,
+from app.service_packages import (PackageOffer, PackageSale, PackageRedemption, PackageCheckout, DeletedPackageOffer, PackageExpiration, expiration_date, package_sales, available_sales,
     current_redemption, matching_offers, phone_key, reject_redeemed, timestamp)
 from app.payment_records import ServicePayment, TerminalPaymentAttempt, PaymentLinkDelivery, ServicePaymentRefund
 from app.routes.reminders import send_highlevel_sms
@@ -253,13 +255,7 @@ def get_payment(appointment_id: str, response: Response,
         raise stripe_failure()
     offers = matching_offers(db, appointment)
     sales = available_sales(db, appointment, offers)
-    adjustments = []
-    if user.role == "owner":
-        names = {offer.id: offer.name for offer in offers}
-        adjustments = [
-            {"id": sale.id, "name": names[sale.offer_id], "remaining": sale.sessions_remaining}
-            for sale in customer_package_sales(db, appointment, offers)
-        ]
+    zone = shop_zone(db, appointment.shop_slug)
     redemption = current_redemption(db, appointment)
     delivery = db.get(PaymentLinkDelivery, record.session_id) if record and record.session_id else None
     return {"success": True, "shop_slug": user.shop_slug,
@@ -272,8 +268,16 @@ def get_payment(appointment_id: str, response: Response,
             "appointment_id": appointment.id, "customer_name": appointment.customer_name,
             "appointment_status": appointment.status,
             "package_paid": bool(redemption),
-            "adjustable_packages": adjustments,
-            "package_offers": [offer_view(offer) for offer in offers],
+            "package_offers": [offer_view(offer, db) for offer in offers if not db.get(DeletedPackageOffer, offer.id)],
+            "can_edit_package_expiration": user.role == "owner",
+            "package_balances": [
+                {"id": sale.id, "sessions_remaining": sale.sessions_remaining,
+                 "purchased_at": sale.created_at.replace(tzinfo=timezone.utc).isoformat(),
+                 "expires_at": terms.expires_at.replace(tzinfo=timezone.utc).isoformat() if terms else None,
+                 "expiration_date": (terms.expires_at.replace(tzinfo=timezone.utc).astimezone(zone) - timedelta(microseconds=1)).date().isoformat() if terms else None,
+                 "expired": bool(terms and terms.expires_at <= timestamp())}
+                for sale, terms in package_sales(db, appointment, offers)
+            ],
             "package_sessions_remaining": sum(sale.sessions_remaining for sale in sales),
             "can_redeem_package": not record and bool(sales) and appointment.status in {"confirmed", "completed"},
             "service_name": record.service_name if record else (service.name if service else None),
@@ -621,6 +625,8 @@ class PackageOfferInput(BaseModel):
     name: str = Field(min_length=1, max_length=100, pattern=r"\S")
     sessions: int = Field(ge=2, le=1000)
     price_cents: int = Field(ge=50, le=99999999)
+    expiration_duration: int = Field(ge=1, le=3650)
+    expiration_unit: Literal["days", "months", "years"]
 
 
 class PackageSaleInput(BaseModel):
@@ -628,15 +634,17 @@ class PackageSaleInput(BaseModel):
     request_id: UUID
 
 
-def offer_view(offer):
-    return {key: getattr(offer, key) for key in ("id", "name", "catalog_id", "sessions", "price_cents")}
+def offer_view(offer, db):
+    terms = db.get(PackageExpiration, "offer:" + offer.id)
+    return {**{key: getattr(offer, key) for key in ("id", "name", "catalog_id", "sessions", "price_cents")},
+            "expiration_duration": terms.duration if terms else 1, "expiration_unit": terms.unit if terms else "years"}
 
 
 @router.get("/packages")
 def get_packages(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     require_payment_user(user)
-    return [offer_view(offer) for offer in db.query(PackageOffer).filter_by(shop_slug=user.shop_slug)
-            .order_by(PackageOffer.name)]
+    return [offer_view(offer, db) for offer in db.query(PackageOffer).filter_by(shop_slug=user.shop_slug)
+            .filter(~PackageOffer.id.in_(db.query(DeletedPackageOffer.offer_id))).order_by(PackageOffer.name)]
 
 
 @router.post("/packages")
@@ -647,10 +655,51 @@ def create_package(payload: PackageOfferInput, user: User = Depends(get_current_
         raise HTTPException(403, "Only the owner can set up packages.")
     if not db.query(ServiceCatalog).filter_by(id=payload.catalog_id, shop_slug=user.shop_slug).first():
         raise HTTPException(404, "Service not found.")
-    offer = PackageOffer(shop_slug=user.shop_slug, **payload.model_dump())
+    offer = PackageOffer(shop_slug=user.shop_slug, **payload.model_dump(exclude={"expiration_duration", "expiration_unit"}))
     db.add(offer)
+    db.flush()
+    save_offer_expiration(db, offer, payload)
     db.commit()
-    return offer_view(offer)
+    return offer_view(offer, db)
+
+
+def save_offer_expiration(db, offer, payload):
+    db.merge(PackageExpiration(key="offer:" + offer.id, duration=payload.expiration_duration, unit=payload.expiration_unit))
+
+
+def package_for_owner(db, user, offer_id):
+    require_payment_user(user)
+    if user.role != "owner":
+        raise HTTPException(403, "Only the owner can manage packages.")
+    offer = db.query(PackageOffer).filter_by(id=offer_id, shop_slug=user.shop_slug).with_for_update().first()
+    if not offer:
+        raise HTTPException(404, "Package not found.")
+    return offer
+
+
+@router.post("/packages/{offer_id}/edit")
+def edit_package(offer_id: str, payload: PackageOfferInput, user: User = Depends(get_current_user),
+                 db: Session = Depends(get_db)):
+    offer = package_for_owner(db, user, offer_id)
+    if db.get(DeletedPackageOffer, offer.id):
+        raise HTTPException(404, "Package not found.")
+    if payload.catalog_id != offer.catalog_id:
+        raise HTTPException(409, "Create a new package to use a different service.")
+    offer.name = payload.name
+    offer.sessions = payload.sessions
+    offer.price_cents = payload.price_cents
+    save_offer_expiration(db, offer, payload)
+    db.commit()
+    return offer_view(offer, db)
+
+
+@router.post("/packages/{offer_id}/delete")
+def delete_package(offer_id: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    offer = package_for_owner(db, user, offer_id)
+    if not db.get(DeletedPackageOffer, offer.id):
+        db.add(DeletedPackageOffer(offer_id=offer.id))
+        db.commit()
+    return {"success": True}
 
 
 def settle_package_checkout(db, session, account_id):
@@ -675,6 +724,10 @@ def settle_package_checkout(db, session, account_id):
             sessions_remaining=purchase.sessions, price_cents=purchase.price_cents,
             recorded_by=purchase.recorded_by,
         ))
+        terms = db.get(PackageExpiration, "checkout:" + purchase.id)
+        if terms:
+            db.add(PackageExpiration(key="sale:" + purchase.id, duration=terms.duration, unit=terms.unit,
+                                     expires_at=expiration_date(timestamp(), terms.duration, terms.unit)))
         purchase.status = "paid"
     db.commit()
 
@@ -686,7 +739,7 @@ def text_package_link(appointment_id: str, payload: PackageSaleInput,
     offer = next((item for item in matching_offers(db, appointment) if item.id == payload.offer_id), None)
     digits = phone_key(appointment.customer_phone or "")
     shop = db.query(Shop).filter_by(slug=user.shop_slug).one()
-    if not offer or len(digits) != 10:
+    if not offer or db.get(DeletedPackageOffer, offer.id) or len(digits) != 10:
         raise HTTPException(409, "Choose an eligible package and check the customer's US phone number.")
     if shop.payment_policy not in {"accept_cards", "card_required"} or not shop.stripe_connect_account_id:
         raise HTTPException(409, "Enable card payments and connect this shop to Stripe first.")
@@ -710,6 +763,9 @@ def text_package_link(appointment_id: str, payload: PackageSaleInput,
             recorded_by=user.id,
         )
         db.add(purchase)
+        terms = offer_view(offer, db)
+        db.add(PackageExpiration(key="checkout:" + purchase.id,
+                                 duration=terms["expiration_duration"], unit=terms["expiration_unit"]))
         db.commit()
         appointment_for_user(db, appointment_id, user)
         db.refresh(purchase)
@@ -723,6 +779,11 @@ def text_package_link(appointment_id: str, payload: PackageSaleInput,
             if timestamp() - purchase.created_at >= timedelta(hours=23):
                 raise HTTPException(409, "An earlier checkout attempt needs review before retrying.")
             metadata = {"purpose": "package_payment", "purchase_id": purchase.id}
+            terms = db.get(PackageExpiration, "checkout:" + purchase.id)
+            product = {"name": f"{shop.name} - {purchase.name} ({purchase.sessions} sessions)"}
+            if terms:
+                unit = terms.unit.rstrip("s") if terms.duration == 1 else terms.unit
+                product["description"] = f"Unused sessions expire {terms.duration} {unit} after purchase."
             base = (os.getenv("CHAIRTIME_FRONTEND_URL") or os.getenv("FRONTEND_URL")
                     or "https://www.daytello.com").rstrip("/")
             intent_data = {"metadata": metadata}
@@ -733,7 +794,7 @@ def text_package_link(appointment_id: str, payload: PackageSaleInput,
                 payment_intent_data=intent_data,
                 line_items=[{"quantity": 1, "price_data": {
                     "currency": "usd", "unit_amount": purchase.price_cents,
-                    "product_data": {"name": f"{shop.name} - {purchase.name} ({purchase.sessions} sessions)"},
+                    "product_data": product,
                 }}],
                 success_url=f"{base}/package-payment?result=complete",
                 cancel_url=f"{base}/package-payment?result=canceled",
@@ -810,50 +871,4 @@ def reverse_package(appointment_id: str, user: User = Depends(get_current_user),
         redemption.reversed_at = timestamp()
         redemption.reversed_by = user.id
         db.commit()
-    return {"success": True}
-
-
-def customer_package_sales(db, appointment, offers):
-    return db.query(PackageSale).filter(
-        PackageSale.shop_slug == appointment.shop_slug,
-        PackageSale.customer_phone == phone_key(appointment.customer_phone),
-        PackageSale.offer_id.in_([offer.id for offer in offers]),
-    ).order_by(PackageSale.created_at, PackageSale.id)
-
-
-class PackageAdjustmentInput(BaseModel):
-    request_id: UUID
-    sale_id: str
-    delta: int = Field(ge=-1000, le=1000)
-    reason: str = Field(min_length=1, max_length=300)
-
-
-@router.post("/appointments/{appointment_id}/adjust-package")
-def adjust_package(appointment_id: str, payload: PackageAdjustmentInput,
-                   user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    appointment = appointment_for_user(db, appointment_id, user)
-    if user.role != "owner":
-        raise HTTPException(403, "Only the owner can adjust package balances.")
-    reason = payload.reason.strip()
-    if not payload.delta or not reason:
-        raise HTTPException(422, "Enter a session change and a reason.")
-    sale = customer_package_sales(db, appointment, matching_offers(db, appointment)).filter(
-        PackageSale.id == payload.sale_id
-    ).with_for_update().first()
-    if not sale:
-        raise HTTPException(404, "Package purchase not found.")
-    request_id = str(payload.request_id)
-    prior = db.get(PackageAdjustment, request_id)
-    if prior:
-        if (prior.sale_id, prior.adjusted_by, prior.delta, prior.reason) != (sale.id, user.id, payload.delta, reason):
-            raise HTTPException(409, "This adjustment reference is already in use.")
-        return {"success": True}
-    remaining = PackageSale.sessions_remaining + payload.delta
-    updated = db.query(PackageSale).filter(PackageSale.id == sale.id, remaining >= 0).update(
-        {PackageSale.sessions_remaining: remaining}, synchronize_session=False
-    )
-    if not updated:
-        raise HTTPException(409, "The adjustment would leave a negative session balance.")
-    db.add(PackageAdjustment(id=request_id, sale_id=sale.id, adjusted_by=user.id, delta=payload.delta, reason=reason))
-    db.commit()
     return {"success": True}
