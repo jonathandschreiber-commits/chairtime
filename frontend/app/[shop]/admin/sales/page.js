@@ -104,7 +104,7 @@ export default function SalesPage() {
       {!data && !error && <p role="status">Loading sales…</p>}
       {data && <>
         <div className="grid gap-3 sm:grid-cols-2">
-          <p className="rounded-xl border bg-white p-4">Stripe collected after recorded refunds <strong className="block text-xl">{net(true)}</strong></p>
+          <p className="rounded-xl border bg-white p-4">Stripe collected, less recorded refunds <strong className="block text-xl">{net(true)}</strong></p>
           <p className="rounded-xl border bg-white p-4">Payments recorded outside Stripe <strong className="block text-xl">{net(false)}</strong></p>
         </div>
         <div className="overflow-x-auto rounded-xl border bg-white">
