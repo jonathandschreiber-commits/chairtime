@@ -17,6 +17,7 @@ export default function CollectPaymentPage() {
   const { shop, appointmentId } = useParams();
   const router = useRouter();
   const [completion, setCompletion] = useState(null);
+  const [agendaDate, setAgendaDate] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("");
   const [confirmedPayment, setConfirmedPayment] = useState(false);
   const [note, setNote] = useState("");
@@ -25,6 +26,8 @@ export default function CollectPaymentPage() {
     const query = new URLSearchParams(window.location.search);
     if (query.get("complete") === "1") {
       const from = query.get("from");
+      const date = query.get("date");
+      if (from === "today" && date && /^\d{4}-\d{2}-\d{2}$/.test(date)) setAgendaDate(date);
       setCompletion(["customers", "today", "calendar"].includes(from) ? from : "calendar");
     }
   }, []);
@@ -57,6 +60,8 @@ export default function CollectPaymentPage() {
   return () => { clearInterval(timer); window.removeEventListener("focus", read); };
   }, [data?.checkout_url, data?.payment_status, read]);
 
+  const returnUrl = `/${shop}/admin/${completion}${agendaDate ? `?date=${encodeURIComponent(agendaDate)}` : ""}`;
+
   async function submitCompletion(event) {
     event.preventDefault();
     if (busy) return;
@@ -74,7 +79,7 @@ export default function CollectPaymentPage() {
       });
       const result = await response.json();
       if (!response.ok) throw new Error(typeof result.detail === "string" ? result.detail : "Could not complete appointment.");
-      router.push(`/${shop}/admin/${completion}`);
+      router.push(returnUrl);
     } catch (failure) {
       setError(failure.message);
     } finally {
@@ -155,11 +160,12 @@ export default function CollectPaymentPage() {
       paymentMethod === "package" ? "One eligible prepaid session will be used on submission." : "Payment received outside Stripe.";
     return (
       <main className="mx-auto max-w-lg space-y-4 px-5 py-8">
-        <Link href={`/${shop}/admin/${completion}`} className="text-blue-700 underline">Back to appointments</Link>
-        <h1 className="text-3xl font-bold">Complete appointment</h1>
+        <Link href={returnUrl} className="text-blue-700 underline">Back to appointments</Link>
+        <h1 className="text-3xl font-bold">Check out appointment</h1>
         {error && <p role="alert" className="text-red-700">{error}</p>}
         {data && <section className="space-y-4 rounded-xl border bg-white p-5">
           <p className="font-semibold">{data.customer_name} · {data.service_name} · ${data.amount}</p>
+          <PackageBalances payment={data} />
           {data.appointment_status === "completed" ? <p>This appointment is already completed.</p> : <>
             {!paid && <label className="block font-semibold">Payment method
               <select className="mt-2 block w-full rounded border p-2" value={paymentMethod}
@@ -182,6 +188,8 @@ export default function CollectPaymentPage() {
               </button>}
             {ready && <form onSubmit={submitCompletion} className="space-y-3">
               <p role="status">{checkoutDescription}</p>
+              {!paid && paymentMethod === "package" && data.package_replaces_payment_link &&
+                <p>The unpaid Stripe link will close when you submit.</p>}
               <label className="block font-semibold">Appointment notes
                 <textarea className="mt-1 block w-full rounded border p-2" rows={3} maxLength={2000}
                   required={!noNotes} disabled={noNotes} value={note} onChange={event => setNote(event.target.value)} />

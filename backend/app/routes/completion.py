@@ -8,11 +8,11 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import AppointmentCompletionNote, Service, User
-from app.payment_records import ManualAppointmentPayment, ServicePayment
+from app.payment_records import ManualAppointmentPayment, ServicePayment, TerminalPaymentAttempt
 from app.routes.appointments import require_appointment_modify_permission
 from app.routes.auth import get_current_user
-from app.routes.payments import appointment_for_user, reconcile, stripe_failure
-from app.service_packages import current_redemption, redeem_on_completion
+from app.routes.payments import appointment_for_user, reconcile, stripe_failure, value
+from app.service_packages import available_sales, current_redemption, matching_offers, redeem_on_completion
 
 router = APIRouter()
 
@@ -48,7 +48,30 @@ def complete_appointment(appointment_id: str, payload: CompletionInput,
         if not payment or payment.status != "paid":
             raise HTTPException(409, "Stripe must confirm payment before completion.")
     elif payload.method == "package":
-        redeem_on_completion(db, appointment, user.id)
+        if db.get(ManualAppointmentPayment, appointment.id):
+            raise HTTPException(409, "Payment was already recorded for this appointment.")
+        if not current_redemption(db, appointment):
+            if not available_sales(db, appointment, matching_offers(db, appointment)):
+                raise HTTPException(409, "No eligible prepaid sessions remain.")
+            if payment:
+                if not payment.session_id or db.get(TerminalPaymentAttempt, payment.id):
+                    raise HTTPException(409, "The existing payment attempt must be resolved first.")
+                try:
+                    reconcile(db, payment)
+                    if payment.status == "unpaid":
+                        # Stripe only expires an open session. A payment that wins the race blocks redemption.
+                        session = stripe.checkout.Session.expire(
+                            payment.session_id, stripe_account=payment.account_id,
+                        )
+                        if value(session, "status") != "expired" or value(session, "payment_status") != "unpaid":
+                            raise HTTPException(409, "The Stripe link could not be closed safely.")
+                        payment.status = "expired"
+                        payment.checkout_url = None
+                except stripe.StripeError:
+                    raise stripe_failure()
+                if payment.status != "expired":
+                    raise HTTPException(409, "The Stripe payment is already received or still processing.")
+            redeem_on_completion(db, appointment, user.id, expired_payment=payment)
         db.flush()
         if not current_redemption(db, appointment):
             raise HTTPException(409, "No prepaid session could be applied to this appointment.")

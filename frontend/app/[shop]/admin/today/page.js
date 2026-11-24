@@ -62,6 +62,7 @@ function displayShopName(slug) {
 
 function AgendaPayment({ shop, appointmentId }) {
   const [label, setLabel] = useState("Payment details");
+  const [remaining, setRemaining] = useState(null);
   useEffect(() => {
     let active = true;
     async function read() {
@@ -70,15 +71,21 @@ function AgendaPayment({ shop, appointmentId }) {
         const result = await response.json();
         if (!response.ok || result.shop_slug !== shop) throw new Error();
         const labels = { paid: "Paid", refunded: "Refunded", partially_refunded: "Partially refunded", refund_pending: "Refund pending", processing: "Payment processing" };
+        if (active) setRemaining(result.package_sessions_remaining ?? null);
         if (active) setLabel(result.manual_payment_method || result.package_paid ? "Payment details" : labels[result.payment_status] || "Collect payment");
-      } catch { if (active) setLabel("Payment details — refresh to check"); }
+      } catch { if (active) { setRemaining(null); setLabel("Payment details — refresh to check"); } }
     }
     read();
     window.addEventListener("focus", read);
     const timer = setInterval(read, 60000);
     return () => { active = false; clearInterval(timer); window.removeEventListener("focus", read); };
   }, [shop, appointmentId]);
-  return <Link href={`/${shop}/admin/payments/${encodeURIComponent(appointmentId)}`} className="bg-indigo-700 text-white rounded-xl p-4 font-bold text-center">{label}</Link>;
+  return (
+    <div className="mt-3 space-y-2">
+      {remaining !== null && <p className="font-semibold"><ShopMessage>Eligible package sessions remaining</ShopMessage>: {remaining}</p>}
+      <Link href={`/${shop}/admin/payments/${encodeURIComponent(appointmentId)}`} className="inline-block rounded-xl bg-indigo-700 px-4 py-2 text-center font-bold text-white">{label}</Link>
+    </div>
+  );
 }
 
 export default function AgendaPage() {
@@ -343,6 +350,11 @@ export default function AgendaPage() {
     }
   }, [loadData, shopSlug]);
 
+  useEffect(() => {
+    const date = new URLSearchParams(window.location.search).get("date");
+    if (date && /^\d{4}-\d{2}-\d{2}$/.test(date)) setSelectedDate(date);
+  }, []);
+
   function sameDay(value, date) {
     return datePart(value) === date;
   }
@@ -503,7 +515,7 @@ export default function AgendaPage() {
     appointmentStatus
   ) {
     if (appointmentStatus === "completed") {
-      router.push(`/${shopSlug}/admin/payments/${encodeURIComponent(appointmentId)}?complete=1&from=today`);
+      router.push(`/${shopSlug}/admin/payments/${encodeURIComponent(appointmentId)}?complete=1&from=today&date=${encodeURIComponent(selectedDate)}`);
       return;
     }
 
@@ -783,6 +795,8 @@ export default function AgendaPage() {
                           )}
                         </p>
 
+                        {(isOwner || (isStaff && currentUser?.can_accept_payments)) && <AgendaPayment shop={shopSlug} appointmentId={appointment.id} />}
+
                         <div className="grid grid-cols-2 gap-3 mt-4">
                           <a
                             className="bg-black text-white rounded-xl p-4 text-center font-bold"
@@ -830,6 +844,7 @@ export default function AgendaPage() {
                               Confirm
                             </button>
 
+                            {appointment.status !== "completed" && (
                             <button
                               type="button"
                               onClick={() =>
@@ -840,8 +855,9 @@ export default function AgendaPage() {
                               }
                               className="bg-green-600 text-white rounded-xl p-4 font-bold"
                             >
-                              Complete
+                              <ShopMessage>Check Out</ShopMessage>
                             </button>
+                            )}
 
                             <button
                               type="button"
@@ -883,7 +899,6 @@ export default function AgendaPage() {
                           </>
                         ) : null}
 
-                        {(isOwner || (isStaff && currentUser?.can_accept_payments)) && <AgendaPayment shop={shopSlug} appointmentId={appointment.id} />}
                         <Link
                           href={`/${shopSlug}/admin/customers?phone=${encodeURIComponent(
                             phone

@@ -258,6 +258,10 @@ def get_payment(appointment_id: str, response: Response,
     sales = available_sales(db, appointment, offers)
     zone = shop_zone(db, appointment.shop_slug)
     redemption = current_redemption(db, appointment)
+    replaceable_checkout = bool(
+        record and record.session_id and record.status in {"unpaid", "expired"}
+        and not db.get(TerminalPaymentAttempt, record.id)
+    )
     delivery = db.get(PaymentLinkDelivery, record.session_id) if record and record.session_id else None
     return {"success": True, "shop_slug": user.shop_slug,
             "can_refund": bool(str(user.role or "").lower() == "owner" and record and
@@ -281,7 +285,9 @@ def get_payment(appointment_id: str, response: Response,
                 for sale, terms in package_sales(db, appointment, offers)
             ],
             "package_sessions_remaining": sum(sale.sessions_remaining for sale in sales),
-            "can_redeem_package": not record and bool(sales) and appointment.status in {"confirmed", "completed"},
+            "can_redeem_package": bool(sales and not manual and not redemption and
+                (not record or replaceable_checkout) and appointment.status not in {"completed", "canceled", "no_show"}),
+            "package_replaces_payment_link": replaceable_checkout and record.status == "unpaid",
             "service_name": record.service_name if record else (service.name if service else None),
             "amount": f"{service.price:.2f}" if service else None,
             **{k: v for k, v in payment_data(record, db).items() if v is not None}}

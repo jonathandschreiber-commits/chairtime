@@ -146,14 +146,15 @@ class DeletedPackageOffer(Base):
 
 
 
-def redeem_on_completion(db, appointment, user_id):
+def redeem_on_completion(db, appointment, user_id, expired_payment=None):
     from app.payment_records import ServicePayment
 
     # Share the appointment lock used by payment and redemption routes.
     db.refresh(appointment, with_for_update=True)
     if appointment.status == "completed" or current_redemption(db, appointment):
         return
-    if db.query(ServicePayment).filter_by(appointment_id=appointment.id).first():
+    payment = db.query(ServicePayment).filter_by(appointment_id=appointment.id).first()
+    if payment and (payment is not expired_payment or payment.status != "expired"):
         return
     for sale in available_sales(db, appointment, matching_offers(db, appointment)):
         updated = db.query(PackageSale).filter(
