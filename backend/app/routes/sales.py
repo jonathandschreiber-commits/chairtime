@@ -1,5 +1,8 @@
 """Shop sales and payment details."""
 from datetime import date, datetime, timedelta, timezone
+from uuid import UUID
+
+from pydantic import BaseModel, Field
 
 import stripe
 from fastapi import APIRouter, Depends, HTTPException
@@ -15,7 +18,7 @@ from app.routes.payments import (
     get_stripe_secret_key, object_id, offer_view, require_payment_user, shop_zone, stripe_failure, value,
 )
 from app.service_packages import (
-    DeletedPackageOffer, PackageCheckout, PackageExpiration, PackageSale, expiration_date, timestamp,
+    DeletedPackageOffer, PackageCheckout, PackageExpiration, PackageSale, PurchaseRefund, expiration_date, sync_purchase_refunds, timestamp,
 )
 
 router = APIRouter()
@@ -120,28 +123,76 @@ def sales_report(start: date | None = None, end: date | None = None,
     return {"sales": rows, "timezone": str(zone)}
 
 
+def paid_purchase(db, user, sale_id):
+    checkout = db.query(PackageCheckout).filter_by(id=sale_id, shop_slug=user.shop_slug, status="paid").first()
+    if not checkout or not checkout.session_id:
+        raise HTTPException(404, "Paid Stripe sale not found.")
+    return checkout
+
+
 @router.get("/sales/{sale_id}")
 def sale_details(sale_id: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     require_payment_user(user)
-    sale = db.query(PackageCheckout).filter_by(id=sale_id, shop_slug=user.shop_slug, status="paid").first()
-    if not sale or not sale.session_id:
-        raise HTTPException(404, "Paid Stripe sale not found.")
+    checkout = paid_purchase(db, user, sale_id)
+    charge, refunds, total = sync_purchase_refunds(db, checkout)
+    sale = db.get(PackageSale, sale_id)
+    entries = []
+    for refund in refunds:
+        audit = db.get(PurchaseRefund, object_id(refund))
+        entries.append({
+            "id": object_id(refund), "amount_cents": value(refund, "amount"),
+            "status": value(refund, "status"), "reason": value(refund, "reason"),
+            "created_at": datetime.fromtimestamp(value(refund, "created"), timezone.utc).isoformat(),
+            "sessions_removed": audit.sessions_removed if audit else None,
+            "sessions_remaining": audit.sessions_remaining if audit else None,
+        })
+    result = {
+        "receipt_url": value(charge, "receipt_url"), "refunded_cents": total, "refunds": entries,
+        "sessions_remaining": sale.sessions_remaining if sale else 0,
+        "refundable_cents": max(0, checkout.price_cents - total),
+        "can_refund": user.role == "owner" and not any(
+            entry["status"] in {"pending", "requires_action"} for entry in entries
+        ),
+    }
+    db.commit()
+    return result
+
+
+class PurchaseRefundInput(BaseModel):
+    request_id: UUID
+    amount_cents: int = Field(gt=0)
+    sessions_to_remove: int = Field(ge=0)
+    expected_sessions: int = Field(ge=0)
+
+
+@router.post("/sales/{sale_id}/refund")
+def refund_purchase(sale_id: str, payload: PurchaseRefundInput,
+                    user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    require_payment_user(user)
+    if user.role != "owner":
+        raise HTTPException(403, "Only the shop owner can refund a purchase.")
+    checkout = paid_purchase(db, user, sale_id)
+    charge, refunds, total = sync_purchase_refunds(db, checkout)
+    remaining = checkout.price_cents - total
+    sale = db.get(PackageSale, sale_id)
+    request_id = str(payload.request_id)
+    for refund in refunds:
+        if value(value(refund, "metadata", {}), "daytello_request_id") == request_id:
+            return sale_details(sale_id, user, db)
+    if any(value(refund, "status") in {"pending", "requires_action"} for refund in refunds):
+        raise HTTPException(409, "A refund is already pending for this purchase.")
+    if not sale or sale.sessions_remaining != payload.expected_sessions:
+        raise HTTPException(409, "The session balance changed. Refresh before confirming.")
+    if payload.amount_cents > remaining or payload.sessions_to_remove > sale.sessions_remaining:
+        raise HTTPException(422, "The refund or session adjustment exceeds the available balance.")
     try:
-        stripe.api_key = get_stripe_secret_key()
-        checkout = stripe.checkout.Session.retrieve(
-            sale.session_id, stripe_account=sale.account_id, expand=["payment_intent.latest_charge"],
+        stripe.Refund.create(
+            charge=object_id(charge), amount=payload.amount_cents,
+            stripe_account=checkout.account_id,
+            idempotency_key=f"daytello-purchase-refund:{sale_id}:{request_id}",
+            metadata={"daytello_request_id": request_id,
+                      "daytello_sessions_to_remove": str(payload.sessions_to_remove)},
         )
-        charge = value(value(checkout, "payment_intent"), "latest_charge")
-        if not object_id(charge):
-            return {"receipt_url": None, "refunds": []}
-        refunds = stripe.Refund.list(charge=object_id(charge), stripe_account=sale.account_id)
-        return {
-            "receipt_url": value(charge, "receipt_url"),
-            "refunded_cents": value(charge, "amount_refunded", 0),
-            "refunds": [{"id": value(refund, "id"), "amount_cents": value(refund, "amount"),
-                         "status": value(refund, "status"), "reason": value(refund, "reason"),
-                         "created_at": datetime.fromtimestamp(value(refund, "created"), timezone.utc).isoformat()}
-                        for refund in refunds.auto_paging_iter()],
-        }
     except stripe.StripeError:
         raise stripe_failure()
+    return sale_details(sale_id, user, db)

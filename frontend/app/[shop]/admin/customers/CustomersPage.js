@@ -87,7 +87,7 @@ function displayShopName(slug) {
 }
 
 
-function CustomerPaymentStatus({ shop, appointmentId }) {
+function CustomerPaymentStatus({ shop, appointmentId, showBalances }) {
   const element = useRef(null);
   const [visible, setVisible] = useState(false);
   const [payment, setPayment] = useState(null);
@@ -143,7 +143,7 @@ function CustomerPaymentStatus({ shop, appointmentId }) {
       partially_refunded: `Partially refunded — $${refunded} of $${amount}`,
       refund_pending: `Refund pending — $${refunded} refunded so far`,
       processing: "Payment processing",
-      unpaid: "No completed card payment recorded",
+      unpaid: "No card payment recorded for this appointment",
       expired: "No completed card payment recorded",
       canceled: "Card payment canceled",
     };
@@ -151,7 +151,7 @@ function CustomerPaymentStatus({ shop, appointmentId }) {
   }
   return <div ref={element} className="mt-2">
     <p role="status" className={`text-sm font-bold ${!error && payment?.payment_status === "paid" ? "text-green-800" : "text-gray-800"}`}><ShopMessage>{label}</ShopMessage></p>
-    <PackageBalances payment={payment} />
+    {showBalances && <PackageBalances payment={payment} />}
     <Link href={`/${shop}/admin/payments/${encodeURIComponent(appointmentId)}`} className="mt-1 inline-block text-sm text-blue-800 underline"><ShopMessage>Payment details</ShopMessage></Link>
   </div>;
 }
@@ -1290,7 +1290,7 @@ function CustomersPageContent({ apiBase }) {
 
             {(String(currentUser?.role || "").trim().toLowerCase() === "owner" ||
               (String(currentUser?.role || "").trim().toLowerCase() === "staff" && currentUser?.can_accept_payments)) &&
-              <CustomerPaymentStatus shop={shopSlug} appointmentId={appointment.id} />}
+              <CustomerPaymentStatus shop={shopSlug} appointmentId={appointment.id} showBalances={allowActions} />}
 
             {appointment.notes && (
               <p className="mt-1">

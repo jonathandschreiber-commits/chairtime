@@ -16,9 +16,9 @@ from zoneinfo import ZoneInfo
 
 from app.database import get_db
 from app.models import Appointment, Barber, Service, ServiceCatalog, Shop, User
-from app.service_packages import (PackageOffer, PackageSale, PackageRedemption, PackageCheckout, DeletedPackageOffer, PackageExpiration, expiration_date, package_sales, available_sales,
+from app.service_packages import (PurchaseRefund,PackageOffer, PackageSale, PackageRedemption, PackageCheckout, DeletedPackageOffer, PackageExpiration, expiration_date, package_sales, available_sales,
     current_redemption, matching_offers, phone_key, reject_redeemed, timestamp)
-from app.payment_records import ManualAppointmentPayment, ServicePayment, TerminalPaymentAttempt, PaymentLinkDelivery, ServicePaymentRefund
+from app.payment_records import ManualRetailPayment, ManualAppointmentPayment, ServicePayment, TerminalPaymentAttempt, PaymentLinkDelivery, ServicePaymentRefund
 from app.routes.reminders import send_highlevel_sms
 from app.routes.auth import get_current_user, get_jwt_secret
 from app.routes.billing import get_stripe_secret_key
@@ -256,6 +256,19 @@ def get_payment(appointment_id: str, response: Response,
     manual = db.get(ManualAppointmentPayment, appointment.id)
     offers = matching_offers(db, appointment)
     sales = available_sales(db, appointment, offers)
+    balances = package_sales(db, appointment, offers).all()
+    purchase_ids = [purchase.id for purchase, _ in balances]
+    stripe_purchases = {item.id: item for item in db.query(PackageCheckout).filter(
+        PackageCheckout.id.in_(purchase_ids)
+    )}
+    offline_methods = {item.id: item.method for item in db.query(ManualRetailPayment).filter(
+        ManualRetailPayment.id.in_(purchase_ids)
+    )}
+    refunded_amounts = {}
+    for refund in db.query(PurchaseRefund).filter(PurchaseRefund.sale_id.in_(purchase_ids)):
+        refunded_amounts[refund.sale_id] = refunded_amounts.get(refund.sale_id, 0) + refund.amount_cents
+    offer_names = {offer.id: offer.name for offer in offers}
+    db.commit()
     zone = shop_zone(db, appointment.shop_slug)
     redemption = current_redemption(db, appointment)
     replaceable_checkout = bool(
@@ -278,11 +291,16 @@ def get_payment(appointment_id: str, response: Response,
             "can_edit_package_expiration": user.role == "owner",
             "package_balances": [
                 {"id": sale.id, "sessions_remaining": sale.sessions_remaining,
+                 "name": stripe_purchases[sale.id].name if sale.id in stripe_purchases else offer_names[sale.offer_id],
+                 "sessions": sale.sessions,
+                 "payment_method": "Stripe" if sale.id in stripe_purchases else offline_methods.get(sale.id, "Recorded outside Stripe").replace("_", " ").capitalize(),
+                 "refund_status": ("Refunded" if refunded_amounts.get(sale.id, 0) >= sale.price_cents
+                     else "Partially refunded") if refunded_amounts.get(sale.id) else None,
                  "purchased_at": sale.created_at.replace(tzinfo=timezone.utc).isoformat(),
                  "expires_at": terms.expires_at.replace(tzinfo=timezone.utc).isoformat() if terms else None,
                  "expiration_date": (terms.expires_at.replace(tzinfo=timezone.utc).astimezone(zone) - timedelta(microseconds=1)).date().isoformat() if terms else None,
                  "expired": bool(terms and terms.expires_at <= timestamp())}
-                for sale, terms in package_sales(db, appointment, offers)
+                for sale, terms in balances
             ],
             "package_sessions_remaining": sum(sale.sessions_remaining for sale in sales),
             "can_redeem_package": bool(sales and not manual and not redemption and

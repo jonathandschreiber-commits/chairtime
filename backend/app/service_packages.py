@@ -3,6 +3,7 @@ from calendar import monthrange
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
+import stripe
 from fastapi import HTTPException
 from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, or_
 
@@ -104,10 +105,21 @@ def package_sales(db, appointment, offers):
 
 
 def available_sales(db, appointment, offers):
-    return [sale for sale, _ in package_sales(db, appointment, offers).filter(
+    candidates = package_sales(db, appointment, offers).filter(
         PackageSale.sessions_remaining > 0,
         or_(PackageExpiration.expires_at.is_(None), PackageExpiration.expires_at > timestamp()),
-    )]
+    ).all()
+    eligible = []
+    for sale, _ in candidates:
+        checkout = db.get(PackageCheckout, sale.id)
+        if checkout:
+            _, _, refunded = sync_purchase_refunds(db, checkout)
+            if refunded >= checkout.price_cents:
+                continue
+        if sale.sessions_remaining > 0:
+            eligible.append(sale)
+    db.flush()
+    return eligible
 
 
 class PackageCheckout(Base):
@@ -163,3 +175,50 @@ def redeem_on_completion(db, appointment, user_id, expired_payment=None):
         if updated:
             db.add(PackageRedemption(appointment_id=appointment.id, sale_id=sale.id, redeemed_by=user_id))
             return
+
+class PurchaseRefund(Base):
+    __tablename__ = "purchase_refunds"
+    id = Column(String, primary_key=True)
+    sale_id = Column(String, ForeignKey("package_sales.id"), nullable=False, index=True)
+    amount_cents = Column(Integer, nullable=False)
+    sessions_removed = Column(Integer, nullable=False)
+    sessions_remaining = Column(Integer, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=timestamp)
+
+
+def sync_purchase_refunds(db, checkout):
+    from app.routes.payments import get_stripe_secret_key, object_id, stripe_failure, value
+
+    sale = db.query(PackageSale).filter_by(id=checkout.id).with_for_update().populate_existing().first()
+    try:
+        stripe.api_key = get_stripe_secret_key()
+        session = stripe.checkout.Session.retrieve(
+            checkout.session_id, stripe_account=checkout.account_id,
+            expand=["payment_intent.latest_charge"],
+        )
+        charge = value(value(session, "payment_intent"), "latest_charge")
+        if not object_id(charge):
+            raise HTTPException(409, "Stripe payment details are unavailable.")
+        refunds = list(stripe.Refund.list(
+            charge=object_id(charge), stripe_account=checkout.account_id
+        ).auto_paging_iter())
+    except stripe.StripeError:
+        raise stripe_failure()
+    confirmed = [refund for refund in refunds if value(refund, "status") == "succeeded"]
+    total = 0
+    for refund in sorted(confirmed, key=lambda item: (value(item, "created"), object_id(item))):
+        amount = value(refund, "amount")
+        total += amount
+        if not sale or db.get(PurchaseRefund, object_id(refund)):
+            continue
+        metadata = value(refund, "metadata", {}) or {}
+        requested = value(metadata, "daytello_sessions_to_remove", "0")
+        count = int(requested) if isinstance(requested, str) and requested.isascii() and requested.isdigit() and len(requested) <= 9 else 0
+        removed = sale.sessions_remaining if total >= checkout.price_cents else min(count, sale.sessions_remaining)
+        sale.sessions_remaining -= removed
+        db.add(PurchaseRefund(id=object_id(refund), sale_id=sale.id, amount_cents=amount,
+                              sessions_removed=removed, sessions_remaining=sale.sessions_remaining))
+    if sale and total >= checkout.price_cents:
+        sale.sessions_remaining = 0
+    db.flush()
+    return charge, refunds, total

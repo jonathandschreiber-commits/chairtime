@@ -20,8 +20,11 @@ async function proxy(request, context, method) {
         ["edit", "delete"].includes(path[2])));
     const retail = path?.[0] === "retail" && (path.length === 1 ||
       (method === "GET" && path.length === 2 && path[1] === "customers"));
-    const sales = method === "GET" && path?.[0] === "sales" && (path.length === 1 ||
-      (path.length === 2 && /^[a-zA-Z0-9-]{1,100}$/.test(path[1])));
+    const sales = path?.[0] === "sales" && (
+      (method === "GET" && path.length === 1) ||
+      (/^[a-zA-Z0-9-]{1,100}$/.test(path[1]) &&
+        ((method === "GET" && path.length === 2) ||
+          (method === "POST" && path.length === 3 && path[2] === "refund"))));
     if (!receipt && !appointment && !packageOffers && !retail && !sales) return json({ detail: "Payment endpoint not found." }, 404);
     if (method === "POST") {
       const origin = request.headers.get("origin");
@@ -44,7 +47,7 @@ async function proxy(request, context, method) {
       for (const key of ["start", "end"]) if (incoming.has(key)) query.set(key, incoming.get(key));
     }
     const endpoint = `${getBackendUrl()}/api/payments/${path.map(encodeURIComponent).join("/")}`;
-    const sendsPackageData = method === "POST" && (retail || (packageOffers && path[2] !== "delete") || ["text-package-link", "package-expiration", "complete"].includes(path[2]));
+    const sendsPackageData = method === "POST" && (retail || sales || (packageOffers && path[2] !== "delete") || ["text-package-link", "package-expiration", "complete"].includes(path[2]));
     const body = sendsPackageData ? JSON.stringify(await request.json()) : undefined;
     if (sendsPackageData) headers["Content-Type"] = "application/json";
     const response = await fetch(endpoint + (query.size ? `?${query}` : ""), {

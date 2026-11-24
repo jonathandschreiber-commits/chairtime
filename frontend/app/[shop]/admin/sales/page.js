@@ -41,6 +41,38 @@ function StripeSaleDetails({ id, formatDate, onRefund }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
+  const [draft, setDraft] = useState(null);
+  const amount = draft && /^\d+(\.\d{1,2})?$/.test(draft.amount) ? Math.round(Number(draft.amount) * 100) : 0;
+  const full = amount > 0 && amount === data?.refundable_cents;
+  const remove = full ? data.sessions_remaining : draft?.remove ? Number(draft.sessions) : 0;
+  const valid = amount > 0 && amount <= data?.refundable_cents &&
+    Number.isSafeInteger(remove) && remove >= 0 && remove <= data?.sessions_remaining &&
+    (full || !draft?.remove || remove > 0);
+
+  async function submitRefund(event) {
+    event.preventDefault();
+    if (!valid || busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/payments/sales/${encodeURIComponent(id)}/refund`, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({request_id: draft.requestId, amount_cents: amount,
+          sessions_to_remove: remove, expected_sessions: data.sessions_remaining}),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.detail || "Could not confirm the refund. Refresh before retrying.");
+      onRefund(id, result.refunded_cents);
+      setData(result);
+      setDraft(null);
+    } catch (failure) {
+      setError(failure.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function load() {
     setBusy(true);
     setError("");
@@ -66,7 +98,23 @@ function StripeSaleDetails({ id, formatDate, onRefund }) {
       {data.refunds.length ? data.refunds.map(refund => <p key={refund.id}>
         {formatDate(new Date(refund.created_at))} · {money.format(refund.amount_cents / 100)} · {refund.status}
         {refund.reason && <> · {refund.reason.replaceAll("_", " ")}</>}
+        {refund.sessions_removed != null && <> · {refund.sessions_removed} sessions removed · {refund.sessions_remaining} left after refund</>}
       </p>) : <p>No refunds recorded in Stripe.</p>}
+      {data.can_refund && data.refundable_cents > 0 && !draft &&
+        <button type="button" disabled={busy} onClick={() => setDraft({requestId: crypto.randomUUID(), amount: "", remove: false, sessions: "1"})} className="text-blue-700 underline">Refund this purchase</button>}
+      {draft && <form onSubmit={submitRefund} className="space-y-2 rounded border p-2">
+        <p>{data.sessions_remaining} sessions remaining on this purchase</p>
+        <label className="block">Refund amount ($) <input className="w-24 rounded border p-1" type="number" min="0.01" max={data.refundable_cents / 100} step="0.01" value={draft.amount} disabled={busy} onChange={event => setDraft({...draft, amount: event.target.value, requestId: crypto.randomUUID()})} required /></label>
+        {full ? <p>A full refund removes all unused sessions on this purchase.</p> :
+          <label className="block">Session adjustment <select disabled={busy} value={draft.remove ? "remove" : "keep"} onChange={event => setDraft({...draft, remove: event.target.value === "remove", requestId: crypto.randomUUID()})}>
+            <option value="keep">Refund money only</option>
+            {data.sessions_remaining > 0 && <option value="remove">Refund money and remove unused sessions</option>}
+          </select></label>}
+        {!full && draft.remove && <label className="block">Sessions to remove <input className="w-20 rounded border p-1" type="number" min="1" max={data.sessions_remaining} value={draft.sessions} disabled={busy} onChange={event => setDraft({...draft, sessions: event.target.value, requestId: crypto.randomUUID()})} required /></label>}
+        {valid && <p role="status">Refund {money.format(amount / 100)} · Sessions remaining after refund: {data.sessions_remaining - remove}</p>}
+        <button className="mr-2 text-red-700 underline" disabled={!valid || busy}>Confirm refund</button>
+        <button type="button" disabled={busy} onClick={() => setDraft(null)}>Cancel</button>
+      </form>}
     </>}
   </div>;
 }
