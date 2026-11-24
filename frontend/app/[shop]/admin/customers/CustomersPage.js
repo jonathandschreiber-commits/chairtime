@@ -1,5 +1,7 @@
 "use client";
 
+import AccountBalance from "./AccountBalance";
+import ManualAdjustments from "./ManualAdjustments";
 import PackageBalances from "../../../components/PackageBalances";
 
 import { ShopMessage, useShopMessages } from "../../../components/ShopLanguage";
@@ -1288,7 +1290,7 @@ function CustomersPageContent({ apiBase }) {
 
             {(String(currentUser?.role || "").trim().toLowerCase() === "owner" ||
               (String(currentUser?.role || "").trim().toLowerCase() === "staff" && currentUser?.can_accept_payments)) &&
-              <CustomerPaymentStatus shop={shopSlug} appointmentId={appointment.id} showBalances={allowActions} />}
+              <CustomerPaymentStatus shop={shopSlug} appointmentId={appointment.id} showBalances={allowActions && currentUser?.role !== "owner"} />}
 
             {appointment.notes && (
               <p className="mt-1">
@@ -1916,6 +1918,14 @@ function CustomersPageContent({ apiBase }) {
                 )}
 
 
+                {currentUser?.role === "owner" && (
+                  <ManualAdjustments key={customerKey} appointmentId={latest.id}
+                    onSaved={() => {
+                      window.dispatchEvent(new Event("focus"));
+                      window.dispatchEvent(new CustomEvent("daytello-session-adjusted", { detail: latest.id }));
+                    }} />
+                )}
+
                 {editingCustomerKey ===
                   customerKey && (
                   <div className="mt-4 bg-green-50 border border-green-200 p-4 rounded-2xl">
@@ -1976,6 +1986,8 @@ function CustomersPageContent({ apiBase }) {
                   <h3 className="text-2xl font-extrabold text-purple-950 mb-3">
                     <ShopMessage>Upcoming Appointments</ShopMessage>
                   </h3>
+                  {currentUser?.role === "owner" && <AccountBalance appointmentId={latest.id} />}
+
 
 
                   {upcomingAppointments.length >

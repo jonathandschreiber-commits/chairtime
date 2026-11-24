@@ -293,7 +293,7 @@ def get_payment(appointment_id: str, response: Response,
                 {"id": sale.id, "sessions_remaining": sale.sessions_remaining,
                  "name": stripe_purchases[sale.id].name if sale.id in stripe_purchases else offer_names[sale.offer_id],
                  "sessions": sale.sessions,
-                 "payment_method": "Stripe" if sale.id in stripe_purchases else offline_methods.get(sale.id, "Recorded outside Stripe").replace("_", " ").capitalize(),
+                 "payment_method": "Stripe" if sale.id in stripe_purchases else offline_methods.get(sale.id, "Manual credit" if sale.id == sale.offer_id and sale.price_cents == 0 else "Recorded outside Stripe").replace("_", " ").capitalize(),
                  "refund_status": ("Refunded" if refunded_amounts.get(sale.id, 0) >= sale.price_cents
                      else "Partially refunded") if refunded_amounts.get(sale.id) else None,
                  "purchased_at": sale.created_at.replace(tzinfo=timezone.utc).isoformat(),
