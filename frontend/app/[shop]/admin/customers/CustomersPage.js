@@ -143,14 +143,12 @@ function CustomerPaymentStatus({ shop, appointmentId, showBalances }) {
       partially_refunded: `Partially refunded — $${refunded} of $${amount}`,
       refund_pending: `Refund pending — $${refunded} refunded so far`,
       processing: "Payment processing",
-      unpaid: "No card payment recorded",
-      expired: "No completed card payment recorded",
       canceled: "Card payment canceled",
     };
     label = payment.manual_payment_method ? "Payment recorded" : payment.package_paid ? "Paid with package" : labels[payment.payment_status];
   }
   return <div ref={element} className="mt-2">
-    <p role="status" className={`text-sm font-bold ${!error && payment?.payment_status === "paid" ? "text-green-800" : "text-gray-800"}`}><ShopMessage>{label}</ShopMessage></p>
+    {label && <p role="status" className={`text-sm font-bold ${!error && payment?.payment_status === "paid" ? "text-green-800" : "text-gray-800"}`}><ShopMessage>{label}</ShopMessage></p>}
     {showBalances && <PackageBalances payment={payment} />}
     <Link href={`/${shop}/admin/payments/${encodeURIComponent(appointmentId)}`} className="mt-1 inline-block text-sm text-blue-800 underline"><ShopMessage>Payment details</ShopMessage></Link>
   </div>;
