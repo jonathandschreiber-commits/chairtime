@@ -143,7 +143,7 @@ function CustomerPaymentStatus({ shop, appointmentId, showBalances }) {
       partially_refunded: `Partially refunded — $${refunded} of $${amount}`,
       refund_pending: `Refund pending — $${refunded} refunded so far`,
       processing: "Payment processing",
-      unpaid: "No card payment recorded for this appointment",
+      unpaid: "No card payment recorded",
       expired: "No completed card payment recorded",
       canceled: "Card payment canceled",
     };
@@ -1352,7 +1352,7 @@ function CustomersPageContent({ apiBase }) {
                 disabled={busy}
                 className="bg-green-600 text-white px-3 py-2 rounded-xl font-semibold disabled:opacity-60"
               >
-                Complete
+                <ShopMessage>Check Out</ShopMessage>
               </button>
 
 
