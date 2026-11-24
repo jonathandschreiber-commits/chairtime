@@ -1553,6 +1553,11 @@ export default function CalendarPage() {
     appointmentId,
     nextStatus
   ) {
+    if (nextStatus === "completed") {
+      router.push(`/${shopSlug}/admin/payments/${encodeURIComponent(appointmentId)}?complete=1&from=calendar`);
+      return;
+    }
+
     const appointment =
       appointments.find(
         (item) =>

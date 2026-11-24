@@ -9,7 +9,6 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.booking_lock import lock_booking_provider
-from app.service_packages import redeem_on_completion
 from app.database import get_db
 from app.models import (
     Appointment,
@@ -1294,14 +1293,10 @@ def update_admin_appointment_status(
             shop_slug,
         )
 
+    if appointment_status == "completed" and old_status != "completed":
+        raise HTTPException(409, "Use appointment checkout to confirm payment and complete this appointment.")
+
     try:
-        if appointment_status == "completed":
-            redeem_on_completion(db, appointment, current_user.id)
-            if completion and old_status != "completed":
-                db.add(AppointmentCompletionNote(
-                    appointment_id=appointment.id, shop_slug=shop_slug,
-                    body=completion.completion_note.strip(), created_by=current_user.id,
-                ))
         appointment.status = appointment_status
         db.commit()
         db.refresh(appointment)
@@ -1646,9 +1641,10 @@ def update_appointment_status_compatibility(
             shop_slug,
         )
 
+    if status_value == "completed" and old_status != "completed":
+        raise HTTPException(409, "Use appointment checkout to confirm payment and complete this appointment.")
+
     try:
-        if status_value == "completed":
-            redeem_on_completion(db, appointment, current_user.id)
         appointment.status = status_value
         db.commit()
         db.refresh(appointment)

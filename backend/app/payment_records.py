@@ -76,3 +76,13 @@ class ManualRetailPayment(Base):
     reference = Column(String)
     recorded_by = Column(String, nullable=False)
     created_at = Column(DateTime, nullable=False)
+
+
+class ManualAppointmentPayment(Base):
+    __tablename__ = "manual_appointment_payments"
+    appointment_id = Column(String, primary_key=True)
+    shop_slug = Column(String, nullable=False, index=True)
+    method = Column(String, nullable=False)
+    amount_cents = Column(Integer, nullable=False)
+    recorded_by = Column(String, nullable=False)
+    created_at = Column(DateTime, server_default=func.now(), nullable=False)

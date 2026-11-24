@@ -18,7 +18,7 @@ from app.database import get_db
 from app.models import Appointment, Barber, Service, ServiceCatalog, Shop, User
 from app.service_packages import (PackageOffer, PackageSale, PackageRedemption, PackageCheckout, DeletedPackageOffer, PackageExpiration, expiration_date, package_sales, available_sales,
     current_redemption, matching_offers, phone_key, reject_redeemed, timestamp)
-from app.payment_records import ServicePayment, TerminalPaymentAttempt, PaymentLinkDelivery, ServicePaymentRefund
+from app.payment_records import ManualAppointmentPayment, ServicePayment, TerminalPaymentAttempt, PaymentLinkDelivery, ServicePaymentRefund
 from app.routes.reminders import send_highlevel_sms
 from app.routes.auth import get_current_user, get_jwt_secret
 from app.routes.billing import get_stripe_secret_key
@@ -253,6 +253,7 @@ def get_payment(appointment_id: str, response: Response,
     except stripe.StripeError:
         db.rollback()
         raise stripe_failure()
+    manual = db.get(ManualAppointmentPayment, appointment.id)
     offers = matching_offers(db, appointment)
     sales = available_sales(db, appointment, offers)
     zone = shop_zone(db, appointment.shop_slug)
@@ -268,6 +269,7 @@ def get_payment(appointment_id: str, response: Response,
             "appointment_id": appointment.id, "customer_name": appointment.customer_name,
             "appointment_status": appointment.status,
             "package_paid": bool(redemption),
+            "manual_payment_method": manual.method if manual else None,
             "package_offers": [offer_view(offer, db) for offer in offers if offer.sessions > 1 and not db.get(DeletedPackageOffer, offer.id)],
             "can_edit_package_expiration": user.role == "owner",
             "package_balances": [
@@ -291,6 +293,8 @@ def create_service_checkout(appointment_id: str,
                             db: Session = Depends(get_db)):
     appointment = appointment_for_user(db, appointment_id, user)
     reject_redeemed(db, appointment)
+    if db.get(ManualAppointmentPayment, appointment.id):
+        raise HTTPException(409, "Payment was already recorded for this appointment.")
     shop = db.query(Shop).filter(Shop.slug == user.shop_slug).first()
     if not shop or shop.payment_policy not in {"accept_cards", "card_required"}:
         raise HTTPException(409, "Enable credit card payments for this shop first.")
@@ -469,6 +473,8 @@ def text_payment_link(appointment_id: str,
     # Recipient and amount always come from this authenticated shop's appointment.
     appointment = appointment_for_user(db, appointment_id, user)
     reject_redeemed(db, appointment)
+    if db.get(ManualAppointmentPayment, appointment.id):
+        raise HTTPException(409, "Payment was already recorded for this appointment.")
     digits = "".join(c for c in appointment.customer_phone or "" if c.isdigit())
     if len(digits) == 11 and digits.startswith("1"):
         digits = digits[1:]

@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import Appointment, User
-from app.payment_records import ManualRetailPayment, ServicePayment, ServicePaymentRefund
+from app.payment_records import ManualAppointmentPayment, ManualRetailPayment, ServicePayment, ServicePaymentRefund
 from app.routes.auth import get_current_user
 from app.routes.payments import (
     get_stripe_secret_key, object_id, offer_view, require_payment_user, shop_zone, stripe_failure, value,
@@ -103,6 +103,17 @@ def sales_report(start: date | None = None, end: date | None = None,
                          phone=payment.customer_phone, method=payment.method, status="recorded",
                          amount_cents=payment.amount_cents, refunded_cents=0, collected_cents=payment.amount_cents,
                          reference=payment.reference, recorded_by=operator.name if operator else payment.recorded_by))
+    for payment, appointment, operator in db.query(ManualAppointmentPayment, Appointment, User).join(
+        Appointment, Appointment.id == ManualAppointmentPayment.appointment_id
+    ).outerjoin(User, User.id == ManualAppointmentPayment.recorded_by).filter(
+        ManualAppointmentPayment.shop_slug == user.shop_slug,
+        ManualAppointmentPayment.created_at >= start_at, ManualAppointmentPayment.created_at < end_at,
+    ):
+        rows.append(dict(id="offline:" + payment.appointment_id, date=payment.created_at,
+                         customer=appointment.customer_name, phone=appointment.customer_phone,
+                         item="Appointment payment", method=payment.method, status="recorded",
+                         amount_cents=payment.amount_cents, refunded_cents=0, collected_cents=payment.amount_cents,
+                         appointment_id=appointment.id, recorded_by=operator.name if operator else payment.recorded_by))
     rows.sort(key=lambda row: (row["date"], row["id"]), reverse=True)
     for row in rows:
         row["date"] = row["date"].replace(tzinfo=timezone.utc).astimezone(zone).isoformat()

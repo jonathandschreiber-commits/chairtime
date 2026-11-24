@@ -147,7 +147,7 @@ function CustomerPaymentStatus({ shop, appointmentId }) {
       expired: "No completed card payment recorded",
       canceled: "Card payment canceled",
     };
-    label = payment.package_paid ? "Paid with package" : labels[payment.payment_status];
+    label = payment.manual_payment_method ? "Payment recorded" : payment.package_paid ? "Paid with package" : labels[payment.payment_status];
   }
   return <div ref={element} className="mt-2">
     <p role="status" className={`text-sm font-bold ${!error && payment?.payment_status === "paid" ? "text-green-800" : "text-gray-800"}`}><ShopMessage>{label}</ShopMessage></p>
@@ -268,8 +268,6 @@ function CustomersPageContent({ apiBase }) {
     setSavingMove,
   ] = useState(false);
 
-
-  const [completionDraft, setCompletionDraft] = useState(null);
 
   const [
     updatingAppointmentId,
@@ -1011,8 +1009,7 @@ function CustomersPageContent({ apiBase }) {
 
   async function updateAppointmentStatus(
     appointmentId,
-    status,
-    completionNote
+    status
   ) {
     if (updatingAppointmentId) {
       return;
@@ -1060,8 +1057,6 @@ function CustomersPageContent({ apiBase }) {
 
             body: JSON.stringify({
               status,
-              source: "customers",
-              completion_note: completionNote,
             }),
           }
         );
@@ -1102,7 +1097,6 @@ function CustomersPageContent({ apiBase }) {
       );
 
 
-      setCompletionDraft(null);
       await loadData();
     } catch (statusError) {
       setError(
@@ -1318,29 +1312,6 @@ function CustomersPageContent({ apiBase }) {
         </div>
 
 
-        {allowActions && completionDraft?.appointmentId === appointment.id && (
-          <form className="mt-4 space-y-3 rounded-xl border bg-white p-4" onSubmit={event => {
-            event.preventDefault();
-            const note = completionDraft.note.trim();
-            if (note) updateAppointmentStatus(appointment.id, "completed", note);
-          }}>
-            <label className="block font-semibold">
-              Completion note
-              <textarea required maxLength={2000} rows={3} value={completionDraft.note}
-                onChange={event => setCompletionDraft({ ...completionDraft, note: event.target.value })}
-                className="mt-1 block w-full rounded-lg border p-2" placeholder="What was done at this appointment?" />
-            </label>
-            <div className="flex gap-2">
-              <button type="submit" disabled={busy || !completionDraft.note.trim()}
-                className="rounded-xl bg-green-700 px-4 py-2 font-semibold text-white disabled:opacity-60">
-                Confirm Complete
-              </button>
-              <button type="button" disabled={busy} onClick={() => setCompletionDraft(null)}
-                className="rounded-xl border px-4 py-2">Cancel</button>
-            </div>
-          </form>
-        )}
-
         {allowActions &&
           !isMoving && (
             <div className="flex flex-wrap gap-2 mt-4">
@@ -1376,9 +1347,9 @@ function CustomersPageContent({ apiBase }) {
               <button
                 type="button"
                 onClick={() =>
-                  setCompletionDraft({ appointmentId: appointment.id, note: "" })
+                  router.push(`/${shopSlug}/admin/payments/${encodeURIComponent(appointment.id)}?complete=1&from=customers`)
                 }
-                disabled={busy || completionDraft?.appointmentId === appointment.id}
+                disabled={busy}
                 className="bg-green-600 text-white px-3 py-2 rounded-xl font-semibold disabled:opacity-60"
               >
                 Complete

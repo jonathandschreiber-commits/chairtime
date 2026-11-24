@@ -5,11 +5,29 @@ import PackageBalances from "../../../../components/PackageBalances";
 import { ShopMessage } from "../../../../components/ShopLanguage";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
+
+const offlineMethods = {
+  cash: "Cash", check: "Check", external_card: "External card terminal",
+  bank_transfer: "Bank transfer", other: "Other",
+};
 
 export default function CollectPaymentPage() {
   const { shop, appointmentId } = useParams();
+  const router = useRouter();
+  const [completion, setCompletion] = useState(null);
+  const [paymentMethod, setPaymentMethod] = useState("");
+  const [confirmedPayment, setConfirmedPayment] = useState(false);
+  const [note, setNote] = useState("");
+  const [noNotes, setNoNotes] = useState(false);
+  useEffect(() => {
+    const query = new URLSearchParams(window.location.search);
+    if (query.get("complete") === "1") {
+      const from = query.get("from");
+      setCompletion(["customers", "today", "calendar"].includes(from) ? from : "calendar");
+    }
+  }, []);
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -38,6 +56,31 @@ export default function CollectPaymentPage() {
 
   return () => { clearInterval(timer); window.removeEventListener("focus", read); };
   }, [data?.checkout_url, data?.payment_status, read]);
+
+  async function submitCompletion(event) {
+    event.preventDefault();
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      const response = await fetch(`${endpoint}/complete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          method: data.package_paid ? "package" : data.payment_status === "paid" ? "stripe" : paymentMethod,
+          note: noNotes ? "" : note,
+          no_notes: noNotes,
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(typeof result.detail === "string" ? result.detail : "Could not complete appointment.");
+      router.push(`/${shop}/admin/${completion}`);
+    } catch (failure) {
+      setError(failure.message);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function textLink() {
     if (busy) return;
@@ -105,6 +148,56 @@ export default function CollectPaymentPage() {
     finally { setBusy(false); }
   }
 
+  if (completion) {
+    const paid = data?.payment_status === "paid" || data?.package_paid;
+    const ready = paid || confirmedPayment;
+    const checkoutDescription = data?.package_paid ? "Paid with a prepaid session." : data?.payment_status === "paid" ? "Payment received · Stripe confirmed." :
+      paymentMethod === "package" ? "One eligible prepaid session will be used on submission." : "Payment received outside Stripe.";
+    return (
+      <main className="mx-auto max-w-lg space-y-4 px-5 py-8">
+        <Link href={`/${shop}/admin/${completion}`} className="text-blue-700 underline">Back to appointments</Link>
+        <h1 className="text-3xl font-bold">Complete appointment</h1>
+        {error && <p role="alert" className="text-red-700">{error}</p>}
+        {data && <section className="space-y-4 rounded-xl border bg-white p-5">
+          <p className="font-semibold">{data.customer_name} · {data.service_name} · ${data.amount}</p>
+          {data.appointment_status === "completed" ? <p>This appointment is already completed.</p> : <>
+            {!paid && <label className="block font-semibold">Payment method
+              <select className="mt-2 block w-full rounded border p-2" value={paymentMethod}
+                onChange={event => { setPaymentMethod(event.target.value); setConfirmedPayment(false); }}>
+                <option value="">Choose payment method</option>
+                <option value="stripe">Stripe</option>
+                {data.can_redeem_package && <option value="package">Use one prepaid session ({data.package_sessions_remaining} available)</option>}
+                {Object.entries(offlineMethods).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+              </select>
+            </label>}
+            {!paid && paymentMethod === "stripe" && <div className="space-y-2">
+              {data.text_link_status === "sent" || data.uses_tap_to_pay ? <p>Awaiting Stripe confirmation.</p> :
+                <button type="button" disabled={busy || ["sending", "unknown"].includes(data.text_link_status)}
+                  onClick={textLink} className="rounded bg-indigo-700 px-3 py-2 text-white disabled:opacity-50">Text Stripe payment link</button>}
+              <button type="button" onClick={read} className="block text-blue-700 underline">Check payment status</button>
+            </div>}
+            {!paid && paymentMethod && paymentMethod !== "stripe" && !confirmedPayment &&
+              <button type="button" onClick={() => setConfirmedPayment(true)} className="rounded bg-indigo-700 px-3 py-2 text-white">
+                {paymentMethod === "package" ? "Confirm prepaid session" : "Confirm payment received"}
+              </button>}
+            {ready && <form onSubmit={submitCompletion} className="space-y-3">
+              <p role="status">{checkoutDescription}</p>
+              <label className="block font-semibold">Appointment notes
+                <textarea className="mt-1 block w-full rounded border p-2" rows={3} maxLength={2000}
+                  required={!noNotes} disabled={noNotes} value={note} onChange={event => setNote(event.target.value)} />
+              </label>
+              <label className="flex gap-2"><input type="checkbox" checked={noNotes}
+                onChange={event => setNoNotes(event.target.checked)} /> None</label>
+              <button disabled={busy || (!noNotes && !note.trim())} className="rounded bg-green-700 px-4 py-2 font-bold text-white disabled:opacity-50">
+                Submit and complete
+              </button>
+            </form>}
+          </>}
+        </section>}
+      </main>
+    );
+  }
+
   return (
     <main className="mx-auto max-w-xl p-6">
       <Link className="text-blue-700 underline" href={`/${shop}/admin/calendar`}>Back to calendar</Link>
@@ -156,10 +249,10 @@ export default function CollectPaymentPage() {
           <button type="button" disabled={busy || !offerId} className="rounded bg-indigo-700 px-3 py-2 text-white disabled:opacity-50" onClick={() => packageAction("text-package-link")}>Text package payment link</button>
           </>}
         </div>}
-        {data.package_paid ? <div className="mt-4 space-y-2">
+        {data.manual_payment_method ? <p role="status" className="mt-4 font-bold text-green-700">Paid · {offlineMethods[data.manual_payment_method]}</p> : data.package_paid ? <div className="mt-4 space-y-2">
           <p role="status" className="font-bold text-green-700">Paid with package</p>
           <Link href={`/${shop}/admin/retail`} className="text-indigo-700 underline">Sell another service or package</Link>
-        </div> : data.payment_status === "paid" ? <p role="status" className="mt-5 font-bold text-green-700">Paid — ${data.amount}</p> :
+        </div> : data.payment_status === "paid" ? <p role="status" className="mt-5 font-bold text-green-700">Payment received — ${data.amount}</p> :
           ["refunded", "partially_refunded", "refund_pending"].includes(data.payment_status) ? <div role="status" className="mt-5">
             <p className="font-bold">{data.payment_status === "refunded" ? "Refunded" : data.payment_status === "refund_pending" ? "Refund pending" : "Partially refunded"}</p>
             <p>Refunded to the original card: ${data.refunded_amount}</p>

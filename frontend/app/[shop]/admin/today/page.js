@@ -70,7 +70,7 @@ function AgendaPayment({ shop, appointmentId }) {
         const result = await response.json();
         if (!response.ok || result.shop_slug !== shop) throw new Error();
         const labels = { paid: "Paid", refunded: "Refunded", partially_refunded: "Partially refunded", refund_pending: "Refund pending", processing: "Payment processing" };
-        if (active) setLabel(result.package_paid ? "Payment details" : labels[result.payment_status] || "Collect payment");
+        if (active) setLabel(result.manual_payment_method || result.package_paid ? "Payment details" : labels[result.payment_status] || "Collect payment");
       } catch { if (active) setLabel("Payment details — refresh to check"); }
     }
     read();
@@ -502,6 +502,11 @@ export default function AgendaPage() {
     appointmentId,
     appointmentStatus
   ) {
+    if (appointmentStatus === "completed") {
+      router.push(`/${shopSlug}/admin/payments/${encodeURIComponent(appointmentId)}?complete=1&from=today`);
+      return;
+    }
+
     const appointment =
       appointments.find(
         (item) =>
