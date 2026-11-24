@@ -171,8 +171,8 @@ export default function CollectPaymentPage() {
               <select className="mt-2 block w-full rounded border p-2" value={paymentMethod}
                 onChange={event => { setPaymentMethod(event.target.value); setConfirmedPayment(false); }}>
                 <option value="">Choose payment method</option>
-                <option value="stripe">Stripe</option>
                 {data.can_redeem_package && <option value="package">Use one prepaid session ({data.package_sessions_remaining} available)</option>}
+                <option value="stripe">Stripe</option>
                 {Object.entries(offlineMethods).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
               </select>
             </label>}
