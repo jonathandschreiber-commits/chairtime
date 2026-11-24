@@ -14,7 +14,29 @@ const methods = {
 };
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 
-function StripeSaleDetails({ id, formatDate }) {
+async function readStripeSale(id, signal) {
+  const response = await fetch(`/api/payments/sales/${encodeURIComponent(id)}`, {
+    cache: "no-store",
+    signal,
+  });
+  const result = await response.json();
+  if (!response.ok || !Number.isSafeInteger(result.refunded_cents) || result.refunded_cents < 0) {
+    throw new Error(typeof result.detail === "string" ? result.detail : "Could not verify Stripe refunds.");
+  }
+  return result;
+}
+
+function withStripeRefund(row, refundedCents) {
+  if (refundedCents > row.amount_cents) throw new Error("Stripe refund exceeds the sale amount.");
+  return {
+    ...row,
+    refunded_cents: refundedCents,
+    collected_cents: row.amount_cents - refundedCents,
+    status: refundedCents === 0 ? "paid" : refundedCents === row.amount_cents ? "refunded" : "partially_refunded",
+  };
+}
+
+function StripeSaleDetails({ id, formatDate, onRefund }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -23,9 +45,8 @@ function StripeSaleDetails({ id, formatDate }) {
     setBusy(true);
     setError("");
     try {
-      const response = await fetch(`/api/payments/sales/${encodeURIComponent(id)}`);
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.detail || "Could not load Stripe details.");
+      const result = await readStripeSale(id);
+      onRefund(id, result.refunded_cents);
       setData(result);
     } catch (failure) {
       setError(failure.message);
@@ -67,11 +88,29 @@ export default function SalesPage() {
       .then(async response => {
         const result = await response.json();
         if (!response.ok) throw new Error(typeof result.detail === "string" ? result.detail : "Could not load sales.");
-        setData(result);
+        // Retail payments include both standalone services and service packages.
+        // Keep the Stripe total unavailable if any paid retail sale cannot be checked.
+        const sales = [...result.sales];
+        const retailIndexes = sales.flatMap((row, index) => row.retail_details ? [index] : []);
+        for (let offset = 0; offset < retailIndexes.length; offset += 5) {
+          await Promise.all(retailIndexes.slice(offset, offset + 5).map(async index => {
+            const row = sales[index];
+            const details = await readStripeSale(row.id, controller.signal);
+            sales[index] = withStripeRefund(row, details.refunded_cents);
+          }));
+        }
+        if (!controller.signal.aborted) setData({ ...result, sales });
       })
       .catch(failure => { if (!controller.signal.aborted) setError(failure.message); });
     return () => controller.abort();
   }, [appliedRange]);
+
+  function updateStripeRefund(id, refundedCents) {
+    setData(previous => previous && ({
+      ...previous,
+      sales: previous.sales.map(row => row.id === id ? withStripeRefund(row, refundedCents) : row),
+    }));
+  }
 
   const rows = data?.sales ?? [];
   const filtered = rows.filter(row => !method || row.method === method);
@@ -122,7 +161,7 @@ export default function SalesPage() {
                 <td className="p-3 capitalize">{row.status.replaceAll("_", " ")}</td>
                 <td className="p-3">
                   {row.appointment_id && <Link className="text-blue-700 underline" href={`/${shop}/admin/payments/${encodeURIComponent(row.appointment_id)}`}>Payment details</Link>}
-                  {row.retail_details && <StripeSaleDetails id={row.id} formatDate={date.format} />}
+                  {row.retail_details && <StripeSaleDetails id={row.id} formatDate={date.format} onRefund={updateStripeRefund} />}
                   {row.refunded_cents > 0 && <p>{money.format(row.refunded_cents / 100)} refunded</p>}
                   {row.recorded_by && <p>Recorded by {row.recorded_by}</p>}
                   {row.reference && <p>{row.reference}</p>}
