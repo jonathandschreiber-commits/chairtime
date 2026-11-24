@@ -390,7 +390,7 @@ export default async function AdminHome({
  
  
         {showShopInfo && isOwner && shop && (
-          <section aria-label="Your DayTello pages" className="mb-6 grid gap-4 sm:grid-cols-2">
+          <section className="mb-6 grid gap-4 sm:grid-cols-2">
             <div className="rounded-2xl border border-indigo-100 bg-white p-5">
               <h2 className="text-lg font-bold text-slate-900"><ShopMessage>Owner dashboard</ShopMessage></h2>
               <p className="mt-1 text-sm text-slate-600">
@@ -418,12 +418,12 @@ export default async function AdminHome({
                 <figure className="mt-3">
                   <img
                     src={bookingQrCode}
-                    alt={`<ShopMessage>Scan to book</ShopMessage> with ${title}`}
+                    alt=""
                     width={108}
                     height={108}
                     className="rounded-lg border border-slate-200 bg-white"
                   />
-                  <figcaption className="mt-1 text-sm text-slate-600">Scan to book</figcaption>
+                  <figcaption className="mt-1 text-sm text-slate-600"><ShopMessage>Scan to book</ShopMessage></figcaption>
                 </figure>
               )}
             </div>
