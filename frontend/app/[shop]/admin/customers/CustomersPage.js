@@ -1,5 +1,6 @@
 "use client";
 
+import ManualAdjustments from "./ManualAdjustments";
 import PackageBalances from "../../../components/PackageBalances";
 
 import { ShopMessage, useShopMessages } from "../../../components/ShopLanguage";
@@ -1915,6 +1916,11 @@ function CustomersPageContent({ apiBase }) {
                   </div>
                 )}
 
+
+                {currentUser?.role === "owner" && (
+                  <ManualAdjustments key={customerKey} appointmentId={latest.id}
+                    onSaved={() => window.dispatchEvent(new Event("focus"))} />
+                )}
 
                 {editingCustomerKey ===
                   customerKey && (

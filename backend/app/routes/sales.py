@@ -11,14 +11,14 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Appointment, User
+from app.models import Appointment, ServiceCatalog, User
 from app.payment_records import ManualAppointmentPayment, ManualRetailPayment, ServicePayment, ServicePaymentRefund
 from app.routes.auth import get_current_user
 from app.routes.payments import (
     get_stripe_secret_key, object_id, offer_view, require_payment_user, shop_zone, stripe_failure, value,
 )
 from app.service_packages import (
-    DeletedPackageOffer, PackageCheckout, PackageExpiration, PackageSale, PurchaseRefund, expiration_date, sync_purchase_refunds, timestamp,
+    DeletedPackageOffer, PackageAdjustment, PackageOffer, PackageCheckout, PackageExpiration, PackageSale, PurchaseRefund, expiration_date, phone_key, sync_purchase_refunds, timestamp,
 )
 
 router = APIRouter()
@@ -196,3 +196,108 @@ def refund_purchase(sale_id: str, payload: PurchaseRefundInput,
     except stripe.StripeError:
         raise stripe_failure()
     return sale_details(sale_id, user, db)
+
+
+def manual_session_customer(db, user, appointment_id):
+    from app.routes.payments import appointment_for_user
+
+    if user.role != "owner":
+        raise HTTPException(403, "Only shop owners can adjust sessions.")
+    appointment = appointment_for_user(db, appointment_id, user)
+    phone = phone_key(appointment.customer_phone or "")
+    if not phone:
+        raise HTTPException(422, "This customer needs a phone number before sessions can be adjusted.")
+    return phone
+
+
+@router.get("/appointments/{appointment_id}/manual-sessions")
+def manual_session_options(appointment_id: str, user: User = Depends(get_current_user),
+                           db: Session = Depends(get_db)):
+    phone = manual_session_customer(db, user, appointment_id)
+    catalog = db.query(ServiceCatalog).filter_by(shop_slug=user.shop_slug).order_by(ServiceCatalog.name).all()
+    purchases = db.query(PackageSale, PackageOffer).join(
+        PackageOffer, PackageOffer.id == PackageSale.offer_id
+    ).filter(PackageSale.shop_slug == user.shop_slug, PackageSale.customer_phone == phone).order_by(PackageSale.id).all()
+    balances = []
+    for sale, offer in purchases:
+        checkout = db.get(PackageCheckout, sale.id)
+        if checkout and sale.sessions_remaining:
+            sync_purchase_refunds(db, checkout)
+        terms = db.get(PackageExpiration, "sale:" + sale.id)
+        if sale.sessions_remaining and not (terms and terms.expires_at and terms.expires_at <= timestamp()):
+            payment = db.get(ManualRetailPayment, sale.id)
+            method = "Stripe" if checkout else payment.method.replace("_", " ").title() if payment else "Manual credit"
+            balances.append(dict(id=sale.id, service_id=offer.catalog_id, name=offer.name,
+                                 method=method, sessions=sale.sessions_remaining))
+    audits = db.query(PackageAdjustment, PackageOffer.name, User.name).join(
+        PackageSale, PackageSale.id == PackageAdjustment.sale_id
+    ).join(PackageOffer, PackageOffer.id == PackageSale.offer_id).outerjoin(
+        User, User.id == PackageAdjustment.adjusted_by
+    ).filter(PackageSale.shop_slug == user.shop_slug, PackageSale.customer_phone == phone).order_by(
+        PackageAdjustment.created_at.desc()
+    ).all()
+    history = [dict(id=entry.id, service=name, owner=owner, delta=entry.delta, reason=entry.reason,
+                    at=entry.created_at.replace(tzinfo=timezone.utc).isoformat())
+               for entry, name, owner in audits]
+    db.commit()
+    return dict(services=[dict(id=item.id, name=item.name) for item in catalog],
+                balances=balances, history=history, timezone=str(shop_zone(db, user.shop_slug)))
+
+
+class ManualSessionInput(BaseModel):
+    request_id: UUID
+    service_id: str
+    delta: int = Field(strict=True, ge=-1000, le=1000)
+    reason: str = Field(max_length=500)
+    purchase_id: str | None = None
+
+
+@router.post("/appointments/{appointment_id}/manual-sessions")
+def adjust_manual_sessions(appointment_id: str, payload: ManualSessionInput,
+                           user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    phone = manual_session_customer(db, user, appointment_id)
+    reason = payload.reason.strip()
+    if not payload.delta or not reason:
+        raise HTTPException(422, "Enter a nonzero session change and a reason.")
+    service = db.query(ServiceCatalog).filter_by(id=payload.service_id, shop_slug=user.shop_slug).first()
+    if not service:
+        raise HTTPException(404, "Service not found.")
+    key = str(payload.request_id)
+    prior = db.get(PackageAdjustment, key)
+    if prior:
+        prior_sale = db.get(PackageSale, prior.sale_id)
+        if (prior_sale.shop_slug, prior_sale.customer_phone, prior.adjusted_by, prior.delta, prior.reason) != (
+            user.shop_slug, phone, user.id, payload.delta, reason
+        ) or db.get(PackageOffer, prior_sale.offer_id).catalog_id != service.id or (
+            payload.delta < 0 and prior.sale_id != payload.purchase_id
+        ):
+            raise HTTPException(409, "This adjustment reference is already in use.")
+        return manual_session_options(appointment_id, user, db)
+    if payload.delta > 0:
+        offer = PackageOffer(id=key, shop_slug=user.shop_slug, catalog_id=service.id,
+                             name=service.name, sessions=payload.delta, price_cents=0)
+        db.add(offer)
+        db.flush()
+        db.add(DeletedPackageOffer(offer_id=offer.id))
+        sale = PackageSale(id=key, shop_slug=user.shop_slug, offer_id=offer.id, customer_phone=phone,
+                           sessions=payload.delta, sessions_remaining=payload.delta,
+                           price_cents=0, recorded_by=user.id)
+        db.add(sale)
+        db.flush()
+    else:
+        sale = db.query(PackageSale).join(PackageOffer, PackageOffer.id == PackageSale.offer_id).filter(
+            PackageSale.id == payload.purchase_id, PackageSale.shop_slug == user.shop_slug,
+            PackageSale.customer_phone == phone, PackageOffer.catalog_id == service.id,
+        ).with_for_update(of=PackageSale).populate_existing().first()
+        if not sale:
+            raise HTTPException(404, "Choose a balance for this customer and service.")
+        checkout = db.get(PackageCheckout, sale.id)
+        if checkout:
+            sync_purchase_refunds(db, checkout)
+        terms = db.get(PackageExpiration, "sale:" + sale.id)
+        if (terms and terms.expires_at and terms.expires_at <= timestamp()) or sale.sessions_remaining < -payload.delta:
+            raise HTTPException(409, "That balance does not have enough available sessions.")
+        sale.sessions_remaining += payload.delta
+    db.add(PackageAdjustment(id=key, sale_id=sale.id, adjusted_by=user.id, delta=payload.delta, reason=reason))
+    db.commit()
+    return manual_session_options(appointment_id, user, db)
