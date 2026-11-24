@@ -114,7 +114,7 @@ export default function AIReceptionistPage() {
             </h1>
 
             <p className="text-gray-600 mt-2">
-              Manage and test your AI phone receptionist.
+              <ShopMessage>Manage and test your AI phone receptionist.</ShopMessage>
             </p>
           </div>
 
