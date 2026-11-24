@@ -14,7 +14,7 @@ import {
 
 const STATUS_LABELS = {
   confirmed: "Confirmed",
-  completed: "Done",
+  completed: "Completed",
   no_show: "No-show",
   canceled: "Canceled",
 };
@@ -840,7 +840,7 @@ export default function AgendaPage() {
                               }
                               className="bg-green-600 text-white rounded-xl p-4 font-bold"
                             >
-                              Done
+                              Complete
                             </button>
 
                             <button
