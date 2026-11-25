@@ -209,7 +209,11 @@ def sync_purchase_refunds(db, checkout):
     for refund in sorted(confirmed, key=lambda item: (value(item, "created"), object_id(item))):
         amount = value(refund, "amount")
         total += amount
-        if not sale or db.get(PurchaseRefund, object_id(refund)):
+        created_at = datetime.fromtimestamp(value(refund, "created"), timezone.utc).replace(tzinfo=None)
+        audit = db.get(PurchaseRefund, object_id(refund))
+        if audit:
+            audit.created_at = created_at
+        if not sale or audit:
             continue
         metadata = value(refund, "metadata", {}) or {}
         requested = value(metadata, "daytello_sessions_to_remove", "0")
@@ -217,7 +221,7 @@ def sync_purchase_refunds(db, checkout):
         removed = sale.sessions_remaining if total >= checkout.price_cents else min(count, sale.sessions_remaining)
         sale.sessions_remaining -= removed
         db.add(PurchaseRefund(id=object_id(refund), sale_id=sale.id, amount_cents=amount,
-                              sessions_removed=removed, sessions_remaining=sale.sessions_remaining))
+                              sessions_removed=removed, sessions_remaining=sale.sessions_remaining, created_at=created_at))
     if sale and total >= checkout.price_cents:
         sale.sessions_remaining = 0
     db.flush()

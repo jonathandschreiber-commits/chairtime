@@ -63,6 +63,14 @@ class ServicePaymentRefund(Base):
     request_status = Column(String, nullable=True)
 
 
+class AppointmentRefundEntry(Base):
+    __tablename__ = "appointment_refund_entries"
+    id = Column(String, primary_key=True)
+    payment_id = Column(String, nullable=False, index=True)
+    amount_cents = Column(Integer, nullable=False)
+    created_at = Column(DateTime, nullable=False, index=True)
+
+
 class ManualRetailPayment(Base):
     __tablename__ = "manual_retail_payments"
 

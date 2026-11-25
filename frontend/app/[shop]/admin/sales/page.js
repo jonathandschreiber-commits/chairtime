@@ -133,6 +133,8 @@ function SalesReport() {
   }));
   const [appliedRange, setAppliedRange] = useState(range);
   const [method, setMethod] = useState("");
+  const [transactionType, setTransactionType] = useState("");
+  const [revision, setRevision] = useState(0);
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
 
@@ -154,13 +156,24 @@ function SalesReport() {
             sales[index] = withStripeRefund(row, details.refunded_cents);
           }));
         }
-        if (!controller.signal.aborted) setData({ ...result, sales });
+        if (retailIndexes.some(index => sales[index].refunded_cents > 0)) {
+          const refreshed = await fetch("/api/payments/sales?" + query, { signal: controller.signal });
+          if (!refreshed.ok) throw new Error("Could not load recorded refunds.");
+          const { sales: refreshedRows } = await refreshed.json();
+          const reconciled = new Map(sales.map(row => [row.id, row]));
+          if (!controller.signal.aborted) setData({
+            ...result, sales: refreshedRows.map(row => reconciled.get(row.id) || row),
+          });
+        } else if (!controller.signal.aborted) {
+          setData({ ...result, sales });
+        }
       })
       .catch(failure => { if (!controller.signal.aborted) setError(failure.message); });
     return () => controller.abort();
-  }, [appliedRange]);
+  }, [appliedRange, revision]);
 
   function updateStripeRefund(id, refundedCents) {
+    setRevision(value => value + 1);
     setData(previous => previous && ({
       ...previous,
       sales: previous.sales.map(row => row.id === id ? withStripeRefund(row, refundedCents) : row),
@@ -168,7 +181,8 @@ function SalesReport() {
   }
 
   const rows = data?.sales ?? [];
-  const filtered = rows.filter(row => !method || row.method === method);
+  const filtered = rows.filter(row => (!method || row.method === method)
+    && (!transactionType || (row.transaction_type || "sale") === transactionType));
   const net = stripe => money.format(rows.filter(row => (row.method === "stripe") === stripe)
     .reduce((total, row) => total + row.collected_cents, 0) / 100);
   const date = new Intl.DateTimeFormat("en-US", {
@@ -196,11 +210,17 @@ function SalesReport() {
           <option value="">All methods</option>
           {Object.entries(methods).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
         </select></label>
+        <label>Transaction type<select value={transactionType} onChange={event => setTransactionType(event.target.value)} className="block rounded border p-2">
+          <option value="">All transactions</option>
+          <option value="sale">Sales</option>
+          <option value="refund">Refunds</option>
+        </select></label>
         <button type="submit" className="rounded-lg bg-indigo-700 px-4 py-2 text-white">Apply filters</button>
       </form>
       {error && <p role="alert" className="text-red-800">{error}</p>}
       {!data && !error && <p role="status">Loading sales…</p>}
       {data && <>
+        <p className="text-sm text-slate-600">Sales totals use purchase dates. Refund rows use refund dates.</p>
         <div className="grid gap-3 sm:grid-cols-2">
           <p className="rounded-xl border bg-white p-4">Stripe collected, less recorded refunds <strong className="block text-xl">{net(true)}</strong></p>
           <p className="rounded-xl border bg-white p-4">Payments recorded outside Stripe <strong className="block text-xl">{net(false)}</strong></p>
@@ -208,13 +228,14 @@ function SalesReport() {
         <div className="overflow-x-auto rounded-xl border bg-white">
           <table className="w-full text-left text-sm">
             <thead><tr className="bg-slate-50">
-              {["Date", "Customer", "Item", "Method", "Amount", "Status", "Details"].map(label => <th className="p-3" key={label}>{label}</th>)}
+              {["Date", "Customer", "Item", "Type", "Method", "Amount", "Status", "Details"].map(label => <th className="p-3" key={label}>{label}</th>)}
             </tr></thead>
             <tbody>{filtered.map(row => (
               <tr key={row.id} className="border-t">
                 <td className="whitespace-nowrap p-3">{date.format(new Date(row.date))}</td>
                 <td className="p-3">{row.customer || row.phone || "—"}</td>
                 <td className="p-3">{row.item}</td>
+                <td className="p-3">{row.transaction_type === "refund" ? "Refund" : "Sale"}</td>
                 <td className="p-3">{methods[row.method]}</td>
                 <td className="p-3">{money.format(row.amount_cents / 100)}</td>
                 <td className="p-3 capitalize">{row.status.replaceAll("_", " ")}</td>
@@ -223,12 +244,13 @@ function SalesReport() {
                   {row.retail_details && <StripeSaleDetails id={row.id} formatDate={date.format} onRefund={updateStripeRefund} />}
                   {row.refunded_cents > 0 && <p>{money.format(row.refunded_cents / 100)} refunded</p>}
                   {row.recorded_by && <p>Recorded by {row.recorded_by}</p>}
+                  {row.sessions_removed != null && <p>Sessions removed: {row.sessions_removed} · Remaining: {row.sessions_remaining}</p>}
                   {row.reference && <p>{row.reference}</p>}
                 </td>
               </tr>
             ))}</tbody>
           </table>
-          {!filtered.length && <p className="p-4">No sales match these filters.</p>}
+          {!filtered.length && <p className="p-4">No transactions match these filters.</p>}
         </div>
       </>}
     </main>

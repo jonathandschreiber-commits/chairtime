@@ -188,6 +188,12 @@ def reconcile_refunds(db, record):
             raise HTTPException(409, "Stripe returned an unverified refund status.")
         if status == "succeeded":
             refunded += amount
+            created = value(refund, "created")
+            if isinstance(created, int):
+                db.merge(AppointmentRefundEntry(
+                    id=object_id(refund), payment_id=record.id, amount_cents=amount,
+                    created_at=datetime.fromtimestamp(created, timezone.utc).replace(tzinfo=None),
+                ))
         elif status in {"pending", "requires_action"}:
             pending += amount
         if value(value(refund, "metadata", {}) or {}, "chairtime_payment_id") == record.id:

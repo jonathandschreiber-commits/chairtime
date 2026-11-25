@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import Appointment, ServiceCatalog, User
-from app.payment_records import ManualAppointmentPayment, ManualRetailPayment, ServicePayment, ServicePaymentRefund
+from app.payment_records import AppointmentRefundEntry, ManualAppointmentPayment, ManualRetailPayment, ServicePayment, ServicePaymentRefund
 from app.routes.auth import get_current_user
 from app.routes.payments import (
     get_stripe_secret_key, object_id, offer_view, require_payment_user, shop_zone, stripe_failure, value,
@@ -125,6 +125,27 @@ def sales_report(start: date | None = None, end: date | None = None,
                          item="Appointment payment", method=payment.method, status="recorded",
                          amount_cents=payment.amount_cents, refunded_cents=0, collected_cents=payment.amount_cents,
                          appointment_id=appointment.id, recorded_by=operator.name if operator else payment.recorded_by))
+    for refund, checkout in db.query(PurchaseRefund, PackageCheckout).join(
+        PackageCheckout, PackageCheckout.id == PurchaseRefund.sale_id
+    ).filter(PackageCheckout.shop_slug == user.shop_slug,
+             PurchaseRefund.created_at >= start_at, PurchaseRefund.created_at < end_at):
+        rows.append(dict(id="refund:" + refund.id, date=refund.created_at,
+                         item=checkout.name, phone=checkout.customer_phone, method="stripe",
+                         status="refunded", transaction_type="refund", amount_cents=-refund.amount_cents,
+                         collected_cents=0, sessions_removed=refund.sessions_removed,
+                         sessions_remaining=refund.sessions_remaining))
+    for refund, payment, appointment in db.query(AppointmentRefundEntry, ServicePayment, Appointment).join(
+        ServicePayment, ServicePayment.id == AppointmentRefundEntry.payment_id
+    ).outerjoin(Appointment, (Appointment.id == ServicePayment.appointment_id) &
+                (Appointment.shop_slug == user.shop_slug)).filter(
+        ServicePayment.shop_slug == user.shop_slug,
+        AppointmentRefundEntry.created_at >= start_at, AppointmentRefundEntry.created_at < end_at,
+    ):
+        rows.append(dict(id="refund:" + refund.id, date=refund.created_at,
+                         item=payment.service_name, phone=appointment.customer_phone if appointment else "",
+                         customer=appointment.customer_name if appointment else "", method="stripe",
+                         status="refunded", transaction_type="refund", amount_cents=-refund.amount_cents,
+                         collected_cents=0, appointment_id=payment.appointment_id))
     if digits:
         rows = [row for row in rows if phone_key(row["phone"] or "") == digits]
     if name:
