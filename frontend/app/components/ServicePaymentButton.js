@@ -9,7 +9,7 @@ export default function ServicePaymentButton({ appointment, user, shopSlug }) {
   const visible = allowed && user?.shop_slug === shopSlug && appointmentId &&
     !["canceled", "no_show"].includes(appointment.status);
   const [payment, setPayment] = useState(null);
-  const identity = `${user?.id}:${shopSlug}:${appointmentId}`;
+  const identity = `${user?.id}:${shopSlug}:${appointmentId}:${appointment?.status}`;
 
   useEffect(() => {
     if (!visible) return;
@@ -57,7 +57,7 @@ export default function ServicePaymentButton({ appointment, user, shopSlug }) {
   if (!visible) return null;
   const current = payment?.identity === identity ? payment : null;
   const data = current?.data;
-  const paid = data?.payment_status === "paid";
+  const paid = data?.manual_payment_method || data?.package_paid || data?.payment_status === "paid";
   const amount = Number(data?.amount);
   const validAmount = data?.amount != null && Number.isFinite(amount) && amount >= 0;
   const currency = String(data?.currency || "usd").toUpperCase();
@@ -82,7 +82,7 @@ export default function ServicePaymentButton({ appointment, user, shopSlug }) {
     expired: "Collect payment",
     canceled: "Card payment canceled",
   };
-  const label = labels[data?.payment_status] ||
+  const label = data?.manual_payment_method || data?.package_paid ? "Payment details" : labels[data?.payment_status] ||
     (current ? "Payment status unavailable — view details" : "Checking payment…");
   return (
     <Link

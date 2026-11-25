@@ -1,5 +1,9 @@
 "use client";
 
+import AccountBalance from "./AccountBalance";
+import ManualAdjustments from "./ManualAdjustments";
+import PackageBalances from "../../../components/PackageBalances";
+
 import { ShopMessage, useShopMessages } from "../../../components/ShopLanguage";
 
 
@@ -85,7 +89,7 @@ function displayShopName(slug) {
 }
 
 
-function CustomerPaymentStatus({ shop, appointmentId }) {
+function CustomerPaymentStatus({ shop, appointmentId, showBalances }) {
   const element = useRef(null);
   const [visible, setVisible] = useState(false);
   const [payment, setPayment] = useState(null);
@@ -141,14 +145,13 @@ function CustomerPaymentStatus({ shop, appointmentId }) {
       partially_refunded: `Partially refunded — $${refunded} of $${amount}`,
       refund_pending: `Refund pending — $${refunded} refunded so far`,
       processing: "Payment processing",
-      unpaid: "No completed card payment recorded",
-      expired: "No completed card payment recorded",
       canceled: "Card payment canceled",
     };
-    label = labels[payment.payment_status];
+    label = payment.manual_payment_method ? "Payment recorded" : payment.package_paid ? "Paid with package" : labels[payment.payment_status];
   }
   return <div ref={element} className="mt-2">
-    <p role="status" className={`text-sm font-bold ${!error && payment?.payment_status === "paid" ? "text-green-800" : "text-gray-800"}`}><ShopMessage>{label}</ShopMessage></p>
+    {label && <p role="status" className={`text-sm font-bold ${!error && payment?.payment_status === "paid" ? "text-green-800" : "text-gray-800"}`}><ShopMessage>{label}</ShopMessage></p>}
+    {showBalances && <PackageBalances payment={payment} />}
     <Link href={`/${shop}/admin/payments/${encodeURIComponent(appointmentId)}`} className="mt-1 inline-block text-sm text-blue-800 underline"><ShopMessage>Payment details</ShopMessage></Link>
   </div>;
 }
@@ -1287,13 +1290,19 @@ function CustomersPageContent({ apiBase }) {
 
             {(String(currentUser?.role || "").trim().toLowerCase() === "owner" ||
               (String(currentUser?.role || "").trim().toLowerCase() === "staff" && currentUser?.can_accept_payments)) &&
-              <CustomerPaymentStatus shop={shopSlug} appointmentId={appointment.id} />}
+              <CustomerPaymentStatus shop={shopSlug} appointmentId={appointment.id} showBalances={allowActions && currentUser?.role !== "owner"} />}
 
             {appointment.notes && (
               <p className="mt-1">
                 {appointment.notes}
               </p>
             )}
+            {appointment.completion_notes?.map(note => (
+              <div key={note.id} className="mt-2 rounded-lg border bg-white p-3 text-sm">
+                <p className="font-semibold">Completion note · <time dateTime={note.created_at}>{new Date(note.created_at).toLocaleString()}</time></p>
+                <p className="mt-1 whitespace-pre-wrap">{note.body}</p>
+              </div>
+            ))}
           </div>
 
 
@@ -1338,15 +1347,12 @@ function CustomersPageContent({ apiBase }) {
               <button
                 type="button"
                 onClick={() =>
-                  updateAppointmentStatus(
-                    appointment.id,
-                    "completed"
-                  )
+                  router.push(`/${shopSlug}/admin/payments/${encodeURIComponent(appointment.id)}?complete=1&from=customers`)
                 }
                 disabled={busy}
                 className="bg-green-600 text-white px-3 py-2 rounded-xl font-semibold disabled:opacity-60"
               >
-                Complete
+                <ShopMessage>Check Out</ShopMessage>
               </button>
 
 
@@ -1912,6 +1918,14 @@ function CustomersPageContent({ apiBase }) {
                 )}
 
 
+                {currentUser?.role === "owner" && (
+                  <ManualAdjustments key={customerKey} appointmentId={latest.id}
+                    onSaved={() => {
+                      window.dispatchEvent(new Event("focus"));
+                      window.dispatchEvent(new CustomEvent("daytello-session-adjusted", { detail: latest.id }));
+                    }} />
+                )}
+
                 {editingCustomerKey ===
                   customerKey && (
                   <div className="mt-4 bg-green-50 border border-green-200 p-4 rounded-2xl">
@@ -1972,6 +1986,13 @@ function CustomersPageContent({ apiBase }) {
                   <h3 className="text-2xl font-extrabold text-purple-950 mb-3">
                     <ShopMessage>Upcoming Appointments</ShopMessage>
                   </h3>
+                  {currentUser?.role === "owner" && <AccountBalance appointmentId={latest.id} />}
+                  {currentUser?.role === "owner" && latest.customer_phone && (
+                    <Link className="text-sm text-purple-800 underline" href={`/${shopSlug}/admin/sales?customer_phone=${encodeURIComponent(latest.customer_phone)}`}>
+                      <ShopMessage>View sales history</ShopMessage>
+                    </Link>
+                  )}
+
 
 
                   {upcomingAppointments.length >

@@ -1,5 +1,6 @@
 "use client";
 
+
 import { ShopMessage, useShopMessages } from "../../../components/ShopLanguage";
 
 
@@ -2183,6 +2184,7 @@ export default function SetupPage() {
             )}
           </div>
         </div>
+
 
         {/* INDIVIDUAL STAFF SETTINGS */}
 

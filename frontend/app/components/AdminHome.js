@@ -260,6 +260,24 @@ export default async function AdminHome({
     },
  
     {
+      name: "Sales",
+      description: "View Stripe sales and payments recorded by your shop.",
+      href: basePath + "/sales",
+      icon: "🧾",
+      cardClass: "bg-gradient-to-br from-indigo-50 to-blue-100 border-indigo-200",
+      iconClass: "bg-gradient-to-br from-indigo-500 to-blue-500",
+      arrowClass: "text-indigo-600 border-indigo-300 hover:bg-indigo-100",
+    },
+    {
+      name: "Sell a Service or Package",
+      description: "Text a Stripe payment link to a customer.",
+      href: basePath + "/retail",
+      icon: "💳",
+      cardClass: "bg-gradient-to-br from-emerald-50 to-teal-100 border-emerald-200",
+      iconClass: "bg-gradient-to-br from-emerald-500 to-teal-500",
+      arrowClass: "text-emerald-600 border-emerald-300 hover:bg-emerald-100",
+    },
+    {
       name: "Staff & Services",
       description:
         "Manage staff members and the services you offer.",

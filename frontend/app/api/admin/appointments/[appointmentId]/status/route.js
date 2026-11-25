@@ -32,6 +32,10 @@ export async function PATCH(request, context) {
   const { appointmentId } = await context.params;
   const body = await request.json();
   const appointmentStatus = body?.status;
+  const completionNote = typeof body?.completion_note === "string" ? body.completion_note.trim() : null;
+  if (body?.source === "customers" && appointmentStatus === "completed" && !completionNote) {
+    return NextResponse.json({ error: "Enter a completion note." }, { status: 400 });
+  }
 
   if (!appointmentStatus) {
     return NextResponse.json(
@@ -57,7 +61,9 @@ export async function PATCH(request, context) {
         headers: {
           Accept: "application/json",
           Authorization: `Bearer ${token}`,
+          ...(completionNote && { "Content-Type": "application/json" }),
         },
+        body: completionNote ? JSON.stringify({ completion_note: completionNote }) : undefined,
         cache: "no-store",
       }
     );
