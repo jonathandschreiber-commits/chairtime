@@ -122,6 +122,13 @@ def available_sales(db, appointment, offers):
     return eligible
 
 
+class PublishedRetailOffer(Base):
+    __tablename__ = "published_retail_offers"
+    shop_slug = Column(String, primary_key=True)
+    kind = Column(String, primary_key=True)
+    item_id = Column(String, primary_key=True)
+
+
 class PackageCheckout(Base):
     """Purchase terms frozen before creating the Stripe session."""
     __tablename__ = "package_checkouts"

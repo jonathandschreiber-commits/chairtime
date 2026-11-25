@@ -19,7 +19,8 @@ async function proxy(request, context, method) {
       (method === "POST" && path.length === 3 && /^[a-zA-Z0-9-]{1,100}$/.test(path[1]) &&
         ["edit", "delete"].includes(path[2])));
     const retail = path?.[0] === "retail" && (path.length === 1 ||
-      (method === "GET" && path.length === 2 && path[1] === "customers"));
+      (path.length === 2 && ((method === "GET" && path[1] === "customers") ||
+        (method === "POST" && path[1] === "publish"))));
     const sales = path?.[0] === "sales" && (
       (method === "GET" && path.length === 1) ||
       (/^[a-zA-Z0-9-]{1,100}$/.test(path[1]) &&

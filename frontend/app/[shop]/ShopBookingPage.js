@@ -7,6 +7,7 @@ import {
   useState,
 } from "react";
 import { useParams } from "next/navigation";
+import PublicPurchases from "./PublicPurchases";
 import SavePageShortcut from "../components/SavePageShortcut";
 
 const STRIPE_PUBLISHABLE_KEY =
@@ -153,6 +154,24 @@ export default function ShopBookingPage({ apiBase }) {
   )
     ? params.shop[0]
     : params?.shop || "";
+
+  const [purchaseOffers, setPurchaseOffers] = useState([]);
+  const [buying, setBuying] = useState(false);
+  const canBuy = purchaseOffers.length > 0;
+
+  useEffect(() => {
+    if (!SHOP_SLUG) return;
+    const controller = new AbortController();
+    fetch(`${apiBase}/api/payments/public-retail/${encodeURIComponent(SHOP_SLUG)}`, { signal: controller.signal })
+      .then(response => response.ok ? response.json() : null)
+      .then(data => {
+        if (!controller.signal.aborted) setPurchaseOffers(data?.offers || []);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setPurchaseOffers([]);
+      });
+    return () => controller.abort();
+  }, [apiBase, SHOP_SLUG]);
 
   const [shopTimezone, setShopTimezone] = useState("America/New_York");
   const [clockRevision, setClockRevision] = useState(0);
@@ -1726,13 +1745,21 @@ export default function ShopBookingPage({ apiBase }) {
           ) : null}
 
           <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight text-slate-900">
-            Book an Appointment
+            {canBuy ? "Book or buy a service" : "Book an Appointment"}
           </h1>
 
-          <p className="mt-2 text-gray-700">
-            Choose your service, staff
-            member, date, and time.
-          </p>
+          {canBuy ? (
+            <div className="mt-5 grid grid-cols-2 gap-2" aria-label="Choose what to do">
+              {[["Book an appointment", false], ["Buy a service or package", true]].map(([label, value]) => (
+                <button key={label} type="button" aria-pressed={buying === value} onClick={() => setBuying(value)}
+                  className="rounded-xl border border-indigo-200 px-3 py-3 font-semibold text-indigo-900 aria-pressed:border-indigo-600 aria-pressed:bg-indigo-100">
+                  {label}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <p className="mt-2 text-gray-700">Choose your service, staff member, date, and time.</p>
+          )}
           <div className="mt-3">
             <SavePageShortcut pageName="your booking page" />
           </div>
@@ -1752,6 +1779,8 @@ export default function ShopBookingPage({ apiBase }) {
         </section>
 
 
+        {canBuy && buying && <PublicPurchases apiBase={apiBase} shop={SHOP_SLUG} offers={purchaseOffers} />}
+        <div hidden={canBuy && buying} className="space-y-6">
         <section className="bg-white rounded-3xl shadow-lg p-6 border border-gray-200 space-y-5">
 
           <div>
@@ -2331,6 +2360,7 @@ export default function ShopBookingPage({ apiBase }) {
             </>
           )}
         </section>
+        </div>
       </div>
     </main>
   );

@@ -84,6 +84,31 @@ export default function RetailPage() {
     }
   }
 
+  async function publishOffer() {
+    if (busy || !choice) return;
+    setBusy(true);
+    setError("");
+    setStatus("");
+    const [kind, item_id] = choice.split(":");
+    const published = !catalog.published.includes(choice);
+    try {
+      await retailRequest("/publish", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind, item_id, published }),
+      });
+      setCatalog(previous => ({
+        ...previous,
+        published: published ? [...previous.published, choice] : previous.published.filter(key => key !== choice),
+      }));
+      setStatus(published ? "Offer published to your booking page." : "Offer removed from your booking page.");
+    } catch (failure) {
+      setError(failure.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <main className="mx-auto max-w-xl space-y-4 px-5 py-8">
       <Link href={`/${shop}/admin`} className="text-blue-700 underline">Admin Home</Link>
@@ -120,6 +145,12 @@ export default function RetailPage() {
             ))}</optgroup>
           </select>
         </label>
+        {catalog?.can_publish && choice && (
+          <button type="button" disabled={busy} onClick={publishOffer}
+            className="rounded-lg border border-indigo-600 px-3 py-2 font-semibold text-indigo-700 disabled:opacity-50">
+            {catalog.published.includes(choice) ? "Remove from public booking page" : "Publish on public booking page"}
+          </button>
+        )}
         <label className="block font-semibold">Payment method
           <select value={method} onChange={event => { setMethod(event.target.value); setStatus(""); }}
             className="mt-1 block w-full rounded-lg border p-2">

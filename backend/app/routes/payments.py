@@ -16,7 +16,7 @@ from zoneinfo import ZoneInfo
 
 from app.database import get_db
 from app.models import Appointment, Barber, Service, ServiceCatalog, Shop, User
-from app.service_packages import (PurchaseRefund,PackageOffer, PackageSale, PackageRedemption, PackageCheckout, DeletedPackageOffer, PackageExpiration, expiration_date, package_sales, available_sales,
+from app.service_packages import (PublishedRetailOffer, PurchaseRefund,PackageOffer, PackageSale, PackageRedemption, PackageCheckout, DeletedPackageOffer, PackageExpiration, expiration_date, package_sales, available_sales,
     current_redemption, matching_offers, phone_key, reject_redeemed, timestamp)
 from app.payment_records import ManualRetailPayment, ManualAppointmentPayment, ServicePayment, TerminalPaymentAttempt, PaymentLinkDelivery, ServicePaymentRefund
 from app.routes.reminders import send_highlevel_sms
@@ -778,7 +778,7 @@ def text_package_link(appointment_id: str, payload: PackageSaleInput,
     return send_purchase_link(db, user, offer, phone_key(appointment.customer_phone or ""), appointment.id, payload.request_id)
 
 
-def send_purchase_link(db, user, offer, digits, sale_context, request_id):
+def send_purchase_link(db, user, offer, digits, sale_context, request_id, *, public=False, text_link=True):
     shop = db.query(Shop).filter_by(slug=user.shop_slug).one()
     if not offer or db.get(DeletedPackageOffer, offer.id) or len(digits) != 10:
         raise HTTPException(409, "Choose an available service or package and check the customer's US phone number.")
@@ -790,7 +790,7 @@ def send_purchase_link(db, user, offer, digits, sale_context, request_id):
         sale_context, offer.id, digits, shop.slug
     ):
         raise HTTPException(409, "This purchase reference does not match.")
-    if not purchase and sale_context != "retail":
+    if not purchase and not public and sale_context != "retail":
         purchase = db.query(PackageCheckout).filter_by(
             appointment_id=sale_context, offer_id=offer.id, customer_phone=digits,
             status="pending",
@@ -809,7 +809,7 @@ def send_purchase_link(db, user, offer, digits, sale_context, request_id):
             db.add(PackageExpiration(key="checkout:" + purchase.id,
                                  duration=terms["expiration_duration"], unit=terms["expiration_unit"]))
         db.commit()
-        if sale_context != "retail":
+        if not public and sale_context != "retail":
             appointment_for_user(db, sale_context, user)
     db.refresh(purchase, with_for_update=True)
     if purchase.account_id != shop.stripe_connect_account_id:
@@ -832,6 +832,7 @@ def send_purchase_link(db, user, offer, digits, sale_context, request_id):
             intent_data = {"metadata": metadata}
             if purchase.fee_cents:
                 intent_data["application_fee_amount"] = purchase.fee_cents
+            return_shop = f"&shop={quote(shop.slug, safe='')}" if public else ""
             session = stripe.checkout.Session.create(
                 mode="payment", payment_method_types=["card"], metadata=metadata,
                 payment_intent_data=intent_data,
@@ -839,8 +840,8 @@ def send_purchase_link(db, user, offer, digits, sale_context, request_id):
                     "currency": "usd", "unit_amount": purchase.price_cents,
                     "product_data": product,
                 }}],
-                success_url=f"{base}/package-payment?result=complete",
-                cancel_url=f"{base}/package-payment?result=canceled",
+                success_url=f"{base}/package-payment?result=complete{return_shop}",
+                cancel_url=f"{base}/package-payment?result=canceled{return_shop}",
                 stripe_account=purchase.account_id, idempotency_key=f"package-checkout:{purchase.id}",
             )
             purchase.session_id = object_id(session)
@@ -855,9 +856,12 @@ def send_purchase_link(db, user, offer, digits, sale_context, request_id):
     except stripe.StripeError:
         db.rollback()
         raise stripe_failure()
+    if public and not text_link:
+        db.commit()
+        return {"status": "pending", "checkout_url": purchase.checkout_url}
     delivery = db.get(PaymentLinkDelivery, purchase.session_id)
     if delivery and delivery.status in {"sending", "sent", "unknown"}:
-        return {"status": delivery.status}
+        return {"status": delivery.status, **({"checkout_url": purchase.checkout_url} if public else {})}
     if not delivery:
         delivery = PaymentLinkDelivery(session_id=purchase.session_id, payment_id=purchase.id,
                                        recipient_last4=digits[-4:], status="sending")
@@ -878,7 +882,7 @@ def send_purchase_link(db, user, offer, digits, sale_context, request_id):
     else:
         delivery.status = "unknown"
     db.commit()
-    return {"status": delivery.status}
+    return {"status": delivery.status, **({"checkout_url": purchase.checkout_url} if public else {})}
 
 
 @router.post("/appointments/{appointment_id}/redeem-package")
@@ -962,7 +966,10 @@ def retail_catalog(db, slug):
 @router.get("/retail")
 def retail_options(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     require_payment_user(user)
+    published = db.query(PublishedRetailOffer).filter_by(shop_slug=user.shop_slug).all()
     return {
+        "can_publish": user.role == "owner",
+        "published": [f"{item.kind}:{item.item_id}" for item in published],
         "services": [{"id": item.id, "catalog_id": catalog.id, "name": item.name, "staff": staff,
                       "duration_minutes": item.duration_minutes, "price_cents": int(item.price * 100)}
                      for item, catalog, staff in retail_catalog(db, user.shop_slug)],
@@ -994,18 +1001,13 @@ class RetailSaleInput(BaseModel):
     reference: str = Field(default="", max_length=250)
 
 
-@router.post("/retail")
-def retail_sale(payload: RetailSaleInput, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    require_payment_user(user)
-    digits = phone_key(payload.phone)
-    if len(digits) != 10:
-        raise HTTPException(422, "Enter a valid US mobile number.")
-    if payload.kind == "package":
-        offer = db.query(PackageOffer).filter_by(id=payload.item_id, shop_slug=user.shop_slug).filter(
+def resolve_retail_offer(db, slug, kind, item_id):
+    if kind == "package":
+        offer = db.query(PackageOffer).filter_by(id=item_id, shop_slug=slug).filter(
             PackageOffer.sessions > 1
         ).first()
     else:
-        selected = next((entry for entry in retail_catalog(db, user.shop_slug) if entry[0].id == payload.item_id), None)
+        selected = next((entry for entry in retail_catalog(db, slug) if entry[0].id == item_id), None)
         if not selected:
             raise HTTPException(404, "Service with a price and duration not found.")
         service, catalog, _ = selected
@@ -1013,7 +1015,7 @@ def retail_sale(payload: RetailSaleInput, user: User = Depends(get_current_user)
         offer_id = f"retail-{service.id}-{price}-{service.duration_minutes}"
         offer = db.get(PackageOffer, offer_id)
         if not offer:
-            offer = PackageOffer(id=offer_id, shop_slug=user.shop_slug, catalog_id=catalog.id,
+            offer = PackageOffer(id=offer_id, shop_slug=slug, catalog_id=catalog.id,
                                  name=f"{service.name} ({service.duration_minutes} min)", sessions=1, price_cents=price)
             db.add(offer)
             try:
@@ -1021,8 +1023,99 @@ def retail_sale(payload: RetailSaleInput, user: User = Depends(get_current_user)
             except IntegrityError:
                 db.rollback()
                 offer = db.get(PackageOffer, offer_id)
+    return offer
+
+
+@router.post("/retail")
+def retail_sale(payload: RetailSaleInput, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    require_payment_user(user)
+    digits = phone_key(payload.phone)
+    if len(digits) != 10:
+        raise HTTPException(422, "Enter a valid US mobile number.")
+    offer = resolve_retail_offer(db, user.shop_slug, payload.kind, payload.item_id)
     if payload.method:
         from app.routes.sales import record_retail_payment
 
         return record_retail_payment(db, user, offer, digits, payload)
     return send_purchase_link(db, user, offer, digits, "retail", payload.request_id)
+
+
+class PublicOfferInput(BaseModel):
+    kind: Literal["service", "package"]
+    item_id: str = Field(max_length=100)
+
+
+class PublishOfferInput(PublicOfferInput):
+    published: bool
+
+
+class PublicPurchaseInput(PublicOfferInput):
+    price_cents: int = Field(gt=0)
+    request_id: UUID
+    phone: str = Field(max_length=32)
+    text_link: bool = False
+
+
+@router.post("/retail/publish")
+def publish_retail_offer(payload: PublishOfferInput, user: User = Depends(get_current_user),
+                         db: Session = Depends(get_db)):
+    require_payment_user(user)
+    if user.role != "owner":
+        raise HTTPException(403, "Only the owner can publish offers.")
+    key = (user.shop_slug, payload.kind, payload.item_id)
+    if payload.published:
+        offer = resolve_retail_offer(db, *key)
+        if not offer or db.get(DeletedPackageOffer, offer.id):
+            raise HTTPException(404, "Offer not found.")
+        db.merge(PublishedRetailOffer(shop_slug=key[0], kind=key[1], item_id=key[2]))
+    else:
+        entry = db.get(PublishedRetailOffer, key)
+        if entry:
+            db.delete(entry)
+    db.commit()
+    return {"published": payload.published}
+
+
+@router.get("/public-retail/{slug}")
+def public_retail_catalog(slug: str, db: Session = Depends(get_db)):
+    shop = db.query(Shop).filter_by(slug=slug).first()
+    if not shop or shop.payment_policy not in {"accept_cards", "card_required"} or not shop.stripe_connect_account_id:
+        return {"offers": []}
+    published = {(entry.kind, entry.item_id) for entry in
+                 db.query(PublishedRetailOffer).filter_by(shop_slug=slug)}
+    offers = [dict(kind="service", id=item.id, name=item.name, staff=staff,
+                   duration_minutes=item.duration_minutes, sessions=1, price_cents=int(item.price * 100))
+              for item, _, staff in retail_catalog(db, slug) if ("service", item.id) in published]
+    for offer in db.query(PackageOffer).filter_by(shop_slug=slug).filter(
+        PackageOffer.sessions > 1, ~PackageOffer.id.in_(db.query(DeletedPackageOffer.offer_id))
+    ).order_by(PackageOffer.name, PackageOffer.id):
+        if ("package", offer.id) in published:
+            offers.append(dict(kind="package", **offer_view(offer, db)))
+    return {"offers": offers}
+
+
+@router.post("/public-retail/{slug}")
+def public_retail_checkout(slug: str, payload: PublicPurchaseInput, db: Session = Depends(get_db)):
+    digits = phone_key(payload.phone)
+    if len(digits) != 10:
+        raise HTTPException(422, "Enter a valid US mobile number.")
+    shop = db.query(Shop).filter_by(slug=slug).with_for_update().first()
+    if not shop or shop.payment_policy not in {"accept_cards", "card_required"} or not shop.stripe_connect_account_id:
+        raise HTTPException(404, "Online purchases are unavailable.")
+    if not db.get(PublishedRetailOffer, (slug, payload.kind, payload.item_id)):
+        raise HTTPException(404, "This offer is no longer available online.")
+    owner = db.query(User).filter_by(shop_slug=slug, role="owner", is_active=True).order_by(User.id).first()
+    if not owner:
+        raise HTTPException(404, "Online purchases are unavailable.")
+    if not db.get(PackageCheckout, str(payload.request_id)):
+        recent = db.query(PackageCheckout).filter(
+            PackageCheckout.appointment_id == "public-retail",
+            PackageCheckout.created_at >= timestamp() - timedelta(hours=1),
+        )
+        if recent.filter_by(shop_slug=slug, customer_phone=digits).count() >= 3 or recent.filter_by(shop_slug=slug).count() >= 60:
+            raise HTTPException(429, "Too many checkout attempts. Please try again later.")
+    offer = resolve_retail_offer(db, slug, payload.kind, payload.item_id)
+    if not offer or offer.price_cents != payload.price_cents:
+        raise HTTPException(409, "This offer changed. Reload the page and review the current price.")
+    return send_purchase_link(db, owner, offer, digits, "public-retail", payload.request_id,
+                              public=True, text_link=payload.text_link)
