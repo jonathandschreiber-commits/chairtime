@@ -44,7 +44,7 @@ async function proxy(request, context, method) {
     if (retail && path[1] === "customers") query.set("q", new URL(request.url).searchParams.get("q") || "");
     if (sales) {
       const incoming = new URL(request.url).searchParams;
-      for (const key of ["start", "end"]) if (incoming.has(key)) query.set(key, incoming.get(key));
+      for (const key of ["start", "end", "customer_phone", "customer_name"]) if (incoming.has(key)) query.set(key, incoming.get(key));
     }
     const endpoint = `${getBackendUrl()}/api/payments/${path.map(encodeURIComponent).join("/")}`;
     const sendsPackageData = method === "POST" && (retail || sales || (packageOffers && path[2] !== "delete") || ["text-package-link", "package-expiration", "complete", "manual-sessions"].includes(path[2]));

@@ -1987,6 +1987,11 @@ function CustomersPageContent({ apiBase }) {
                     <ShopMessage>Upcoming Appointments</ShopMessage>
                   </h3>
                   {currentUser?.role === "owner" && <AccountBalance appointmentId={latest.id} />}
+                  {currentUser?.role === "owner" && latest.customer_phone && (
+                    <Link className="text-sm text-purple-800 underline" href={`/${shopSlug}/admin/sales?customer_phone=${encodeURIComponent(latest.customer_phone)}`}>
+                      <ShopMessage>View sales history</ShopMessage>
+                    </Link>
+                  )}
 
 
 

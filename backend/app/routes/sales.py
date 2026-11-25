@@ -65,14 +65,22 @@ def record_retail_payment(db, user, offer, phone, payload):
 
 @router.get("/sales")
 def sales_report(start: date | None = None, end: date | None = None,
+                 customer_phone: str = "", customer_name: str = "",
                  user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     require_payment_user(user)
     zone = shop_zone(db, user.shop_slug)
     today = datetime.now(zone).date()
-    start, end = start or today.replace(day=1), end or today
-    if start > end or end == date.max or (end - start).days > 366:
+    digits = phone_key(customer_phone)
+    name = customer_name.strip()
+    if customer_phone.strip() and not digits:
+        raise HTTPException(422, "Enter a customer phone number.")
+    customer_search = bool(digits or name)
+    start = start or (None if customer_search else today.replace(day=1))
+    end = end or today
+    if end == date.max or (start and (start > end or (end - start).days > 366)):
         raise HTTPException(422, "Choose a date range of up to one year.")
-    start_at = datetime.combine(start, datetime.min.time(), zone).astimezone(timezone.utc).replace(tzinfo=None)
+    start_at = (datetime.combine(start, datetime.min.time(), zone).astimezone(timezone.utc)
+                .replace(tzinfo=None) if start else datetime.min)
     end_at = datetime.combine(end + timedelta(days=1), datetime.min.time(), zone).astimezone(timezone.utc).replace(tzinfo=None)
     rows = []
     posted = func.coalesce(ServicePayment.paid_at, ServicePayment.created_at)
@@ -117,6 +125,19 @@ def sales_report(start: date | None = None, end: date | None = None,
                          item="Appointment payment", method=payment.method, status="recorded",
                          amount_cents=payment.amount_cents, refunded_cents=0, collected_cents=payment.amount_cents,
                          appointment_id=appointment.id, recorded_by=operator.name if operator else payment.recorded_by))
+    if digits:
+        rows = [row for row in rows if phone_key(row["phone"] or "") == digits]
+    if name:
+        matching_phones = {
+            phone_key(phone) for (phone,) in db.query(Appointment.customer_phone).filter(
+                Appointment.shop_slug == user.shop_slug,
+                Appointment.customer_name.icontains(name, autoescape=True),
+                Appointment.customer_phone.isnot(None),
+            ).distinct()
+        }
+        matching_phones.discard("")
+        rows = [row for row in rows if phone_key(row["phone"] or "") in matching_phones
+                or name.casefold() in (row.get("customer") or "").casefold()]
     rows.sort(key=lambda row: (row["date"], row["id"]), reverse=True)
     for row in rows:
         row["date"] = row["date"].replace(tzinfo=timezone.utc).astimezone(zone).isoformat()

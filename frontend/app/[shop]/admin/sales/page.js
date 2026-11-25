@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useParams, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
 
 const methods = {
   stripe: "Stripe",
@@ -112,16 +112,25 @@ function StripeSaleDetails({ id, formatDate, onRefund }) {
           </select></label>}
         {!full && draft.remove && <label className="block">Sessions to remove <input className="w-20 rounded border p-1" type="number" min="1" max={data.sessions_remaining} value={draft.sessions} disabled={busy} onChange={event => setDraft({...draft, sessions: event.target.value, requestId: crypto.randomUUID()})} required /></label>}
         {valid && <p role="status">Refund {money.format(amount / 100)} · Sessions remaining after refund: {data.sessions_remaining - remove}</p>}
-        <button className="mr-2 text-red-700 underline" disabled={!valid || busy}>Confirm refund</button>
-        <button type="button" disabled={busy} onClick={() => setDraft(null)}>Cancel</button>
+        <div className="flex flex-wrap gap-2 pt-1">
+          <button type="submit" className="min-h-10 rounded-lg bg-red-700 px-3 py-2 font-semibold text-white enabled:hover:bg-red-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-700 disabled:opacity-50" disabled={!valid || busy}>Confirm refund</button>
+          <button type="button" className="min-h-10 rounded-lg border border-slate-400 bg-white px-3 py-2 font-semibold text-slate-800 enabled:hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-700 disabled:opacity-50" disabled={busy} onClick={() => setDraft(null)}>Cancel</button>
+        </div>
       </form>}
     </>}
   </div>;
 }
 
 export default function SalesPage() {
+  return <Suspense fallback={<p role="status">Loading sales…</p>}><SalesReport /></Suspense>;
+}
+
+function SalesReport() {
   const { shop } = useParams();
-  const [range, setRange] = useState({ start: "", end: "" });
+  const params = useSearchParams();
+  const [range, setRange] = useState(() => ({
+    start: "", end: "", customer_phone: params.get("customer_phone") || "", customer_name: "",
+  }));
   const [appliedRange, setAppliedRange] = useState(range);
   const [method, setMethod] = useState("");
   const [data, setData] = useState(null);
@@ -130,8 +139,6 @@ export default function SalesPage() {
   useEffect(() => {
     const controller = new AbortController();
     const query = new URLSearchParams(Object.entries(appliedRange).filter(([, value]) => value));
-    setError("");
-    setData(null);
     fetch("/api/payments/sales?" + query, { signal: controller.signal })
       .then(async response => {
         const result = await response.json();
@@ -177,15 +184,19 @@ export default function SalesPage() {
       </header>
       <form className="flex flex-wrap items-end gap-3 rounded-xl border bg-white p-4" onSubmit={event => {
         event.preventDefault();
+        setError("");
+        setData(null);
         setAppliedRange({ ...range });
       }}>
         <label>From<input type="date" value={range.start} onChange={event => setRange({ ...range, start: event.target.value })} className="block rounded border p-2" /></label>
         <label>Through<input type="date" value={range.end} onChange={event => setRange({ ...range, end: event.target.value })} className="block rounded border p-2" /></label>
-        <button className="rounded-lg bg-indigo-700 px-4 py-2 text-white">Apply dates</button>
+        <label>Customer phone<input type="tel" value={range.customer_phone} onChange={event => setRange({ ...range, customer_phone: event.target.value })} className="block rounded border p-2" /></label>
+        <label>Customer name<input type="search" value={range.customer_name} onChange={event => setRange({ ...range, customer_name: event.target.value })} className="block rounded border p-2" /></label>
         <label>Payment method<select value={method} onChange={event => setMethod(event.target.value)} className="block rounded border p-2">
           <option value="">All methods</option>
           {Object.entries(methods).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
         </select></label>
+        <button type="submit" className="rounded-lg bg-indigo-700 px-4 py-2 text-white">Apply filters</button>
       </form>
       {error && <p role="alert" className="text-red-800">{error}</p>}
       {!data && !error && <p role="status">Loading sales…</p>}
