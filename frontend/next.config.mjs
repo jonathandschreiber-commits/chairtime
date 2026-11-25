@@ -2,6 +2,12 @@
 const nextConfig = {
   async redirects() {
     return [
+      ...["chairtimehq.com", "www.chairtimehq.com"].map(host => ({
+        source: "/:path*",
+        has: [{ type: "host", value: host.replaceAll(".", "\\.") }],
+        destination: "https://www.daytello.com/:path*",
+        permanent: true,
+      })),
       {
         source: '/admin/agenda',
         destination: '/admin/today',

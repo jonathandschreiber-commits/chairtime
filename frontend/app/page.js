@@ -1,11 +1,23 @@
 import Link from "next/link";
 
+export const metadata = {
+  alternates: { canonical: "https://www.daytello.com/" },
+};
+
+const siteName = {
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  name: "DayTello",
+  url: "https://www.daytello.com/",
+};
+
 const primaryButton = "inline-flex items-center justify-center rounded-2xl bg-[#321275] font-bold text-white shadow-sm transition-colors hover:bg-[#250b5b] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#321275]";
 const secondaryButton = "inline-flex items-center justify-center rounded-2xl bg-[#00666b] font-bold text-white shadow-sm transition-colors hover:bg-[#004d51] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#00666b]";
 
 export default function HomePage() {
   return (
     <main className="min-h-screen bg-white text-[#161431]">
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(siteName) }} />
       <header className="border-b border-[#e7dff4]">
         <div className="max-w-6xl mx-auto px-6 py-3 flex items-center justify-end">
           <Link
