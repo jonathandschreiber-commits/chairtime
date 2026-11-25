@@ -131,6 +131,13 @@ export default function RetailPage() {
             <option value="other">Other</option>
           </select>
         </label>
+        <p className="text-sm text-slate-600">
+          To accept credit card payments,{" "}
+          <Link href={`/${encodeURIComponent(shop)}/admin/account`} className="font-semibold text-blue-700 underline">
+            set up card payments
+          </Link>{" "}
+          in Account Options.
+        </p>
         {method && <>
           <label className="block font-semibold">Reference or note (optional)
             <input value={reference} onChange={event => setReference(event.target.value)} maxLength={250}
