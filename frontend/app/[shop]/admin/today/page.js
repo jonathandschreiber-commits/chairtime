@@ -1,5 +1,6 @@
 "use client";
 
+import PackageBalances from "../../../components/PackageBalances";
 import { ShopMessage, useShopMessages } from "../../../components/ShopLanguage";
 
 
@@ -62,7 +63,7 @@ function displayShopName(slug) {
 
 function AgendaPayment({ shop, appointmentId }) {
   const [label, setLabel] = useState("Payment details");
-  const [remaining, setRemaining] = useState(null);
+  const [payment, setPayment] = useState(null);
   useEffect(() => {
     let active = true;
     async function read() {
@@ -71,18 +72,22 @@ function AgendaPayment({ shop, appointmentId }) {
         const result = await response.json();
         if (!response.ok || result.shop_slug !== shop) throw new Error();
         const labels = { paid: "Paid", refunded: "Refunded", partially_refunded: "Partially refunded", refund_pending: "Refund pending", processing: "Payment processing" };
-        if (active) setRemaining(result.package_sessions_remaining ?? null);
+        if (active) setPayment(result);
         if (active) setLabel(result.manual_payment_method || result.package_paid ? "Payment details" : labels[result.payment_status] || "Collect payment");
-      } catch { if (active) { setRemaining(null); setLabel("Payment details — refresh to check"); } }
+      } catch { if (active) { setPayment(null); setLabel("Payment details — refresh to check"); } }
     }
     read();
     window.addEventListener("focus", read);
     const timer = setInterval(read, 60000);
     return () => { active = false; clearInterval(timer); window.removeEventListener("focus", read); };
   }, [shop, appointmentId]);
+  const remaining = payment?.package_sessions_remaining;
   return (
     <div className="mt-3 space-y-2">
-      {remaining !== null && <p className="font-semibold"><ShopMessage>Eligible package sessions remaining</ShopMessage>: {remaining}</p>}
+      {remaining > 0 && <details>
+        <summary className="cursor-pointer font-semibold"><ShopMessage>Eligible package sessions remaining</ShopMessage>: {remaining}</summary>
+        <div className="ml-4"><PackageBalances payment={payment} /></div>
+      </details>}
       <Link href={`/${shop}/admin/payments/${encodeURIComponent(appointmentId)}`} className="inline-block rounded-xl bg-indigo-700 px-4 py-2 text-center font-bold text-white">{label}</Link>
     </div>
   );

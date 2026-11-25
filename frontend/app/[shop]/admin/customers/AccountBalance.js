@@ -45,6 +45,8 @@ export default function AccountBalance({ appointmentId }) {
     dateStyle: "short", timeStyle: "short", timeZone: data.timezone,
   });
 
+  const purchaseDate = new Intl.DateTimeFormat(undefined, { dateStyle: "short", timeZone: data.timezone });
+
   return (
     <details className="mb-3 rounded-xl border border-purple-200 bg-purple-50 p-3 text-sm">
       <summary className="cursor-pointer font-semibold">
@@ -54,6 +56,7 @@ export default function AccountBalance({ appointmentId }) {
         {data.balances.map(balance => (
           <p key={balance.id}>
             <strong>{balance.name}</strong> · {balance.method} · {balance.sessions} available
+            {balance.purchased_at && <> · Purchased <time dateTime={balance.purchased_at}>{purchaseDate.format(new Date(balance.purchased_at))}</time></>}
             {balance.refund_status && ` · ${balance.refund_status}`}
           </p>
         ))}

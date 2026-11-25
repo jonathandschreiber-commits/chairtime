@@ -229,6 +229,7 @@ def manual_session_options(appointment_id: str, user: User = Depends(get_current
             method = "Stripe" if checkout else payment.method.replace("_", " ").title() if payment else "Manual credit"
             balances.append(dict(id=sale.id, service_id=offer.catalog_id, name=offer.name,
                                  method=method, sessions=sale.sessions_remaining,
+                                 purchased_at=sale.created_at.replace(tzinfo=timezone.utc).isoformat() if checkout or payment else None,
                                  refund_status="Partially refunded" if checkout and db.query(PurchaseRefund).filter_by(sale_id=sale.id).first() else None))
     audits = db.query(PackageAdjustment, PackageOffer.name, User.name).join(
         PackageSale, PackageSale.id == PackageAdjustment.sale_id
